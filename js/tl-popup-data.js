@@ -13,6 +13,20 @@ window.TrackerLensPopupData = {
       color: "#ffc72c",
     },
     {
+      id: "new-box-lens",
+      title: "Nuovo boxLens",
+      subtitle: "Crea interfaccia visuale",
+      icon: "dashboard",
+      color: "#a35af0",
+    },
+    {
+      id: "new-box-tracker",
+      title: "Nuovo boxTracker",
+      subtitle: "Crea raccolta dati",
+      icon: "storage",
+      color: "#42d77d",
+    },
+    {
       id: "asset-library",
       title: "Libreria Asset",
       subtitle: "Esplora e inserisci asset",

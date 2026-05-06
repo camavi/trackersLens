@@ -1226,3 +1226,225 @@ Cosa manca / prossimi passi:
 - Lo stato sistema e mock: runtime, storage e connessioni devono leggere dati reali da Chrome storage/IndexedDB/runtime.
 - La preview BTC e visuale statica: in futuro deve essere generata dai dati reali di workspace e box.
 - Mantenere `css/tl-foundation.css` come punto di partenza globale per le prossime pagine, evitando nuovi token sparsi nei CSS.
+
+## Aggiornamento 2026-05-06 - Pagina creazione nuovo workspace
+
+Obiettivo della sessione: costruire uno dei pilastri principali del plugin, cioe la pagina dove l'utente crea un nuovo workspace/dashboard, seguendo il mockup fornito.
+
+Fatto:
+
+- `editorWorkspace.html` e stato creato come entrypoint dedicato al nuovo editor workspace.
+- La vecchia inizializzazione `dashboard.js` / `DashboardMenu` / `MapPage` non viene piu caricata da `editorWorkspace.html`, per evitare che il prototipo legacy interferisca con la nuova UX.
+- Aggiunto `css/workspace.css` per la grafica completa del workspace editor.
+- Aggiunto `js/tl-workspace-data.js` con dati mock/config iniziali:
+  - workspace;
+  - lista asset/box;
+  - toolbar strumenti.
+- Aggiunto `js/workspace.js` per comporre la pagina con CMSwift.
+- La pagina usa componenti CMSwift dove possibile:
+  - `_.Card`;
+  - `_.Btn`;
+  - `_.Icon`;
+  - `_.Input`;
+  - `_.Toggle`.
+- Implementate le aree principali del mockup:
+  - header con nome workspace, undo/redo, zoom, salva, pubblica e azioni;
+  - toolbar verticale strumenti;
+  - pannello `Aggiungi Box`;
+  - tab `boxLens` / `boxTracker`;
+  - ricerca box;
+  - lista box/asset;
+  - canvas con griglia visuale 48 colonne e righe numerate;
+  - drop zone centrale;
+  - pannello proprieta workspace;
+  - impostazioni griglia;
+  - navigator;
+  - toolbar contestuale inferiore;
+  - barra suggerimenti/shortcut.
+- Implementati stati minimi:
+  - switch tra `boxLens` e `boxTracker`;
+  - switch device `Desktop` / `Tablet` / `Mobile`;
+  - filtro ricerca sui box mock;
+  - salvataggio iniziale su IndexedDB nella tabella `tl_pages`.
+- Verifica manuale eseguita con Chrome headless e screenshot in `/tmp/trackerlens-workspace.png`.
+
+Decisioni tecniche:
+
+- I file legacy non sono stati cancellati, perche possono ancora contenere logica utile da migrare (`MapPage`, `CreateWidget`, `LoadWidget`). Sono pero esclusi da `editorWorkspace.html`.
+- La nuova pagina usa `css/tl-foundation.css` come base globale condivisa con la popup.
+- Il bottom toolbar e trattato come overlay del workspace, coerente con il mockup, invece di rubare altezza al canvas.
+- La griglia e per ora visuale CSS, non ancora il motore interattivo reale.
+
+Cosa manca / prossimi passi:
+
+- Collegare il canvas al modello dati reale dei box.
+- Implementare drag and drop dalla lista asset al canvas.
+- Implementare selezione, spostamento, resize e snap alla griglia.
+- Salvare layout completo con coordinate:
+  - `boxId`;
+  - `assetId`;
+  - `boxType`;
+  - `posRow`;
+  - `posCol`;
+  - `blockCol`;
+  - `blockRow`;
+  - `zIndex`;
+  - connessioni.
+- Migrare o riscrivere la parte utile di `MapPage` dentro il nuovo modello workspace.
+- Rendere reali le impostazioni workspace:
+  - nome;
+  - descrizione;
+  - sfondo;
+  - colonne;
+  - righe;
+  - altezza riga;
+  - mostra griglia;
+  - aggancia alla griglia.
+- Implementare toolbar strumenti:
+  - seleziona;
+  - sposta;
+  - ridimensiona;
+  - collega;
+  - allinea;
+  - distribuisci;
+  - ordine;
+  - elimina.
+- Implementare navigator come mini-mappa reale del canvas.
+- Collegare `Pubblica` al futuro sito/catalogo quando esistera il flusso account/pubblicazione.
+- Rendere `boxLens` e `boxTracker` dati reali da IndexedDB, non solo mock.
+
+## Aggiornamento 2026-05-06 - Rename editor workspace
+
+Decisione: `page.html` era troppo generico per la pagina centrale di creazione/modifica workspace. Il nuovo entrypoint operativo e `editorWorkspace.html`.
+
+Fatto:
+
+- Rinominato `page.html` in `editorWorkspace.html`.
+- Aggiornati i link operativi in `js/popup.js`:
+  - apertura workspace dalla lista;
+  - `Apri in nuova finestra`;
+  - azione rapida `Nuovo Workspace`;
+  - fallback route.
+
+Nota per future sessioni: eventuali riferimenti storici a `page.html` in sezioni vecchie di questo documento descrivono il prototipo precedente. Per il nuovo flusso usare `editorWorkspace.html`.
+
+## Aggiornamento 2026-05-06 - Editor nuovo boxLens
+
+Obiettivo della sessione: creare la schermata principale per costruire un nuovo `boxLens`, seguendo il mockup fornito, e aggiungere i collegamenti per iniziare la creazione di `boxLens` e `boxTracker`.
+
+Fatto:
+
+- Aggiunto `editorBoxLens.html` come entrypoint della schermata nuovo `boxLens`.
+- Aggiunto `css/boxLensEditor.css` per la grafica dell'editor box.
+- Aggiunto `js/tl-box-lens-data.js` con dati mock/config iniziali:
+  - workspace corrente;
+  - manifest base del box;
+  - tipi di boxLens;
+  - codice CSS demo;
+  - statistiche preview BTC.
+- Aggiunto `js/boxLensEditor.js` per comporre la UI con CMSwift.
+- La schermata usa componenti CMSwift dove possibile:
+  - `_.Card`;
+  - `_.Btn`;
+  - `_.Icon`;
+  - `_.Input`;
+  - `_.Toggle`.
+- Implementate le aree principali del mockup:
+  - header con workspace, azioni, annulla e salva box;
+  - sidebar di scelta `boxLens` / `boxTracker`;
+  - lista tipi `boxLens`;
+  - titolo e ID box;
+  - toggle `Anteprima` / `Editor`;
+  - tab `Manifest`, `CSS`, `HTML`, `JS`, `Preview`, `Public`;
+  - area codice CSS visuale;
+  - anteprima live BTC;
+  - pannello proprieta box;
+  - canali dati;
+  - stato e visibilita;
+  - footer con suggerimento, scorciatoie e prossimi passi.
+- Il pulsante `Salva Box` salva un primo record in IndexedDB nella tabella `tl_widgets` con `type: "boxLens"` e codice CSS mock.
+- Aggiunti collegamenti dalla popup:
+  - `Nuovo boxLens` -> `editorBoxLens.html`;
+  - `Nuovo boxTracker` -> `editorBoxTracker.html`.
+- Aggiunti collegamenti dall'editor workspace nel pannello `Aggiungi Box`:
+  - `Crea boxLens` -> `editorBoxLens.html`;
+  - `Crea boxTracker` -> `editorBoxTracker.html`.
+- Aggiunto inizialmente `editorBoxTracker.html` come placeholder leggero CMSwift per evitare link rotti. In seguito e stato sostituito dalla schermata reale descritta nella sezione "Editor nuovo boxTracker".
+- Verifica manuale eseguita con Chrome headless:
+  - screenshot boxLens in `/tmp/trackerlens-boxlens.png`;
+  - screenshot popup aggiornata in `/tmp/trackerlens-popup-after-boxlinks.png`;
+  - dump DOM di `editorBoxTracker.html`.
+
+Decisioni tecniche:
+
+- `editorBoxLens.html` e separato da `editorWorkspace.html`, per mantenere chiaro il confine tra composizione workspace e creazione asset.
+- `boxTracker` non e stato implementato in questa sessione perche il mockup fornito riguardava `boxLens`; il placeholder e stato rimosso nella sessione successiva.
+- La preview live e ancora statica: serve a fissare la UX e la struttura.
+- Il code editor e visuale/statico per ora; non usa ancora CodeMirror o un editor vero.
+
+Cosa manca / prossimi passi:
+
+- Rendere editabili davvero Manifest/CSS/HTML/JS.
+- Salvare nome, categoria, descrizione, dimensioni, canali, stato e visibilita da input reali.
+- Collegare i canali dati a `boxTracker` reali.
+- Implementare anteprima live usando HTML/CSS/JS del boxLens invece di mock statico.
+- Integrare validazione campi.
+- Implementare duplicazione, autosave reale, undo/redo e scorciatoie.
+- Raffinare la schermata reale `editorBoxTracker.html` con endpoint, WebSocket, RSS, schedule, log e output normalizzato.
+
+## Aggiornamento 2026-05-06 - Editor nuovo boxTracker
+
+Obiettivo della sessione: sostituire il placeholder `editorBoxTracker.html` con una schermata reale per creare un nuovo `boxTracker`, seguendo il mockup fornito.
+
+Fatto:
+
+- `editorBoxTracker.html` ora carica una pagina reale dedicata al nuovo `boxTracker`.
+- Aggiunto `css/boxTrackerEditor.css` per la grafica specifica dei tracker.
+- Aggiunto `js/tl-box-tracker-data.js` con dati mock/config iniziali:
+  - workspace corrente;
+  - manifest base del tracker;
+  - tipi di boxTracker;
+  - tab di configurazione;
+  - JSON di output/test Binance mock.
+- Aggiunto `js/boxTrackerEditor.js` per comporre la UI con CMSwift.
+- La schermata usa componenti CMSwift dove possibile:
+  - `_.Card`;
+  - `_.Btn`;
+  - `_.Icon`;
+  - `_.Input`;
+  - `_.Toggle`.
+- Implementate le aree principali del mockup:
+  - header con workspace, undo/redo, zoom, annulla e salva tracker;
+  - sidebar di scelta `boxLens` / `boxTracker`;
+  - lista tipi `boxTracker`: REST API, WebSocket, RSS Feed, MCP Client, Manual/JSON, Script/Custom;
+  - titolo e ID tracker;
+  - tab `Manifest`, `Endpoint`, `Parametri`, `Headers`, `Trasformazione`, `Output`, `Test`, `Avanzate`;
+  - pannello informazioni generali;
+  - configurazione esecuzione;
+  - stato iniziale;
+  - anteprima/test con JSON mock;
+  - pannello proprieta tracker;
+  - dimensioni default;
+  - canale output;
+  - buffer dati;
+  - log;
+  - visibilita;
+  - footer con suggerimento, scorciatoie e prossimi passi.
+- Il pulsante `Salva Tracker` salva un primo record in IndexedDB nella tabella `tl_widgets` con `type: "boxTracker"`, configurazione runtime e output mock.
+- Verifica manuale eseguita con Chrome headless e screenshot in `/tmp/trackerlens-boxtracker.png`.
+
+Decisioni tecniche:
+
+- La schermata `boxTracker` e separata da `boxLens` per mantenere chiari i concetti prodotto: visualizzazione vs raccolta dati.
+- Il mock usa dati statici Binance/WebSocket per fissare UX e modello mentale, ma non apre ancora connessioni reali.
+- Il canale `btc-price` e trattato come primo aggancio futuro tra `boxTracker` e `boxLens`.
+
+Cosa manca / prossimi passi:
+
+- Rendere configurabili davvero endpoint, parametri, headers, trasformazione, output, test e avanzate.
+- Implementare runtime reale per almeno WebSocket Binance.
+- Salvare dai campi reali nome, descrizione, categoria, colore, tag, tipo, canale output, buffer e log.
+- Implementare test manuale reale e stato connessione.
+- Definire schema output standardizzato dei tracker.
+- Collegare un `boxTracker` salvato a uno o piu `boxLens`.
+- Aggiungere validazione e gestione errori/retry.

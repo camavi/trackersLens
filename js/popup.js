@@ -130,7 +130,7 @@ const renderWorkspaceRow = (workspace) =>
       _.div({ class: "tl-workspace-row-title" }, workspace.title, workspace.favorite ? " ★" : ""),
       _.div({ class: "tl-workspace-row-meta" }, workspace.meta)
     ),
-    cmsButton({ class: "tl-open-link", onclick: () => openChromePage("page.html") }, "Apri"),
+    cmsButton({ class: "tl-open-link", onclick: () => openChromePage("editorWorkspace.html") }, "Apri"),
     cmsButton({ class: "tl-icon-btn", "aria-label": `Azioni ${workspace.title}` }, icon("more_vert", "sm"))
   );
 
@@ -160,7 +160,7 @@ const renderSystemCard = () =>
     _.div({ class: "tl-system-row" }, _.span("Storage"), _.strong(popupData.system.storage)),
     _.div({ class: "tl-system-row" }, _.span("Connessioni attive"), _.strong(popupData.system.connections)),
     cmsButton(
-      { class: "tl-new-window", onclick: () => openChromePage("page.html") },
+      { class: "tl-new-window", onclick: () => openChromePage("editorWorkspace.html") },
       "Apri in nuova finestra",
       icon("open_in_new", "sm")
     )
@@ -183,14 +183,16 @@ const renderFooter = () =>
 
 const handleQuickAction = (actionId) => {
   const routes = {
-    "new-workspace": "page.html",
+    "new-workspace": "editorWorkspace.html",
+    "new-box-lens": "editorBoxLens.html",
+    "new-box-tracker": "editorBoxTracker.html",
     "asset-library": "widgets.html",
     "import-export": "options.html",
     sync: "options.html",
     help: "info.html",
   };
 
-  openChromePage(routes[actionId] || "page.html");
+  openChromePage(routes[actionId] || "editorWorkspace.html");
 };
 
 const mountPopup = () => {
