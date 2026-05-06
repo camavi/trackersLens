@@ -1481,3 +1481,84 @@ Cosa manca / prossimi passi:
 - Collegare il contenuto HTML/CSS/JS editato alla preview live reale.
 - Aggiungere validazione JSON per Manifest/Public e segnalazione errori nell'editor.
 - Implementare autosave reale e scorciatoie `Ctrl S`, `Ctrl P`, `Ctrl /`.
+
+## Aggiornamento 2026-05-06 - Interazioni editorWorkspace
+
+Obiettivo della sessione: iniziare a rendere realmente funzionante `editorWorkspace.html`, partendo da tutti i pulsanti principali della pagina.
+
+Fatto:
+
+- `js/workspace.js` ora mantiene uno stato runtime completo per:
+  - tipo asset attivo (`boxLens` / `boxTracker`);
+  - device preview (`desktop`, `tablet`, `mobile`);
+  - zoom canvas;
+  - pannello rail attivo;
+  - tool attivo;
+  - box selezionato;
+  - menu azioni;
+  - dati workspace editabili;
+  - lista box posizionati;
+  - undo/redo.
+- Header:
+  - `Undo` e `Redo` funzionano sulle modifiche strutturali;
+  - `Zoom -/+` aggiorna il canvas;
+  - `Anteprima desktop` alterna modalita preview/editor;
+  - `Vista griglia` mostra/nasconde la griglia;
+  - `Salva` persiste workspace e box in IndexedDB;
+  - `Pubblica` prepara uno stato di pubblicazione locale;
+  - `Altre azioni` apre un menu locale con salva, pubblica, ripristina vista e svuota griglia;
+  - `Chiudi` torna a `popup.html`.
+- Rail laterale:
+  - tutti i bottoni cambiano pannello/stato e mostrano un messaggio contestuale;
+  - i pannelli secondari sono ancora informativi, ma non sono piu pulsanti morti.
+- Pannello `Aggiungi Box`:
+  - tab `boxLens` / `boxTracker` filtrano la lista;
+  - `Crea boxLens` e `Crea boxTracker` aprono le rispettive schermate;
+  - click su una card asset inserisce il box nel canvas;
+  - drag di una card e drop nel canvas inserisce il box;
+  - ricerca filtra gli asset visibili.
+- Canvas:
+  - drop zone cliccabile;
+  - box posizionati renderizzati nella griglia;
+  - selezione box con click;
+  - layout responsive simulato per desktop/tablet/mobile;
+  - griglia e background reagiscono alle impostazioni.
+- Proprietà workspace:
+  - nome e descrizione aggiornano lo stato;
+  - sfondo cicla preset locali;
+  - colonne, righe e altezza riga ciclano preset;
+  - toggle griglia e snap aggiornano lo stato.
+- Toolbar strumenti:
+  - `Seleziona`, `Sposta`, `Ridimensiona`, `Collega`, `Allinea`, `Distribuisci`, `Ordine`, `Elimina` ora hanno comportamento;
+  - i tool che richiedono un box selezionato mostrano feedback quando manca selezione;
+  - `Elimina` rimuove il box selezionato.
+- Scorciatoie:
+  - `Ctrl/Cmd+S` salva;
+  - `Ctrl/Cmd+Z` annulla;
+  - `Ctrl/Cmd+Y` ripristina;
+  - `V`, `R`, `C`, `D`, `P`, `Delete/Backspace` pilotano toolbar e azioni rapide.
+- `css/workspace.css` e stato aggiornato per:
+  - asset selezionati;
+  - box posizionati nel canvas;
+  - menu azioni;
+  - messaggi contestuali;
+  - stato preview/grid/device.
+- Verifica eseguita:
+  - `node --check js/workspace.js`;
+  - Chrome headless screenshot in `/tmp/trackerlens-workspace.png`.
+
+Decisioni tecniche:
+
+- Sono stati usati componenti CMSwift gia presenti (`_.Btn`, `_.Card`, `_.Icon`, `_.Input`, `_.Toggle`) per mantenere coerenza con la libreria.
+- Le azioni distruttive sono locali e reversibili con undo quando modificano il modello workspace.
+- La pubblicazione resta locale per ora: il sito/catalogo remoto non esiste ancora.
+
+Cosa manca / prossimi passi:
+
+- Sostituire i preset ciclici con menu/dropdown CMSwift quando definiamo le opzioni finali.
+- Implementare drag reale dei box gia posizionati dentro la griglia, non solo inserimento da sidebar.
+- Implementare resize reale con maniglie.
+- Persistenza automatica/autosave e caricamento workspace salvati da IndexedDB.
+- Collegamento reale tra boxTracker e boxLens.
+- Validazione limiti griglia, collisioni e posizionamento snap piu preciso.
+- Modali/pannelli completi per libreria, connessioni, storage, monitoraggio e impostazioni.

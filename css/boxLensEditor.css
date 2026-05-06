@@ -143,8 +143,8 @@ body {
   background: linear-gradient(135deg, rgba(155, 92, 245, 0.24), rgba(255, 255, 255, 0.03));
 }
 
-.tl-kind-card > .cms-card-body,
-.tl-type-card > .cms-card-body {
+.tl-kind-card>.cms-card-body,
+.tl-type-card>.cms-card-body {
   padding: 12px;
   display: grid;
   grid-template-columns: 38px 1fr;
@@ -517,7 +517,7 @@ body {
   overflow: auto;
 }
 
-.tl-property-card > .cms-card-body {
+.tl-property-card>.cms-card-body {
   padding: 0;
 }
 
@@ -632,7 +632,7 @@ body {
   border-top: 1px solid var(--tl-border-soft);
 }
 
-.tl-info-card > .cms-card-body {
+.tl-info-card>.cms-card-body {
   min-height: 78px;
   padding: 14px;
 }
