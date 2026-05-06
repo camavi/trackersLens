@@ -276,8 +276,12 @@ body {
   display: flex;
   align-items: center;
   color: var(--tl-text-muted);
+  border: 0;
   border-bottom: 2px solid transparent;
+  border-radius: 0;
+  background: transparent;
   font-size: 13px;
+  cursor: pointer;
 }
 
 .tl-tab.is-active {

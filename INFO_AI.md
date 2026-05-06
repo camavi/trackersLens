@@ -1448,3 +1448,36 @@ Cosa manca / prossimi passi:
 - Definire schema output standardizzato dei tracker.
 - Collegare un `boxTracker` salvato a uno o piu `boxLens`.
 - Aggiungere validazione e gestione errori/retry.
+
+## Aggiornamento 2026-05-06 - Bundle locale CodeMirror 6
+
+Obiettivo della sessione: evitare dipendenze CDN per l'editor codice e iniziare a usare CodeMirror 6 in locale nella schermata `boxLens`.
+
+Fatto:
+
+- Creato bundle locale CM6 in `vendor/codemirror6/cm6.bundle.js`.
+- Creato stylesheet locale `vendor/codemirror6/cm6.css`.
+- Il bundle espone `window.TLCodeMirror.createEditor(...)` e include:
+  - `codemirror`;
+  - linguaggi CSS, HTML, JavaScript e JSON;
+  - theme dark `oneDark`;
+  - tema custom Tracker Lens per sfondo, gutter, selezione e font.
+- `editorBoxLens.html` carica ora i file locali CM6 prima di `js/boxLensEditor.js`.
+- `js/boxLensEditor.js` usa CM6 per il pannello codice del `boxLens`.
+- I tab `Manifest`, `CSS`, `HTML`, `JS`, `Preview`, `Public` sono ora cliccabili e mantengono il contenuto editato in memoria.
+- `Salva Box` persiste in IndexedDB il codice editato per manifest, css, html, js, preview e public.
+- Rimane un fallback statico se `window.TLCodeMirror` non fosse disponibile.
+
+Decisioni tecniche:
+
+- CM6 viene servito da file locali del plugin, non da CDN. Questo evita blocchi dovuti a CSP, rete assente o policy Chrome Extension.
+- Non e stato introdotto un server API: per questa fase non serve. Il plugin deve funzionare localmente e il runtime degli asset resta lato browser/estensione.
+- Il bundle e stato generato con esbuild in ambiente temporaneo. In futuro conviene aggiungere uno script riproducibile se il progetto introduce `package.json`.
+
+Cosa manca / prossimi passi:
+
+- Aggiungere build script/versionamento per rigenerare `vendor/codemirror6/cm6.bundle.js` in modo riproducibile.
+- Integrare CM6 anche dove servira editing codice in `editorBoxTracker.html`.
+- Collegare il contenuto HTML/CSS/JS editato alla preview live reale.
+- Aggiungere validazione JSON per Manifest/Public e segnalazione errori nell'editor.
+- Implementare autosave reale e scorciatoie `Ctrl S`, `Ctrl P`, `Ctrl /`.

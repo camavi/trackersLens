@@ -1,10 +1,51 @@
 const boxLensData = window.TrackerLensBoxLensData;
 
+const initialBoxLensCode = {
+  Manifest: JSON.stringify(
+    {
+      name: boxLensData.box.name,
+      type: "boxLens",
+      version: "0.1.0",
+      category: boxLensData.box.category,
+      channels: ["btc-price"],
+      defaultSize: {
+        width: boxLensData.box.width,
+        height: boxLensData.box.height,
+      },
+    },
+    null,
+    2
+  ),
+  CSS: boxLensData.cssCode.join("\n"),
+  HTML: `<div class="widget-container">
+  <div class="header">
+    <div>
+      <div class="title">BTC / USDT</div>
+      <div class="source">Binance</div>
+    </div>
+    <span class="badge">LIVE</span>
+  </div>
+  <div class="value">{{ btcPrice }}</div>
+  <div class="change positive">{{ change24h }}</div>
+</div>`,
+  JS: `export default function render(data) {
+  return {
+    btcPrice: data?.price ?? "63,245.67",
+    change24h: data?.change24h ?? "+1,234.56 (2.00%)"
+  };
+}`,
+  Preview: "<!-- Anteprima generata dal boxLens -->",
+  Public: JSON.stringify({ visibility: boxLensData.box.visibility, publish: false }, null, 2),
+};
+
 const boxLensState = {
   editorMode: "editor",
   activeTab: "CSS",
   visibility: boxLensData.box.visibility,
+  code: { ...initialBoxLensCode },
 };
+
+let boxLensCm6 = null;
 
 const openChromePage = (url) => {
   if (window.chrome?.tabs?.create) {
@@ -105,12 +146,97 @@ const renderEditorTop = () =>
   );
 
 const setEditorMode = (mode) => {
+  persistEditorValue();
   boxLensState.editorMode = mode;
   mountBoxLensEditor();
 };
 
+const boxLensTabs = ["Manifest", "CSS", "HTML", "JS", "Preview", "Public"];
+
+const setActiveTab = (tab) => {
+  persistEditorValue();
+  boxLensState.activeTab = tab;
+  mountBoxLensEditor();
+};
+
 const renderTabs = () =>
-  _.div({ class: "tl-tabs" }, ...["Manifest", "CSS", "HTML", "JS", "Preview", "Public"].map((tab) => _.span({ class: `tl-tab${tab === boxLensState.activeTab ? " is-active" : ""}` }, tab)));
+  _.div(
+    { class: "tl-tabs" },
+    ...boxLensTabs.map((tab) =>
+      btn(
+        {
+          class: `tl-tab${tab === boxLensState.activeTab ? " is-active" : ""}`,
+          "aria-pressed": String(tab === boxLensState.activeTab),
+          onclick: () => setActiveTab(tab),
+        },
+        tab
+      )
+    )
+  );
+
+const currentEditorValue = () => boxLensState.code[boxLensState.activeTab] || "";
+
+const editorFileName = () => {
+  const files = {
+    Manifest: "manifest.json",
+    CSS: "styles.css",
+    HTML: "template.html",
+    JS: "controller.js",
+    Preview: "preview.html",
+    Public: "public.json",
+  };
+
+  return files[boxLensState.activeTab] || "boxLens.txt";
+};
+
+const editorLanguage = () => {
+  const languages = {
+    Manifest: "manifest",
+    CSS: "css",
+    HTML: "html",
+    JS: "javascript",
+    Preview: "html",
+    Public: "json",
+  };
+
+  return languages[boxLensState.activeTab] || "css";
+};
+
+const persistEditorValue = () => {
+  if (!boxLensCm6?.getValue) return;
+  boxLensState.code[boxLensState.activeTab] = boxLensCm6.getValue();
+};
+
+const renderStaticEditorFallback = (host) => {
+  const lines = currentEditorValue().split("\n");
+  host.replaceChildren(
+    _.pre({ class: "tl-code-lines" }, ...lines.map(colorizeLine)),
+    _.span({ class: "tl-minimap", "aria-hidden": "true" })
+  );
+};
+
+const mountCodeMirror = () => {
+  const host = document.getElementById("tl-cm6-host");
+  if (!host) return;
+
+  if (boxLensCm6?.destroy) boxLensCm6.destroy();
+  boxLensCm6 = null;
+  host.replaceChildren();
+
+  if (!window.TLCodeMirror?.createEditor) {
+    renderStaticEditorFallback(host);
+    return;
+  }
+
+  boxLensCm6 = window.TLCodeMirror.createEditor({
+    parent: host,
+    doc: currentEditorValue(),
+    language: editorLanguage(),
+    onChange: (value) => {
+      boxLensState.code[boxLensState.activeTab] = value;
+    },
+  });
+};
 
 const colorizeLine = (line) => {
   if (line.includes("{") || line.includes("}")) return _.code(_.span({ class: "selector" }, line));
@@ -119,12 +245,20 @@ const colorizeLine = (line) => {
   return _.code(line);
 };
 
+const currentLineCount = () => Math.max(1, currentEditorValue().split("\n").length);
+
 const renderCodePanel = () =>
   _.section(
     { class: "tl-code-panel" },
     renderTabs(),
-    _.div({ class: "tl-code-body" }, _.pre({ class: "tl-code-lines" }, ...boxLensData.cssCode.map(colorizeLine)), _.span({ class: "tl-minimap", "aria-hidden": "true" })),
-    _.div({ class: "tl-editor-status" }, _.span("CSS (styles.css)"), btn({ class: "tl-icon-btn", "aria-label": "Impostazioni editor" }, icon("settings", "sm")), _.span("138 righe"), _.span("Salvato automaticamente ", icon("check", "sm")))
+    _.div({ class: "tl-code-body" }, _.div({ id: "tl-cm6-host", class: "tl-cm6-host" })),
+    _.div(
+      { class: "tl-editor-status" },
+      _.span(`${boxLensState.activeTab} (${editorFileName()})`),
+      btn({ class: "tl-icon-btn", "aria-label": "Impostazioni editor" }, icon("settings", "sm")),
+      _.span(`${currentLineCount()} righe`),
+      _.span("Salvato automaticamente ", icon("check", "sm"))
+    )
   );
 
 const renderPreviewPanel = () =>
@@ -198,13 +332,20 @@ const renderFooter = () =>
 const shortcut = (keys, label) => _.span(_.kbd({ class: "tl-kbd" }, keys), " ", label);
 
 const saveBoxLens = async () => {
+  persistEditorValue();
+
   await db.addData(tlConfig.TABLES.TL_WIDGETS, {
     id: boxLensData.box.id,
     content: {
       ...boxLensData.box,
       type: "boxLens",
       code: {
-        css: boxLensData.cssCode.join("\n"),
+        manifest: boxLensState.code.Manifest,
+        css: boxLensState.code.CSS,
+        html: boxLensState.code.HTML,
+        js: boxLensState.code.JS,
+        preview: boxLensState.code.Preview,
+        public: boxLensState.code.Public,
       },
       updatedAt: new Date().toISOString(),
     },
@@ -221,6 +362,7 @@ const mountBoxLensEditor = () => {
       renderFooter()
     )
   );
+  mountCodeMirror();
 };
 
 CMSwift.ready(mountBoxLensEditor);
