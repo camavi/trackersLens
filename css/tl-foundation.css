@@ -1,0 +1,80 @@
+:root {
+  --tl-font-family: Nunito, Arial, sans-serif;
+  --tl-bg: #071016;
+  --tl-bg-soft: #101923;
+  --tl-panel: rgba(18, 27, 36, 0.88);
+  --tl-panel-strong: rgba(22, 32, 42, 0.96);
+  --tl-panel-muted: rgba(255, 255, 255, 0.045);
+  --tl-border: rgba(214, 226, 235, 0.18);
+  --tl-border-soft: rgba(214, 226, 235, 0.1);
+  --tl-text: #f5f7fa;
+  --tl-text-muted: #b7c0cb;
+  --tl-text-soft: #7e8a97;
+  --tl-accent: #ffc72c;
+  --tl-accent-strong: #f5a400;
+  --tl-success: #42d77d;
+  --tl-info: #56bff5;
+  --tl-purple: #a35af0;
+  --tl-danger: #ff6b6b;
+  --tl-radius: 8px;
+  --tl-radius-sm: 6px;
+  --tl-shadow: 0 18px 70px rgba(0, 0, 0, 0.45);
+  --tl-focus: 0 0 0 2px rgba(255, 199, 44, 0.35);
+}
+
+@font-face {
+  font-family: Nunito;
+  src: url("../CMSwift/fonts/Nunito-Regular.ttf") format("truetype");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: Nunito;
+  src: url("../CMSwift/fonts/Nunito-Bold.ttf") format("truetype");
+  font-weight: 700;
+  font-style: normal;
+  font-display: swap;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  min-width: 760px;
+  min-height: 600px;
+  background: var(--tl-bg);
+  color: var(--tl-text);
+  font-family: var(--tl-font-family);
+}
+
+button,
+input,
+select,
+textarea {
+  font: inherit;
+}
+
+.tl-sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  border: 0;
+}
+
+.tl-status-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  display: inline-flex;
+  background: var(--tl-success);
+  box-shadow: 0 0 10px rgba(66, 215, 125, 0.8);
+}

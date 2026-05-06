@@ -1,0 +1,79 @@
+:root {
+
+  --font-size: 14px;
+  --cms-text-color: #FFFFFF;
+  --cms-text-color-b: #141311;
+  --cms-text-color-w: #90909073;
+
+  --cms-color: #EDEBDA;
+  --cms-color-01: #FFCD02;
+  --cms-color-02: #FFA800;
+  --cms-color-03: #E67E22;
+
+  --cms-color-bg: #141311;
+  --cms-color-bg-2: #201f1e;
+  --cms-color-bg-3: #333333;
+  --cms-color-bg-4: #2d2c2a;
+
+  --cms-gradient-01: linear-gradient(0deg, var(--cms-color-03) 0%, var(--cms-color-02) 50%, var(--cms-color-01) 100%);
+
+  --cms-text: #b4b1aa;
+
+  --cms-color-input-text: #ffeec2;
+  --cms-color-input-bg: #201F1D;
+  --cms-color-input-border: #554f36;
+  --cms-color-input-focus: #f1a202;
+
+  --cms-color-textarea-border: #554f36;
+
+  --cms-btn-height: 30px;
+  --cms-btn-padding: 3px 15px;
+  --cms-color-btn-bg: #201f1e;
+  --cms-color-btn-border: #554f36;
+  --cms-color-btn-text: #ffeec285;
+  --cms-btn-shadow: inset 0 0 10px 0 #00000069, 0 0 10px #00000090;
+
+  --cms-color-btn-text-hover: #fdefb5;
+  --cms-color-btn-border-hover: #fbe4aa;
+  --cms-btn-shadow-hover: inset 0 0 10px 0 #332c0269, 0 0 10px #937f018c;
+
+  --cms-box-shadow: inset 0 0 150px 0 #00000069, 0 0 20px #000000b3;
+  --cms-shadow: 0 5px 13px -5px #000;
+  --cms-shadow-2: 0 0 20px 0 #000000a1;
+  --cms-shadow-4: 0 0 40px 0 #000000a1;
+  --cms-shadow-selected: 0 5px 13px -5px #000;
+  --cms-color-border: #474644;
+
+  /* MENU */
+  --cms-menu-color-01: #ffffff;
+  --cms-menu-color-02: #b4b1aa;
+  --cms-menu-bg-gradient: rgb(0, 0, 0);
+  --cms-menu-bg-gradient: linear-gradient(to bottom, rgba(0, 0, 0, 1) 0%, rgba(31, 27, 14, 1) 100%);
+
+  --cms-menu-item-color-border: #00000000;
+  --cms-menu-item-border-5: 5px solid var(--cms-menu-item-color-border);
+  --cms-menu-item-border-1: 1px solid var(--cms-menu-item-color-border);
+
+  --cms-menu-item-color-active: #FFC107;
+  --cms-menu-item-border-active-5: 5px solid var(--cms-menu-item-color-active);
+  --cms-menu-item-border-active-1: 1px solid var(--cms-menu-item-color-active);
+  --cms-menu-item-bg-active: linear-gradient(to right, rgba(65, 49, 0, 1) 0%, rgba(13, 11, 1, 1) 10%);
+
+  --cms-menu-item-border-hover: 3px solid #d19b3d;
+  --cms-menu-item-color-hover: #100C00;
+  --cms-menu-item-bg-hover: var(--cms-menu-color-02);
+
+  --cms-menu-resize-ide: #000000;
+  --cms-menu-resize-bg: rgba(247, 165, 4, 0.43);
+  --cms-menu-resize-line-hover: #946200;
+  --cms-menu-resize-active: #FFC107;
+
+  /*MENU EDIT*/
+  --cms-menu-edit-text: #fff6e3;
+  --cms-menu-edit-border: #3e3a32;
+
+  /* PAGE ADMIN */
+  --cms-list-module-even: #3b3b3b87;
+  --cms-list-module-odd: #34343440;
+  --cms-list-module-hover: #373634;
+}

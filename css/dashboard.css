@@ -1,0 +1,20 @@
+.top-bar {
+  height: 35px;
+  background-color: #191919;
+}
+
+.top-bar .key {
+  color: #7a7a7a;
+  font-size: 14px;
+  margin-left: 10px;
+  padding: 6px;
+  display: inline-block;
+}
+
+.top-bar>button {
+  padding: 6px 5px;
+  height: auto;
+  border: 0;
+  float: right;
+  margin: 0 10px 0;
+}

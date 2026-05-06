@@ -1,0 +1,104 @@
+:root {
+  --ce-popup-h: 80vh;
+}
+
+pre {
+  padding-left: 28px !important;
+}
+
+.ce-content {
+  min-height: var(--ce-popup-h);
+  overflow: auto;
+  height: 100vh;
+}
+
+.ce-content .tab-content {
+  min-height: calc(var(--ce-popup-h) - 80px);
+  overflow: auto;
+  background-color: var(--cms-color-bg-3);
+  padding: 20px;
+  box-sizing: border-box;
+  height: calc(100% - 110px);
+  ;
+}
+
+.ce-content .tab-bar-content .btn-title {
+  border: 0;
+  background-color: #00000020;
+  color: #ffffff70;
+  padding: 5px 15px;
+  border-radius: 8px 8px 0 0;
+  margin: 0 5px 0 0;
+  cursor: pointer;
+}
+
+.ce-content .tab-bar-content .btn-title:hover {
+  background-color: #00000020;
+  color: #ffffff;
+}
+
+.ce-content .tab-bar-content .btn-title.active {
+  border: 0;
+  background-color: var(--cms-color-bg-3);
+  color: var(--cms-color-01);
+}
+
+.ce-content .tab-content .item-content {
+  display: none;
+  height: calc(var(--ce-popup-h) - 140px);
+  height: 100%;
+}
+
+.ce-content .tab-content .item-content.active {
+  display: block;
+}
+
+.ce-content .tab-content .content-scripts {
+  height: 100%;
+}
+
+.ce-content .tab-content .CodeMirror {
+  height: 100%;
+}
+
+.ce-content .cms-placeholder {
+  padding: 2px 12px;
+  border-radius: 4px;
+  font-weight: 100;
+  height: 30px;
+  box-sizing: border-box;
+  background-color: var(--cms-color-input-bg);
+  border: 1px solid var(--cms-color-input-border);
+  color: var(--cms-color-input-text);
+  position: relative;
+}
+
+.ce-content .item-textarea {
+  padding: 2px 12px;
+  border-radius: 4px;
+  box-sizing: border-box;
+  background-color: var(--cms-color-input-bg);
+  border: 1px solid var(--cms-color-input-border);
+  color: var(--cms-color-input-text);
+}
+
+.ce-content .cms-placeholder-label {
+  line-height: 100%;
+}
+
+.ce-content .cms-placeholder:focus-visible,
+.ce-content .item-textarea:focus-visible {
+  outline: none;
+}
+
+.key_temp {
+  opacity: .2;
+}
+
+.cms-select-content .category {
+  color: #ffffff;
+}
+
+.cms-select-content .widget {
+  margin-left: 15px;
+}
