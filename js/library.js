@@ -1,7 +1,3 @@
-const DB_NAME = "TrackersLens";
-const WIDGET_STORE = "tl_widgets";
-const PAGE_STORE = "tl_pages";
-
 const icon = (name, size = "md") => _.Icon({ name, size });
 const btn = (props, ...children) => _.Btn({ type: "button", ...props }, ...children);
 
@@ -48,43 +44,6 @@ const openBoxEditor = (box) => {
 
   openChromePage(`editorBoxLens.html?lensId=${encodeURIComponent(box.id)}`);
 };
-
-const openIndexedDb = () =>
-  new Promise((resolve, reject) => {
-    if (!window.indexedDB) {
-      reject(new Error("IndexedDB non disponibile"));
-      return;
-    }
-
-    const request = indexedDB.open(DB_NAME);
-
-    request.onsuccess = (event) => resolve(event.target.result);
-    request.onerror = (event) => reject(event.target.error || new Error("Errore apertura IndexedDB"));
-  });
-
-const readAllFromStore = async (storeName) => {
-  const db = await openIndexedDb();
-
-  try {
-    if (!db.objectStoreNames.contains(storeName)) {
-      return [];
-    }
-
-    return await new Promise((resolve, reject) => {
-      const transaction = db.transaction(storeName, "readonly");
-      const store = transaction.objectStore(storeName);
-      const request = store.getAll();
-
-      request.onsuccess = (event) => resolve(Array.from(event.target.result || []));
-      request.onerror = (event) => reject(event.target.error || new Error(`Errore lettura ${storeName}`));
-    });
-  } finally {
-    db.close();
-  }
-};
-
-const readAllWidgets = () => readAllFromStore(WIDGET_STORE);
-const readAllPages = () => readAllFromStore(PAGE_STORE);
 
 const normalizeText = (value, fallback = "") => {
   if (value === null || value === undefined) return fallback;
@@ -441,11 +400,9 @@ const loadLibrary = async () => {
   mountLibrary();
 
   try {
-    const [widgetRecords, pageRecords] = await Promise.all([readAllWidgets(), readAllPages()]);
-    libraryState.widgets = [
-      ...pageRecords.map(normalizeWorkspace),
-      ...widgetRecords.map(normalizeWidget),
-    ];
+    const report = await window.TrackerLensLocalLibrary.inspect();
+    console.info("[TrackerLens IndexedDB]", report);
+    libraryState.widgets = await window.TrackerLensLocalLibrary.listLibraryItems();
     libraryState.loading = false;
   } catch (error) {
     console.error(error);

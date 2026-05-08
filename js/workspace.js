@@ -15,8 +15,11 @@ const workspaceState = {
   pendingConfirm: null,
   previewMode: false,
   notice: "",
+  assetsLoading: true,
+  assetsError: "",
   savedLabel: workspaceData.workspace.savedLabel,
   workspace: { ...workspaceData.workspace },
+  localAssets: [],
   boxes: [],
   connections: [],
   interaction: null,
@@ -117,16 +120,88 @@ const boxById = (boxId) => workspaceState.boxes.find((box) => box.id === boxId) 
 const clamp = (value, min, max) => Math.max(min, Math.min(max, value));
 const nextZIndex = () => Math.max(1, ...workspaceState.boxes.map((box) => box.zIndex || 1)) + 1;
 
+const waitForWorkspaceStore = async () => {
+  const table = tlConfig.TABLES.TL_PAGES;
+  for (let i = 0; i < 50; i += 1) {
+    if (db.db?.objectStoreNames?.contains(table)) return;
+    await new Promise((resolve) => setTimeout(resolve, 60));
+  }
+};
+
+const workspacePayload = () => ({
+  id: workspaceState.workspace.id,
+  content: {
+    ...workspaceState.workspace,
+    updatedAt: new Date().toISOString(),
+    boxes: workspaceState.boxes,
+    connections: workspaceState.connections,
+  },
+});
+
 const persistWorkspaceSilently = async () => {
-  await db.addData(tlConfig.TABLES.TL_PAGES, {
-    id: workspaceState.workspace.id,
-    content: {
+  ensureWorkspaceIdentity();
+
+  try {
+    await waitForWorkspaceStore();
+    await db.updateData(tlConfig.TABLES.TL_PAGES, workspacePayload());
+    workspaceState.savedLabel = "Salvato localmente";
+  } catch (error) {
+    console.error("Errore autosalvataggio workspace:", error);
+    workspaceState.savedLabel = "Errore salvataggio";
+    setNotice("Errore durante il salvataggio locale del workspace.");
+  }
+};
+
+const loadWorkspaceFromQuery = async () => {
+  const workspaceId = new URLSearchParams(window.location.search).get("workspaceId");
+  if (!workspaceId) return;
+
+  try {
+    await waitForWorkspaceStore();
+    const record = await db.getData(tlConfig.TABLES.TL_PAGES, workspaceId);
+    const content = record?.content;
+    if (!content) return;
+
+    workspaceState.workspace = {
       ...workspaceState.workspace,
-      updatedAt: new Date().toISOString(),
-      boxes: workspaceState.boxes,
-      connections: workspaceState.connections,
-    },
-  });
+      ...content,
+      id: record.id || content.id || workspaceId,
+    };
+    workspaceState.boxes = Array.isArray(content.boxes) ? content.boxes.map((box) => ({ ...box })) : [];
+    workspaceState.connections = Array.isArray(content.connections) ? content.connections.map((connection) => ({ ...connection, mapping: { ...connection.mapping } })) : [];
+    workspaceState.savedLabel = content.updatedAt ? "Caricato da IndexedDB" : workspaceState.savedLabel;
+  } catch (error) {
+    console.error("Errore caricamento workspace:", error);
+    setNotice("Workspace salvato non trovato o non leggibile.");
+  }
+};
+
+const ensureWorkspaceIdentity = () => {
+  if (workspaceState.workspace.id && workspaceState.workspace.id !== "new-workspace") return;
+
+  const workspaceId = new URLSearchParams(window.location.search).get("workspaceId");
+  workspaceState.workspace.id = workspaceId || `workspace_${Date.now()}`;
+};
+
+const saveWorkspace = async () => {
+  const saveState = document.getElementById("tl-save-state");
+  if (saveState) saveState.textContent = "Salvataggio...";
+
+  ensureWorkspaceIdentity();
+
+  try {
+    await waitForWorkspaceStore();
+    await db.updateData(tlConfig.TABLES.TL_PAGES, workspacePayload());
+
+    workspaceState.savedLabel = "Salvato localmente";
+    setNotice("Workspace salvato in IndexedDB");
+  } catch (error) {
+    console.error("Errore salvataggio workspace:", error);
+    workspaceState.savedLabel = "Errore salvataggio";
+    setNotice("Errore durante il salvataggio locale del workspace.");
+  }
+
+  mountWorkspace();
 };
 
 const renderHeader = () =>
@@ -229,15 +304,34 @@ const renderAssetCard = (asset) =>
       },
     },
     _.span({ class: "tl-asset-icon", style: { "--asset-color": asset.color } }, icon(asset.icon, "sm")),
-    _.div(_.div({ class: "tl-asset-name" }, asset.name), _.div({ class: "tl-asset-type" }, asset.note || asset.type))
+    _.div(_.div({ class: "tl-asset-name" }, asset.name), _.div({ class: "tl-asset-type" }, asset.category || asset.note || asset.type))
   );
 
+const workspaceAssets = () => workspaceState.localAssets;
+
 const visibleAssets = () =>
-  workspaceData.assets.filter((asset) => {
+  workspaceAssets().filter((asset) => {
     const matchesType = asset.type === workspaceState.type || asset.type === "asset";
     const query = workspaceState.search.trim().toLowerCase();
-    return matchesType && (!query || asset.name.toLowerCase().includes(query));
+    return matchesType && (!query || asset.searchText?.includes(query) || asset.name.toLowerCase().includes(query));
   });
+
+const renderAssetList = () => {
+  if (workspaceState.assetsLoading) {
+    return _.div({ class: "tl-box-list-state" }, "Caricamento libreria locale...");
+  }
+
+  if (workspaceState.assetsError) {
+    return _.div({ class: "tl-box-list-state is-error" }, workspaceState.assetsError);
+  }
+
+  const assets = visibleAssets();
+  if (!assets.length) {
+    return _.div({ class: "tl-box-list-state" }, workspaceState.search ? "Nessun box locale trovato." : "Nessun box salvato in libreria.");
+  }
+
+  return _.div({ class: "tl-box-list" }, ...assets.map(renderAssetCard));
+};
 
 const renderAddPanel = () =>
   _.aside(
@@ -267,7 +361,7 @@ const renderAddPanel = () =>
       })
     ),
     _.p({ class: "tl-box-list-title" }, "I miei box"),
-    _.div({ class: "tl-box-list" }, ...visibleAssets().map(renderAssetCard)),
+    renderAssetList(),
     renderRailPanel()
   );
 
@@ -562,25 +656,6 @@ const renderShortcuts = () =>
 
 const renderBottom = () => _.div({ class: "tl-bottom-bar" }, renderToolMenu(), renderToolbox(), renderShortcuts());
 
-const saveWorkspace = async () => {
-  const saveState = document.getElementById("tl-save-state");
-  saveState.textContent = "Salvataggio...";
-
-  await db.addData(tlConfig.TABLES.TL_PAGES, {
-    id: workspaceState.workspace.id,
-    content: {
-      ...workspaceState.workspace,
-      updatedAt: new Date().toISOString(),
-      boxes: workspaceState.boxes,
-      connections: workspaceState.connections,
-    },
-  });
-
-  workspaceState.savedLabel = "Salvato localmente";
-  setNotice("Workspace salvato in IndexedDB");
-  mountWorkspace();
-};
-
 const publishWorkspace = async () => {
   workspaceState.workspace.published = true;
   workspaceState.workspace.publishedAt = new Date().toISOString();
@@ -631,12 +706,11 @@ const focusWorkspaceName = () => {
 };
 
 const addAssetToCanvas = (assetId) => {
-  const asset = workspaceData.assets.find((item) => item.id === assetId);
+  const asset = workspaceAssets().find((item) => item.id === assetId);
   if (!asset) return;
 
   commitWorkspaceChange(`${asset.name} aggiunto alla griglia`, () => {
     const index = workspaceState.boxes.length;
-    console.log(asset);
     const box = {
       ...asset,
       id: `${asset.id}-${Date.now()}`,
@@ -1157,7 +1231,30 @@ const mountWorkspace = () => {
   if (searchInput) searchInput.placeholder = "Cerca box...";
 };
 
-CMSwift.ready(mountWorkspace);
+const loadLocalAssets = async () => {
+  workspaceState.assetsLoading = true;
+  workspaceState.assetsError = "";
+  mountWorkspace();
+
+  try {
+    workspaceState.localAssets = await window.TrackerLensLocalLibrary.listWidgetAssets();
+    workspaceState.assetsLoading = false;
+  } catch (error) {
+    console.error(error);
+    workspaceState.localAssets = [];
+    workspaceState.assetsLoading = false;
+    workspaceState.assetsError = "Libreria locale non disponibile.";
+  }
+
+  mountWorkspace();
+};
+
+const initializeWorkspace = async () => {
+  await loadWorkspaceFromQuery();
+  await loadLocalAssets();
+};
+
+CMSwift.ready(initializeWorkspace);
 document.addEventListener("keydown", handleWorkspaceKeys);
 document.addEventListener("mousemove", updatePointerInteraction);
 document.addEventListener("mouseup", finishPointerInteraction);

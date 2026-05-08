@@ -82,6 +82,9 @@ const boxLensState = {
   loading: true,
   notice: t("loading"),
   editingExisting: false,
+  assetsLoading: true,
+  assetsError: "",
+  localAssets: [],
   box: { ...defaultBox },
   code: { ...initialBoxLensCode },
   history: [],
@@ -291,6 +294,47 @@ const renderTypeCard = (item) =>
 
 const renderAppSidebar = () => window.TrackerLensSidebar.render({ activeId: "dashboard" });
 
+const openLocalAsset = (asset) => {
+  if (asset.type === "boxTracker") {
+    openChromePage("editorBoxTracker.html");
+    return;
+  }
+
+  openChromePage(`editorBoxLens.html?lensId=${encodeURIComponent(asset.sourceId || asset.id)}`);
+};
+
+const visibleLocalAssets = () =>
+  boxLensState.localAssets
+    .filter((asset) => asset.type === "boxLens")
+    .sort((a, b) => a.name.localeCompare(b.name));
+
+const renderLocalAssetCard = (asset) =>
+  _.Card(
+    {
+      class: `tl-local-asset-card${asset.sourceId === requestedLensId ? " is-active" : ""}`,
+      onclick: () => openLocalAsset(asset),
+    },
+    _.span({ class: "tl-local-asset-icon", style: { "--asset-color": asset.color } }, icon(asset.icon, "sm")),
+    _.div(_.div({ class: "tl-local-asset-name" }, asset.name), _.div({ class: "tl-local-asset-type" }, asset.category || asset.type))
+  );
+
+const renderLocalAssets = () => {
+  if (boxLensState.assetsLoading) {
+    return _.div({ class: "tl-local-asset-state" }, "Caricamento libreria locale...");
+  }
+
+  if (boxLensState.assetsError) {
+    return _.div({ class: "tl-local-asset-state is-error" }, boxLensState.assetsError);
+  }
+
+  const assets = visibleLocalAssets();
+  if (!assets.length) {
+    return _.div({ class: "tl-local-asset-state" }, "Nessun boxLens salvato in libreria.");
+  }
+
+  return _.div({ class: "tl-local-asset-list" }, ...assets.map(renderLocalAssetCard));
+};
+
 const renderSidebar = () =>
   _.aside(
     { class: "tl-create-side" },
@@ -298,7 +342,9 @@ const renderSidebar = () =>
     _.p({ class: "tl-side-subtitle" }, t("chooseBoxType")),
     _.div({ class: "tl-create-kind" }, renderKindCard("boxLens"), renderKindCard("boxTracker")),
     _.h2({ class: "tl-side-title" }, t("lensType")),
-    _.div({ class: "tl-type-list" }, ...boxLensData.boxTypes.map(renderTypeCard))
+    _.div({ class: "tl-type-list" }, ...boxLensData.boxTypes.map(renderTypeCard)),
+    _.h2({ class: "tl-side-title tl-local-title" }, "I miei boxLens"),
+    renderLocalAssets()
   );
 
 const renderEditorTop = () =>
@@ -768,8 +814,26 @@ const mountBoxLensEditor = () => {
   mountPreviewFrame();
 };
 
+const loadLocalAssets = async () => {
+  boxLensState.assetsLoading = true;
+  boxLensState.assetsError = "";
+
+  try {
+    boxLensState.localAssets = await window.TrackerLensLocalLibrary.listWidgetAssets();
+    boxLensState.assetsLoading = false;
+  } catch (error) {
+    console.error(error);
+    boxLensState.localAssets = [];
+    boxLensState.assetsLoading = false;
+    boxLensState.assetsError = "Libreria locale non disponibile.";
+  }
+
+  mountBoxLensEditor();
+};
+
 CMSwift.ready(() => {
   bindShortcuts();
   mountBoxLensEditor();
   loadLensForEdit();
+  loadLocalAssets();
 });
