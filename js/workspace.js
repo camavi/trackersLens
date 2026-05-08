@@ -159,12 +159,31 @@ const renderHeader = () =>
   );
 
 const renderRail = () => {
-  return _.nav(
-    { class: "tl-rail", "aria-label": "Toolbar strumenti" },
-    ...railItems.map((item) => btn({ class: `tl-rail-btn${workspaceState.activeRail === item.id ? " is-active" : ""}`, "aria-label": item.label, title: item.label, onclick: () => setRail(item.id) }, icon(item.icon))),
-    _.span({ class: "tl-rail-spacer" }),
-    btn({ class: "tl-rail-btn", "aria-label": "Preferenze", onclick: () => setRail("settings") }, icon("settings")),
-    btn({ class: "tl-rail-btn", "aria-label": "Aiuto", onclick: () => setNotice("Suggerimento: seleziona un box e usa la toolbar in basso.") }, icon("help_outline"))
+  return _.aside(
+    { class: "tl-view-sidebar", "aria-label": "Navigazione workspace" },
+    _.nav(
+      { class: "tl-view-nav" },
+      ...railItems.map((item) =>
+        btn(
+          {
+            class: `tl-view-side-btn${workspaceState.activeRail === item.id ? " is-active" : ""}`,
+            "aria-label": item.label,
+            title: item.label,
+            onclick: () => setRail(item.id),
+          },
+          icon(item.icon)
+        )
+      )
+    ),
+    _.div(
+      { class: "tl-view-sidebar-bottom" },
+      btn({ class: "tl-view-side-btn", "aria-label": "Aiuto", onclick: () => setNotice("Suggerimento: seleziona un box e usa la toolbar in basso.") }, icon("help_outline")),
+      btn(
+        { class: "tl-view-profile", "aria-label": "Profilo utente" },
+        icon("account_circle"),
+        _.span({ class: "tl-profile-dot", "aria-hidden": "true" })
+      )
+    )
   );
 };
 

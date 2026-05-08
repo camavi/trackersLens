@@ -6,21 +6,19 @@ body {
 
 .tl-box-lens-root {
   min-height: 100vh;
-  padding: 18px 16px;
+  padding: 0;
   background:
     radial-gradient(circle at 84% 8%, rgba(86, 191, 245, 0.12), transparent 30%),
     linear-gradient(145deg, #071016 0%, #0b1118 54%, #060b10 100%);
 }
 
 .tl-box-shell {
-  height: calc(100vh - 36px);
+  height: 100vh;
   min-height: 860px;
+  padding: 0;
   display: grid;
   grid-template-rows: 70px minmax(0, 1fr) auto;
-  border: 1px solid var(--tl-border);
-  border-radius: var(--tl-radius);
   background: linear-gradient(180deg, rgba(12, 19, 27, 0.98), rgba(7, 12, 18, 0.98));
-  box-shadow: var(--tl-shadow);
   overflow: hidden;
 }
 
@@ -99,9 +97,65 @@ body {
 
 .tl-box-body {
   display: grid;
-  grid-template-columns: 250px minmax(680px, 1fr) 250px;
+  grid-template-columns: 84px 250px minmax(680px, 1fr) 250px;
   min-height: 0;
   overflow: hidden;
+}
+
+.tl-view-sidebar {
+  margin: 36px 10px 22px;
+  padding: 22px 10px 14px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  border: 1px solid rgba(214, 226, 235, 0.08);
+  border-radius: 8px;
+  background: rgba(8, 15, 21, 0.74);
+  backdrop-filter: blur(14px);
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.24);
+}
+
+.tl-view-nav {
+  display: grid;
+  gap: 20px;
+}
+
+.tl-view-side-btn.cms-btn,
+.tl-view-profile.cms-btn {
+  width: 44px;
+  min-width: 44px;
+  color: rgba(245, 247, 250, 0.86);
+  border-color: transparent;
+  border-radius: 8px;
+  background: transparent;
+  padding: 0;
+}
+
+.tl-view-side-btn.is-active.cms-btn {
+  color: #fff;
+  background: linear-gradient(180deg, #7749c8, #57318f);
+  box-shadow: 0 14px 28px rgba(87, 49, 143, 0.28);
+}
+
+.tl-view-sidebar-bottom {
+  margin-top: auto;
+  display: grid;
+  gap: 12px;
+}
+
+.tl-view-profile.cms-btn {
+  position: relative;
+}
+
+.tl-profile-dot {
+  position: absolute;
+  right: 9px;
+  bottom: 7px;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--tl-success);
+  box-shadow: 0 0 10px rgba(66, 215, 125, 0.85);
 }
 
 .tl-create-side {

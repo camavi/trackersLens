@@ -6,22 +6,20 @@ body {
 
 .tl-workspace-root {
   min-height: 100vh;
-  padding: 26px 24px 24px;
+  padding: 0;
   background:
     radial-gradient(circle at 86% 8%, rgba(86, 191, 245, 0.12), transparent 30%),
     linear-gradient(145deg, #071016 0%, #0b1118 54%, #060b10 100%);
 }
 
 .tl-workspace-shell {
-  height: calc(100vh - 50px);
+  height: 100vh;
   min-height: 720px;
+  padding: 0;
   display: grid;
   grid-template-rows: 76px minmax(0, 1fr);
   position: relative;
-  border: 1px solid var(--tl-border);
-  border-radius: var(--tl-radius);
   background: linear-gradient(180deg, rgba(12, 19, 27, 0.98), rgba(7, 12, 18, 0.98));
-  box-shadow: var(--tl-shadow);
 }
 
 .tl-workspace-header {
@@ -124,36 +122,65 @@ body {
 
 .tl-workspace-body {
   display: grid;
-  grid-template-columns: 54px 230px minmax(520px, 1fr) 230px;
+  grid-template-columns: 84px 230px minmax(520px, 1fr) 230px;
   min-height: 0;
   overflow: hidden;
 }
 
-.tl-rail {
-  padding: 44px 10px 14px;
+.tl-view-sidebar {
+  margin: 36px 10px 22px;
+  padding: 22px 10px 14px;
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 18px;
-  border-right: 1px solid var(--tl-border-soft);
+  border: 1px solid rgba(214, 226, 235, 0.08);
+  border-radius: 8px;
+  background: rgba(8, 15, 21, 0.74);
+  backdrop-filter: blur(14px);
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.24);
 }
 
-.tl-rail-spacer {
-  flex: 1;
+.tl-view-nav {
+  display: grid;
+  gap: 20px;
 }
 
-.tl-rail-btn.cms-btn {
-  width: 40px;
-  height: 40px;
-  min-width: 40px;
-  border-radius: var(--tl-radius-sm);
+.tl-view-side-btn.cms-btn,
+.tl-view-profile.cms-btn {
+  width: 44px;
+  min-width: 44px;
+  color: rgba(245, 247, 250, 0.86);
   border-color: transparent;
+  border-radius: 8px;
+  background: transparent;
+  padding: 0;
 }
 
-.tl-rail-btn.is-active.cms-btn {
-  color: var(--tl-accent);
-  background: rgba(255, 199, 44, 0.12);
-  border-color: var(--tl-border-soft);
+.tl-view-side-btn.is-active.cms-btn {
+  color: #fff;
+  background: linear-gradient(180deg, #7749c8, #57318f);
+  box-shadow: 0 14px 28px rgba(87, 49, 143, 0.28);
+}
+
+.tl-view-sidebar-bottom {
+  margin-top: auto;
+  display: grid;
+  gap: 12px;
+}
+
+.tl-view-profile.cms-btn {
+  position: relative;
+}
+
+.tl-profile-dot {
+  position: absolute;
+  right: 9px;
+  bottom: 7px;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--tl-success);
+  box-shadow: 0 0 10px rgba(66, 215, 125, 0.85);
 }
 
 .tl-add-panel {
