@@ -1,5 +1,6 @@
 const DB_NAME = "TrackersLens";
 const WIDGET_STORE = "tl_widgets";
+const PAGE_STORE = "tl_pages";
 
 const icon = (name, size = "md") => _.Icon({ name, size });
 const btn = (props, ...children) => _.Btn({ type: "button", ...props }, ...children);
@@ -50,6 +51,11 @@ const openChromePage = (url) => {
 const openCreateBox = () => openChromePage("editorBoxLens.html");
 
 const openBoxEditor = (box) => {
+  if (box.type === "workspace") {
+    openChromePage(`editorWorkspace.html?workspaceId=${encodeURIComponent(box.id)}`);
+    return;
+  }
+
   if (box.type === "boxTracker") {
     openChromePage("editorBoxTracker.html");
     return;
@@ -71,26 +77,29 @@ const openIndexedDb = () =>
     request.onerror = (event) => reject(event.target.error || new Error("Errore apertura IndexedDB"));
   });
 
-const readAllWidgets = async () => {
+const readAllFromStore = async (storeName) => {
   const db = await openIndexedDb();
 
   try {
-    if (!db.objectStoreNames.contains(WIDGET_STORE)) {
+    if (!db.objectStoreNames.contains(storeName)) {
       return [];
     }
 
     return await new Promise((resolve, reject) => {
-      const transaction = db.transaction(WIDGET_STORE, "readonly");
-      const store = transaction.objectStore(WIDGET_STORE);
+      const transaction = db.transaction(storeName, "readonly");
+      const store = transaction.objectStore(storeName);
       const request = store.getAll();
 
       request.onsuccess = (event) => resolve(Array.from(event.target.result || []));
-      request.onerror = (event) => reject(event.target.error || new Error("Errore lettura widget"));
+      request.onerror = (event) => reject(event.target.error || new Error(`Errore lettura ${storeName}`));
     });
   } finally {
     db.close();
   }
 };
+
+const readAllWidgets = () => readAllFromStore(WIDGET_STORE);
+const readAllPages = () => readAllFromStore(PAGE_STORE);
 
 const normalizeText = (value, fallback = "") => {
   if (value === null || value === undefined) return fallback;
@@ -124,6 +133,38 @@ const normalizeWidget = (record, index) => {
       content.description,
       category,
       type,
+      content.author,
+    ].map((value) => normalizeText(value).toLowerCase()).join(" "),
+  };
+};
+
+const normalizeWorkspace = (record, index) => {
+  const content = record?.content && typeof record.content === "object" ? record.content : record || {};
+  const boxes = Array.isArray(content.boxes) ? content.boxes : [];
+  const connections = Array.isArray(content.connections) ? content.connections : [];
+  const name = normalizeText(content.name || content.title, "Workspace");
+  const category = normalizeText(content.category, "Workspace");
+  const updatedAt = normalizeText(content.updatedAt || content.savedAt || content.createdAt || record?.updatedAt || record?.createdAt);
+  const description = normalizeText(
+    content.description,
+    `${boxes.length} box · ${connections.length} collegamenti · ${content.columns || 48} colonne`
+  );
+
+  return {
+    id: normalizeText(record?.id || content.id, `workspace_${index}`),
+    name,
+    type: "workspace",
+    category,
+    description,
+    author: normalizeText(content.author, "Locale"),
+    icon: "dashboard_customize",
+    version: normalizeText(content.version, "0.1.0"),
+    updatedAt,
+    searchText: [
+      name,
+      description,
+      category,
+      "workspace",
       content.author,
     ].map((value) => normalizeText(value).toLowerCase()).join(" "),
   };
@@ -229,8 +270,9 @@ const renderTabs = () =>
   _.div(
     { class: "tl-library-tabs", role: "tablist", "aria-label": "Filtra per tipo box" },
     btn({ class: `tl-library-tab${libraryState.type === "all" ? " is-active" : ""}`, onclick: () => setType("all") }, "Tutti"),
-    btn({ class: `tl-library-tab${libraryState.type === "boxLens" ? " is-active" : ""}`, onclick: () => setType("boxLens") }, "boxLens"),
-    btn({ class: `tl-library-tab${libraryState.type === "boxTracker" ? " is-active" : ""}`, onclick: () => setType("boxTracker") }, "boxTracker")
+    btn({ class: `tl-library-tab${libraryState.type === "workspace" ? " is-active" : ""}`, onclick: () => setType("workspace") }, "Wsp"),
+    btn({ class: `tl-library-tab${libraryState.type === "boxLens" ? " is-active" : ""}`, onclick: () => setType("boxLens") }, "Lens"),
+    btn({ class: `tl-library-tab${libraryState.type === "boxTracker" ? " is-active" : ""}`, onclick: () => setType("boxTracker") }, "Tracker")
   );
 
 const renderCategory = (category) =>
@@ -285,7 +327,7 @@ const renderToolbar = (items) =>
     { class: "tl-library-toolbar" },
     _.div(
       { class: "tl-result-heading" },
-      _.h2(libraryState.category === "Tutti" ? "Tutti i box" : libraryState.category),
+      _.h2(libraryState.category === "Tutti" ? "Tutta la libreria" : libraryState.category),
       _.span({ class: "tl-result-count" }, `${items.length} elementi`)
     ),
     _.div(
@@ -304,7 +346,7 @@ const setView = (view) => {
 const looksLikeImage = (value) => /^(https?:|data:image|\.{0,2}\/|icons\/|_cmswift-fe\/)/i.test(value);
 
 const renderBoxIcon = (box) => {
-  const className = `tl-card-icon${box.type === "boxTracker" ? " is-tracker" : ""}`;
+  const className = `tl-card-icon${box.type === "boxTracker" ? " is-tracker" : ""}${box.type === "workspace" ? " is-workspace" : ""}`;
   if (box.icon && looksLikeImage(box.icon)) {
     return _.span({ class: className }, _.img({ src: box.icon, alt: "" }));
   }
@@ -335,7 +377,7 @@ const renderBoxCard = (box) =>
     _.div(
       { class: "tl-card-foot" },
       _.div(
-        _.div({ class: `tl-card-category${box.type === "boxTracker" ? " is-tracker" : ""}` }, box.category),
+        _.div({ class: `tl-card-category${box.type === "boxTracker" ? " is-tracker" : ""}${box.type === "workspace" ? " is-workspace" : ""}` }, box.category),
         _.div({ class: "tl-card-meta" }, `${box.author} · v${box.version}`)
       ),
       btn({ class: "tl-card-more", "aria-label": `Azioni ${box.name}`, onclick: (event) => event.stopPropagation() }, icon("more_horiz", "sm"))
@@ -348,8 +390,8 @@ const renderEmptyState = () =>
     _.Card(
       { class: "tl-empty-card" },
       _.div({ class: "tl-empty-icon" }, icon("inventory_2", "md")),
-      _.h2("Nessun box installato"),
-      _.p("I boxLens e boxTracker salvati in locale appariranno in questa libreria."),
+      _.h2(libraryState.type === "workspace" ? "Nessun workspace salvato" : "Nessun elemento in libreria"),
+      _.p("Workspace, boxLens e boxTracker salvati in locale appariranno in questa libreria."),
       btn({ class: "tl-empty-action", onclick: openCreateBox }, icon("add", "sm"), "Crea nuovo box")
     )
   );
@@ -361,7 +403,7 @@ const renderLoadingState = () =>
       { class: "tl-empty-card" },
       _.div({ class: "tl-empty-icon" }, icon("hourglass_top", "md")),
       _.h2("Caricamento libreria"),
-      _.p("Lettura dei box locali da IndexedDB.")
+      _.p("Lettura di workspace e box locali da IndexedDB.")
     )
   );
 
@@ -437,8 +479,11 @@ const loadLibrary = async () => {
   mountLibrary();
 
   try {
-    const records = await readAllWidgets();
-    libraryState.widgets = records.map(normalizeWidget);
+    const [widgetRecords, pageRecords] = await Promise.all([readAllWidgets(), readAllPages()]);
+    libraryState.widgets = [
+      ...pageRecords.map(normalizeWorkspace),
+      ...widgetRecords.map(normalizeWidget),
+    ];
     libraryState.loading = false;
   } catch (error) {
     console.error(error);

@@ -1926,3 +1926,11 @@ Cosa manca / prossimi passi:
 - Collegare i pulsanti sidebar non ancora attivi a viste reali.
 - Aggiungere modalita edit da URL anche a `editorBoxTracker.html`, cosi la card `boxTracker` puo aprire direttamente il record salvato.
 - Valutare preferiti reali in IndexedDB o Chrome storage.
+
+Nota successiva:
+
+- `library.html` ora include anche i workspace salvati in IndexedDB.
+- `js/library.js` legge anche lo store `tl_pages`, normalizza i record come tipo `workspace` e li mostra insieme a `boxLens` e `boxTracker`.
+- Aggiunto tab `Workspace` nel pannello libreria.
+- I workspace usano categoria `Workspace`, icona `dashboard_customize` e descrizione fallback con numero box, collegamenti e colonne.
+- Click su una card workspace apre `editorWorkspace.html?workspaceId=<id>` come aggancio futuro; l'editor workspace non ha ancora implementato il caricamento reale da query string.
