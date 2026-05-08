@@ -459,9 +459,21 @@ const renderPreviewPanel = () =>
     _.div(
       {
         class: `tl-preview-frame-wrap is-${boxLensState.selectedDevice}`,
-        style: { "--tl-preview-zoom": String(boxLensState.zoom / 100) },
+        style: {
+          "--tl-preview-zoom": String(boxLensState.zoom / 100),
+          "--tl-preview-width": `${boxLensState.box.width * 20}px`,
+          "--tl-preview-height": `${boxLensState.box.height * 20}px`,
+        },
       },
-      _.iframe({ id: "tl-preview-frame", class: "tl-preview-frame", title: t("livePreview"), sandbox: "" })
+      _.div(
+        { class: "tl-preview-size-badge" },
+        `${boxLensState.box.width} x ${boxLensState.box.height}`,
+        _.span(" celle")
+      ),
+      _.div(
+        { class: "tl-preview-canvas" },
+        _.iframe({ id: "tl-preview-frame", class: "tl-preview-frame", title: t("livePreview"), sandbox: "" })
+      )
     )
   );
 

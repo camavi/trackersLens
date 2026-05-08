@@ -406,8 +406,8 @@ body {
   width: min(100%, 520px);
   height: 520px;
   margin: 16px auto 0;
-  display: grid;
-  place-items: center;
+  position: relative;
+  display: block;
   overflow: auto;
   border: 1px solid var(--tl-border-soft);
   border-radius: var(--tl-radius-sm);
@@ -415,7 +415,7 @@ body {
     linear-gradient(rgba(255, 255, 255, 0.035) 1px, transparent 1px),
     linear-gradient(90deg, rgba(255, 255, 255, 0.035) 1px, transparent 1px),
     rgba(2, 6, 10, 0.45);
-  background-size: 24px 24px;
+  background-size: 20px 20px;
 }
 
 .tl-preview-frame-wrap.is-desktop {
@@ -430,12 +430,40 @@ body {
   width: 280px;
 }
 
+.tl-preview-size-badge {
+  position: sticky;
+  top: 10px;
+  left: 10px;
+  z-index: 2;
+  width: max-content;
+  margin: 10px;
+  padding: 4px 7px;
+  color: var(--tl-text);
+  border: 1px solid var(--tl-border-soft);
+  border-radius: 6px;
+  background: rgba(4, 9, 14, 0.82);
+  font-size: 11px;
+  line-height: 1;
+}
+
+.tl-preview-size-badge span {
+  color: var(--tl-text-muted);
+}
+
+.tl-preview-canvas {
+  width: calc(var(--tl-preview-width) * var(--tl-preview-zoom, 1));
+  height: calc(var(--tl-preview-height) * var(--tl-preview-zoom, 1));
+  min-width: 120px;
+  min-height: 80px;
+  margin: 0;
+}
+
 .tl-preview-frame {
-  width: 100%;
-  height: 100%;
+  width: var(--tl-preview-width);
+  height: var(--tl-preview-height);
   border: 0;
   transform: scale(var(--tl-preview-zoom, 1));
-  transform-origin: center;
+  transform-origin: top left;
 }
 
 .tl-live-widget {

@@ -24,7 +24,7 @@ window.TrackerLensBoxLensData = {
   cssCode: [
     ".widget-container {",
     "  font-family: 'Inter', system-ui, -apple-system, Segoe UI, Roboto, sans-serif;",
-    "  background: linear-gradient(135deg, #1e293b, #0f172a);",
+    "  background: linear-gradient(184deg, #00378f2b, #05060880);",
     "  color: #e2e8f0;",
     "  border-radius: 12px;",
     "  padding: 16px;",

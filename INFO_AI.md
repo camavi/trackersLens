@@ -1856,3 +1856,21 @@ Nota successiva:
 
 - Rimossa la toolbar `tl-lens-toolbox` sopra la bottom bar perche risultava visivamente ambigua.
 - Il footer di `editorBoxLens` ora resta compatto: una sola card con menu `Suggerimento`, menu `Prossimi passi` e scorciatoie.
+
+## Aggiornamento 2026-05-08 - editorBoxLens preview dimensioni celle
+
+Obiettivo della sessione: rendere l'anteprima piu coerente con le dimensioni reali del boxLens in celle.
+
+Fatto:
+
+- La preview usa ora una griglia visiva da `20px` per cella.
+- L'iframe della preview viene dimensionato con:
+  - `width = box.width * 20px`;
+  - `height = box.height * 20px`.
+- Il contenitore preview mantiene `overflow: auto`, quindi se l'utente imposta larghezza molto alta, per esempio `48`, il box resta ispezionabile con scroll invece di comprimersi.
+- Aggiunto badge dimensioni nella preview, per esempio `12 x 8 celle`.
+- Lo zoom preview continua ad applicarsi tramite `--tl-preview-zoom`.
+
+Verifiche eseguite:
+
+- `node --check js/boxLensEditor.js`
