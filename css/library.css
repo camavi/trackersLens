@@ -130,62 +130,6 @@ body {
   grid-template-columns: 84px 310px minmax(0, 1fr);
 }
 
-.tl-library-sidebar {
-  margin: 36px 10px 22px;
-  padding: 22px 10px 14px;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  border: 1px solid rgba(214, 226, 235, 0.08);
-  border-radius: 8px;
-  background: rgba(8, 15, 21, 0.74);
-  backdrop-filter: blur(14px);
-  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.24);
-}
-
-.tl-library-nav {
-  display: grid;
-  gap: 20px;
-}
-
-.tl-library-side-btn.cms-btn,
-.tl-library-profile.cms-btn {
-  width: 44px;
-  min-width: 44px;
-  color: rgba(245, 247, 250, 0.86);
-  border-color: transparent;
-  border-radius: 8px;
-  background: transparent;
-  padding: 0;
-}
-
-.tl-library-side-btn.is-active.cms-btn {
-  color: #fff;
-  background: linear-gradient(180deg, #7749c8, #57318f);
-  box-shadow: 0 14px 28px rgba(87, 49, 143, 0.28);
-}
-
-.tl-library-sidebar-bottom {
-  margin-top: auto;
-  display: grid;
-  gap: 12px;
-}
-
-.tl-library-profile.cms-btn {
-  position: relative;
-}
-
-.tl-profile-dot {
-  position: absolute;
-  right: 9px;
-  bottom: 7px;
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  background: var(--tl-success);
-  box-shadow: 0 0 10px rgba(66, 215, 125, 0.85);
-}
-
 .tl-library-panel {
   min-height: 0;
   margin: 28px 10px 22px 0;
@@ -429,7 +373,7 @@ body {
   transform: translateY(-1px);
 }
 
-.tl-box-card > .cms-card-body {
+.tl-box-card>.cms-card-body {
   min-height: 220px;
   padding: 18px;
   display: grid;
@@ -534,11 +478,11 @@ body {
 }
 
 .tl-library-list .tl-box-card.cms-card,
-.tl-library-list .tl-box-card > .cms-card-body {
+.tl-library-list .tl-box-card>.cms-card-body {
   min-height: 120px;
 }
 
-.tl-library-list .tl-box-card > .cms-card-body {
+.tl-library-list .tl-box-card>.cms-card-body {
   grid-template-columns: minmax(0, 1fr) auto;
   grid-template-rows: auto auto;
   align-items: center;
@@ -572,7 +516,7 @@ body {
   box-shadow: var(--tl-shadow);
 }
 
-.tl-empty-card > .cms-card-body {
+.tl-empty-card>.cms-card-body {
   padding: 34px;
   display: grid;
   justify-items: center;

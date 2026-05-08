@@ -113,62 +113,6 @@ body {
   overflow: hidden;
 }
 
-.tl-view-sidebar {
-  margin: 36px 10px 22px;
-  padding: 22px 10px 14px;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  border: 1px solid rgba(214, 226, 235, 0.08);
-  border-radius: 8px;
-  background: rgba(8, 15, 21, 0.74);
-  backdrop-filter: blur(14px);
-  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.24);
-}
-
-.tl-view-nav {
-  display: grid;
-  gap: 20px;
-}
-
-.tl-view-side-btn.cms-btn,
-.tl-view-profile.cms-btn {
-  width: 44px;
-  min-width: 44px;
-  color: rgba(245, 247, 250, 0.86);
-  border-color: transparent;
-  border-radius: 8px;
-  background: transparent;
-  padding: 0;
-}
-
-.tl-view-side-btn.is-active.cms-btn {
-  color: #fff;
-  background: linear-gradient(180deg, #7749c8, #57318f);
-  box-shadow: 0 14px 28px rgba(87, 49, 143, 0.28);
-}
-
-.tl-view-sidebar-bottom {
-  margin-top: auto;
-  display: grid;
-  gap: 12px;
-}
-
-.tl-view-profile.cms-btn {
-  position: relative;
-}
-
-.tl-profile-dot {
-  position: absolute;
-  right: 9px;
-  bottom: 7px;
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  background: var(--tl-success);
-  box-shadow: 0 0 10px rgba(66, 215, 125, 0.85);
-}
-
 .tl-create-side,
 .tl-tracker-properties {
   padding: 20px 18px;

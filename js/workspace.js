@@ -28,12 +28,11 @@ const workspaceState = {
 };
 
 const openChromePage = (url) => {
-  if (window.chrome?.tabs?.create) {
-    chrome.tabs.create({ url });
+  if (window.TrackerLensSidebar?.navigate) {
+    window.TrackerLensSidebar.navigate(url);
     return;
   }
-
-  window.open(url, "_blank", "noopener");
+  window.location.assign(url);
 };
 
 const icon = (name, size = "md") => _.Icon({ name, size });
@@ -67,9 +66,10 @@ const toolBehavior = {
 const railItems = [
   { id: "dashboard", icon: "dashboard", label: "Aggiungi box" },
   { id: "library", icon: "folder_open", label: "Libreria" },
-  { id: "connections", icon: "link", label: "Connessioni" },
-  { id: "storage", icon: "database", label: "Storage locale" },
-  { id: "analytics", icon: "monitoring", label: "Monitoraggio" },
+  { id: "links", icon: "link", label: "Collegamenti" },
+  { id: "database", icon: "database", label: "Database" },
+  { id: "stats", icon: "monitoring", label: "Statistiche" },
+  { id: "ai", icon: "psychology", label: "AI" },
   { id: "settings", icon: "settings", label: "Impostazioni" },
 ];
 
@@ -159,32 +159,11 @@ const renderHeader = () =>
   );
 
 const renderRail = () => {
-  return _.aside(
-    { class: "tl-view-sidebar", "aria-label": "Navigazione workspace" },
-    _.nav(
-      { class: "tl-view-nav" },
-      ...railItems.map((item) =>
-        btn(
-          {
-            class: `tl-view-side-btn${workspaceState.activeRail === item.id ? " is-active" : ""}`,
-            "aria-label": item.label,
-            title: item.label,
-            onclick: () => setRail(item.id),
-          },
-          icon(item.icon)
-        )
-      )
-    ),
-    _.div(
-      { class: "tl-view-sidebar-bottom" },
-      btn({ class: "tl-view-side-btn", "aria-label": "Aiuto", onclick: () => setNotice("Suggerimento: seleziona un box e usa la toolbar in basso.") }, icon("help_outline")),
-      btn(
-        { class: "tl-view-profile", "aria-label": "Profilo utente" },
-        icon("account_circle"),
-        _.span({ class: "tl-profile-dot", "aria-hidden": "true" })
-      )
-    )
-  );
+  return window.TrackerLensSidebar.render({
+    activeId: workspaceState.activeRail,
+    items: railItems.map((item) => ({ ...item, url: item.id === "dashboard" ? "editorWorkspace.html" : item.id === "library" ? "library.html" : null })),
+    onHelp: () => setNotice("Suggerimento: seleziona un box e usa la toolbar in basso."),
+  });
 };
 
 const setAssetType = (type) => {
@@ -295,9 +274,10 @@ const renderAddPanel = () =>
 const renderRailPanel = () => {
   const summaries = {
     library: ["Libreria pronta", "Usa Libreria Asset per importare asset quando il catalogo sara collegato."],
-    connections: ["Connessioni", `${workspaceState.boxes.filter((box) => box.type === "boxTracker").length} tracker disponibili da collegare.`],
-    storage: ["Storage locale", `${workspaceState.boxes.length} box nel workspace corrente.`],
-    analytics: ["Monitoraggio", workspaceState.boxes.length ? "Box presenti nella griglia locale." : "Nessun box ancora posizionato."],
+    links: ["Collegamenti", `${workspaceState.boxes.filter((box) => box.type === "boxTracker").length} tracker disponibili da collegare.`],
+    database: ["Database", `${workspaceState.boxes.length} box nel workspace corrente.`],
+    stats: ["Statistiche", workspaceState.boxes.length ? "Box presenti nella griglia locale." : "Nessun box ancora posizionato."],
+    ai: ["AI", "Assistente workspace pronto per suggerimenti e automazioni."],
     settings: ["Impostazioni", "Configura griglia e workspace dal pannello proprieta."],
   };
   const panel = summaries[workspaceState.activeRail];

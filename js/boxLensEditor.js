@@ -92,12 +92,11 @@ let boxLensCm6 = null;
 let shortcutsBound = false;
 
 const openChromePage = (url) => {
-  if (window.chrome?.tabs?.create) {
-    chrome.tabs.create({ url });
+  if (window.TrackerLensSidebar?.navigate) {
+    window.TrackerLensSidebar.navigate(url);
     return;
   }
-
-  window.open(url, "_blank", "noopener");
+  window.location.assign(url);
 };
 
 const icon = (name, size = "md") => _.Icon({ name, size });
@@ -105,16 +104,6 @@ const btn = (props, ...children) => _.Btn({ type: "button", ...props }, ...child
 const notify = (type, message) => {
   if (CMSwift.notify?.[type]) CMSwift.notify[type](message);
 };
-
-const sidebarItems = [
-  { id: "add", icon: "add", label: "Aggiungi box", active: true, url: "editorWorkspace.html" },
-  { id: "library", icon: "folder_open", label: "Asset", url: "library.html" },
-  { id: "links", icon: "link", label: "Collegamenti" },
-  { id: "database", icon: "database", label: "Database" },
-  { id: "stats", icon: "monitoring", label: "Statistiche" },
-  { id: "ai", icon: "psychology", label: "AI" },
-  { id: "settings", icon: "settings", label: "Impostazioni" },
-];
 
 const db = new DatabaseIndexedDB({
   dbName: tlConfig.DB_NAME,
@@ -300,31 +289,7 @@ const renderTypeCard = (item) =>
     _.div(_.div({ class: "tl-type-title" }, item.title), _.div({ class: "tl-type-subtitle" }, item.subtitle))
   );
 
-const renderAppSidebarButton = (item) =>
-  btn(
-    {
-      class: `tl-view-side-btn${item.active ? " is-active" : ""}`,
-      "aria-label": item.label,
-      title: item.label,
-      onclick: () => item.url && openChromePage(item.url),
-    },
-    icon(item.icon)
-  );
-
-const renderAppSidebar = () =>
-  _.aside(
-    { class: "tl-view-sidebar", "aria-label": "Navigazione workspace" },
-    _.nav({ class: "tl-view-nav" }, ...sidebarItems.map(renderAppSidebarButton)),
-    _.div(
-      { class: "tl-view-sidebar-bottom" },
-      btn({ class: "tl-view-side-btn", "aria-label": "Aiuto" }, icon("help_outline")),
-      btn(
-        { class: "tl-view-profile", "aria-label": "Profilo utente" },
-        icon("account_circle"),
-        _.span({ class: "tl-profile-dot", "aria-hidden": "true" })
-      )
-    )
-  );
+const renderAppSidebar = () => window.TrackerLensSidebar.render({ activeId: "dashboard" });
 
 const renderSidebar = () =>
   _.aside(

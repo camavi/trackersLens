@@ -4,23 +4,12 @@ const icon = (name, size = "md") => _.Icon({ name, size });
 const btn = (props, ...children) => _.Btn({ type: "button", ...props }, ...children);
 
 const openChromePage = (url) => {
-  if (window.chrome?.tabs?.create) {
-    chrome.tabs.create({ url });
+  if (window.TrackerLensSidebar?.navigate) {
+    window.TrackerLensSidebar.navigate(url);
     return;
   }
-
-  window.open(url, "_blank", "noopener");
+  window.location.assign(url);
 };
-
-const sidebarItems = [
-  { id: "add", icon: "add", label: "Aggiungi box", active: true },
-  { id: "library", icon: "folder_open", label: "Asset" },
-  { id: "links", icon: "link", label: "Collegamenti" },
-  { id: "database", icon: "database", label: "Database" },
-  { id: "stats", icon: "monitoring", label: "Statistiche" },
-  { id: "ai", icon: "psychology", label: "AI" },
-  { id: "settings", icon: "settings", label: "Impostazioni" },
-];
 
 const renderBrand = () =>
   _.div(
@@ -48,29 +37,7 @@ const renderTopbar = () =>
   );
 
 const renderSidebar = () =>
-  _.aside(
-    { class: "tl-view-sidebar", "aria-label": "Navigazione workspace" },
-    _.nav({ class: "tl-view-nav" }, ...sidebarItems.map(renderSidebarButton)),
-    _.div(
-      { class: "tl-view-sidebar-bottom" },
-      btn({ class: "tl-view-side-btn", "aria-label": "Help" }, icon("help_outline")),
-      btn(
-        { class: "tl-view-profile", "aria-label": "Profilo utente" },
-        icon("account_circle"),
-        _.span({ class: "tl-profile-dot", "aria-hidden": "true" })
-      )
-    )
-  );
-
-const renderSidebarButton = (item) =>
-  btn(
-    {
-      class: `tl-view-side-btn${item.active ? " is-active" : ""}`,
-      "aria-label": item.label,
-      title: item.label,
-    },
-    icon(item.icon)
-  );
+  window.TrackerLensSidebar.render({ activeId: "dashboard" });
 
 const renderWorkspaceGrid = () =>
   _.section(

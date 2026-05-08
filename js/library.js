@@ -25,27 +25,12 @@ const sortOptions = [
   { value: "type", label: "Tipo" },
 ];
 
-const sidebarItems = [
-  { id: "add", icon: "add", label: "Aggiungi box", url: "editorWorkspace.html" },
-  { id: "library", icon: "folder_open", label: "Libreria", active: true },
-  { id: "links", icon: "link", label: "Collegamenti" },
-  { id: "database", icon: "database", label: "Database" },
-  { id: "stats", icon: "monitoring", label: "Statistiche" },
-  { id: "ai", icon: "psychology", label: "AI" },
-  { id: "settings", icon: "settings", label: "Impostazioni" },
-];
-
 const selectArrowSlot = {
   arrow: () => icon("keyboard_arrow_down", "sm"),
 };
 
 const openChromePage = (url) => {
-  if (window.chrome?.tabs?.create) {
-    chrome.tabs.create({ url });
-    return;
-  }
-
-  window.open(url, "_blank", "noopener");
+  window.location.assign(url);
 };
 
 const openCreateBox = () => openChromePage("editorBoxLens.html");
@@ -229,31 +214,8 @@ const renderTopbar = () =>
     )
   );
 
-const renderSidebarButton = (item) =>
-  btn(
-    {
-      class: `tl-library-side-btn${item.active ? " is-active" : ""}`,
-      "aria-label": item.label,
-      title: item.label,
-      onclick: item.url ? () => openChromePage(item.url) : undefined,
-    },
-    icon(item.icon)
-  );
-
 const renderSidebar = () =>
-  _.aside(
-    { class: "tl-library-sidebar", "aria-label": "Navigazione workspace" },
-    _.nav({ class: "tl-library-nav" }, ...sidebarItems.map(renderSidebarButton)),
-    _.div(
-      { class: "tl-library-sidebar-bottom" },
-      btn({ class: "tl-library-side-btn", "aria-label": "Help" }, icon("help_outline")),
-      btn(
-        { class: "tl-library-profile", "aria-label": "Profilo utente" },
-        icon("account_circle"),
-        _.span({ class: "tl-profile-dot", "aria-hidden": "true" })
-      )
-    )
-  );
+  window.TrackerLensSidebar.render({ activeId: "library" });
 
 const setType = (type) => {
   libraryState.type = type;
