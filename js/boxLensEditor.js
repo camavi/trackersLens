@@ -105,7 +105,7 @@ const renderKindCard = (type) =>
         if (type === "boxTracker") openChromePage("editorBoxTracker.html");
       },
     },
-      _.span({ class: "tl-kind-icon" }, icon(type === "boxLens" ? "dashboard" : "storage", "md")),
+    _.span({ class: "tl-kind-icon" }, icon(type === "boxLens" ? "dashboard" : "storage", "md")),
     _.div(
       _.div({ class: "tl-kind-title" }, type),
       _.div({ class: "tl-kind-subtitle" }, type === "boxLens" ? "Visualizzazione e interfaccia HTML, CSS e dati" : "Connessioni e raccolta dati API, WebSocket, RSS, MCP")
@@ -151,7 +151,7 @@ const setEditorMode = (mode) => {
   mountBoxLensEditor();
 };
 
-const boxLensTabs = ["Manifest", "CSS", "HTML", "JS", "Preview", "Public"];
+const boxLensTabs = ["Json", "CSS", "HTML", "JS", "Preview", "Public"];
 
 const setActiveTab = (tab) => {
   persistEditorValue();
@@ -299,7 +299,7 @@ const renderProperties = () =>
   _.aside(
     { class: "tl-properties" },
     _.h2({ class: "tl-property-title" }, "Proprietà Box", icon("help_outline", "sm")),
-    _.label({ class: "tl-field" }, _.span("Nome"), _.Input({ value: boxLensData.box.name })),
+    _.label(_.Input({ label: "Nome", model: boxLensData.box.name })),
     _.label({ class: "tl-field" }, _.span("ID univoco"), _.div({ class: "tl-select-row" }, _.span(boxLensData.box.id), icon("content_copy", "sm"))),
     _.label({ class: "tl-field" }, _.span("Categoria"), _.div({ class: "tl-select-row" }, _.span("Finanza"), icon("keyboard_arrow_down", "sm"))),
     _.label({ class: "tl-field" }, _.span("Descrizione"), _.textarea(boxLensData.box.description)),
