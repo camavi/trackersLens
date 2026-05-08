@@ -1708,3 +1708,28 @@ Fatto:
 Cosa manca / prossimi passi:
 
 - Se serve, aggiungere in futuro una seconda modalita "allinea tra selezionati" distinta da "allinea al canvas".
+
+## Aggiornamento 2026-05-08 - Workspace runtime vuoto
+
+Obiettivo della sessione: creare la pagina reale `workspace.html`, cioe la vista finale del workspace quando l'utente apre una dashboard vuota e non e in modalita editor.
+
+Fatto:
+
+- Creata `workspace.html`, separata da `editorWorkspace.html`.
+- Creata `css/workspaceView.css` per lo stile runtime del workspace.
+- Creata `js/workspaceView.js` usando componenti CMSwift (`_.Btn`, `_.Icon`, `_.Input` e helper DOM).
+- Layout implementato:
+  - topbar con logo Tracker Lens, testo `TRACKER LENS`, search, bottone `Edit` e menu;
+  - sidebar compatta sinistra con add, asset/library, collegamenti, database, statistiche, AI e impostazioni;
+  - help e profilo utente in basso;
+  - canvas centrale vuoto con griglia a puntini e 48 colonne.
+- Il bottone `Edit` apre `editorWorkspace.html`.
+- La search imposta placeholder e aria-label dopo il mount per compatibilita con il wrapper di `_.Input`.
+- Il brand runtime usa ora la stessa grafica base dell'editor (`icons/logo.svg`, testo compatto e `LENS` in oro).
+
+Cosa manca / prossimi passi:
+
+- Caricare i box reali salvati nel workspace runtime.
+- Collegare menu topbar e pulsanti sidebar alle funzioni reali.
+- Collegare ricerca a workspace/asset reali.
+- Aggiungere gestione runtime delle connessioni e dei tracker attivi.
