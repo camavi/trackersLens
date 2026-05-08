@@ -637,14 +637,15 @@ const addAssetToCanvas = (assetId) => {
 
   commitWorkspaceChange(`${asset.name} aggiunto alla griglia`, () => {
     const index = workspaceState.boxes.length;
+    console.log(asset);
     const box = {
       ...asset,
       id: `${asset.id}-${Date.now()}`,
       assetId: asset.id,
       x: 3 + (index % 4) * 7,
       y: 3 + Math.floor(index / 4) * 5,
-      width: asset.type === "boxTracker" ? 5 : 6,
-      height: asset.type === "boxTracker" ? 3 : 4,
+      width: asset.type === "boxTracker" ? 5 : asset.width || 10,
+      height: asset.type === "boxTracker" ? 3 : asset.height || 6,
       zIndex: workspaceState.boxes.length + 1,
       channels: asset.type === "boxTracker" ? ["default", "btc-price"] : [],
     };

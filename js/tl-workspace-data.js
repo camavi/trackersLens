@@ -12,7 +12,7 @@ window.TrackerLensWorkspaceData = {
     snapToGrid: true,
   },
   assets: [
-    { id: "btc-price", name: "Prezzo BTC", type: "boxLens", icon: "dashboard", color: "#9b5cf5" },
+    { id: "btc-price", name: "Prezzo BTC", type: "boxLens", icon: "dashboard", color: "#9b5cf5", width: 10, height: 8 },
     { id: "rsi", name: "RSI Indicator", type: "boxLens", icon: "show_chart", color: "#9b5cf5" },
     { id: "news-rss", name: "News RSS", type: "boxLens", icon: "widgets", color: "#9b5cf5" },
     { id: "youtube", name: "YouTube Player", type: "boxLens", icon: "smart_display", color: "#9b5cf5" },
