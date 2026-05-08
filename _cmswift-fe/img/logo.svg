@@ -1,0 +1,131 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<!-- Created with Inkscape (http://www.inkscape.org/) -->
+
+<svg
+   width="37.33271mm"
+   height="32.808334mm"
+   viewBox="0 0 37.33271 32.808334"
+   version="1.1"
+   id="svg1"
+   xmlns:inkscape="http://www.inkscape.org/namespaces/inkscape"
+   xmlns:sodipodi="http://sodipodi.sourceforge.net/DTD/sodipodi-0.dtd"
+   xmlns:xlink="http://www.w3.org/1999/xlink"
+   xmlns="http://www.w3.org/2000/svg"
+   xmlns:svg="http://www.w3.org/2000/svg">
+  <sodipodi:namedview
+     id="namedview1"
+     pagecolor="#ffffff"
+     bordercolor="#000000"
+     borderopacity="0.25"
+     inkscape:showpageshadow="2"
+     inkscape:pageopacity="0.0"
+     inkscape:pagecheckerboard="0"
+     inkscape:deskcolor="#d1d1d1"
+     inkscape:document-units="mm" />
+  <defs
+     id="defs1">
+    <clipPath
+       id="SVGID_00000141441694463425601300000002068294899787810440_">
+						<use
+   xlink:href="#SVGID_1_"
+   style="overflow:visible"
+   id="use3063" />
+
+					</clipPath>
+    <rect
+       id="SVGID_1_"
+       x="305"
+       y="-659.40002"
+       width="141.10001"
+       height="124.2" />
+  </defs>
+  <g
+     inkscape:label="Livello 1"
+     inkscape:groupmode="layer"
+     id="layer1"
+     transform="translate(-84.192873,-89.164586)">
+    <g
+       id="g3071"
+       transform="matrix(0.26458333,0,0,0.26458333,-34.594192,16.181916)">
+		<g
+   id="Raggruppa_23_3_"
+   transform="translate(143.959,935.24)">
+			<g
+   id="g3064">
+				<g
+   id="g3063">
+					<defs
+   id="defs3063" />
+
+					<clipPath
+   id="clipPath1">
+						<use
+   xlink:href="#SVGID_1_"
+   style="overflow:visible"
+   id="use1" />
+
+					</clipPath>
+
+					<g
+   id="Raggruppa_22_2_"
+   clip-path="url(#SVGID_00000141441694463425601300000002068294899787810440_)">
+						<path
+   id="Tracciato_14_2_"
+   class="st101"
+   d="m 406.9,-659.4 h -62.8 c -2.8,0 -5.3,1.5 -6.7,3.8 l -31.4,54.3 c -1.5,2.4 -1.5,5.4 0,7.8 l 31.4,54.3 c 1.5,2.4 4,3.8 6.7,3.8 h 62.8 c 2.8,0 5.3,-1.5 6.7,-3.8 l 31.4,-54.3 c 1.5,-2.4 1.5,-5.4 0,-7.8 l -31.4,-54.3 c -1.4,-2.2 -4,-3.8 -6.7,-3.8 m -15.6,88.7 c -0.8,1.1 -1.8,2 -3,2.5 -1.3,0.7 -2.6,1.1 -4.1,1.2 -1.5,0.1 -2.9,0.3 -4.4,0.4 -5.4,0.3 -10.9,-0.4 -16.1,-2 -5.3,-1.6 -10.5,-3.6 -15.6,-5.8 -17,-8.7 -25.1,-28.5 -19,-46.5 l 0.7,-2.1 c -0.1,1.7 -0.1,3.4 -0.1,5 0.1,2.4 0.4,4.7 0.8,7.1 0.4,2.4 1.2,4.6 2.2,6.7 1.3,2.8 3.2,5.1 5.4,7.1 2.4,2 4.9,3.7 7.6,5 2.9,1.5 5.9,2.6 9,3.6 3.2,0.9 6.3,1.7 9.5,2.5 3.2,0.7 6.3,1.3 9.2,1.8 2.9,0.5 5.7,1.1 8.2,1.6 2.1,0.4 4.2,1.1 6.3,1.8 1.5,0.5 2.6,1.3 3.6,2.5 0.7,0.9 0.9,2.1 0.9,3.3 0.1,1.7 -0.3,3.1 -1.1,4.3 m 29.3,0.8 c 0.1,-1.7 0.3,-3.4 0.3,-5 0,-2.4 -0.1,-4.7 -0.5,-7.1 -0.4,-2.4 -1.1,-4.6 -2.1,-6.7 -1.2,-2.8 -3,-5.3 -5.1,-7.3 -2.2,-2.1 -4.7,-3.8 -7.4,-5.3 -2.9,-1.6 -5.8,-2.8 -8.8,-3.8 -3.2,-1.1 -6.3,-2 -9.4,-2.8 -3.2,-0.8 -6.2,-1.6 -9.1,-2.1 -2.9,-0.5 -5.5,-1.2 -8,-1.8 -2.1,-0.5 -4.2,-1.2 -6.2,-2.1 -1.5,-0.5 -2.6,-1.5 -3.4,-2.6 -0.5,-1.1 -0.8,-2.1 -0.8,-3.3 -0.1,-1.5 0.4,-2.9 1.2,-4.2 0.8,-1.1 1.8,-1.8 3.2,-2.4 1.3,-0.5 2.8,-0.9 4.2,-1.1 1.5,-0.1 2.9,-0.3 4.4,-0.3 5.4,0 10.8,0.8 16.1,2.5 5.3,1.7 10.4,3.8 15.4,6.3 16.7,9.2 24.1,29.3 17.4,47.2 z"
+   style="fill:#f9bf00" />
+
+					</g>
+
+				</g>
+
+			</g>
+
+		</g>
+
+		
+		<text
+   transform="translate(419.5377,428.0624)"
+   class="st105 st106 st107"
+   id="text3065"
+   style="font-size:19px;font-family:Ubuntu;opacity:0.74;fill:#ffffff;enable-background:new">version 0.1 - test version</text>
+
+		<text
+   transform="translate(455.6417,600.9279)"
+   class="st105 st106 st107"
+   id="text3066"
+   style="font-size:19px;font-family:Ubuntu;opacity:0.74;fill:#ffffff;enable-background:new">About CMSwift</text>
+
+		<text
+   transform="translate(307.8217,644.9372)"
+   class="st104 st106 st108"
+   id="text3067"
+   style="font-size:16px;font-family:Ubuntu;fill:#ffffff">CMSwift is a content management software platform (CMS),</text>
+
+		<text
+   transform="translate(325.4217,664.1372)"
+   class="st104 st106 st108"
+   id="text3068"
+   style="font-size:16px;font-family:Ubuntu;fill:#ffffff">a program that allows the creation and distribution of a</text>
+
+		<text
+   transform="translate(339.1217,683.3372)"
+   class="st104 st106 st108"
+   id="text3069"
+   style="font-size:16px;font-family:Ubuntu;fill:#ffffff">website made up of textual or multimedia contents,</text>
+
+		<text
+   transform="translate(395.6217,702.5372)"
+   class="st104 st106 st108"
+   id="text3070"
+   style="font-size:16px;font-family:Ubuntu;fill:#ffffff">which can be managed and updated</text>
+
+		<text
+   transform="translate(481.9217,721.7372)"
+   class="st104 st106 st108"
+   id="text3071"
+   style="font-size:16px;font-family:Ubuntu;fill:#ffffff">dynamically.</text>
+
+	</g>
+  </g>
+</svg>

@@ -1733,3 +1733,126 @@ Cosa manca / prossimi passi:
 - Collegare menu topbar e pulsanti sidebar alle funzioni reali.
 - Collegare ricerca a workspace/asset reali.
 - Aggiungere gestione runtime delle connessioni e dei tracker attivi.
+
+## Aggiornamento 2026-05-08 - editorBoxLens salvataggio IndexedDB e i18n
+
+Obiettivo della sessione: rendere operativo `editorBoxLens.html` come editor reale per `boxLens`, con salvataggio in IndexedDB e modalita edit tramite query string `?lensId=...`.
+
+Fatto:
+
+- `editorBoxLens.html` ora carica i file lingua da `lang/`.
+- Creata cartella `lang/` con dizionari JS:
+  - `en.js` default/fallback;
+  - `it.js`;
+  - `fr.js`;
+  - `es.js`;
+  - `de.js`.
+- `js/boxLensEditor.js` ora usa uno stato unico per box, codice editor, device preview, zoom, history undo/redo e modalita editor/preview.
+- Se la pagina viene aperta con `?lensId=<id>`, l'editor legge `tl_widgets` da IndexedDB e normalizza i dati salvati in `content`.
+- Il salvataggio usa `db.updateData()` su `tl_widgets`, quindi funziona sia per nuovi box sia per box gia esistenti.
+- Il payload salvato mantiene:
+  - `id`;
+  - metadata del box;
+  - `type: "boxLens"`;
+  - `code.manifest/css/html/js/preview/public`;
+  - `updatedAt`.
+- Corretto il tab iniziale da `Json`/stato incoerente a `Manifest`.
+- I controlli principali ora sono collegati allo stato:
+  - nome;
+  - categoria con `CMSwift.ui.Select`;
+  - descrizione;
+  - dimensioni width/height con `CMSwift.ui.Select`;
+  - tipo boxLens;
+  - canali dati con aggiunta/rimozione;
+  - stato attivo;
+  - visibilita privata/pubblica;
+  - device preview desktop/tablet/mobile;
+  - zoom preview;
+  - undo/redo base;
+  - scorciatoie `Ctrl/Cmd+S`, `Ctrl/Cmd+P`, `Ctrl/Cmd+Z`, `Ctrl/Cmd+Y`.
+- L'anteprima live usa un `iframe` sandbox con `srcdoc` generato da CSS + HTML + output base del renderer JS.
+- Il mapping CodeMirror per `Manifest` e `Public` usa temporaneamente la lingua `javascript`, perche il bundle locale chiama `json()` ma non espone quella funzione.
+- I `Select` usano uno slot freccia Material (`keyboard_arrow_down`) per evitare il fallback allo sprite Tabler mancante.
+
+Verifiche eseguite:
+
+- `node --check js/boxLensEditor.js`
+- `node --check lang/en.js`
+- `node --check lang/it.js`
+- `node --check lang/fr.js`
+- `node --check lang/es.js`
+- `node --check lang/de.js`
+- Avviato server statico su `http://127.0.0.1:3023/`.
+- Verificato con Chrome headless che `editorBoxLens.html` carica senza errore runtime CodeMirror.
+- Simulato click su `Salva Box` via Chrome DevTools Protocol:
+  - record creato in IndexedDB `TrackersLens` / `tl_widgets`;
+  - `content.type` salvato come `boxLens`;
+  - codice HTML presente in `content.code.html`.
+- Riaperto `editorBoxLens.html?lensId=<id salvato>` e verificato che apre in modalita `Modifica boxLens` con preview disponibile.
+
+Cosa manca / prossimi passi:
+
+- Verificare manualmente in browser reale l'interazione completa dei menu `Select`, perche il test automatico ha coperto mount, save e reload ma non ogni scelta da mouse.
+- Decidere se mantenere il fallback CodeMirror `javascript` per JSON o correggere il bundle `vendor/codemirror6/cm6.bundle.js` per esporre davvero `json()`.
+- Rendere editabili anche id/label dei canali dati invece di aggiungere solo canali incrementali.
+- Collegare `workspace.html` / `editorWorkspace.html` per aprire direttamente `editorBoxLens.html?lensId=<id>` dai boxLens salvati.
+- Uniformare in futuro `boxTrackerEditor.js` allo stesso sistema di stato, edit da URL, salvataggio con `updateData` e i18n.
+
+## Aggiornamento 2026-05-08 - editorBoxLens preview CSP-safe
+
+Problema rilevato: in ambiente Chrome Extension MV3 la preview generava errore CSP:
+
+- `EvalError: Evaluating a string as JavaScript violates Content Security Policy`
+- causa: `boxLensEditor.js` usava `new Function()` per eseguire il codice JS del boxLens nella preview.
+
+Fatto:
+
+- Rimossa l'esecuzione dinamica del codice JS dalla preview.
+- La preview ora usa solo interpolazione HTML/CSS con dati mock CSP-safe (`{{ btcPrice }}`, `{{ change24h }}`, ecc.).
+- Il codice JS del boxLens resta editabile e salvato in IndexedDB, ma non viene valutato dentro l'editor.
+
+Verifiche eseguite:
+
+- `node --check js/boxLensEditor.js`
+- Ricerca confermata senza `new Function`, `eval`, `runPreviewRenderer`.
+
+Cosa manca / prossimi passi:
+
+- Se serve una preview JS reale in MV3, va progettata con un runtime separato CSP-compliant, per esempio API dichiarative, worker/module predefinito o sandbox extension page configurata appositamente. Non usare `eval`/`new Function`.
+
+## Aggiornamento 2026-05-08 - editorBoxLens bottom bar coerente
+
+Obiettivo della sessione: rendere la bottom bar di `editorBoxLens.html` coerente con quella di `editorWorkspace.html` e trasformare `Suggerimenti` / `Prossimi passi` in menu a tendina.
+
+Fatto:
+
+- `renderFooter()` in `js/boxLensEditor.js` non usa piu tre card statiche.
+- Aggiunta una toolbar centrale `tl-lens-toolbox`, modellata sul pattern `tl-toolbox` del workspace:
+  - Editor;
+  - Anteprima;
+  - CSS;
+  - HTML;
+  - JS;
+  - Salva Box.
+- Aggiunta card compatta `tl-lens-bottom-hints` con:
+  - menu `Suggerimento`;
+  - menu `Prossimi passi`;
+  - scorciatoie rapide.
+- I due menu sono implementati con `_.Menu` / `CMSwift.ui.Menu`, bindati ai trigger dopo il render.
+- Aggiornato `css/boxLensEditor.css` per usare proporzioni, card, bordo e background coerenti con il bottom bar del workspace.
+- Aggiunte stringhe lingua per i contenuti dei menu in `lang/en.js`, `lang/it.js`, `lang/fr.js`, `lang/es.js`, `lang/de.js`.
+
+Verifiche eseguite:
+
+- `node --check js/boxLensEditor.js`
+- `node --check` su tutti i file `lang/*.js`
+- Chrome headless su `http://127.0.0.1:3023/editorBoxLens.html`: pagina caricata e bottom bar renderizzata senza errori applicativi.
+
+Cosa manca / prossimi passi:
+
+- Verificare visivamente in browser reale il posizionamento dei menu `_.Menu` rispetto al trigger, specialmente con viewport molto strette.
+
+Nota successiva:
+
+- Rimossa la toolbar `tl-lens-toolbox` sopra la bottom bar perche risultava visivamente ambigua.
+- Il footer di `editorBoxLens` ora resta compatto: una sola card con menu `Suggerimento`, menu `Prossimi passi` e scorciatoie.
