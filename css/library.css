@@ -472,6 +472,15 @@ body {
   padding: 0;
 }
 
+.tl-workspace-open.cms-btn {
+  min-width: 86px;
+  color: #dff6ff;
+  border-color: rgba(86, 191, 245, 0.34);
+  border-radius: 8px;
+  background: rgba(86, 191, 245, 0.12);
+  font-weight: 800;
+}
+
 .tl-library-list {
   display: grid;
   gap: 12px;

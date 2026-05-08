@@ -45,6 +45,10 @@ const openBoxEditor = (box) => {
   openChromePage(`editorBoxLens.html?lensId=${encodeURIComponent(box.id)}`);
 };
 
+const openWorkspaceView = (workspaceId) => {
+  openChromePage(`workspace.html?workspaceId=${encodeURIComponent(workspaceId)}`);
+};
+
 const normalizeText = (value, fallback = "") => {
   if (value === null || value === undefined) return fallback;
   return String(value).trim() || fallback;
@@ -301,7 +305,19 @@ const renderBoxCard = (box) =>
         _.div({ class: `tl-card-category${box.type === "boxTracker" ? " is-tracker" : ""}${box.type === "workspace" ? " is-workspace" : ""}` }, box.category),
         _.div({ class: "tl-card-meta" }, `${box.author} · v${box.version}`)
       ),
-      btn({ class: "tl-card-more", "aria-label": `Azioni ${box.name}`, onclick: (event) => event.stopPropagation() }, icon("more_horiz", "sm"))
+      box.type === "workspace"
+        ? btn(
+          {
+            class: "tl-workspace-open",
+            onclick: (event) => {
+              event.stopPropagation();
+              openWorkspaceView(box.id);
+            },
+          },
+          icon("open_in_new", "sm"),
+          "Apri"
+        )
+        : btn({ class: "tl-card-more", "aria-label": `Azioni ${box.name}`, onclick: (event) => event.stopPropagation() }, icon("more_horiz", "sm"))
     )
   );
 

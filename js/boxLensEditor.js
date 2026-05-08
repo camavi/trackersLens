@@ -14,6 +14,10 @@ const t = (key) => lang[key] || window.TrackerLensLang?.en?.[key] || key;
 const params = new URLSearchParams(window.location.search);
 const requestedLensId = params.get("lensId");
 const isEditRequest = Boolean(requestedLensId);
+const BOX_LENS_STORES = [
+  { name: tlConfig.TABLES.TL_WIDGETS, columns: [{ name: "content" }] },
+  { name: tlConfig.TABLES.TL_PAGES, columns: [{ name: "content" }] },
+];
 
 const makeLensId = () => requestedLensId || `lens_${Date.now()}`;
 
@@ -80,6 +84,7 @@ const boxLensState = {
   selectedDevice: "desktop",
   zoom: 100,
   loading: true,
+  saving: false,
   notice: t("loading"),
   editingExisting: false,
   assetsLoading: true,
@@ -108,19 +113,89 @@ const notify = (type, message) => {
   if (CMSwift.notify?.[type]) CMSwift.notify[type](message);
 };
 
-const db = new DatabaseIndexedDB({
-  dbName: tlConfig.DB_NAME,
-  startTables: [
-    { name: tlConfig.TABLES.TL_WIDGETS, columns: [{ name: "content" }] },
-    { name: tlConfig.TABLES.TL_PAGES, columns: [{ name: "content" }] },
-  ],
-});
+const createStoreIndexes = (store, columns = []) => {
+  columns.forEach((column) => {
+    if (!store.indexNames.contains(column.name)) {
+      store.createIndex(column.name, column?.keyPath ?? column.name, column?.options ?? { unique: false });
+    }
+  });
+};
+
+const createMissingStores = (dbInstance) => {
+  BOX_LENS_STORES.forEach((table) => {
+    if (!dbInstance.objectStoreNames.contains(table.name)) {
+      createStoreIndexes(dbInstance.createObjectStore(table.name, { keyPath: "id" }), table.columns);
+    }
+  });
+};
+
+const openBoxLensDb = () =>
+  new Promise((resolve, reject) => {
+    const request = indexedDB.open(tlConfig.DB_NAME);
+
+    request.onupgradeneeded = (event) => {
+      createMissingStores(event.target.result);
+    };
+
+    request.onsuccess = (event) => {
+      const openedDb = event.target.result;
+      const hasAllStores = BOX_LENS_STORES.every((table) => openedDb.objectStoreNames.contains(table.name));
+
+      if (hasAllStores) {
+        resolve(openedDb);
+        return;
+      }
+
+      const nextVersion = openedDb.version + 1;
+      openedDb.close();
+
+      const upgradeRequest = indexedDB.open(tlConfig.DB_NAME, nextVersion);
+      upgradeRequest.onupgradeneeded = (upgradeEvent) => {
+        createMissingStores(upgradeEvent.target.result);
+      };
+      upgradeRequest.onsuccess = (upgradeEvent) => resolve(upgradeEvent.target.result);
+      upgradeRequest.onerror = (upgradeEvent) => reject(upgradeEvent.target.error || new Error("Errore aggiornamento IndexedDB"));
+      upgradeRequest.onblocked = () => reject(new Error("IndexedDB bloccato da un'altra scheda."));
+    };
+
+    request.onerror = (event) => reject(event.target.error || new Error("Errore apertura IndexedDB"));
+    request.onblocked = () => reject(new Error("IndexedDB bloccato da un'altra scheda."));
+  });
 
 const waitForDb = async () => {
-  const table = tlConfig.TABLES.TL_WIDGETS;
-  for (let i = 0; i < 50; i += 1) {
-    if (db.db?.objectStoreNames?.contains(table)) return;
-    await new Promise((resolve) => setTimeout(resolve, 60));
+  const openedDb = await openBoxLensDb();
+  openedDb.close();
+};
+
+const getWidgetRecord = async (id) => {
+  const openedDb = await openBoxLensDb();
+
+  try {
+    return await new Promise((resolve, reject) => {
+      const transaction = openedDb.transaction(tlConfig.TABLES.TL_WIDGETS, "readonly");
+      const store = transaction.objectStore(tlConfig.TABLES.TL_WIDGETS);
+      const request = store.get(id);
+      request.onsuccess = (event) => resolve(event.target.result);
+      request.onerror = (event) => reject(event.target.error || new Error("Errore lettura boxLens"));
+    });
+  } finally {
+    openedDb.close();
+  }
+};
+
+const putWidgetRecord = async (payload) => {
+  const openedDb = await openBoxLensDb();
+
+  try {
+    return await new Promise((resolve, reject) => {
+      const transaction = openedDb.transaction(tlConfig.TABLES.TL_WIDGETS, "readwrite");
+      const store = transaction.objectStore(tlConfig.TABLES.TL_WIDGETS);
+      const request = store.put(payload);
+      request.onsuccess = () => resolve(payload);
+      request.onerror = (event) => reject(event.target.error || new Error("Errore salvataggio boxLens"));
+    });
+  } finally {
+    openedDb.close();
   }
 };
 
@@ -210,7 +285,7 @@ const loadLensForEdit = async () => {
   }
 
   try {
-    const record = await db.getData(tlConfig.TABLES.TL_WIDGETS, requestedLensId);
+    const record = await getWidgetRecord(requestedLensId);
     if (!record) {
       boxLensState.loading = false;
       boxLensState.notice = t("editMissing");
@@ -262,7 +337,7 @@ const renderHeader = () =>
       btn({ class: "tl-icon-btn", "aria-label": "Desktop", onclick: () => setDevice("desktop") }, icon("desktop_windows")),
       btn({ class: "tl-icon-btn", "aria-label": "Griglia", onclick: () => setEditorMode("editor") }, icon("dashboard")),
       btn({ class: "tl-cancel-btn", onclick: () => openChromePage("editorWorkspace.html") }, icon("warning_amber", "sm"), t("cancel")),
-      btn({ class: "tl-save-box", onclick: saveBoxLens, disabled: boxLensState.loading }, icon("radio_button_checked", "sm"), t("saveBox")),
+      btn({ class: "tl-save-box", onclick: saveBoxLens, disabled: boxLensState.loading || boxLensState.saving }, icon("radio_button_checked", "sm"), boxLensState.saving ? "Salvataggio..." : t("saveBox")),
       btn({ class: "tl-icon-btn", "aria-label": "Chiudi", onclick: () => openChromePage("editorWorkspace.html") }, icon("close"))
     )
   );
@@ -742,9 +817,12 @@ const renderFooter = () =>
 const shortcut = (keys, label) => _.span(_.kbd({ class: "tl-kbd" }, keys), " ", label);
 
 const saveBoxLens = async () => {
+  if (boxLensState.loading || boxLensState.saving) return;
   persistEditorValue();
   syncGeneratedCode();
-  await waitForDb();
+  boxLensState.saving = true;
+  boxLensState.notice = "Salvataggio boxLens...";
+  mountBoxLensEditor();
 
   const payload = {
     id: boxLensState.box.id,
@@ -764,14 +842,18 @@ const saveBoxLens = async () => {
   };
 
   try {
-    await db.updateData(tlConfig.TABLES.TL_WIDGETS, payload);
+    await putWidgetRecord(payload);
     boxLensState.editingExisting = true;
+    boxLensState.localAssets = await window.TrackerLensLocalLibrary.listWidgetAssets();
     boxLensState.notice = t("saved");
     notify("success", t("saved"));
-    mountBoxLensEditor();
   } catch (error) {
     console.error(error);
+    boxLensState.notice = t("saveError");
     notify("error", t("saveError"));
+  } finally {
+    boxLensState.saving = false;
+    mountBoxLensEditor();
   }
 };
 
@@ -831,9 +913,9 @@ const loadLocalAssets = async () => {
   mountBoxLensEditor();
 };
 
-CMSwift.ready(() => {
+CMSwift.ready(async () => {
   bindShortcuts();
   mountBoxLensEditor();
-  loadLensForEdit();
-  loadLocalAssets();
+  await loadLensForEdit();
+  await loadLocalAssets();
 });

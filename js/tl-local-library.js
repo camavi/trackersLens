@@ -60,6 +60,7 @@ window.TrackerLensLocalLibrary = (() => {
       icon: normalizeText(content.icon, type === "boxTracker" ? "cloud_queue" : "dashboard"),
       color: normalizeText(content.color, type === "boxTracker" ? "#35c979" : "#9b5cf5"),
       version: normalizeText(content.version, "0.1.0"),
+      code: content.code && typeof content.code === "object" ? { ...content.code } : {},
       updatedAt: normalizeText(content.updatedAt || content.createdAt || record?.updatedAt || record?.createdAt),
       width: Number(content.width) || (type === "boxTracker" ? 5 : 10),
       height: Number(content.height) || (type === "boxTracker" ? 3 : 6),
