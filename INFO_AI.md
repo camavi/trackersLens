@@ -1777,6 +1777,7 @@ Fatto:
 Verifiche eseguite:
 
 - `node --check js/boxLensEditor.js`
+
 - `node --check lang/en.js`
 - `node --check lang/it.js`
 - `node --check lang/fr.js`
@@ -1874,3 +1875,54 @@ Fatto:
 Verifiche eseguite:
 
 - `node --check js/boxLensEditor.js`
+
+## Aggiornamento 2026-05-08 - Pagina libreria locale
+
+Obiettivo della sessione: creare `library.html` come libreria locale dei box installati/salvati dall'utente, leggendo IndexedDB `TrackersLens` / `tl_widgets`.
+
+Fatto:
+
+- Aggiunta `library.html` come entrypoint dedicato alla libreria.
+- Aggiunto `css/library.css` con grafica coerente con `workspace.html`:
+  - topbar fissa;
+  - aside sinistro fisso;
+  - dark mode;
+  - background a puntini discreti;
+  - pannello categorie laterale;
+  - card premium per boxLens e boxTracker.
+- Aggiunto `js/library.js`, composto con componenti CMSwift globali:
+  - `_.Btn`;
+  - `_.Card`;
+  - `_.Icon`;
+  - `_.Search`;
+  - `_.Select`.
+- La pagina apre IndexedDB `TrackersLens` e legge tutti i record dallo store `tl_widgets`.
+- Se lo store `tl_widgets` non esiste o non contiene record, la pagina non va in errore e mostra empty state:
+  - `Nessun box installato`;
+  - bottone `Crea nuovo box`.
+- Normalizzazione dati implementata per record nella forma:
+  - `{ id, content: { name, description, category, type, author, icon, version, updatedAt } }`;
+  - fallback robusti per campi mancanti;
+  - distinzione `boxLens` / `boxTracker`.
+- Filtri implementati:
+  - search su `name`, `description`, `category`, `type`, `author`;
+  - tab `Tutti`, `boxLens`, `boxTracker`;
+  - click categoria;
+  - ordinamento per recenti, nome, categoria e tipo.
+- Conteggi categorie calcolati in base al tipo attivo.
+- Card cliccabili:
+  - `boxLens` apre `editorBoxLens.html?lensId=<id>`;
+  - `boxTracker` apre `editorBoxTracker.html` per ora, perche l'editor tracker non ha ancora modalita edit da URL.
+
+Verifiche eseguite:
+
+- `node --check js/library.js`
+- Avviato server statico su `http://127.0.0.1:3024/`.
+- Verificato `HTTP 200` su `http://127.0.0.1:3024/library.html`.
+
+Cosa manca / prossimi passi:
+
+- Verifica visuale manuale in browser reale della pagina `library.html`.
+- Collegare i pulsanti sidebar non ancora attivi a viste reali.
+- Aggiungere modalita edit da URL anche a `editorBoxTracker.html`, cosi la card `boxTracker` puo aprire direttamente il record salvato.
+- Valutare preferiti reali in IndexedDB o Chrome storage.
