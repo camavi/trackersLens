@@ -1562,3 +1562,149 @@ Cosa manca / prossimi passi:
 - Collegamento reale tra boxTracker e boxLens.
 - Validazione limiti griglia, collisioni e posizionamento snap piu preciso.
 - Modali/pannelli completi per libreria, connessioni, storage, monitoraggio e impostazioni.
+
+## Aggiornamento 2026-05-07 - Bottom toolbar Workspace Editor
+
+Obiettivo della sessione: implementare la toolbar inferiore del Workspace Editor come set di strumenti reali che cambiano comportamento del canvas e dei box selezionati.
+
+Fatto:
+
+- Aggiunto `activeTool` completo con valori `select`, `move`, `resize`, `connect`, `align`, `distribute`, `order`, `delete`.
+- Aggiunto `toolBehavior` con capability e cursor per ogni tool.
+- Ogni bottone bottom toolbar ora ha ID stabile:
+  - `tool-select`;
+  - `tool-move`;
+  - `tool-resize`;
+  - `tool-connect`;
+  - `tool-align`;
+  - `tool-distribute`;
+  - `tool-order`;
+  - `tool-delete`.
+- Stato visivo aggiornato:
+  - tool attivo con background `#563b8f`;
+  - testo bianco;
+  - glow viola;
+  - classi `.tool-button.active` e `.tool-button.disabled`.
+- `Seleziona`:
+  - click su box seleziona;
+  - click/drag su area vuota crea selection rectangle;
+  - `Shift + click` gestisce selezione multipla;
+  - doppio click su box apre l'editor corretto (`editorBoxLens.html` o `editorBoxTracker.html`).
+- `Sposta`:
+  - drag su box selezionati;
+  - snap a celle;
+  - clamp dentro la griglia;
+  - supporto multi-selezione;
+  - salvataggio IndexedDB dopo mouseup.
+- `Ridimensiona`:
+  - handle resize visibili sui box selezionati;
+  - lati e angoli;
+  - min/max base;
+  - clamp dentro canvas;
+  - salvataggio IndexedDB dopo mouseup.
+- `Collega`:
+  - primo click valido solo su `boxTracker`;
+  - secondo click valido solo su `boxLens`;
+  - crea record connection `{ id, fromBoxId, toBoxId, channel, mapping }`;
+  - disegna linea temporanea e linee permanenti;
+  - blocca collegamenti non validi.
+- `Allinea`, `Distribuisci`, `Ordine`:
+  - aprono menu bottom con azioni richieste;
+  - usano selezione multipla;
+  - aggiornano coordinate o `zIndex`;
+  - salvano in IndexedDB.
+- `Elimina`:
+  - apre conferma UI con componenti CMSwift;
+  - elimina istanze canvas e connessioni collegate;
+  - non elimina asset dalla libreria.
+- Shortcut:
+  - `V`, `M`, `R`, `C`;
+  - `Delete/Backspace`;
+  - `Ctrl/Cmd+A`;
+  - `Ctrl/Cmd+D`;
+  - `Esc`.
+
+Decisioni tecniche:
+
+- La conferma delete non usa `window.confirm`: e un pannello UI CMSwift nel workspace.
+- Il move/resize usa per ora il box reale come preview; il ghost separato resta da fare.
+- La scelta channel multi-canale e predisposta nei dati (`channels`) ma non ha ancora pannello dedicato.
+
+Cosa manca / prossimi passi:
+
+- Ghost preview separato durante move.
+- Pannello scelta channel per tracker con piu canali.
+- Collision detection tra box.
+- Test browser automatici con drag/click reali.
+
+## Aggiornamento 2026-05-08 - Precisione griglia workspace
+
+Obiettivo della sessione: correggere il disallineamento tra background grid, coordinate dei box e snap durante lo spostamento.
+
+Fatto:
+
+- La griglia visuale non viene piu calcolata con valori separati da `rowHeight`.
+- `tl-canvas-content` e ora l'unica area di riferimento per:
+  - background della griglia;
+  - posizionamento dei box;
+  - calcolo colonne;
+  - calcolo righe;
+  - drag/move;
+  - resize;
+  - selection rectangle.
+- Aggiunte variabili CSS runtime:
+  - `--tl-columns`;
+  - `--tl-rows`;
+  - `--tl-cell-width`;
+  - `--tl-cell-height`;
+  - `--tl-major-width`;
+  - `--tl-major-height`.
+- `grid-template-columns` e `grid-template-rows` ora usano `repeat(columns)` e `repeat(rows)`, quindi ogni box occupa coordinate reali.
+- Rimosso `gap: 4px` dalla griglia dei box per evitare offset progressivo tra celle.
+- Il background della griglia e stato spostato su `.tl-canvas-content`, con minor lines e major lines calcolate dalle stesse colonne/righe dei box.
+- `canvasMetrics()` ora usa `cellHeight` reale invece di `rowPitch: 32`, quindi lo spostamento verticale non deriva piu da un valore fisso non collegato allo sfondo.
+- Selection rectangle aggiornata per usare la stessa metrica cella della griglia.
+
+Decisione tecnica:
+
+- Il canvas ora privilegia precisione delle coordinate rispetto a una dimensione pixel fissa per riga. `rowHeight` resta visibile nel pannello proprieta, ma la griglia nel viewport viene normalizzata per far coincidere background e coordinate.
+
+Cosa manca / prossimi passi:
+
+- Decidere se `rowHeight` deve diventare un vero zoom verticale/scroll del canvas oppure restare solo metadata del workspace.
+- Aggiungere collision detection tra box.
+- Aggiungere test automatico con inserimento box e drag su coordinate note.
+
+## Aggiornamento 2026-05-08 - Stato menu bottom toolbar
+
+Obiettivo della sessione: chiarire il comportamento dei pulsanti menu `Allinea`, `Distribuisci` e `Ordine`, che sembravano non funzionare quando non c'erano abbastanza box selezionati.
+
+Fatto:
+
+- `renderToolMenu()` ora calcola i requisiti minimi:
+  - `Allinea`: almeno 2 box;
+  - `Distribuisci`: almeno 3 box;
+  - `Ordine`: almeno 1 box.
+- I pulsanti del menu sono disabilitati quando il requisito non e soddisfatto.
+- Il menu mostra un messaggio contestuale invece di lasciare pulsanti apparentemente attivi.
+- Click e mousedown dentro il menu non propagano al canvas.
+- Stile aggiornato per menu button disabilitati e stato informativo.
+
+Cosa manca / prossimi passi:
+
+- Eventuale pannello di selezione rapida per scegliere tutti i box direttamente dal menu.
+
+## Aggiornamento 2026-05-08 - Allinea rispetto al canvas
+
+Obiettivo della sessione: correggere il comportamento di `Allinea`, che non deve richiedere 2 box selezionati ma deve poter allineare anche un singolo box rispetto al canvas.
+
+Fatto:
+
+- `Allinea` ora richiede solo 1 box selezionato.
+- Le azioni `left`, `center`, `right`, `top`, `middle`, `bottom` allineano i box selezionati ai bordi/centro del canvas.
+- Se sono selezionati piu box, tutti vengono allineati rispetto al canvas, non rispetto al primo box.
+- Il messaggio del menu e stato aggiornato da "almeno 2 box" a "almeno 1 box".
+
+Cosa manca / prossimi passi:
+
+- Se serve, aggiungere in futuro una seconda modalita "allinea tra selezionati" distinta da "allinea al canvas".
