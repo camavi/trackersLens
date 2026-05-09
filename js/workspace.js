@@ -119,6 +119,47 @@ const isBoxSelected = (boxId) => workspaceState.selectedBoxIds.includes(boxId);
 const boxById = (boxId) => workspaceState.boxes.find((box) => box.id === boxId) || null;
 const clamp = (value, min, max) => Math.max(min, Math.min(max, value));
 const nextZIndex = () => Math.max(1, ...workspaceState.boxes.map((box) => box.zIndex || 1)) + 1;
+const assetById = (id) => id ? workspaceState.localAssets.find((asset) => asset.id === id || asset.sourceId === id) || null : null;
+
+const displayBoxFromAsset = (asset, box = {}) => {
+  const boxFields = { ...box };
+  delete boxFields.code;
+  delete boxFields.searchText;
+
+  return {
+    ...boxFields,
+    assetId: box.assetId || asset.id,
+    sourceId: box.sourceId || asset.sourceId || asset.id,
+    type: box.type || asset.type,
+    name: asset.name || box.name || "Box",
+    category: asset.category || box.category || "",
+    description: asset.description || box.description || "",
+    icon: asset.icon || box.icon || (asset.type === "boxTracker" ? "cloud_queue" : "dashboard"),
+    color: asset.color || box.color || (asset.type === "boxTracker" ? "#35c979" : "#9b5cf5"),
+  };
+};
+
+const hydrateWorkspaceBox = (box) => {
+  const asset = assetById(box.assetId || box.sourceId);
+  return asset ? displayBoxFromAsset(asset, box) : { ...box };
+};
+
+const hydrateWorkspaceBoxes = () => {
+  workspaceState.boxes = workspaceState.boxes.map(hydrateWorkspaceBox);
+};
+
+const serializeWorkspaceBox = (box) => ({
+  id: box.id,
+  assetId: box.assetId || box.sourceId,
+  sourceId: box.sourceId || box.assetId,
+  type: box.type || "boxLens",
+  x: box.x || 1,
+  y: box.y || 1,
+  width: box.width || 6,
+  height: box.height || 4,
+  zIndex: box.zIndex || 1,
+  channels: Array.isArray(box.channels) ? [...box.channels] : [],
+});
 
 const waitForWorkspaceStore = async () => {
   const table = tlConfig.TABLES.TL_PAGES;
@@ -133,7 +174,7 @@ const workspacePayload = () => ({
   content: {
     ...workspaceState.workspace,
     updatedAt: new Date().toISOString(),
-    boxes: workspaceState.boxes,
+    boxes: workspaceState.boxes.map(serializeWorkspaceBox),
     connections: workspaceState.connections,
   },
 });
@@ -711,17 +752,18 @@ const addAssetToCanvas = (assetId) => {
 
   commitWorkspaceChange(`${asset.name} aggiunto alla griglia`, () => {
     const index = workspaceState.boxes.length;
-    const box = {
-      ...asset,
+    const box = displayBoxFromAsset(asset, {
       id: `${asset.id}-${Date.now()}`,
       assetId: asset.id,
+      sourceId: asset.sourceId || asset.id,
+      type: asset.type,
       x: 3 + (index % 4) * 7,
       y: 3 + Math.floor(index / 4) * 5,
       width: asset.type === "boxTracker" ? 5 : asset.width || 10,
       height: asset.type === "boxTracker" ? 3 : asset.height || 6,
       zIndex: workspaceState.boxes.length + 1,
       channels: asset.type === "boxTracker" ? ["default", "btc-price"] : [],
-    };
+    });
     workspaceState.boxes.push(box);
     workspaceState.selectedAssetId = asset.id;
     workspaceState.selectedBoxId = box.id;
@@ -767,7 +809,7 @@ const duplicateSelectedBoxes = () => {
   const boxes = selectedBoxes();
   if (!boxes.length) return;
   commitWorkspaceChange("Box duplicati", () => {
-    const clones = boxes.map((box, index) => ({ ...box, id: `${box.assetId || box.id}-${Date.now()}-${index}`, x: clamp(box.x + 1, 1, workspaceState.workspace.columns - box.width + 1), y: box.y + 1, zIndex: nextZIndex() + index }));
+    const clones = boxes.map((box, index) => hydrateWorkspaceBox({ ...serializeWorkspaceBox(box), id: `${box.assetId || box.id}-${Date.now()}-${index}`, x: clamp(box.x + 1, 1, workspaceState.workspace.columns - box.width + 1), y: box.y + 1, zIndex: nextZIndex() + index }));
     workspaceState.boxes.push(...clones);
     selectBoxes(clones.map((box) => box.id));
   });
@@ -1002,7 +1044,10 @@ const boxesInsideRect = (rect) => {
     .map((box) => box.id);
 };
 
-const openBoxEditor = (box) => openChromePage(box.type === "boxTracker" ? "editorBoxTracker.html" : "editorBoxLens.html");
+const openBoxEditor = (box) => {
+  const sourceId = box.sourceId || box.assetId;
+  openChromePage(box.type === "boxTracker" ? "editorBoxTracker.html" : `editorBoxLens.html${sourceId ? `?lensId=${encodeURIComponent(sourceId)}` : ""}`);
+};
 
 const handleConnectClick = (box) => {
   if (!workspaceState.connectDraft) {
@@ -1238,6 +1283,7 @@ const loadLocalAssets = async () => {
 
   try {
     workspaceState.localAssets = await window.TrackerLensLocalLibrary.listWidgetAssets();
+    hydrateWorkspaceBoxes();
     workspaceState.assetsLoading = false;
   } catch (error) {
     console.error(error);

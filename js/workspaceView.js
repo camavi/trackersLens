@@ -166,9 +166,14 @@ const hydrateWorkspaceBoxes = async (boxes) => {
     const runtime = byId.get(box.assetId) || byId.get(box.sourceId) || byId.get(box.id);
     return runtime
       ? {
-        ...runtime,
         ...box,
-        code: box.code || runtime.code,
+        type: runtime.type || box.type,
+        name: runtime.name || box.name,
+        category: runtime.category || box.category,
+        description: runtime.description || box.description,
+        icon: runtime.icon || box.icon,
+        color: runtime.color || box.color,
+        code: runtime.code,
         runtime,
       }
       : { ...box };
