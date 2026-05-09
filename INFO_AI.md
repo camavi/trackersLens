@@ -1,8 +1,239 @@
 # Trackers Lens - Informazioni progetto per AI
 
-Documento generato il 2026-05-06 sulla base dei file presenti in `/Users/cmalleux/Sites/trackerLens-plugin`.
+Documento generato il 2026-05-06 e aggiornato il 2026-05-09 sulla base dei file presenti in `/Users/cmalleux/Sites/trackerLens`.
 
 Questo file serve come contesto dettagliato per future sessioni AI o per sviluppatori che devono continuare il progetto. Descrive la visione del prodotto, cosa esiste oggi, come sono collegati i file, quali funzioni sono gia implementate e quali parti risultano ancora prototipali o incomplete.
+
+## Stato aggiornato 2026-05-09
+
+Il progetto ha introdotto una nuova UI locale piu vicina al prodotto finale, oltre ai file storici della prima estensione. Le pagine operative principali oggi sono:
+
+- `library.html`: libreria locale degli asset salvati in IndexedDB.
+- `editorWorkspace.html`: editor del workspace/griglia.
+- `workspace.html`: runtime/viewer del workspace salvato.
+- `editorBoxLens.html`: editor dedicato ai `boxLens`.
+- `editorBoxTracker.html`: editor dedicato ai `boxTracker`.
+
+### Sidebar standard
+
+Il menu laterale sinistro e stato centralizzato in:
+
+- `js/tl-sidebar.js`
+- `css/tl-sidebar.css`
+
+Le pagine `library.html`, `editorWorkspace.html`, `workspace.html`, `editorBoxLens.html` e `editorBoxTracker.html` usano lo stesso menu. La navigazione avviene nella stessa pagina con `window.location.assign`, non in una blank page/new tab. Le icone sono state normalizzate: dashboard, asset/folder, link, database, statistiche, AI, impostazioni, aiuto, profilo.
+
+### IndexedDB e libreria locale
+
+La libreria locale e stata normalizzata in:
+
+- `js/tl-local-library.js`
+
+Questo helper legge il database IndexedDB:
+
+- database: `TrackersLens`
+- store widget: `tl_widgets`
+- store workspace/pagine: `tl_pages`
+
+Espone asset normalizzati per `boxLens`, `boxTracker` e `workspace`, includendo anche `content.code` dei boxLens quando serve al runtime.
+
+`library.html` e `js/library.js` ora leggono da IndexedDB tramite `TrackerLensLocalLibrary.listLibraryItems()`. I workspace mostrati nella library hanno un bottone `Apri` che porta a:
+
+```txt
+workspace.html?workspaceId=<id-workspace>
+```
+
+### Editor workspace e salvataggio layout
+
+`editorWorkspace.html` usa:
+
+- `js/workspace.js`
+- `css/workspace.css`
+
+Il salvataggio dei workspace usa `db.updateData(...)`/`put`, non `addData`, cosi lo stesso workspace viene aggiornato invece di fallire su chiave gia esistente.
+
+Comportamento importante aggiornato:
+
+- il workspace deve salvare solo il riferimento al boxLens/boxTracker, non una copia completa del codice;
+- ogni box posizionato nella griglia viene serializzato come istanza leggera;
+- il payload salvato in `tl_pages` contiene layout e collegamenti;
+- il codice HTML/CSS/JS del boxLens resta nello store `tl_widgets`.
+
+Forma target di un box dentro `content.boxes` del workspace:
+
+```js
+{
+  id: "istanza-sul-workspace",
+  assetId: "id-del-box-sorgente",
+  sourceId: "id-del-box-sorgente",
+  type: "boxLens",
+  x: 3,
+  y: 3,
+  width: 12,
+  height: 8,
+  zIndex: 1,
+  channels: []
+}
+```
+
+Questo e necessario perche, se un `boxLens` viene modificato in `editorBoxLens.html`, tutti i workspace che lo usano devono ricaricare la versione aggiornata dalla libreria locale.
+
+### Editor boxLens
+
+`editorBoxLens.html` usa:
+
+- `js/boxLensEditor.js`
+- `css/boxLensEditor.css`
+- `js/tl-box-lens-data.js`
+- `vendor/codemirror6/cm6.bundle.js`
+
+Il salvataggio del boxLens e stato reso diretto su IndexedDB:
+
+- store: `tl_widgets`
+- chiave: `id`
+- metodo: `put`
+
+Se l'URL contiene:
+
+```txt
+editorBoxLens.html?lensId=lens_1746532879218
+```
+
+l'editor entra in modalita modifica, legge il record da `tl_widgets` e ricarica:
+
+- metadata del box;
+- Manifest;
+- CSS;
+- HTML;
+- JS;
+- Preview;
+- Public.
+
+Il bottone `Salva Box` resta disabilitato solo mentre l'editor sta caricando o salvando. Dopo il salvataggio aggiorna anche la lista locale "I miei boxLens".
+
+### Runtime boxLens senza iframe
+
+Decisione architetturale aggiornata: il runtime `boxLens` non deve usare iframe per il rendering principale. L'obiettivo e trattare i boxLens come parte dello stesso applicativo, usando un contenitore DOM reale.
+
+Il runtime inline e implementato in:
+
+- preview editor: `js/boxLensEditor.js`
+- workspace viewer: `js/workspaceView.js`
+
+Il codice salvato del boxLens resta pulito. Lo scoping CSS viene applicato solo a runtime tramite attributo:
+
+```html
+<article data-box-lens-instance="id_istanza">
+```
+
+Il CSS del boxLens viene trasformato in memoria, per esempio:
+
+```css
+.widget-container { ... }
+```
+
+diventa:
+
+```css
+[data-box-lens-instance="id_istanza"] .widget-container { ... }
+```
+
+Questo evita collisioni tra classi condivise da boxLens diversi senza sporcare il codice salvato in IndexedDB.
+
+### Contratto JS del boxLens
+
+Nota CSP importante: in Chrome Extension MV3 non si puo usare `eval`/`new Function` nella pagina principale, perche `unsafe-eval` e vietato dalla Content Security Policy. Quindi il codice JS salvato come stringa non viene eseguito direttamente nel runtime inline principale.
+
+Il runtime attuale usa un listener DOM sicuro e CSP-compatible:
+
+- aggiorna elementi con `data-tl-bind` o `data-bind`;
+- aggiorna fallback comuni come `.value`, `.change`, `.title`, `.source`;
+- continua a collegare eventi `boxTracker -> boxLens` senza bloccare la pagina.
+
+Esempio HTML consigliato:
+
+```html
+<div class="value" data-tl-bind="c">{{ btcPrice }}</div>
+<div class="change" data-tl-bind="P">{{ change24h }}</div>
+```
+
+Il contratto JS sotto resta la direzione target, ma richiede un runner CSP-safe separato, per esempio sandbox extension dedicata o un formato plugin precompilato/registrato.
+
+Contratto consigliato:
+
+```js
+export default function boxLens(boxLen, context) {
+  boxLen.appendChild(/* nodo CMSwift o DOM */);
+
+  return {
+    status: "ready",
+    listener: {
+      default(data) {
+        // riceve dati da boxTracker collegati
+      }
+    },
+    destroy() {
+      // cleanup opzionale
+    }
+  };
+}
+```
+
+Argomenti:
+
+- `boxLen`: contenitore DOM dell'istanza dove montare HTML/CSS/JS.
+- `context`: oggetto runtime con `mode`, `box`, `workspace`, `data` e in futuro API per eventi/connessioni.
+
+Ritorno normalizzato:
+
+```js
+{
+  status: "ready" | "error" | string,
+  listener: {}
+}
+```
+
+I `listener` sono conservati nel runtime (`workspaceViewState.runtimes`) e vengono usati per ricevere gli eventi emessi dai `boxTracker` collegati nel workspace.
+
+### Collegamento runtime boxTracker -> boxLens
+
+`workspaceView.js` contiene ora un event bus locale minimo:
+
+- legge `content.connections` dal workspace salvato;
+- monta prima i runtime dei `boxLens`;
+- avvia poi i runtime dei `boxTracker`;
+- ogni tracker emette un evento sul suo canale (`outputChannel`, `runtime.output` o `default`);
+- il bus trova le connessioni con `fromBoxId` uguale al tracker e inoltra il payload al listener del `boxLens` collegato;
+- se esiste `connection.mapping`, il payload viene rimappato prima di arrivare al listener;
+- il listener chiamato puo essere `listener[channel]`, `listener.default` o `listener["*"]`.
+
+Per ora i `boxTracker` usano `sampleOutput` come payload locale di test. Quando saranno implementati tracker reali REST/WebSocket/RSS, dovranno chiamare la stessa logica di emissione evento.
+
+### Workspace viewer
+
+`workspace.html` usa:
+
+- `js/workspaceView.js`
+- `css/workspaceView.css`
+
+Quando riceve `workspaceId`, legge il record da `tl_pages`, poi idrata ogni box prendendo il codice aggiornato da `tl_widgets` tramite `TrackerLensLocalLibrary.listWidgetAssets()`.
+
+Comportamento chiave:
+
+- se un workspace contiene solo `assetId/sourceId`, il viewer recupera HTML/CSS/JS aggiornati dalla libreria locale;
+- se un vecchio workspace contieneva una copia stale del codice, il viewer preferisce comunque il codice aggiornato dal record sorgente;
+- il boxLens viene montato inline, non in iframe;
+- il risultato JS `{ status, listener }` viene salvato nella mappa runtime.
+
+### Prossimi step tecnici
+
+Priorita immediata:
+
+1. Definire il contratto completo di emissione eventi dei `boxTracker` reali.
+2. Implementare runner reali REST/WebSocket/RSS per i boxTracker.
+3. Aggiungere cleanup robusto quando un box viene rimosso o il workspace viene ricaricato.
+4. Migliorare lo scoping CSS per casi avanzati come `@media`, `@keyframes`, pseudo globali e selector complessi.
+5. Verificare con browser reale i flussi: crea boxLens, salva, riapri con `lensId`, inserisci in workspace, modifica boxLens, riapri workspace e controlla aggiornamento.
 
 ## Sintesi del progetto
 

@@ -183,11 +183,11 @@ body {
   box-shadow: none;
 }
 
-.tl-view-box-frame {
+.tl-view-box-runtime {
   width: 100%;
   height: 100%;
   display: block;
-  border: 0;
+  overflow: hidden;
   background: transparent;
 }
 

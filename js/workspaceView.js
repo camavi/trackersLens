@@ -5,6 +5,9 @@ const workspaceViewState = {
   error: "",
   workspace: { ...workspaceViewData.workspace },
   boxes: [],
+  connections: [],
+  runtimes: new Map(),
+  trackerTimers: new Map(),
 };
 
 const icon = (name, size = "md") => _.Icon({ name, size });
@@ -100,37 +103,108 @@ const interpolateTemplate = (html, values) =>
     return value == null ? "" : String(value);
   });
 
-const runtimeFrameSrcdoc = (box) => {
-  const code = getRuntimeCode(box);
-  const html = interpolateTemplate(code.html, runtimePreviewData());
-  const css = String(code.css || "");
-  const js = String(code.js || "").replace(/<\/script/gi, "<\\/script");
-  const script = js ? `<script type="module">${js}</script>` : "";
+const safeRuntimeId = (value) =>
+  String(value || "box_lens").replace(/[^\w-]/g, "_");
 
-  return `<!doctype html><html><head><meta charset="UTF-8"><style>html,body{width:100%;height:100%;margin:0;background:transparent;}body{box-sizing:border-box;padding:12px;}*{box-sizing:border-box;}${css}</style></head><body>${html}${script}</body></html>`;
+const safeCssQueryId = (value) =>
+  window.CSS?.escape ? CSS.escape(String(value)) : safeRuntimeId(value);
+
+const scopeCssSelectors = (selectors, scopeSelector) =>
+  selectors
+    .split(",")
+    .map((selector) => selector.trim())
+    .filter(Boolean)
+    .map((selector) => {
+      if (selector.includes(scopeSelector)) return selector;
+      if (/^(from|to|\d+(?:\.\d+)?%)$/i.test(selector)) return selector;
+      if (/^(html|body|:root)\b/i.test(selector)) return scopeSelector;
+      return `${scopeSelector} ${selector}`;
+    })
+    .join(", ");
+
+const scopeBoxLensCss = (css, scopeSelector) =>
+  String(css || "").replace(/(^|[{}])\s*([^@{}][^{}]*)\{/g, (match, boundary, selectors) => {
+    const scopedSelectors = scopeCssSelectors(selectors, scopeSelector);
+    return `${boundary}${scopedSelectors}{`;
+  });
+
+const normalizeBoxLensRuntimeResult = (result) => {
+  const normalized = result && typeof result === "object" ? result : {};
+  return {
+    ...normalized,
+    status: normalized.status || "ready",
+    listener: typeof normalized.listener === "function"
+      ? { default: normalized.listener }
+      : normalized.listener && typeof normalized.listener === "object" ? normalized.listener : {},
+  };
+};
+
+const valueByPath = (data, path) =>
+  String(path || "").split(".").reduce((value, part) => value?.[part], data);
+
+const createSafeDomListener = (boxLen) => {
+  const setText = (selector, value) => {
+    if (value == null) return;
+    boxLen.querySelectorAll(selector).forEach((element) => {
+      element.textContent = String(value);
+    });
+  };
+
+  const update = (data = {}) => {
+    boxLen.querySelectorAll("[data-tl-bind], [data-bind]").forEach((element) => {
+      const path = element.getAttribute("data-tl-bind") || element.getAttribute("data-bind");
+      const value = valueByPath(data, path);
+      if (value != null) element.textContent = String(value);
+    });
+
+    setText(".value", data.c ?? data.price ?? data.btcPrice);
+    setText(".change", data.P ?? data.change24h);
+    setText(".title", data.title);
+    setText(".source", data.source);
+  };
+
+  return update;
+};
+
+const executeBoxLensJs = (boxLen, js, context = {}) => {
+  const listener = createSafeDomListener(boxLen);
+  listener(context.data);
+
+  return {
+    status: "ready",
+    listener: {
+      default: listener,
+      "*": listener,
+      "btc-price": listener,
+    },
+  };
+};
+
+const scopedRuntimeCss = (box) => {
+  const code = getRuntimeCode(box);
+  const scopeSelector = `[data-box-lens-instance="${safeRuntimeId(box.id)}"]`;
+  return `${scopeSelector}{box-sizing:border-box;padding:12px;} ${scopeSelector} *{box-sizing:border-box;}${scopeBoxLensCss(code.css, scopeSelector)}`;
 };
 
 const hasRuntimeView = (box) => {
   const code = getRuntimeCode(box);
-  return box.type !== "boxTracker" && Boolean(code.html || code.css);
+  return box.type !== "boxTracker" && Boolean(code.html || code.css || code.js);
 };
 
 const renderRuntimeBox = (box) =>
   _.article(
     {
       class: "tl-view-box has-runtime",
+      "data-runtime-box-id": box.id,
+      "data-box-lens-instance": safeRuntimeId(box.id),
       style: {
         gridColumn: `${box.x || 1} / span ${box.width || 6}`,
         gridRow: `${box.y || 1} / span ${box.height || 4}`,
         zIndex: box.zIndex || 1,
       },
     },
-    _.iframe({
-      class: "tl-view-box-frame",
-      title: box.name || "Box Lens",
-      sandbox: "allow-scripts",
-      srcdoc: runtimeFrameSrcdoc(box),
-    })
+    _.style(scopedRuntimeCss(box)),
+    _.div({ class: "tl-view-box-runtime", "data-runtime-mount": box.id })
   );
 
 const renderWorkspaceBox = (box) =>
@@ -174,6 +248,8 @@ const hydrateWorkspaceBoxes = async (boxes) => {
         icon: runtime.icon || box.icon,
         color: runtime.color || box.color,
         code: runtime.code,
+        outputChannel: runtime.outputChannel || box.outputChannel,
+        sampleOutput: runtime.sampleOutput || box.sampleOutput,
         runtime,
       }
       : { ...box };
@@ -202,8 +278,120 @@ const readWorkspaceRecord = async (workspaceId) => {
   }
 };
 
+const cleanupRuntimeBoxes = () => {
+  workspaceViewState.runtimes.forEach((runtime) => {
+    try {
+      if (typeof runtime?.destroy === "function") runtime.destroy();
+    } catch (error) {
+      console.error("Errore cleanup boxLens:", error);
+    }
+  });
+  workspaceViewState.runtimes.clear();
+};
+
+const cleanupTrackerRuntimes = () => {
+  workspaceViewState.trackerTimers.forEach((timerId) => clearInterval(timerId));
+  workspaceViewState.trackerTimers.clear();
+};
+
+const cleanupWorkspaceRuntime = () => {
+  cleanupTrackerRuntimes();
+  cleanupRuntimeBoxes();
+};
+
+const mapConnectionPayload = (payload, mapping = {}) => {
+  const entries = Object.entries(mapping || {}).filter(([, targetKey]) => targetKey);
+  if (!entries.length || !payload || typeof payload !== "object") return payload;
+
+  return entries.reduce((mapped, [sourceKey, targetKey]) => {
+    mapped[targetKey] = sourceKey.split(".").reduce((value, part) => value?.[part], payload);
+    return mapped;
+  }, {});
+};
+
+const runtimeListener = (runtime, channel) => {
+  const listener = runtime?.listener || {};
+  return listener[channel] || listener.default || listener["*"] || null;
+};
+
+const emitTrackerEvent = (fromBoxId, channel = "default", payload = {}) => {
+  workspaceViewState.connections
+    .filter((connection) =>
+      connection.fromBoxId === fromBoxId &&
+      (!connection.channel || connection.channel === channel || connection.channel === "default")
+    )
+    .forEach((connection) => {
+      const runtime = workspaceViewState.runtimes.get(connection.toBoxId);
+      const handler = runtimeListener(runtime, channel);
+      if (typeof handler !== "function") return;
+
+      try {
+        handler(mapConnectionPayload(payload, connection.mapping), {
+          channel,
+          connection,
+          fromBox: workspaceViewState.boxes.find((box) => box.id === fromBoxId) || null,
+          toBox: workspaceViewState.boxes.find((box) => box.id === connection.toBoxId) || null,
+          workspace: workspaceViewState.workspace,
+        });
+      } catch (error) {
+        console.error("Errore listener boxLens:", error);
+      }
+    });
+};
+
+const mountRuntimeBox = (box) => {
+  const host = document.querySelector(`[data-runtime-box-id="${safeCssQueryId(box.id)}"]`);
+  const mount = host?.querySelector("[data-runtime-mount]");
+  if (!host || !mount) return;
+
+  const code = getRuntimeCode(box);
+  const html = interpolateTemplate(code.html, runtimePreviewData());
+  mount.innerHTML = html;
+
+  const runtime = executeBoxLensJs(mount, code.js, {
+    mode: "workspace",
+    box,
+    workspace: workspaceViewState.workspace,
+    data: runtimePreviewData(),
+    emit: (channel, payload) => emitTrackerEvent(box.id, channel, payload),
+  });
+  workspaceViewState.runtimes.set(box.id, runtime);
+};
+
+const mountRuntimeBoxes = () => {
+  cleanupRuntimeBoxes();
+  workspaceViewState.boxes.filter(hasRuntimeView).forEach(mountRuntimeBox);
+};
+
+const trackerChannel = (box) =>
+  box.outputChannel || box.runtime?.output || box.channels?.[0] || "default";
+
+const trackerPayload = (box) =>
+  box.sampleOutput || box.runtime?.sampleOutput || {
+    boxId: box.id,
+    sourceId: box.sourceId || box.assetId,
+    emittedAt: new Date().toISOString(),
+  };
+
+const startTrackerRuntime = (box) => {
+  const channel = trackerChannel(box);
+  const emit = () => emitTrackerEvent(box.id, channel, trackerPayload(box));
+  queueMicrotask(emit);
+
+  const intervalMs = Number(box.runtime?.intervalMs || box.runtime?.mockIntervalMs || 0);
+  if (intervalMs > 0) {
+    workspaceViewState.trackerTimers.set(box.id, setInterval(emit, intervalMs));
+  }
+};
+
+const startTrackerRuntimes = () => {
+  cleanupTrackerRuntimes();
+  workspaceViewState.boxes.filter((box) => box.type === "boxTracker").forEach(startTrackerRuntime);
+};
+
 const mountWorkspaceView = () => {
   const root = document.getElementById("tl-workspace-view-root");
+  cleanupWorkspaceRuntime();
   root.replaceChildren(
     _.div(
       { class: "tl-view-shell" },
@@ -217,6 +405,9 @@ const mountWorkspaceView = () => {
     searchInput.placeholder = "Cerca workspace...";
     searchInput.setAttribute("aria-label", "Cerca workspace");
   }
+
+  mountRuntimeBoxes();
+  startTrackerRuntimes();
 };
 
 const loadWorkspaceView = async () => {
@@ -243,6 +434,7 @@ const loadWorkspaceView = async () => {
       id: record.id || content.id || workspace?.id || workspaceId,
     };
     workspaceViewState.boxes = await hydrateWorkspaceBoxes(Array.isArray(content.boxes) ? content.boxes : []);
+    workspaceViewState.connections = Array.isArray(content.connections) ? content.connections.map((connection) => ({ ...connection, mapping: { ...connection.mapping } })) : [];
     workspaceViewState.loading = false;
     workspaceViewState.error = "";
   } catch (error) {

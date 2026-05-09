@@ -520,10 +520,10 @@ body {
   margin: 0;
 }
 
-.tl-preview-frame {
+.tl-preview-runtime {
   width: var(--tl-preview-width);
   height: var(--tl-preview-height);
-  border: 0;
+  overflow: hidden;
   transform: scale(var(--tl-preview-zoom, 1));
   transform-origin: top left;
 }

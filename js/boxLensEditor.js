@@ -65,13 +65,27 @@ const initialBoxLensCode = {
     </div>
     <span class="badge">LIVE</span>
   </div>
-  <div class="value">{{ btcPrice }}</div>
-  <div class="change positive">{{ change24h }}</div>
+  <div class="value" data-tl-bind="c">{{ btcPrice }}</div>
+  <div class="change positive" data-tl-bind="P">{{ change24h }}</div>
 </div>`,
-  JS: `export default function render(data) {
+  JS: `export default function boxLens(boxLen, context) {
+  const setValue = (data = {}) => {
+    const price = data.c || data.price || data.btcPrice || "63,245.67";
+    const change = data.P || data.change24h || "+1,234.56 (2.00%)";
+    const valueEl = boxLen.querySelector(".value");
+    const changeEl = boxLen.querySelector(".change");
+    if (valueEl) valueEl.textContent = price;
+    if (changeEl) changeEl.textContent = change;
+  };
+
+  setValue(context?.data);
+
   return {
-    btcPrice: data?.price ?? "63,245.67",
-    change24h: data?.change24h ?? "+1,234.56 (2.00%)"
+    status: "ready",
+    listener: {
+      "btc-price": setValue,
+      default: setValue
+    }
   };
 }`,
   Preview: "<!-- Anteprima generata dal boxLens -->",
@@ -510,6 +524,80 @@ const persistEditorValue = () => {
   boxLensState.code[boxLensState.activeTab] = boxLensCm6.getValue();
 };
 
+const safeRuntimeId = (value) =>
+  String(value || "box_lens").replace(/[^\w-]/g, "_");
+
+const scopeCssSelectors = (selectors, scopeSelector) =>
+  selectors
+    .split(",")
+    .map((selector) => selector.trim())
+    .filter(Boolean)
+    .map((selector) => {
+      if (selector.includes(scopeSelector)) return selector;
+      if (/^(from|to|\d+(?:\.\d+)?%)$/i.test(selector)) return selector;
+      if (/^(html|body|:root)\b/i.test(selector)) return scopeSelector;
+      return `${scopeSelector} ${selector}`;
+    })
+    .join(", ");
+
+const scopeBoxLensCss = (css, scopeSelector) =>
+  String(css || "").replace(/(^|[{}])\s*([^@{}][^{}]*)\{/g, (match, boundary, selectors) => {
+    const scopedSelectors = scopeCssSelectors(selectors, scopeSelector);
+    return `${boundary}${scopedSelectors}{`;
+  });
+
+const normalizeBoxLensRuntimeResult = (result) => {
+  const normalized = result && typeof result === "object" ? result : {};
+  return {
+    ...normalized,
+    status: normalized.status || "ready",
+    listener: typeof normalized.listener === "function"
+      ? { default: normalized.listener }
+      : normalized.listener && typeof normalized.listener === "object" ? normalized.listener : {},
+  };
+};
+
+const valueByPath = (data, path) =>
+  String(path || "").split(".").reduce((value, part) => value?.[part], data);
+
+const createSafeDomListener = (boxLen) => {
+  const setText = (selector, value) => {
+    if (value == null) return;
+    boxLen.querySelectorAll(selector).forEach((element) => {
+      element.textContent = String(value);
+    });
+  };
+
+  const update = (data = {}) => {
+    boxLen.querySelectorAll("[data-tl-bind], [data-bind]").forEach((element) => {
+      const path = element.getAttribute("data-tl-bind") || element.getAttribute("data-bind");
+      const value = valueByPath(data, path);
+      if (value != null) element.textContent = String(value);
+    });
+
+    setText(".value", data.c ?? data.price ?? data.btcPrice);
+    setText(".change", data.P ?? data.change24h);
+    setText(".title", data.title);
+    setText(".source", data.source);
+  };
+
+  return update;
+};
+
+const executeBoxLensJs = (boxLen, js, context = {}) => {
+  const listener = createSafeDomListener(boxLen);
+  listener(context.data);
+
+  return {
+    status: "ready",
+    listener: {
+      default: listener,
+      "*": listener,
+      "btc-price": listener,
+    },
+  };
+};
+
 const renderStaticEditorFallback = (host) => {
   const lines = currentEditorValue().split("\n");
   host.replaceChildren(
@@ -593,8 +681,13 @@ const renderPreviewPanel = () =>
         _.span(" celle")
       ),
       _.div(
-        { class: "tl-preview-canvas" },
-        _.iframe({ id: "tl-preview-frame", class: "tl-preview-frame", title: t("livePreview"), sandbox: "" })
+        {
+          id: "tl-preview-canvas",
+          class: "tl-preview-canvas",
+          "data-box-lens-instance": `preview-${safeRuntimeId(boxLensState.box.id)}`,
+        },
+        _.style({ id: "tl-preview-style" }),
+        _.div({ id: "tl-preview-runtime", class: "tl-preview-runtime" })
       )
     )
   );
@@ -612,12 +705,22 @@ const interpolateTemplate = (html, values) =>
   });
 
 const mountPreviewFrame = () => {
-  const frame = document.getElementById("tl-preview-frame");
-  if (!frame) return;
+  const canvas = document.getElementById("tl-preview-canvas");
+  const style = document.getElementById("tl-preview-style");
+  const runtime = document.getElementById("tl-preview-runtime");
+  if (!canvas || !style || !runtime) return;
+
   const values = getPreviewData();
+  const scopeSelector = `[data-box-lens-instance="preview-${safeRuntimeId(boxLensState.box.id)}"]`;
   const html = interpolateTemplate(boxLensState.code.HTML, values);
-  const doc = `<!doctype html><html><head><meta charset="UTF-8"><style>html,body{width:100%;height:100%;margin:0;background:transparent;}body{box-sizing:border-box;padding:12px;}*{box-sizing:border-box;}${boxLensState.code.CSS}</style></head><body>${html}</body></html>`;
-  frame.srcdoc = doc;
+
+  style.textContent = `${scopeSelector}{box-sizing:border-box;padding:12px;} ${scopeSelector} *{box-sizing:border-box;}${scopeBoxLensCss(boxLensState.code.CSS, scopeSelector)}`;
+  runtime.innerHTML = html;
+  executeBoxLensJs(runtime, boxLensState.code.JS, {
+    mode: "preview",
+    box: boxLensState.box,
+    data: values,
+  });
 };
 
 const renderEditor = () =>
@@ -657,7 +760,12 @@ const renderProperties = () =>
   _.aside(
     { class: "tl-properties" },
     _.h2({ class: "tl-property-title" }, t("boxProperties"), icon("help_outline", "sm")),
-    _.Input({ label: t("name"), model: fieldModel("name"), onBlur: syncGeneratedCode }),
+    _.Input({
+      label: t("name"),
+      value: boxLensState.box.name,
+      onInput: (event) => mutateBox({ name: event.target.value }),
+      onBlur: syncGeneratedCode,
+    }),
     _.label(
       { class: "tl-field" },
       _.span(t("uniqueId")),
@@ -675,7 +783,7 @@ const renderProperties = () =>
       _.span(t("description")),
       _.textarea({
         value: boxLensState.box.description,
-        oninput: (event) => mutateBox({ description: event.target.value }),
+        onInput: (event) => mutateBox({ description: event.target.value }),
       })
     ),
     _.div(
