@@ -1046,7 +1046,11 @@ const boxesInsideRect = (rect) => {
 
 const openBoxEditor = (box) => {
   const sourceId = box.sourceId || box.assetId;
-  openChromePage(box.type === "boxTracker" ? "editorBoxTracker.html" : `editorBoxLens.html${sourceId ? `?lensId=${encodeURIComponent(sourceId)}` : ""}`);
+  openChromePage(
+    box.type === "boxTracker"
+      ? `editorBoxTracker.html${sourceId ? `?trackerId=${encodeURIComponent(sourceId)}` : ""}`
+      : `editorBoxLens.html${sourceId ? `?lensId=${encodeURIComponent(sourceId)}` : ""}`
+  );
 };
 
 const handleConnectClick = (box) => {

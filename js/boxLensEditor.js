@@ -385,7 +385,7 @@ const renderAppSidebar = () => window.TrackerLensSidebar.render({ activeId: "das
 
 const openLocalAsset = (asset) => {
   if (asset.type === "boxTracker") {
-    openChromePage("editorBoxTracker.html");
+    openChromePage(`editorBoxTracker.html?trackerId=${encodeURIComponent(asset.sourceId || asset.id)}`);
     return;
   }
 

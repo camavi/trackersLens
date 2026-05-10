@@ -38,7 +38,7 @@ const openBoxEditor = (box) => {
   }
 
   if (box.type === "boxTracker") {
-    openChromePage("editorBoxTracker.html");
+    openChromePage(`editorBoxTracker.html?trackerId=${encodeURIComponent(box.id)}`);
     return;
   }
 

@@ -111,6 +111,62 @@ l'editor entra in modalita modifica, legge il record da `tl_widgets` e ricarica:
 
 Il bottone `Salva Box` resta disabilitato solo mentre l'editor sta caricando o salvando. Dopo il salvataggio aggiorna anche la lista locale "I miei boxLens".
 
+### Editor boxTracker
+
+`editorBoxTracker.html` usa:
+
+- `js/boxTrackerEditor.js`
+- `css/boxTrackerEditor.css`
+- `js/tl-box-tracker-data.js`
+
+L'editor boxTracker ora e stateful e salva in IndexedDB con `put` nello store `tl_widgets`, quindi puo creare e aggiornare lo stesso tracker senza fallire su chiave duplicata.
+
+Supporta edit mode da URL:
+
+```txt
+editorBoxTracker.html?trackerId=tracker_1746532897218
+```
+
+Alias accettati:
+
+```txt
+?boxTrackerId=...
+?id=...
+```
+
+Quando viene aperto in edit mode, legge il record da `tl_widgets` e ricarica:
+
+- informazioni generali;
+- tipo tracker;
+- endpoint/metodo/sorgente;
+- parametri;
+- headers;
+- trasformazione;
+- output channel;
+- sample JSON;
+- runtime mode;
+- stato iniziale;
+- buffer/log/visibilita;
+- note e tag.
+
+Decisione aggiornata: il `boxTracker` non vive nella griglia del workspace e non ha dimensioni visuali. E un sistema/processo di background che produce eventi e traffico dati. In futuro una pagina dedicata mostrera tutti i tracker attivi, stato, traffico, errori, ultimo payload e collegamenti ai boxLens.
+
+I controlli principali sono interattivi:
+
+- tab `Manifest`, `Endpoint`, `Parametri`, `Headers`, `Trasformazione`, `Output`, `Test`, `Avanzate`;
+- input nome, descrizione, endpoint, timeout, intervalli, note;
+- select categoria, tipo sorgente, metodo, log level;
+- toggle reconnect, active, autoStart, log;
+- bottoni undo/redo, zoom, test manuale, cambio icona, cambio colore, tag add/remove, copy id, salva;
+- preview JSON/summary;
+- shortcut `Ctrl/Cmd+S`, `Ctrl/Cmd+Enter`, `Ctrl/Cmd+Z`, `Ctrl/Cmd+Y`, `Esc`.
+
+`library.html`, `editorWorkspace.html` e i punti che aprono un `boxTracker` ora passano `trackerId` quando esiste un record sorgente, cosi viene aperto in modalita modifica:
+
+```txt
+editorBoxTracker.html?trackerId=<id-tracker>
+```
+
 ### Runtime boxLens senza iframe
 
 Decisione architetturale aggiornata: il runtime `boxLens` non deve usare iframe per il rendering principale. L'obiettivo e trattare i boxLens come parte dello stesso applicativo, usando un contenitore DOM reale.
@@ -231,9 +287,10 @@ Priorita immediata:
 
 1. Definire il contratto completo di emissione eventi dei `boxTracker` reali.
 2. Implementare runner reali REST/WebSocket/RSS per i boxTracker.
-3. Aggiungere cleanup robusto quando un box viene rimosso o il workspace viene ricaricato.
-4. Migliorare lo scoping CSS per casi avanzati come `@media`, `@keyframes`, pseudo globali e selector complessi.
-5. Verificare con browser reale i flussi: crea boxLens, salva, riapri con `lensId`, inserisci in workspace, modifica boxLens, riapri workspace e controlla aggiornamento.
+3. Collegare il test manuale del tracker a una simulazione nel workspace quando e collegato a un boxLens.
+4. Aggiungere cleanup robusto quando un box viene rimosso o il workspace viene ricaricato.
+5. Migliorare lo scoping CSS per casi avanzati come `@media`, `@keyframes`, pseudo globali e selector complessi.
+6. Verificare con browser reale i flussi: crea boxLens/boxTracker, salva, riapri con `lensId`/`trackerId`, inserisci in workspace, modifica asset, riapri workspace e controlla aggiornamento.
 
 ## Sintesi del progetto
 
@@ -1655,18 +1712,19 @@ Fatto:
   - stato iniziale;
   - anteprima/test con JSON mock;
   - pannello proprieta tracker;
-  - dimensioni default;
+  - nota aggiornata 2026-05-09: le dimensioni default sono state rimosse perche il boxTracker non vive nella griglia;
   - canale output;
   - buffer dati;
   - log;
   - visibilita;
   - footer con suggerimento, scorciatoie e prossimi passi.
-- Il pulsante `Salva Tracker` salva un primo record in IndexedDB nella tabella `tl_widgets` con `type: "boxTracker"`, configurazione runtime e output mock.
+- Nota aggiornata 2026-05-09: il pulsante `Salva Tracker` ora usa `put` su IndexedDB, quindi crea o aggiorna il record `tl_widgets` con `type: "boxTracker"`, configurazione runtime e output mock.
 - Verifica manuale eseguita con Chrome headless e screenshot in `/tmp/trackerlens-boxtracker.png`.
 
 Decisioni tecniche:
 
 - La schermata `boxTracker` e separata da `boxLens` per mantenere chiari i concetti prodotto: visualizzazione vs raccolta dati.
+- Nota aggiornata 2026-05-09: `boxTracker` e trattato come processo/background data source, non come elemento visuale da inserire nel workspace.
 - Il mock usa dati statici Binance/WebSocket per fissare UX e modello mentale, ma non apre ancora connessioni reali.
 - Il canale `btc-price` e trattato come primo aggancio futuro tra `boxTracker` e `boxLens`.
 
@@ -2143,7 +2201,7 @@ Fatto:
 - Conteggi categorie calcolati in base al tipo attivo.
 - Card cliccabili:
   - `boxLens` apre `editorBoxLens.html?lensId=<id>`;
-  - `boxTracker` apre `editorBoxTracker.html` per ora, perche l'editor tracker non ha ancora modalita edit da URL.
+  - nota aggiornata 2026-05-09: `boxTracker` ora apre `editorBoxTracker.html?trackerId=<id>`.
 
 Verifiche eseguite:
 
@@ -2155,7 +2213,7 @@ Cosa manca / prossimi passi:
 
 - Verifica visuale manuale in browser reale della pagina `library.html`.
 - Collegare i pulsanti sidebar non ancora attivi a viste reali.
-- Aggiungere modalita edit da URL anche a `editorBoxTracker.html`, cosi la card `boxTracker` puo aprire direttamente il record salvato.
+- Nota aggiornata 2026-05-09: modalita edit da URL aggiunta a `editorBoxTracker.html`.
 - Valutare preferiti reali in IndexedDB o Chrome storage.
 
 Nota successiva:
