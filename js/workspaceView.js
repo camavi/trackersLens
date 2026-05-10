@@ -27,7 +27,7 @@ const openEditor = () => {
 };
 
 const renderBrand = () =>
-  _.div(
+  _.Row(
     { class: "tl-view-brand" },
     _.span({ class: "tl-brand-mark", "aria-hidden": "true" }),
     _.h1({ class: "tl-brand-title" }, "TRACKER ", _.span("LENS")),
@@ -44,8 +44,8 @@ const renderTopbar = () =>
       value: "",
       "aria-label": "Cerca workspace",
     }),
-    _.div(
-      { class: "tl-view-actions" },
+    _.Toolbar(
+      { class: "tl-view-actions", align: "center", gap: 16 },
       btn({ class: "tl-view-edit", onclick: openEditor }, icon("edit", "sm"), "Edit"),
       btn({ class: "tl-view-menu", "aria-label": "Menu workspace" }, icon("more_vert"))
     )

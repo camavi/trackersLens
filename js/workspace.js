@@ -248,7 +248,7 @@ const saveWorkspace = async () => {
 const renderHeader = () =>
   _.header(
     { class: "tl-workspace-header" },
-    _.div(
+    _.Row(
       { class: "tl-app-brand" },
       _.span({ class: "tl-brand-mark", "aria-hidden": "true" }),
       _.h1({ class: "tl-brand-title" }, "TRACKER ", _.span("LENS")),
@@ -259,11 +259,11 @@ const renderHeader = () =>
       _.h1(workspaceState.workspace.name, btn({ class: "tl-title-edit", "aria-label": "Modifica nome workspace", onclick: focusWorkspaceName }, icon("edit", "sm"))),
       _.div({ id: "tl-save-state", class: "tl-save-state" }, workspaceState.savedLabel)
     ),
-    _.div(
-      { class: "tl-header-actions" },
-      _.div({ class: "tl-icon-group" }, btn({ class: "tl-top-icon", "aria-label": "Annulla", disabled: workspaceState.history.length === 0, onclick: undoWorkspace }, icon("undo")), btn({ class: "tl-top-icon", "aria-label": "Ripeti", disabled: workspaceState.future.length === 0, onclick: redoWorkspace }, icon("redo"))),
+    _.Toolbar(
+      { class: "tl-header-actions", align: "center", gap: 14 },
+      _.Row({ class: "tl-icon-group", align: "center", gap: 8 }, btn({ class: "tl-top-icon", "aria-label": "Annulla", disabled: workspaceState.history.length === 0, onclick: undoWorkspace }, icon("undo")), btn({ class: "tl-top-icon", "aria-label": "Ripeti", disabled: workspaceState.future.length === 0, onclick: redoWorkspace }, icon("redo"))),
       _.span({ class: "tl-separator" }),
-      _.div({ class: "tl-zoom-group" }, btn({ class: "tl-top-icon", "aria-label": "Zoom out", onclick: () => setZoom(workspaceState.zoom - 10) }, icon("remove")), _.span(`${workspaceState.zoom}%`), btn({ class: "tl-top-icon", "aria-label": "Zoom in", onclick: () => setZoom(workspaceState.zoom + 10) }, icon("add"))),
+      _.Row({ class: "tl-zoom-group", align: "center", gap: 8 }, btn({ class: "tl-top-icon", "aria-label": "Zoom out", onclick: () => setZoom(workspaceState.zoom - 10) }, icon("remove")), _.span(`${workspaceState.zoom}%`), btn({ class: "tl-top-icon", "aria-label": "Zoom in", onclick: () => setZoom(workspaceState.zoom + 10) }, icon("add"))),
       _.span({ class: "tl-separator" }),
       btn({ class: `tl-top-icon${workspaceState.previewMode ? " is-active" : ""}`, "aria-label": "Anteprima desktop", onclick: togglePreview }, icon("desktop_windows")),
       btn({ class: `tl-top-icon${workspaceState.workspace.showGrid ? " is-active" : ""}`, "aria-label": "Vista griglia", onclick: () => updateWorkspaceConfig("showGrid", !workspaceState.workspace.showGrid, "Vista griglia aggiornata") }, icon("dashboard")),
@@ -371,20 +371,20 @@ const renderAssetList = () => {
     return _.div({ class: "tl-box-list-state" }, workspaceState.search ? "Nessun box locale trovato." : "Nessun box salvato in libreria.");
   }
 
-  return _.div({ class: "tl-box-list" }, ...assets.map(renderAssetCard));
+  return _.Grid({ class: "tl-box-list", cols: 1, gap: 8 }, ...assets.map(renderAssetCard));
 };
 
 const renderAddPanel = () =>
   _.aside(
     { class: "tl-add-panel" },
     _.h2({ class: "tl-panel-title" }, "Aggiungi Box"),
-    _.div(
-      { class: "tl-type-tabs" },
+    _.Grid(
+      { class: "tl-type-tabs", cols: 2, gap: 8, margin: "0 0 10px" },
       btn({ class: `tl-type-tab${workspaceState.type === "boxLens" ? " is-active" : ""}`, onclick: () => setAssetType("boxLens") }, "boxLens"),
       btn({ class: `tl-type-tab is-tracker${workspaceState.type === "boxTracker" ? " is-active" : ""}`, onclick: () => setAssetType("boxTracker") }, "boxTracker")
     ),
-    _.div(
-      { class: "tl-create-actions" },
+    _.Grid(
+      { class: "tl-create-actions", cols: 2, gap: 8, margin: "0 0 14px" },
       btn({ class: "tl-create-box-btn is-lens", onclick: () => openChromePage("editorBoxLens.html") }, icon("add", "sm"), "Crea boxLens"),
       btn({ class: "tl-create-box-btn is-tracker", onclick: () => openChromePage("editorBoxTracker.html") }, icon("add", "sm"), "Crea boxTracker")
     ),
@@ -426,8 +426,8 @@ const renderRailPanel = () => {
 };
 
 const renderDeviceSwitch = () =>
-  _.div(
-    { class: "tl-device-switch" },
+  _.Row(
+    { class: "tl-device-switch", align: "center", gap: 8 },
     [
       ["desktop", "Desktop", "desktop_windows"],
       ["tablet", "Tablet", "tablet_mac"],
@@ -436,11 +436,11 @@ const renderDeviceSwitch = () =>
   );
 
 const renderCanvasToolbar = () =>
-  _.div(
-    { class: "tl-canvas-toolbar" },
+  _.Toolbar(
+    { class: "tl-canvas-toolbar", align: "center", justify: "space-between", gap: 12 },
     renderDeviceSwitch(),
-    _.div(
-      { class: "tl-grid-controls" },
+    _.Row(
+      { class: "tl-grid-controls", align: "center", gap: 8 },
       btn({ class: "tl-grid-select", onclick: () => cycleGridSetting("columns") }, `Griglia: ${workspaceState.workspace.columns} colonne`, icon("keyboard_arrow_down", "sm")),
       btn({ class: "tl-grid-select", onclick: () => cycleGridSetting("rows") }, `Righe: ${workspaceState.workspace.rows}`, icon("keyboard_arrow_down", "sm")),
       btn({ class: "tl-grid-select", "aria-label": "Impostazioni griglia", onclick: () => updateWorkspaceConfig("snapToGrid", !workspaceState.workspace.snapToGrid, "Aggancio alla griglia aggiornato") }, icon("settings"))
@@ -562,11 +562,11 @@ const renderProperties = () => {
     workspaceState.notice ? _.div({ class: "tl-notice" }, workspaceState.notice) : null,
     _.Card(
       { class: "tl-property-card" },
-      _.div({ class: "tl-card-head" }, _.span("Proprieta Workspace"), icon("chevron_right", "sm")),
+      _.Row({ class: "tl-card-head", justify: "space-between" }, _.span("Proprieta Workspace"), icon("chevron_right", "sm")),
       _.label({ class: "tl-field" }, _.span("Nome"), _.Input({ id: "tl-workspace-name", class: "tl-property-input", value: workspace.name, onInput: (event) => updateWorkspaceDraft("name", event.target.value) })),
       _.label({ class: "tl-field" }, _.span("Descrizione"), _.textarea({ class: "tl-property-textarea", placeholder: "Descrizione (opzionale)", oninput: (event) => updateWorkspaceDraft("description", event.target.value) }, workspace.description)),
       _.label({ class: "tl-field" }, _.span("Sfondo"), btn({ class: "tl-color-row", onclick: cycleBackground }, _.span({ class: "tl-color-swatch", style: { background: workspace.background } }), _.span(workspace.background), icon("check_box_outline_blank", "sm"))),
-      _.div({ class: "tl-card-head" }, _.span("Impostazioni Griglia")),
+      _.Row({ class: "tl-card-head", justify: "space-between" }, _.span("Impostazioni Griglia")),
       renderSetting("Colonne", workspace.columns),
       renderSetting("Righe iniziali", workspace.rows),
       renderSetting("Altezza riga (px)", workspace.rowHeight),
@@ -574,24 +574,24 @@ const renderProperties = () => {
       renderToggle("Aggancia alla griglia", workspace.snapToGrid, () => updateWorkspaceConfig("snapToGrid", !workspace.snapToGrid, "Aggancio alla griglia aggiornato"))
     ),
     box ? renderSelectedBoxProperties(box) : null,
-    _.Card({ class: "tl-property-card" }, _.div({ class: "tl-card-head" }, _.span("Navigator")), _.div({ class: "tl-navigator" }, _.div({ class: "tl-navigator-view" })))
+    _.Card({ class: "tl-property-card" }, _.Row({ class: "tl-card-head", justify: "space-between" }, _.span("Navigator")), _.div({ class: "tl-navigator" }, _.div({ class: "tl-navigator-view" })))
   );
 };
 
 const renderSetting = (label, value) =>
-  _.div({ class: "tl-setting-row" }, _.span(label), btn({ class: "tl-setting-btn", onclick: () => cycleSettingByLabel(label) }, String(value), icon("keyboard_arrow_down", "sm")));
+  _.Row({ class: "tl-setting-row", align: "center", justify: "space-between", gap: 12 }, _.span(label), btn({ class: "tl-setting-btn", onclick: () => cycleSettingByLabel(label) }, String(value), icon("keyboard_arrow_down", "sm")));
 
-const renderToggle = (label, value, onclick) => _.div({ class: "tl-setting-row" }, _.span(label), _.Toggle({ checked: value, color: "primary", onChange: onclick, onclick }));
+const renderToggle = (label, value, onclick) => _.Row({ class: "tl-setting-row", align: "center", justify: "space-between", gap: 12 }, _.span(label), _.Toggle({ checked: value, color: "primary", onChange: onclick, onclick }));
 
 const renderSelectedBoxProperties = (box) =>
   _.Card(
     { class: "tl-property-card" },
-    _.div({ class: "tl-card-head" }, _.span(workspaceState.selectedBoxIds.length > 1 ? "Box selezionati" : "Box selezionato"), btn({ class: "tl-top-icon", "aria-label": "Deseleziona box", onclick: () => selectBox(null) }, icon("close", "sm"))),
+    _.Row({ class: "tl-card-head", justify: "space-between" }, _.span(workspaceState.selectedBoxIds.length > 1 ? "Box selezionati" : "Box selezionato"), btn({ class: "tl-top-icon", "aria-label": "Deseleziona box", onclick: () => selectBox(null) }, icon("close", "sm"))),
     _.div({ class: "tl-selected-box-name" }, workspaceState.selectedBoxIds.length > 1 ? `${workspaceState.selectedBoxIds.length} box` : box.name),
-    _.div({ class: "tl-setting-row" }, _.span("Tipo"), _.span(workspaceState.selectedBoxIds.length > 1 ? "Selezione multipla" : box.type)),
-    _.div({ class: "tl-setting-row" }, _.span("Posizione"), _.span(`${box.x}, ${box.y}`)),
-    _.div({ class: "tl-setting-row" }, _.span("Dimensioni"), _.span(`${box.width} x ${box.height}`)),
-    _.div({ class: "tl-mini-actions" }, btn({ onclick: duplicateSelectedBoxes }, icon("content_copy", "sm"), "Duplica"), btn({ class: "is-danger", onclick: deleteSelectedBoxes }, icon("delete", "sm"), "Elimina"))
+    _.Row({ class: "tl-setting-row", align: "center", justify: "space-between", gap: 12 }, _.span("Tipo"), _.span(workspaceState.selectedBoxIds.length > 1 ? "Selezione multipla" : box.type)),
+    _.Row({ class: "tl-setting-row", align: "center", justify: "space-between", gap: 12 }, _.span("Posizione"), _.span(`${box.x}, ${box.y}`)),
+    _.Row({ class: "tl-setting-row", align: "center", justify: "space-between", gap: 12 }, _.span("Dimensioni"), _.span(`${box.width} x ${box.height}`)),
+    _.Grid({ class: "tl-mini-actions", cols: 1, gap: 8 }, btn({ onclick: duplicateSelectedBoxes }, icon("content_copy", "sm"), "Duplica"), btn({ class: "is-danger", onclick: deleteSelectedBoxes }, icon("delete", "sm"), "Elimina"))
   );
 
 const renderActionMenu = () =>
@@ -608,8 +608,8 @@ const renderConfirmPanel = () =>
     { class: "tl-confirm-panel" },
     _.div({ class: "tl-confirm-title" }, "Vuoi eliminare i box selezionati?"),
     _.p("Le istanze verranno rimosse dal canvas insieme alle connessioni collegate. Gli asset in libreria resteranno disponibili."),
-    _.div(
-      { class: "tl-confirm-actions" },
+    _.Grid(
+      { class: "tl-confirm-actions", cols: 2, gap: 8 },
       btn({ onclick: cancelPendingConfirm }, "Annulla"),
       btn({ class: "is-danger", onclick: confirmPendingDelete }, icon("delete", "sm"), "Elimina")
     )
@@ -656,17 +656,20 @@ const renderToolMenu = () => {
       onclick: (event) => event.stopPropagation(),
     },
     _.div({ class: "tl-tool-menu-status" }, disabled ? requirement.message : `${selectedCount} box selezionati`),
-    ...menus[workspaceState.toolMenu].map(([id, label]) =>
-      btn(
-        {
-          class: disabled ? "disabled" : "",
-          disabled,
-          onclick: (event) => {
-            event.stopPropagation();
-            if (!disabled) action(id);
+    _.Grid(
+      { class: "tl-tool-menu-actions", cols: 1, gap: 6 },
+      ...menus[workspaceState.toolMenu].map(([id, label]) =>
+        btn(
+          {
+            class: disabled ? "disabled" : "",
+            disabled,
+            onclick: (event) => {
+              event.stopPropagation();
+              if (!disabled) action(id);
+            },
           },
-        },
-        label
+          label
+        )
       )
     )
   );
@@ -675,24 +678,30 @@ const renderToolMenu = () => {
 const renderToolbox = () =>
   _.Card(
     { class: "tl-toolbox" },
-    ...workspaceData.tools.map((tool, index) => [
-      index === 4 || index === 7 ? _.span({ class: "tl-separator" }) : null,
-      btn({ id: `tool-${tool.id}`, class: `tl-tool-btn tool-button${workspaceState.activeTool === tool.id ? " is-active active" : ""}${tool.danger ? " is-danger" : ""}`, onclick: () => setActiveTool(tool.id) }, icon(tool.icon), _.span(tool.label)),
-    ]).flat().filter(Boolean)
+    _.Row(
+      { class: "tl-toolbox-row", align: "center", justify: "center", gap: 8 },
+      ...workspaceData.tools.map((tool, index) => [
+        index === 4 || index === 7 ? _.span({ class: "tl-separator" }) : null,
+        btn({ id: `tool-${tool.id}`, class: `tl-tool-btn tool-button${workspaceState.activeTool === tool.id ? " is-active active" : ""}${tool.danger ? " is-danger" : ""}`, onclick: () => setActiveTool(tool.id) }, icon(tool.icon), _.span(tool.label)),
+      ]).flat().filter(Boolean)
+    )
   );
 
 const renderShortcuts = () =>
   _.Card(
     { class: "tl-shortcuts" },
-    _.span(icon("lightbulb_outline", "sm"), " Suggerimenti"),
-    _.span("Seleziona ", _.kbd({ class: "tl-kbd" }, "V")),
-    _.span("Sposta ", _.kbd({ class: "tl-kbd" }, "M")),
-    _.span("Ridimensiona ", _.kbd({ class: "tl-kbd" }, "R")),
-    _.span("Collega ", _.kbd({ class: "tl-kbd" }, "C")),
-    _.span("Elimina ", _.kbd({ class: "tl-kbd" }, "Del")),
-    _.span("Duplica ", _.kbd({ class: "tl-kbd" }, "Ctrl D")),
-    _.span("Anteprima ", _.kbd({ class: "tl-kbd" }, "P")),
-    _.span({ class: "tl-help" }, icon("help_outline", "sm"), " Serve aiuto? ", btn({ class: "tl-top-icon", onclick: () => setNotice("Guida rapida: clicca un box dalla lista per inserirlo, poi usa la toolbar.") }, "Apri guida", icon("chevron_right", "sm")))
+    _.Row(
+      { class: "tl-shortcuts-row", align: "center", gap: 28 },
+      _.span(icon("lightbulb_outline", "sm"), " Suggerimenti"),
+      _.span("Seleziona ", _.kbd({ class: "tl-kbd" }, "V")),
+      _.span("Sposta ", _.kbd({ class: "tl-kbd" }, "M")),
+      _.span("Ridimensiona ", _.kbd({ class: "tl-kbd" }, "R")),
+      _.span("Collega ", _.kbd({ class: "tl-kbd" }, "C")),
+      _.span("Elimina ", _.kbd({ class: "tl-kbd" }, "Del")),
+      _.span("Duplica ", _.kbd({ class: "tl-kbd" }, "Ctrl D")),
+      _.span("Anteprima ", _.kbd({ class: "tl-kbd" }, "P")),
+      _.span({ class: "tl-help" }, icon("help_outline", "sm"), " Serve aiuto? ", btn({ class: "tl-top-icon", onclick: () => setNotice("Guida rapida: clicca un box dalla lista per inserirlo, poi usa la toolbar.") }, "Apri guida", icon("chevron_right", "sm")))
+    )
   );
 
 const renderBottom = () => _.div({ class: "tl-bottom-bar" }, renderToolMenu(), renderToolbox(), renderShortcuts());

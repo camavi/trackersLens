@@ -1,10 +1,10 @@
 # Trackers Lens - Informazioni progetto per AI
 
-Documento generato il 2026-05-06 e aggiornato il 2026-05-09 sulla base dei file presenti in `/Users/cmalleux/Sites/trackerLens`.
+Documento generato il 2026-05-06 e aggiornato il 2026-05-10 sulla base dei file presenti in `/Users/cmalleux/Sites/trackerLens`.
 
 Questo file serve come contesto dettagliato per future sessioni AI o per sviluppatori che devono continuare il progetto. Descrive la visione del prodotto, cosa esiste oggi, come sono collegati i file, quali funzioni sono gia implementate e quali parti risultano ancora prototipali o incomplete.
 
-## Stato aggiornato 2026-05-09
+## Stato aggiornato 2026-05-10
 
 Il progetto ha introdotto una nuova UI locale piu vicina al prodotto finale, oltre ai file storici della prima estensione. Le pagine operative principali oggi sono:
 
@@ -160,6 +160,14 @@ I controlli principali sono interattivi:
 - bottoni undo/redo, zoom, test manuale, cambio icona, cambio colore, tag add/remove, copy id, salva;
 - preview JSON/summary;
 - shortcut `Ctrl/Cmd+S`, `Ctrl/Cmd+Enter`, `Ctrl/Cmd+Z`, `Ctrl/Cmd+Y`, `Esc`.
+
+Nota aggiornata 2026-05-10: e iniziata la riduzione del layout custom in favore dei componenti CMSwift. In `editorBoxTracker.html` i layout generici di lista/form/griglia/tag/footer sono stati convertiti verso `_.Grid`, `_.Row`, `_.Col` e `_.Toolbar`; le classi CSS rimaste devono servire soprattutto per tema, superfici e identita visuale specifica, non per sostituire componenti layout CMSwift. La stessa direzione e stata applicata ai blocchi laterali e al footer di `editorBoxLens.html`.
+
+Nota aggiornata 2026-05-10: la stessa correzione e stata avviata anche su `library.html`/`js/library.js`: toolbar, tab, categorie, griglia/lista asset e righe interne delle card usano componenti CMSwift (`_.Toolbar`, `_.Grid`, `_.Row`). Il CSS di `library.css` e stato ridotto nelle parti dove duplicava layout generico.
+
+Nota aggiornata 2026-05-10: `editorWorkspace.html`/`js/workspace.js` e stato convertito in modo conservativo verso CMSwift per le aree UI non-canvas: header actions, tab tipo asset, azioni creazione, lista asset, switch device, controlli griglia, righe proprieta, conferma eliminazione, toolbox e shortcut. Il canvas, la griglia interna, i box posizionati, gli assi e il layer connessioni restano volutamente CSS custom perche fanno parte del comportamento interattivo.
+
+Nota aggiornata 2026-05-10: `workspace.html`/`js/workspaceView.js` e stato toccato solo nelle aree shell sicure: brand e action toolbar usano `_.Row`/`_.Toolbar`. Il canvas runtime, il layer box, il CSS scoped dei boxLens e il dispatch eventi boxTracker -> boxLens restano custom e non vanno convertiti a componenti layout generici senza una verifica visuale dedicata.
 
 `library.html`, `editorWorkspace.html` e i punti che aprono un `boxTracker` ora passano `trackerId` quando esiste un record sorgente, cosi viene aperto in modalita modifica:
 

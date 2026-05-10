@@ -153,7 +153,7 @@ const categoryCounts = () => {
 };
 
 const renderBrand = () =>
-  _.div(
+  _.Row(
     { class: "tl-library-brand" },
     _.span({ class: "tl-brand-mark", "aria-hidden": "true" }),
     _.h1({ class: "tl-brand-title" }, "TRACKER ", _.span("LENS")),
@@ -170,8 +170,8 @@ const renderTopbar = () =>
       value: libraryState.query,
       "aria-label": "Cerca nella libreria",
     }),
-    _.div(
-      { class: "tl-library-actions" },
+    _.Toolbar(
+      { class: "tl-library-actions", align: "center", gap: 16 },
       btn({ class: "tl-library-create", onclick: openCreateBox }, icon("edit", "sm"), "Crea nuovo box"),
       btn({ class: "tl-library-menu", "aria-label": "Menu libreria" }, icon("more_vert"))
     )
@@ -192,8 +192,8 @@ const setCategory = (category) => {
 };
 
 const renderTabs = () =>
-  _.div(
-    { class: "tl-library-tabs", role: "tablist", "aria-label": "Filtra per tipo box" },
+  _.Grid(
+    { class: "tl-library-tabs", cols: 4, gap: 8, role: "tablist", "aria-label": "Filtra per tipo box" },
     btn({ class: `tl-library-tab${libraryState.type === "all" ? " is-active" : ""}`, onclick: () => setType("all") }, "Tutti"),
     btn({ class: `tl-library-tab${libraryState.type === "workspace" ? " is-active" : ""}`, onclick: () => setType("workspace") }, "Wsp"),
     btn({ class: `tl-library-tab${libraryState.type === "boxLens" ? " is-active" : ""}`, onclick: () => setType("boxLens") }, "Lens"),
@@ -206,8 +206,8 @@ const renderCategory = (category) =>
       class: `tl-category-btn${libraryState.category === category.name ? " is-active" : ""}`,
       onclick: () => setCategory(category.name),
     },
-    _.span(
-      { class: "tl-category-row" },
+    _.Row(
+      { class: "tl-category-row", align: "center", justify: "space-between", gap: 12 },
       _.span({ class: "tl-category-name" }, category.name),
       _.span({ class: "tl-category-count" }, String(category.count))
     )
@@ -216,8 +216,8 @@ const renderCategory = (category) =>
 const renderFilterPanel = () =>
   _.aside(
     { class: "tl-library-panel", "aria-label": "Filtri libreria" },
-    _.div(
-      { class: "tl-library-panel-head" },
+    _.Row(
+      { class: "tl-library-panel-head", align: "center", justify: "space-between", gap: 14 },
       _.h2({ class: "tl-library-title" }, "Libreria"),
       btn({ class: "tl-library-star", "aria-label": "Preferiti" }, icon("star_outline", "sm"))
     ),
@@ -225,7 +225,7 @@ const renderFilterPanel = () =>
     _.section(
       { class: "tl-category-section" },
       _.h3({ class: "tl-section-label" }, "Categorie"),
-      _.div({ class: "tl-category-list" }, ...categoryCounts().map(renderCategory))
+      _.Grid({ cols: 1, gap: 4 }, ...categoryCounts().map(renderCategory))
     ),
     _.section(
       { class: "tl-library-favorites" },
@@ -248,15 +248,15 @@ const renderSort = () =>
   });
 
 const renderToolbar = (items) =>
-  _.div(
-    { class: "tl-library-toolbar" },
-    _.div(
-      { class: "tl-result-heading" },
+  _.Toolbar(
+    { class: "tl-library-toolbar", align: "center", justify: "space-between", gap: 18 },
+    _.Row(
+      { class: "tl-result-heading", align: "baseline", gap: 10 },
       _.h2(libraryState.category === "Tutti" ? "Tutta la libreria" : libraryState.category),
       _.span({ class: "tl-result-count" }, `${items.length} elementi`)
     ),
-    _.div(
-      { class: "tl-toolbar-actions" },
+    _.Row(
+      { class: "tl-toolbar-actions", align: "center", gap: 12 },
       renderSort(),
       btn({ class: `tl-view-toggle${libraryState.view === "grid" ? " is-active" : ""}`, "aria-label": "Vista griglia", onclick: () => setView("grid") }, icon("grid_view", "sm")),
       btn({ class: `tl-view-toggle${libraryState.view === "list" ? " is-active" : ""}`, "aria-label": "Vista lista", onclick: () => setView("list") }, icon("view_list", "sm"))
@@ -289,8 +289,8 @@ const renderBoxCard = (box) =>
         if (event.key === "Enter") openBoxEditor(box);
       },
     },
-    _.div(
-      { class: "tl-card-head" },
+    _.Grid(
+      { class: "tl-card-head", cols: "52px minmax(0, 1fr)", gap: 14, align: "center" },
       renderBoxIcon(box),
       _.div(
         { class: "tl-card-title" },
@@ -299,8 +299,8 @@ const renderBoxCard = (box) =>
       )
     ),
     _.p({ class: "tl-card-description" }, box.description),
-    _.div(
-      { class: "tl-card-foot" },
+    _.Row(
+      { class: "tl-card-foot", align: "center", justify: "space-between", gap: 12 },
       _.div(
         _.div({ class: `tl-card-category${box.type === "boxTracker" ? " is-tracker" : ""}${box.type === "workspace" ? " is-workspace" : ""}` }, box.category),
         _.div({ class: "tl-card-meta" }, `${box.author} · v${box.version}`)
@@ -370,17 +370,16 @@ const renderMain = () => {
         : libraryState.error
           ? renderErrorState()
           : items.length
-            ? _.div({ class: modeClass }, ...items.map(renderBoxCard))
+            ? _.Grid({ class: modeClass, cols: libraryState.view === "list" ? 1 : "repeat(auto-fill, minmax(220px, 1fr))", gap: libraryState.view === "list" ? 12 : "28px 18px" }, ...items.map(renderBoxCard))
             : renderEmptyState()
     )
   );
 };
 
 const bindSearchInput = (root) => {
-  const searchInput = root.querySelector(".tl-library-search input");
+  const searchInput = root.querySelector(".tl-library-search-input input");
   if (!searchInput) return;
 
-  searchInput.placeholder = "Cerca nella libreria...";
   searchInput.setAttribute("aria-label", "Cerca nella libreria");
   searchInput.value = libraryState.query;
   if (libraryState.searchFocus) {

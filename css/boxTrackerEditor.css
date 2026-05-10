@@ -86,9 +86,6 @@ body {
 
 .tl-tracker-actions {
   padding: 0 18px;
-  display: flex;
-  align-items: center;
-  gap: 12px;
 }
 
 .tl-tracker-actions .cms-btn,
@@ -137,12 +134,6 @@ body {
   margin: 0 0 18px;
   color: var(--tl-text-muted);
   font-size: 12px;
-}
-
-.tl-create-kind {
-  display: grid;
-  gap: 10px;
-  margin-bottom: 30px;
 }
 
 .tl-kind-card.cms-card,
@@ -200,11 +191,6 @@ body {
   line-height: 1.35;
 }
 
-.tl-type-list {
-  display: grid;
-  gap: 7px;
-}
-
 .tl-tracker-main {
   min-width: 0;
   padding: 18px 14px;
@@ -234,9 +220,6 @@ body {
 }
 
 .tl-content-grid {
-  display: grid;
-  grid-template-columns: minmax(430px, 1.25fr) minmax(340px, 0.9fr);
-  gap: 14px;
   height: calc(100% - 44px);
 }
 
@@ -291,12 +274,6 @@ body {
   font-weight: 800;
 }
 
-.tl-form-grid {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) 150px;
-  gap: 14px;
-}
-
 .tl-field {
   display: grid;
   gap: 7px;
@@ -307,7 +284,6 @@ body {
 .tl-field .cms-control,
 .tl-field textarea,
 .tl-select-row,
-.tl-tag-row,
 .tl-output-row {
   color: var(--tl-text);
   background: rgba(4, 9, 14, 0.58);
@@ -344,27 +320,11 @@ body {
   background: var(--tracker-color);
 }
 
-.tl-form-row {
-  display: grid;
-  grid-template-columns: 160px 1fr;
-  gap: 14px;
-  margin-top: 14px;
-}
-
 .tl-color-chip {
   width: 22px;
   height: 22px;
   border-radius: 50%;
   background: var(--tracker-color);
-}
-
-.tl-tag-row {
-  min-height: 34px;
-  padding: 6px;
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 6px;
 }
 
 .tl-tag-input {
@@ -388,12 +348,6 @@ body {
   min-width: auto;
   height: 28px;
   border-color: rgba(255, 255, 255, 0.08);
-}
-
-.tl-mode-grid {
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 8px;
 }
 
 .tl-mode-card {
@@ -425,19 +379,6 @@ body {
   font-weight: 800;
 }
 
-.tl-exec-grid {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 14px;
-  margin-top: 14px;
-}
-
-.tl-state-grid {
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 16px;
-}
-
 .tl-preview-panel {
   min-height: 0;
   margin-top: 46px;
@@ -460,11 +401,6 @@ body {
   align-items: center;
   gap: 8px;
   font-weight: 800;
-}
-
-.tl-preview-icons {
-  display: flex;
-  gap: 6px;
 }
 
 .tl-preview-icons .cms-btn {
@@ -656,10 +592,6 @@ body {
 }
 
 .tl-bottom-shortcuts {
-  display: inline-flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 10px;
   color: var(--tl-text-muted);
   font-size: 12px;
 }

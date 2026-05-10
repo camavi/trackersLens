@@ -36,9 +36,6 @@ body {
 
 .tl-view-brand {
   min-width: 0;
-  display: flex;
-  align-items: center;
-  gap: 14px;
 }
 
 .tl-view-brand .tl-brand-mark {
@@ -99,9 +96,6 @@ body {
 
 .tl-view-actions {
   justify-self: end;
-  display: flex;
-  align-items: center;
-  gap: 16px;
 }
 
 .tl-view-edit.cms-btn {

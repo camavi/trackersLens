@@ -390,8 +390,8 @@ const renderHeader = () =>
     { class: "tl-tracker-header" },
     _.div({ class: "tl-tracker-brand" }, _.span({ class: "tl-brand-mark" }), _.h1({ class: "tl-brand-title" }, "TRACKER ", _.span("LENS")), icon("chevron_right", "sm")),
     _.div({ class: "tl-workspace-heading" }, _.h1(trackerData.workspace.name, _.span({ class: "tl-online-dot" })), _.p("• ", trackerState.notice || trackerState.savedLabel)),
-    _.div(
-      { class: "tl-tracker-actions" },
+    _.Toolbar(
+      { class: "tl-tracker-actions", align: "center", gap: 12 },
       btn({ class: "tl-icon-btn", "aria-label": "Annulla", onclick: undo, disabled: !trackerState.history.length }, icon("undo")),
       btn({ class: "tl-icon-btn", "aria-label": "Ripristina", onclick: redo, disabled: !trackerState.future.length }, icon("redo")),
       _.span({ class: "tl-separator" }),
@@ -436,16 +436,16 @@ const renderSidebar = () =>
     { class: "tl-create-side" },
     _.h2({ class: "tl-side-title" }, "Crea Nuovo Box"),
     _.p({ class: "tl-side-subtitle" }, "Scegli il tipo di box da creare"),
-    _.div({ class: "tl-create-kind" }, renderKindCard("boxLens"), renderKindCard("boxTracker")),
+    _.Grid({ cols: 1, gap: 10, margin: "0 0 30px" }, renderKindCard("boxLens"), renderKindCard("boxTracker")),
     _.h2({ class: "tl-side-title" }, "Tipo di boxTracker"),
-    _.div({ class: "tl-type-list" }, ...trackerData.trackerTypes.map(renderTypeCard))
+    _.Grid({ cols: 1, gap: 7 }, ...trackerData.trackerTypes.map(renderTypeCard))
   );
 
 const renderMain = () =>
   _.section(
     { class: "tl-tracker-main" },
     _.div({ class: "tl-editor-top" }, _.h2(trackerState.editingExisting || isEditRequest ? "Modifica boxTracker" : "Nuovo boxTracker"), icon("edit", "sm"), _.span({ class: "tl-id-badge" }, "ID: ", trackerState.tracker.id)),
-    _.div({ class: "tl-content-grid" }, renderConfigStack(), renderPreview())
+    _.Grid({ class: "tl-content-grid", cols: "minmax(0, 1fr) 356px", gap: 14 }, renderConfigStack(), renderPreview())
   );
 
 const renderTabs = () =>
@@ -478,18 +478,18 @@ const renderGeneralPanel = () =>
   _.Card(
     { class: "tl-panel" },
     _.h3({ class: "tl-panel-title" }, "Informazioni generali"),
-    _.div(
-      { class: "tl-form-grid" },
+    _.Grid(
+      { cols: "minmax(0, 1fr) 150px", gap: 14 },
       _.label({ class: "tl-field" }, _.span("Nome"), _.Input({ value: trackerState.tracker.name, onInput: (event) => mutateTracker({ name: event.target.value }) })),
       _.Select({ label: "Categoria", value: trackerState.tracker.category, options: categoryOptions, slots: selectArrowSlot, onChange: (value) => mutateTracker({ category: value }, true) })
     ),
-    _.div(
-      { class: "tl-form-grid", style: { marginTop: "14px" } },
+    _.Grid(
+      { cols: "minmax(0, 1fr) 150px", gap: 14, margin: "14px 0 0" },
       _.label({ class: "tl-field" }, _.span("Descrizione (opzionale)"), _.textarea({ value: trackerState.tracker.description, onInput: (event) => mutateTracker({ description: event.target.value }) })),
       _.div({ class: "tl-field" }, _.span("Icona"), btn({ class: "tl-select-row", onclick: cycleIcon }, _.span({ class: "tl-tracker-icon", style: { "--tracker-color": trackerState.tracker.color } }, trackerState.tracker.icon), _.span("Cambia"), icon("keyboard_arrow_down", "sm")))
     ),
-    _.div(
-      { class: "tl-form-row" },
+    _.Grid(
+      { cols: "160px minmax(0, 1fr)", gap: 14, margin: "14px 0 0" },
       _.div({ class: "tl-field" }, _.span("Colore"), btn({ class: "tl-select-row", onclick: cycleColor }, _.span({ class: "tl-color-chip", style: { "--tracker-color": trackerState.tracker.color } }), _.span(trackerState.tracker.color), icon("keyboard_arrow_down", "sm"))),
       renderTagEditor()
     )
@@ -499,9 +499,21 @@ const renderTagEditor = () =>
   _.div(
     { class: "tl-field" },
     _.span("Tag"),
-    _.div(
-      { class: "tl-tag-row" },
-      _.div({ class: 'col-24' }, ...trackerState.tracker.tags.map((tag) => _.Chip({ class: "tl-chip", label: tag, removable: true, onRemove: () => removeTag(tag) }))),
+    _.Row(
+      {
+        align: "center",
+        wrap: true,
+        gap: 6,
+        minHeight: 34,
+        padding: 6,
+        style: {
+          color: "var(--tl-text)",
+          background: "rgba(4, 9, 14, 0.58)",
+          border: "1px solid var(--tl-border-soft)",
+          borderRadius: "var(--tl-radius-sm)"
+        }
+      },
+      _.Col({ width: "100%" }, ...trackerState.tracker.tags.map((tag) => _.Chip({ class: "tl-chip", label: tag, removable: true, onRemove: () => removeTag(tag) }))),
       _.Input({ class: "tl-tag-input", value: trackerState.tagDraft, placeholder: "Nuovo tag", onInput: (event) => { trackerState.tagDraft = event.target.value; } }),
       btn({ class: "tl-icon-btn", "aria-label": "Aggiungi tag", onclick: addTag }, icon("add", "sm"))
     )
@@ -511,14 +523,14 @@ const renderExecutionPanel = () =>
   _.Card(
     { class: "tl-panel" },
     _.h3({ class: "tl-panel-title" }, "Configurazione esecuzione"),
-    _.div(
-      { class: "tl-mode-grid" },
+    _.Grid(
+      { cols: 3, gap: 8 },
       modeCard("real-time", "Real-time", "Connessione continua"),
       modeCard("interval", "Intervallo", "Esegui ogni tot secondi"),
       modeCard("manual", "Manuale", "Esegui solo su richiesta")
     ),
-    _.div(
-      { class: "tl-exec-grid" },
+    _.Grid(
+      { cols: 2, gap: 14, margin: "14px 0 0" },
       _.div({ class: "tl-setting-row" }, _.span("Riconnessione automatica"), _.Toggle({ checked: trackerState.tracker.reconnect, color: "success", onChange: (checked) => mutateTracker({ reconnect: Boolean(checked) }, true) })),
       _.label({ class: "tl-field" }, _.span("Timeout richiesta (s)"), _.Input({ value: trackerState.tracker.timeout, type: "number", onInput: (event) => mutateTracker({ timeout: Number(event.target.value) || 0 }) })),
       _.label({ class: "tl-field" }, _.span("Intervallo riconnessione (s)"), _.Input({ value: trackerState.tracker.reconnectInterval, type: "number", onInput: (event) => mutateTracker({ reconnectInterval: Number(event.target.value) || 0 }) })),
@@ -537,8 +549,8 @@ const renderInitialStatePanel = () =>
   _.Card(
     { class: "tl-panel" },
     _.h3({ class: "tl-panel-title" }, "Stato iniziale"),
-    _.div(
-      { class: "tl-state-grid" },
+    _.Grid(
+      { cols: 3, gap: 16 },
       _.div(_.div({ class: "tl-muted" }, "Attivo"), _.Toggle({ checked: trackerState.tracker.active, color: "success", onChange: (checked) => mutateTracker({ active: Boolean(checked) }, true) })),
       _.div(_.div({ class: "tl-muted" }, "Avvia automaticamente"), _.Toggle({ checked: trackerState.tracker.autoStart, color: "success", onChange: (checked) => mutateTracker({ autoStart: Boolean(checked) }, true) })),
       _.div(_.div({ class: "tl-muted" }, "Ultima esecuzione"), _.div(trackerState.lastRun))
@@ -549,8 +561,8 @@ const renderEndpointPanel = () =>
   _.Card(
     { class: "tl-panel" },
     _.h3({ class: "tl-panel-title" }, "Endpoint"),
-    _.div(
-      { class: "tl-form-grid" },
+    _.Grid(
+      { cols: "minmax(0, 1fr) minmax(0, 1fr)", gap: 14 },
       _.Select({ label: "Metodo", value: trackerState.tracker.method, options: methodOptions, slots: selectArrowSlot, onChange: (value) => mutateTracker({ method: value }, true) }),
       _.Select({ label: "Tipo sorgente", value: trackerState.tracker.source, options: trackerTypeOptions, slots: selectArrowSlot, onChange: (value) => mutateTracker({ source: value, trackerType: value }, true) })
     ),
@@ -621,7 +633,7 @@ const renderPreview = () =>
     _.div(
       { class: "tl-preview-head" },
       _.div({ class: "tl-preview-title" }, "Anteprima / Test", _.span({ class: "tl-live-dot" })),
-      _.div({ class: "tl-preview-icons" }, btn({ class: trackerState.previewView === "summary" ? "is-active" : "", onclick: () => setPreviewView("summary") }, icon("article", "sm")), btn({ class: trackerState.previewView === "json" ? "is-active" : "", onclick: () => setPreviewView("json") }, icon("code", "sm")), btn({ onclick: runManualTest }, icon("play_arrow", "sm")))
+      _.Row({ class: "tl-preview-icons", gap: 6 }, btn({ class: trackerState.previewView === "summary" ? "is-active" : "", onclick: () => setPreviewView("summary") }, icon("article", "sm")), btn({ class: trackerState.previewView === "json" ? "is-active" : "", onclick: () => setPreviewView("json") }, icon("code", "sm")), btn({ onclick: runManualTest }, icon("play_arrow", "sm")))
     ),
     _.div(
       { class: "tl-test-card" },
@@ -712,7 +724,7 @@ const renderFooter = () =>
     _.Card(
       { class: "tl-tracker-bottom-hints" },
       renderSuggestionMenu(),
-      _.span({ class: "tl-bottom-shortcuts" }, shortcut("Ctrl S", "Salva"), shortcut("Ctrl Enter", "Test"), shortcut("Ctrl Z", "Annulla")),
+      _.Row({ class: "tl-bottom-shortcuts", align: "center", wrap: true, gap: 10 }, shortcut("Ctrl S", "Salva"), shortcut("Ctrl Enter", "Test"), shortcut("Ctrl Z", "Annulla")),
       renderNextStepsMenu()
     )
   );

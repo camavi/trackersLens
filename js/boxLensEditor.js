@@ -429,9 +429,9 @@ const renderSidebar = () =>
     { class: "tl-create-side" },
     _.h2({ class: "tl-side-title" }, t("createTitle")),
     _.p({ class: "tl-side-subtitle" }, t("chooseBoxType")),
-    _.div({ class: "tl-create-kind" }, renderKindCard("boxLens"), renderKindCard("boxTracker")),
+    _.Grid({ cols: 1, gap: 12, margin: "0 0 36px" }, renderKindCard("boxLens"), renderKindCard("boxTracker")),
     _.h2({ class: "tl-side-title" }, t("lensType")),
-    _.div({ class: "tl-type-list" }, ...boxLensData.boxTypes.map(renderTypeCard)),
+    _.Grid({ cols: 1, gap: 7 }, ...boxLensData.boxTypes.map(renderTypeCard)),
     _.h2({ class: "tl-side-title tl-local-title" }, "I miei boxLens"),
     renderLocalAssets()
   );
@@ -912,7 +912,7 @@ const renderLensBottomHints = () =>
   _.Card(
     { class: "tl-lens-bottom-hints" },
     renderSuggestionMenu(),
-    _.span({ class: "tl-bottom-shortcuts" }, shortcut("Ctrl S", "Salva"), shortcut("Ctrl P", t("preview")), shortcut("Ctrl Z", t("cancel"))),
+    _.Row({ class: "tl-bottom-shortcuts", align: "center", wrap: true, gap: 10 }, shortcut("Ctrl S", "Salva"), shortcut("Ctrl P", t("preview")), shortcut("Ctrl Z", t("cancel"))),
     renderNextStepsMenu()
   );
 

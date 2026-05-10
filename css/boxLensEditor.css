@@ -120,12 +120,6 @@ body {
   font-size: 12px;
 }
 
-.tl-create-kind {
-  display: grid;
-  gap: 12px;
-  margin-bottom: 36px;
-}
-
 .tl-kind-card.cms-card,
 .tl-type-card.cms-card,
 .tl-property-card.cms-card,
@@ -185,11 +179,6 @@ body {
   color: var(--tl-text-muted);
   font-size: 11px;
   line-height: 1.35;
-}
-
-.tl-type-list {
-  display: grid;
-  gap: 7px;
 }
 
 .tl-local-title {
@@ -793,10 +782,6 @@ body {
 }
 
 .tl-bottom-shortcuts {
-  display: inline-flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 10px;
   color: var(--tl-text-muted);
   font-size: 12px;
 }

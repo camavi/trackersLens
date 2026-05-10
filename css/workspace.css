@@ -33,9 +33,6 @@ body {
 .tl-app-brand {
   height: 100%;
   padding: 0 22px;
-  display: flex;
-  align-items: center;
-  gap: 14px;
   border-right: 1px solid var(--tl-border-soft);
 }
 
@@ -77,9 +74,6 @@ body {
 
 .tl-header-actions {
   padding: 0 18px;
-  display: flex;
-  align-items: center;
-  gap: 14px;
 }
 
 .tl-header-actions .cms-btn,
@@ -92,15 +86,6 @@ body {
 .tl-top-icon.is-active.cms-btn,
 .tl-title-edit.cms-btn {
   color: var(--tl-accent);
-}
-
-.tl-icon-group,
-.tl-zoom-group,
-.tl-device-switch,
-.tl-grid-controls {
-  display: flex;
-  align-items: center;
-  gap: 8px;
 }
 
 .tl-separator {
@@ -138,20 +123,6 @@ body {
   margin: 0 0 18px;
   font-size: 18px;
   font-weight: 800;
-}
-
-.tl-type-tabs {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 8px;
-  margin-bottom: 10px;
-}
-
-.tl-create-actions {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 8px;
-  margin-bottom: 14px;
 }
 
 .tl-create-box-btn.cms-btn {
@@ -215,11 +186,6 @@ body {
   margin: 0 0 10px;
   color: var(--tl-text-muted);
   font-size: 12px;
-}
-
-.tl-box-list {
-  display: grid;
-  gap: 8px;
 }
 
 .tl-box-list-state {
@@ -309,10 +275,6 @@ body {
 
 .tl-canvas-toolbar {
   height: 42px;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
 }
 
 .tl-device-btn.cms-btn,
@@ -634,8 +596,6 @@ body {
 
 .tl-card-head {
   margin-bottom: 9px;
-  display: flex;
-  justify-content: space-between;
   font-weight: 800;
 }
 
@@ -679,10 +639,6 @@ body {
 
 .tl-setting-row {
   min-height: 25px;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
   color: var(--tl-text-muted);
   font-size: 12px;
 }
@@ -754,18 +710,11 @@ body {
   line-height: 1.35;
 }
 
-.tl-confirm-actions {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 8px;
-}
-
 .tl-confirm-actions .is-danger.cms-btn {
   color: #ff6b6b;
 }
 
-.tl-action-menu>.cms-card-body,
-.tl-mini-actions {
+.tl-action-menu>.cms-card-body {
   padding: 8px;
   display: grid;
   gap: 8px;
@@ -825,8 +774,6 @@ body {
 
 .tl-tool-menu>.cms-card-body {
   padding: 8px;
-  display: grid;
-  gap: 6px;
 }
 
 .tl-tool-menu-status {
@@ -851,11 +798,6 @@ body {
 .tl-toolbox>.cms-card-body {
   height: 100%;
   padding: 10px 12px;
-  display: flex;
-  flex-direction: row;
-  align-items: center;
-  justify-content: center;
-  gap: 8px;
   overflow: hidden;
 }
 
@@ -893,14 +835,15 @@ body {
   height: 100%;
   min-height: 0;
   padding: 8px 20px;
-  display: flex;
-  flex-direction: row;
-  align-items: center;
-  gap: 28px;
   color: var(--tl-text-muted);
   font-size: 12px;
   white-space: nowrap;
   overflow: hidden;
+}
+
+.tl-shortcuts-row,
+.tl-toolbox-row {
+  height: 100%;
 }
 
 .tl-kbd {
