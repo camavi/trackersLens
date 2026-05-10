@@ -42,6 +42,7 @@ const trackerState = {
   testStatus: "In attesa",
   testLatency: "—",
   lastRun: "—",
+  testRunning: false,
   tagDraft: "",
   tracker: { ...defaultTracker },
   sampleOutput: { ...trackerData.sampleJson },
@@ -243,6 +244,13 @@ const mutateSampleOutput = (patch, shouldRemount = false) => {
   if (shouldRemount) mountTrackerEditor();
 };
 
+const setSampleOutput = (payload, shouldRemount = false) => {
+  pushHistory();
+  trackerState.sampleOutput = payload && typeof payload === "object" ? payload : { value: payload };
+  trackerState.savedLabel = "Modifiche non salvate";
+  if (shouldRemount) mountTrackerEditor();
+};
+
 const normalizeStoredTracker = (record) => {
   const content = record?.content || {};
   const runtime = content.runtime || {};
@@ -398,23 +406,239 @@ const setZoom = (zoom) => {
   mountTrackerEditor();
 };
 
-const runManualTest = () => {
-  const started = performance.now();
-  const nextPrice = (Number(trackerState.sampleOutput.c || 63245) + Math.random() * 80 - 40).toFixed(2);
-  const nextChange = (Number(trackerState.sampleOutput.P || 0) + Math.random() * 0.2 - 0.1).toFixed(2);
-  mutateSampleOutput({
-    ...trackerState.sampleOutput,
-    c: nextPrice,
-    p: nextPrice,
-    P: nextChange,
-    E: Date.now(),
-    C: Date.now(),
+const readInputValue = (input) => {
+  if (input && typeof input === "object" && "target" in input) return input.target?.value ?? "";
+  return input ?? "";
+};
+
+const parseHeadersText = (value = "") => {
+  const text = value.trim();
+  if (!text) return {};
+
+  if (text.startsWith("{")) {
+    const parsed = JSON.parse(text);
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) throw new Error("Headers JSON non valido.");
+    return parsed;
+  }
+
+  return text.split(/\r?\n/).reduce((headers, line) => {
+    const separator = line.indexOf(":");
+    if (separator <= 0) return headers;
+    const key = line.slice(0, separator).trim();
+    const headerValue = line.slice(separator + 1).trim();
+    if (key) headers[key] = headerValue;
+    return headers;
+  }, {});
+};
+
+const parseBodyText = (value = "") => {
+  const text = value.trim();
+  if (!text) return undefined;
+  if (text.startsWith("{") || text.startsWith("[")) return JSON.parse(text);
+  return text;
+};
+
+const buildUrlWithQuery = (endpoint, query = "") => {
+  const text = query.trim();
+  if (!text) return endpoint;
+  if (text.startsWith("?") || text.includes("=")) {
+    const separator = endpoint.includes("?") ? "&" : "?";
+    return `${endpoint}${separator}${text.replace(/^\?/, "")}`;
+  }
+  return endpoint;
+};
+
+const parseResponsePayload = async (response, source) => {
+  const contentType = response.headers.get("content-type") || "";
+  const text = await response.text();
+
+  if (!response.ok) {
+    throw new Error(`HTTP ${response.status}: ${text.slice(0, 180) || response.statusText}`);
+  }
+
+  if (source === "rss" || contentType.includes("xml") || contentType.includes("rss") || contentType.includes("atom")) {
+    return parseFeedPayload(text);
+  }
+
+  if (contentType.includes("json")) return JSON.parse(text);
+
+  try {
+    return JSON.parse(text);
+  } catch {
+    return { text };
+  }
+};
+
+const parseFeedPayload = (xmlText) => {
+  const parser = new DOMParser();
+  const xml = parser.parseFromString(xmlText, "application/xml");
+  const parseError = xml.querySelector("parsererror");
+  if (parseError) throw new Error("Feed RSS/Atom non valido.");
+
+  const nodes = [...xml.querySelectorAll("item, entry")].slice(0, 10);
+  const items = nodes.map((node) => ({
+    title: node.querySelector("title")?.textContent?.trim() || "",
+    link: node.querySelector("link")?.getAttribute("href") || node.querySelector("link")?.textContent?.trim() || "",
+    publishedAt: node.querySelector("pubDate, published, updated")?.textContent?.trim() || "",
+    summary: node.querySelector("description, summary, content")?.textContent?.trim() || "",
+  }));
+
+  return {
+    title: xml.querySelector("channel > title, feed > title")?.textContent?.trim() || "",
+    items,
+  };
+};
+
+const parseWebSocketMessage = (data) => {
+  if (typeof data !== "string") return { data: String(data) };
+  try {
+    return JSON.parse(data);
+  } catch {
+    return { text: data };
+  }
+};
+
+const runRestTest = async (tracker, started) => {
+  const controller = new AbortController();
+  const timeoutMs = Math.max(1, Number(tracker.timeout) || 10) * 1000;
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  const method = (tracker.method || "GET").toUpperCase();
+  const headers = parseHeadersText(tracker.headersText);
+  const bodyValue = method === "GET" || method === "HEAD" ? undefined : parseBodyText(tracker.query || "");
+  if (bodyValue && typeof bodyValue === "object" && !headers["Content-Type"] && !headers["content-type"]) {
+    headers["Content-Type"] = "application/json";
+  }
+
+  try {
+    const response = await fetch(buildUrlWithQuery(tracker.endpoint, method === "GET" ? tracker.query || "" : ""), {
+      method,
+      headers,
+      signal: controller.signal,
+      body: bodyValue && typeof bodyValue === "object" ? JSON.stringify(bodyValue) : bodyValue,
+    });
+    return applyTransformRules(await parseResponsePayload(response, tracker.source), tracker.transformText, started);
+  } finally {
+    clearTimeout(timer);
+  }
+};
+
+const runWebSocketTest = (tracker, started) =>
+  new Promise((resolve, reject) => {
+    const timeoutMs = Math.max(1, Number(tracker.timeout) || 10) * 1000;
+    const socket = new WebSocket(tracker.endpoint);
+    const timer = setTimeout(() => {
+      socket.close();
+      reject(new Error("Timeout WebSocket: nessun messaggio ricevuto."));
+    }, timeoutMs);
+
+    socket.onopen = () => {
+      const query = (tracker.query || "").trim();
+      if (query) socket.send(query);
+    };
+    socket.onmessage = (event) => {
+      clearTimeout(timer);
+      const payload = applyTransformRules(parseWebSocketMessage(event.data), tracker.transformText, started);
+      socket.close();
+      resolve(payload);
+    };
+    socket.onerror = () => {
+      clearTimeout(timer);
+      reject(new Error("Errore connessione WebSocket."));
+    };
   });
-  trackerState.testStatus = "Connesso";
-  trackerState.testLatency = `${Math.max(18, Math.round(performance.now() - started + 142))} ms`;
-  trackerState.lastRun = new Date().toLocaleTimeString();
-  trackerState.notice = "Test manuale eseguito";
+
+const getPathValue = (payload, path) =>
+  path.split(".").reduce((value, key) => {
+    if (value && Object.prototype.hasOwnProperty.call(value, key)) return value[key];
+    return undefined;
+  }, payload);
+
+const setPathValue = (payload, path, value) => {
+  const keys = path.split(".").filter(Boolean);
+  if (!keys.length) return;
+  const lastKey = keys.pop();
+  const target = keys.reduce((node, key) => {
+    if (!node[key] || typeof node[key] !== "object") node[key] = {};
+    return node[key];
+  }, payload);
+  target[lastKey] = value;
+};
+
+const applyTransformRules = (payload, transformText = "", started = performance.now()) => {
+  const mapped = payload && typeof payload === "object" && !Array.isArray(payload) ? { ...payload } : { value: payload };
+
+  transformText.split(/\r?\n/).forEach((line) => {
+    const match = line.match(/^\s*([^#][^>-]*?)\s*(?:->|=>)\s*([A-Za-z0-9_.-]+)\s*$/);
+    if (!match) return;
+    const value = getPathValue(payload, match[1].trim());
+    if (value !== undefined) setPathValue(mapped, match[2].trim(), value);
+  });
+
+  return {
+    ...mapped,
+    _trackerTest: {
+      receivedAt: new Date().toISOString(),
+      latencyMs: Math.max(1, Math.round(performance.now() - started)),
+      source: trackerState.tracker.source,
+      endpoint: trackerState.tracker.endpoint,
+    },
+  };
+};
+
+const runManualJsonTest = (tracker, started) => {
+  const queryPayload = parseBodyText(tracker.query || "");
+  const payload = queryPayload === undefined ? trackerState.sampleOutput : queryPayload;
+  return applyTransformRules(payload, tracker.transformText, started);
+};
+
+const executeTrackerTest = async (tracker, started) => {
+  const source = tracker.source || tracker.trackerType;
+  if (!tracker.endpoint && !["manual", "script"].includes(source)) throw new Error("URL / Sorgente mancante.");
+
+  if (source === "websocket") return runWebSocketTest(tracker, started);
+  if (source === "rest" || source === "rss") return runRestTest(tracker, started);
+  if (source === "manual") return runManualJsonTest(tracker, started);
+  if (source === "script") throw new Error("Runner script non implementato in questa pagina.");
+  if (source === "mcp") throw new Error("Runner MCP non implementato in questa pagina.");
+  return runRestTest(tracker, started);
+};
+
+const testStateClass = () => {
+  if (trackerState.testStatus === "Errore") return "tl-state-error";
+  if (trackerState.testStatus === "In esecuzione") return "tl-state-running";
+  return "tl-state-ok";
+};
+
+const runManualTest = async () => {
+  if (trackerState.testRunning) return;
+
+  const started = performance.now();
+  trackerState.testRunning = true;
+  trackerState.testStatus = "In esecuzione";
+  trackerState.testLatency = "—";
+  trackerState.notice = "Esecuzione test tracker...";
   mountTrackerEditor();
+
+  try {
+    const payload = await executeTrackerTest({ ...trackerState.tracker }, started);
+    const latency = Math.max(1, Math.round(performance.now() - started));
+    setSampleOutput(payload);
+    trackerState.testStatus = "Connesso";
+    trackerState.testLatency = `${latency} ms`;
+    trackerState.lastRun = new Date().toLocaleTimeString();
+    trackerState.notice = "Test manuale eseguito";
+    notify("success", trackerState.notice);
+  } catch (error) {
+    console.error(error);
+    trackerState.testStatus = "Errore";
+    trackerState.testLatency = "—";
+    trackerState.lastRun = new Date().toLocaleTimeString();
+    trackerState.notice = error.message || "Test manuale non riuscito.";
+    notify("error", trackerState.notice);
+  } finally {
+    trackerState.testRunning = false;
+    mountTrackerEditor();
+  }
 };
 
 const renderHeader = () =>
@@ -512,12 +736,12 @@ const renderGeneralPanel = () =>
     _.h3({ class: "tl-panel-title" }, "Informazioni generali"),
     _.Grid(
       { cols: "minmax(0, 1fr) 150px", gap: 14 },
-      _.label({ class: "tl-field" }, _.span("Nome"), _.Input({ value: trackerState.tracker.name, onInput: (event) => mutateTracker({ name: event.target.value }) })),
+      _.label({ class: "tl-field" }, _.span("Nome"), _.Input({ value: trackerState.tracker.name, onInput: (event) => mutateTracker({ name: String(readInputValue(event)) }) })),
       _.Select({ label: "Categoria", value: trackerState.tracker.category, options: categoryOptions, slots: selectArrowSlot, onChange: (value) => mutateTracker({ category: value }, true) })
     ),
     _.Grid(
       { cols: "minmax(0, 1fr) 150px", gap: 14, margin: "14px 0 0" },
-      _.label({ class: "tl-field" }, _.span("Descrizione (opzionale)"), _.textarea({ value: trackerState.tracker.description, onInput: (event) => mutateTracker({ description: event.target.value }) })),
+      _.label({ class: "tl-field" }, _.span("Descrizione (opzionale)"), _.textarea({ value: trackerState.tracker.description, onInput: (event) => mutateTracker({ description: String(readInputValue(event)) }) })),
       _.div({ class: "tl-field" }, _.span("Icona"), btn({ class: "tl-select-row", onclick: cycleIcon }, _.span({ class: "tl-tracker-icon", style: { "--tracker-color": trackerState.tracker.color } }, trackerState.tracker.icon), _.span("Cambia"), icon("keyboard_arrow_down", "sm")))
     ),
     _.Grid(
@@ -546,7 +770,7 @@ const renderTagEditor = () =>
         }
       },
       _.Col({ width: "100%" }, ...trackerState.tracker.tags.map((tag) => _.Chip({ class: "tl-chip", label: tag, removable: true, onRemove: () => removeTag(tag) }))),
-      _.Input({ class: "tl-tag-input", value: trackerState.tagDraft, placeholder: "Nuovo tag", onInput: (event) => { trackerState.tagDraft = event.target.value; } }),
+      _.Input({ class: "tl-tag-input", value: trackerState.tagDraft, placeholder: "Nuovo tag", onInput: (event) => { trackerState.tagDraft = String(readInputValue(event)); } }),
       btn({ class: "tl-icon-btn", "aria-label": "Aggiungi tag", onclick: addTag }, icon("add", "sm"))
     )
   );
@@ -564,9 +788,9 @@ const renderExecutionPanel = () =>
     _.Grid(
       { cols: 2, gap: 14, margin: "14px 0 0" },
       _.div({ class: "tl-setting-row" }, _.span("Riconnessione automatica"), _.Toggle({ checked: trackerState.tracker.reconnect, color: "success", onChange: (checked) => mutateTracker({ reconnect: Boolean(checked) }, true) })),
-      _.label({ class: "tl-field" }, _.span("Timeout richiesta (s)"), _.Input({ value: trackerState.tracker.timeout, type: "number", onInput: (event) => mutateTracker({ timeout: Number(event.target.value) || 0 }) })),
-      _.label({ class: "tl-field" }, _.span("Intervallo riconnessione (s)"), _.Input({ value: trackerState.tracker.reconnectInterval, type: "number", onInput: (event) => mutateTracker({ reconnectInterval: Number(event.target.value) || 0 }) })),
-      _.label({ class: "tl-field" }, _.span("Intervallo mock runtime (ms)"), _.Input({ value: trackerState.tracker.intervalMs, type: "number", onInput: (event) => mutateTracker({ intervalMs: Number(event.target.value) || 0 }) }))
+      _.label({ class: "tl-field" }, _.span("Timeout richiesta (s)"), _.Input({ value: trackerState.tracker.timeout, type: "number", onInput: (event) => mutateTracker({ timeout: Number(readInputValue(event)) || 0 }) })),
+      _.label({ class: "tl-field" }, _.span("Intervallo riconnessione (s)"), _.Input({ value: trackerState.tracker.reconnectInterval, type: "number", onInput: (event) => mutateTracker({ reconnectInterval: Number(readInputValue(event)) || 0 }) })),
+      _.label({ class: "tl-field" }, _.span("Intervallo mock runtime (ms)"), _.Input({ value: trackerState.tracker.intervalMs, type: "number", onInput: (event) => mutateTracker({ intervalMs: Number(readInputValue(event)) || 0 }) }))
     )
   );
 
@@ -598,23 +822,23 @@ const renderEndpointPanel = () =>
       _.Select({ label: "Metodo", value: trackerState.tracker.method, options: methodOptions, slots: selectArrowSlot, onChange: (value) => mutateTracker({ method: value }, true) }),
       _.Select({ label: "Tipo sorgente", value: trackerState.tracker.source, options: trackerTypeOptions, slots: selectArrowSlot, onChange: (value) => mutateTracker({ source: value, trackerType: value }, true) })
     ),
-    _.label({ class: "tl-field tl-span-all" }, _.span("URL / Sorgente"), _.Input({ value: trackerState.tracker.endpoint, onInput: (event) => mutateTracker({ endpoint: event.target.value }) }))
+    _.label({ class: "tl-field tl-span-all" }, _.span("URL / Sorgente"), _.Input({ value: trackerState.tracker.endpoint, onInput: (event) => mutateTracker({ endpoint: String(readInputValue(event)) }) }))
   );
 
 const renderParamsPanel = () =>
   _.Card(
     { class: "tl-panel" },
     _.h3({ class: "tl-panel-title" }, "Parametri"),
-    _.div({ class: "tl-muted" }, "I parametri saranno usati dal runner reale REST/WebSocket/RSS. Per ora vengono salvati nel boxTracker."),
-    _.label({ class: "tl-field" }, _.span("Query / subscription"), _.textarea({ value: trackerState.tracker.query || "", onInput: (event) => mutateTracker({ query: event.target.value }) }))
+    _.div({ class: "tl-muted" }, "Per REST GET vengono aggiunti alla query string. Per REST con body vengono inviati come JSON o testo. Per WebSocket vengono inviati all'apertura."),
+    _.label({ class: "tl-field" }, _.span("Query / subscription"), _.textarea({ value: trackerState.tracker.query || "", onInput: (event) => mutateTracker({ query: String(readInputValue(event)) }) }))
   );
 
 const renderHeadersPanel = () =>
   _.Card(
     { class: "tl-panel" },
     _.h3({ class: "tl-panel-title" }, "Headers"),
-    _.div({ class: "tl-muted" }, "Headers salvati come testo JSON o key:value. Il runner REST reale li usera nella richiesta."),
-    _.label({ class: "tl-field" }, _.span("Headers"), _.textarea({ value: trackerState.tracker.headersText || "", placeholder: "Authorization: Bearer ...", onInput: (event) => mutateTracker({ headersText: event.target.value }) }))
+    _.div({ class: "tl-muted" }, "Usati nelle chiamate REST. Accetta JSON o righe key:value."),
+    _.label({ class: "tl-field" }, _.span("Headers"), _.textarea({ value: trackerState.tracker.headersText || "", placeholder: "Authorization: Bearer ...", onInput: (event) => mutateTracker({ headersText: String(readInputValue(event)) }) }))
   );
 
 const renderTransformPanel = () =>
@@ -622,15 +846,15 @@ const renderTransformPanel = () =>
     { class: "tl-panel" },
     _.h3({ class: "tl-panel-title" }, "Trasformazione"),
     _.div({ class: "tl-muted" }, "Regole di mapping per normalizzare l'output prima di inviarlo ai boxLens."),
-    _.label({ class: "tl-field" }, _.span("Mapping / note trasformazione"), _.textarea({ value: trackerState.tracker.transformText || "", placeholder: "c -> price\nP -> change24h", onInput: (event) => mutateTracker({ transformText: event.target.value }) }))
+    _.label({ class: "tl-field" }, _.span("Mapping / note trasformazione"), _.textarea({ value: trackerState.tracker.transformText || "", placeholder: "c -> price\nP -> change24h", onInput: (event) => mutateTracker({ transformText: String(readInputValue(event)) }) }))
   );
 
 const renderOutputPanel = () =>
   _.Card(
     { class: "tl-panel" },
     _.h3({ class: "tl-panel-title" }, "Output"),
-    _.label({ class: "tl-field" }, _.span("Canale output"), _.Input({ value: trackerState.tracker.outputChannel, onInput: (event) => mutateTracker({ outputChannel: event.target.value }) })),
-    _.label({ class: "tl-field" }, _.span("Sample JSON"), _.textarea({ value: JSON.stringify(trackerState.sampleOutput, null, 2), onInput: (event) => updateSampleJson(event.target.value) }))
+    _.label({ class: "tl-field" }, _.span("Canale output"), _.Input({ value: trackerState.tracker.outputChannel, onInput: (event) => mutateTracker({ outputChannel: String(readInputValue(event)) }) })),
+    _.label({ class: "tl-field" }, _.span("Sample JSON"), _.textarea({ value: JSON.stringify(trackerState.sampleOutput, null, 2), onInput: (event) => updateSampleJson(String(readInputValue(event))) }))
   );
 
 const updateSampleJson = (value) => {
@@ -646,9 +870,9 @@ const renderTestConfigPanel = () =>
   _.Card(
     { class: "tl-panel" },
     _.h3({ class: "tl-panel-title" }, "Test"),
-    _.div({ class: "tl-setting-row" }, _.span("Stato test"), _.span({ class: "tl-state-ok" }, trackerState.testStatus)),
+    _.div({ class: "tl-setting-row" }, _.span("Stato test"), _.span({ class: testStateClass() }, trackerState.testStatus)),
     _.div({ class: "tl-setting-row" }, _.span("Latenza"), _.span(trackerState.testLatency)),
-    btn({ class: "tl-run-test", onclick: runManualTest }, icon("play_arrow", "sm"), "Esegui test manuale")
+    btn({ class: "tl-run-test", onclick: runManualTest, disabled: trackerState.testRunning }, icon("play_arrow", "sm"), trackerState.testRunning ? "Test in corso" : "Esegui test manuale")
   );
 
 const renderAdvancedPanel = () =>
@@ -656,7 +880,7 @@ const renderAdvancedPanel = () =>
     { class: "tl-panel" },
     _.h3({ class: "tl-panel-title" }, "Avanzate"),
     _.Select({ label: "Livello log", value: trackerState.tracker.logLevel, options: logLevelOptions, slots: selectArrowSlot, onChange: (value) => mutateTracker({ logLevel: value }, true) }),
-    _.label({ class: "tl-field" }, _.span("Note"), _.textarea({ value: trackerState.tracker.note, onInput: (event) => mutateTracker({ note: event.target.value }) }))
+    _.label({ class: "tl-field" }, _.span("Note"), _.textarea({ value: trackerState.tracker.note, onInput: (event) => mutateTracker({ note: String(readInputValue(event)) }) }))
   );
 
 const renderPreview = () =>
@@ -665,15 +889,15 @@ const renderPreview = () =>
     _.div(
       { class: "tl-preview-head" },
       _.div({ class: "tl-preview-title" }, "Anteprima / Test", _.span({ class: "tl-live-dot" })),
-      _.Row({ class: "tl-preview-icons", gap: 6 }, btn({ class: trackerState.previewView === "summary" ? "is-active" : "", onclick: () => setPreviewView("summary") }, icon("article", "sm")), btn({ class: trackerState.previewView === "json" ? "is-active" : "", onclick: () => setPreviewView("json") }, icon("code", "sm")), btn({ onclick: runManualTest }, icon("play_arrow", "sm")))
+      _.Row({ class: "tl-preview-icons", gap: 6 }, btn({ class: trackerState.previewView === "summary" ? "is-active" : "", onclick: () => setPreviewView("summary") }, icon("article", "sm")), btn({ class: trackerState.previewView === "json" ? "is-active" : "", onclick: () => setPreviewView("json") }, icon("code", "sm")), btn({ onclick: runManualTest, disabled: trackerState.testRunning }, icon("play_arrow", "sm")))
     ),
     _.div(
       { class: "tl-test-card" },
-      _.div({ class: "tl-test-row" }, _.span("Stato"), _.span({ class: "tl-state-ok" }, trackerState.testStatus)),
+      _.div({ class: "tl-test-row" }, _.span("Stato"), _.span({ class: testStateClass() }, trackerState.testStatus)),
       _.div({ class: "tl-test-row" }, _.span("Ultimo messaggio ricevuto"), _.span(trackerState.lastRun)),
       trackerState.previewView === "summary" ? renderSummaryPreview() : renderJson()
     ),
-    _.div({ class: "tl-preview-foot" }, btn({ class: "tl-run-test", onclick: runManualTest }, icon("play_arrow", "sm"), "Esegui test manuale"), _.span("Risposta: ", _.span({ class: "tl-state-ok" }, trackerState.testLatency)))
+    _.div({ class: "tl-preview-foot" }, btn({ class: "tl-run-test", onclick: runManualTest, disabled: trackerState.testRunning }, icon("play_arrow", "sm"), trackerState.testRunning ? "Test in corso" : "Esegui test manuale"), _.span("Risposta: ", _.span({ class: testStateClass() }, trackerState.testLatency)))
   );
 
 const renderSummaryPreview = () =>
@@ -707,7 +931,7 @@ const renderProperties = () =>
   );
 
 const renderNumberRow = (label, key) =>
-  _.div({ class: "tl-dimension-row" }, _.span(label), _.Input({ value: trackerState.tracker[key], type: "number", onInput: (event) => mutateTracker({ [key]: Number(event.target.value) || 0 }) }));
+  _.div({ class: "tl-dimension-row" }, _.span(label), _.Input({ value: trackerState.tracker[key], type: "number", onInput: (event) => mutateTracker({ [key]: Number(readInputValue(event)) || 0 }) }));
 
 const bindMenuTrigger = (trigger, menuProps, content) => {
   const menu = _.Menu(

@@ -448,6 +448,14 @@ body {
   color: var(--tl-success);
 }
 
+.tl-state-running {
+  color: #38bdf8;
+}
+
+.tl-state-error {
+  color: #f87171;
+}
+
 .tl-json {
   height: 400px;
   margin: 0;
