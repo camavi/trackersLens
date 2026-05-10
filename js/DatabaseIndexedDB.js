@@ -3,29 +3,48 @@ class DatabaseIndexedDB {
   DB_NAME = "TrackersLens";
   DB_WIDGETS = 'tl_widgets';
 
-  constructor(config) {
+  constructor(config = {}) {
     this.DB_NAME = config.dbName || this.DB_NAME;
-    this.startTables = config.startTables;
-    this.mount();
+    this.startTables = Array.isArray(config.startTables) ? config.startTables : [];
+    this.ready = this.mount().catch((error) => {
+      console.error("Errore inizializzazione IndexedDB:", error);
+      throw error;
+    });
   }
 
   async mount() {
-    await this.openDatabase();
-    if (this.startTables) {
-      for (const table of this.startTables) {
-        console.log('Creazione tabella: ', table.name);
-        await this.createTables(table.name, table.columns);
-        //await this.sleep(500);
-        console.log('end tabella: ', table.name);
-      }
-    }
+    const openedDb = await this.openDatabase();
+    const missingTables = this.startTables.filter((table) => !openedDb.objectStoreNames.contains(table.name));
+
+    if (!missingTables.length) return openedDb;
+
+    const nextVersion = openedDb.version + 1;
+    openedDb.close();
+    if (this.db === openedDb) this.db = null;
+
+    this.db = await this.upgradeDatabase(nextVersion, missingTables);
+    return this.db;
+  }
+
+  bindVersionChange(db) {
+    db.onversionchange = () => {
+      db.close();
+      if (this.db === db) this.db = null;
+      console.warn("IndexedDB chiuso per consentire aggiornamento da un'altra scheda.");
+    };
+    return db;
   }
 
   async getVersion() {
     return new Promise((resolve, reject) => {
       const request = indexedDB.open(this.DB_NAME);
+      let blockedTimer = null;
+      const clearBlockedTimer = () => {
+        if (blockedTimer) clearTimeout(blockedTimer);
+      };
 
       request.onsuccess = (event) => {
+        clearBlockedTimer();
         const db = event.target.result;
         const version = db.version;
         db.close(); // Chiudiamo il database dopo aver ottenuto la versione
@@ -33,79 +52,111 @@ class DatabaseIndexedDB {
       };
 
       request.onerror = (event) => {
+        clearBlockedTimer();
         console.error("Errore nell'apertura del database:", event.target.errorCode);
         reject(event.target.errorCode);
+      };
+
+      request.onblocked = () => {
+        console.warn("Apertura IndexedDB in attesa: un'altra scheda tiene aperta una vecchia connessione.");
+        blockedTimer = setTimeout(() => reject(new Error("IndexedDB bloccato da un'altra scheda.")), 8000);
       };
     });
   }
 
   async openDatabase() {
-    return new Promise(async (resolve, reject) => {
-      const v = await this.getVersion();
-      const request = indexedDB.open(this.DB_NAME, v);
+    return new Promise((resolve, reject) => {
+      const request = indexedDB.open(this.DB_NAME);
+      let blockedTimer = null;
+      const clearBlockedTimer = () => {
+        if (blockedTimer) clearTimeout(blockedTimer);
+      };
+
       request.onupgradeneeded = (event) => {
-        this.db = event.target.result;
+        this.db = this.bindVersionChange(event.target.result);
         console.log("Database creato o aggiornato.");
-        resolve(this.db);
       };
 
       request.onsuccess = (event) => {
-        this.db = event.target.result;
+        clearBlockedTimer();
+        this.db = this.bindVersionChange(event.target.result);
         console.log("Database aperto con successo");
         resolve(this.db);
       };
 
       request.onerror = (event) => {
+        clearBlockedTimer();
         console.error("Errore nell'apertura del database:", event);
         reject(event.target.errorCode);
+      };
+
+      request.onblocked = () => {
+        console.warn("Apertura IndexedDB in attesa: un'altra scheda tiene aperta una vecchia connessione.");
+        blockedTimer = setTimeout(() => reject(new Error("IndexedDB bloccato da un'altra scheda.")), 8000);
       };
     });
   }
   sleep(ms) {
     return new Promise((resolve) => setTimeout(resolve, ms));
   }
-  async createTables(table, columns) {
-    return new Promise(async (resolve, reject) => {
-      if (this.db) {
-        this.db.close();
-      }
-      // Riapre il database con una versione aggiornata per creare un nuovo store
-      const v = await this.getVersion();
-      const request = indexedDB.open(this.DB_NAME, v + 1);
+
+  async upgradeDatabase(version, tables) {
+    return new Promise((resolve, reject) => {
+      const request = indexedDB.open(this.DB_NAME, version);
+      let blockedTimer = null;
+      const clearBlockedTimer = () => {
+        if (blockedTimer) clearTimeout(blockedTimer);
+      };
+
       request.onupgradeneeded = async (event) => {
         const db = event.target.result;
-        // Controlla se l'object store esiste già, se no, lo crea
-        if (!db.objectStoreNames.contains(table)) {
-          const objectStore = db.createObjectStore(table, { keyPath: "id" });
+        tables.forEach((table) => {
+          if (db.objectStoreNames.contains(table.name)) return;
 
-          // Crea gli indici basati sulle colonne fornite
-          console.log(`Object store "${table}" inizio a creazione`);
-          columns.forEach((column) => {
+          const objectStore = db.createObjectStore(table.name, { keyPath: "id" });
+          console.log(`Object store "${table.name}" inizio a creazione`);
+          (table.columns || []).forEach((column) => {
             objectStore.createIndex(
               column.name,
               column?.keyPath ?? column.name,
               column?.options ?? { unique: false }
             );
           });
-
-          console.log(`Object store "${table}" creato con successo`);
-        } else {
-          console.log(`Object store "${table}" esiste già`);
-        }
+          console.log(`Object store "${table.name}" creato con successo`);
+        });
       };
 
       request.onsuccess = (event) => {
-        // Aggiorna la variabile db con la nuova versione del database
-        this.db = event.target.result;
-        console.log("Database aggiornato con il nuovo object store. " + table);
-        resolve();
+        clearBlockedTimer();
+        const upgradedDb = this.bindVersionChange(event.target.result);
+        console.log("Database aggiornato con gli object store mancanti.");
+        resolve(upgradedDb);
       };
 
       request.onerror = (event) => {
+        clearBlockedTimer();
         console.error("Errore nella creazione dell'object store:", event.target.error);
         reject(event.target.error);
       };
+
+      request.onblocked = () => {
+        console.warn("Upgrade IndexedDB in attesa: un'altra scheda tiene aperta una vecchia connessione.");
+        blockedTimer = setTimeout(() => reject(new Error("IndexedDB bloccato da un'altra scheda.")), 8000);
+      };
     });
+  }
+
+  async createTables(table, columns = []) {
+    if (!this.db) await this.openDatabase();
+    if (this.db.objectStoreNames.contains(table)) {
+      console.log(`Object store "${table}" esiste già`);
+      return;
+    }
+
+    const nextVersion = this.db.version + 1;
+    this.db.close();
+    this.db = null;
+    this.db = await this.upgradeDatabase(nextVersion, [{ name: table, columns }]);
   }
 
   async addData(table, data) {
@@ -210,13 +261,15 @@ class DatabaseIndexedDB {
     });
   }
   async tableExists(tableName) {
-
+    await this.ready;
 
     // Verifica se l'object store esiste
-    return this.db.objectStoreNames.contains(tableName);
+    return this.db?.objectStoreNames.contains(tableName) || false;
   }
 
   async objectStore(table, mode = "readwrite") {
+    await this.ready;
+
     // Assicurati che il database sia aperto
     if (!this.db) {
       await this.openDatabase(); // Se `openDatabase` è già asincrona

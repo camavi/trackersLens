@@ -259,7 +259,14 @@ const hydrateWorkspaceBoxes = async (boxes) => {
 const readWorkspaceRecord = async (workspaceId) => {
   const db = await new Promise((resolve, reject) => {
     const request = indexedDB.open("TrackersLens");
-    request.onsuccess = (event) => resolve(event.target.result);
+    request.onsuccess = (event) => {
+      const openedDb = event.target.result;
+      openedDb.onversionchange = () => {
+        openedDb.close();
+        console.warn("IndexedDB workspace view chiuso per consentire aggiornamento da un'altra scheda.");
+      };
+      resolve(openedDb);
+    };
     request.onerror = (event) => reject(event.target.error || new Error("Errore apertura IndexedDB"));
   });
 

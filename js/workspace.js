@@ -163,9 +163,10 @@ const serializeWorkspaceBox = (box) => ({
 
 const waitForWorkspaceStore = async () => {
   const table = tlConfig.TABLES.TL_PAGES;
-  for (let i = 0; i < 50; i += 1) {
-    if (db.db?.objectStoreNames?.contains(table)) return;
-    await new Promise((resolve) => setTimeout(resolve, 60));
+  await db.ready;
+
+  if (!db.db?.objectStoreNames?.contains(table)) {
+    throw new Error(`Store IndexedDB non trovato: ${table}`);
   }
 };
 

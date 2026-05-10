@@ -143,16 +143,29 @@ const createMissingStores = (dbInstance) => {
   });
 };
 
+const bindDbVersionChange = (dbInstance) => {
+  dbInstance.onversionchange = () => {
+    dbInstance.close();
+    console.warn("IndexedDB boxLens chiuso per consentire aggiornamento da un'altra scheda.");
+  };
+  return dbInstance;
+};
+
 const openBoxLensDb = () =>
   new Promise((resolve, reject) => {
     const request = indexedDB.open(tlConfig.DB_NAME);
+    let blockedTimer = null;
+    const clearBlockedTimer = () => {
+      if (blockedTimer) clearTimeout(blockedTimer);
+    };
 
     request.onupgradeneeded = (event) => {
       createMissingStores(event.target.result);
     };
 
     request.onsuccess = (event) => {
-      const openedDb = event.target.result;
+      clearBlockedTimer();
+      const openedDb = bindDbVersionChange(event.target.result);
       const hasAllStores = BOX_LENS_STORES.every((table) => openedDb.objectStoreNames.contains(table.name));
 
       if (hasAllStores) {
@@ -164,16 +177,35 @@ const openBoxLensDb = () =>
       openedDb.close();
 
       const upgradeRequest = indexedDB.open(tlConfig.DB_NAME, nextVersion);
+      let upgradeBlockedTimer = null;
+      const clearUpgradeBlockedTimer = () => {
+        if (upgradeBlockedTimer) clearTimeout(upgradeBlockedTimer);
+      };
       upgradeRequest.onupgradeneeded = (upgradeEvent) => {
         createMissingStores(upgradeEvent.target.result);
       };
-      upgradeRequest.onsuccess = (upgradeEvent) => resolve(upgradeEvent.target.result);
-      upgradeRequest.onerror = (upgradeEvent) => reject(upgradeEvent.target.error || new Error("Errore aggiornamento IndexedDB"));
-      upgradeRequest.onblocked = () => reject(new Error("IndexedDB bloccato da un'altra scheda."));
+      upgradeRequest.onsuccess = (upgradeEvent) => {
+        clearUpgradeBlockedTimer();
+        resolve(bindDbVersionChange(upgradeEvent.target.result));
+      };
+      upgradeRequest.onerror = (upgradeEvent) => {
+        clearUpgradeBlockedTimer();
+        reject(upgradeEvent.target.error || new Error("Errore aggiornamento IndexedDB"));
+      };
+      upgradeRequest.onblocked = () => {
+        console.warn("Upgrade IndexedDB boxLens in attesa: un'altra scheda tiene aperta una vecchia connessione.");
+        upgradeBlockedTimer = setTimeout(() => reject(new Error("IndexedDB bloccato da un'altra scheda.")), 8000);
+      };
     };
 
-    request.onerror = (event) => reject(event.target.error || new Error("Errore apertura IndexedDB"));
-    request.onblocked = () => reject(new Error("IndexedDB bloccato da un'altra scheda."));
+    request.onerror = (event) => {
+      clearBlockedTimer();
+      reject(event.target.error || new Error("Errore apertura IndexedDB"));
+    };
+    request.onblocked = () => {
+      console.warn("Apertura IndexedDB boxLens in attesa: un'altra scheda tiene aperta una vecchia connessione.");
+      blockedTimer = setTimeout(() => reject(new Error("IndexedDB bloccato da un'altra scheda.")), 8000);
+    };
   });
 
 const waitForDb = async () => {

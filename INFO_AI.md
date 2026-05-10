@@ -2231,3 +2231,25 @@ Nota successiva:
 - Aggiunto tab `Workspace` nel pannello libreria.
 - I workspace usano categoria `Workspace`, icona `dashboard_customize` e descrizione fallback con numero box, collegamenti e colonne.
 - Click su una card workspace apre `editorWorkspace.html?workspaceId=<id>` come aggancio futuro; l'editor workspace non ha ancora implementato il caricamento reale da query string.
+
+## Aggiornamento 2026-05-10 - IndexedDB multi scheda
+
+Obiettivo della sessione: correggere il blocco di IndexedDB quando sono aperte due o piu schede dell'app.
+
+Fatto:
+
+- `js/DatabaseIndexedDB.js` ora espone `ready` e inizializza gli store in modo deterministico.
+- Rimossi gli upgrade di versione non necessari: il database aumenta versione solo quando manca davvero uno store.
+- Gli store mancanti vengono creati in un unico upgrade, invece di fare un upgrade per ogni tabella.
+- Le connessioni IndexedDB ora gestiscono `onversionchange` chiudendosi automaticamente, cosi una scheda non blocca l'upgrade richiesto da un'altra.
+- Aggiornati anche gli opener diretti in:
+  - `js/boxLensEditor.js`;
+  - `js/boxTrackerEditor.js`;
+  - `js/tl-local-library.js`;
+  - `js/workspaceView.js`.
+- `js/workspace.js` ora aspetta `db.ready` invece di fare polling sulla presenza dello store `tl_pages`.
+
+Nota comportamento:
+
+- Se due schede sono aperte e una deve aggiornare la struttura IndexedDB, le altre chiudono la connessione al DB e la riaprono alla prossima operazione.
+- Questo evita il caso in cui library/editor/workspace sembrano non caricare dati finche l'utente non chiude manualmente tutte le schede.

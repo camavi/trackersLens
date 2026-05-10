@@ -21,7 +21,14 @@ window.TrackerLensLocalLibrary = (() => {
       }
 
       const request = indexedDB.open(DB_NAME);
-      request.onsuccess = (event) => resolve(event.target.result);
+      request.onsuccess = (event) => {
+        const db = event.target.result;
+        db.onversionchange = () => {
+          db.close();
+          console.warn("IndexedDB libreria chiuso per consentire aggiornamento da un'altra scheda.");
+        };
+        resolve(db);
+      };
       request.onerror = (event) => reject(event.target.error || new Error("Errore apertura IndexedDB"));
     });
 
