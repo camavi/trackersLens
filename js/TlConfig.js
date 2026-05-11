@@ -6,7 +6,8 @@ const tlConfig = {
   DB_NAME: 'TrackersLens',
   TABLES: {
     TL_PAGES: 'tl_pages',
-    TL_WIDGETS: 'tl_widgets'
+    TL_WIDGETS: 'tl_widgets',
+    TL_CONNECTIONS: 'tl_connections'
   },
 
   MANIFEST: [

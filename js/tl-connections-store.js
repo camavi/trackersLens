@@ -1,0 +1,268 @@
+window.TrackerLensConnectionsStore = (() => {
+  const DB_NAME = "TrackersLens";
+  const CONNECTION_STORE = "tl_connections";
+  const PAGE_STORE = "tl_pages";
+  const WIDGET_STORE = "tl_widgets";
+
+  const normalizeText = (value, fallback = "") => {
+    if (value === null || value === undefined) return fallback;
+    return String(value).trim() || fallback;
+  };
+
+  const openDb = (version = undefined) =>
+    new Promise((resolve, reject) => {
+      if (!window.indexedDB) {
+        reject(new Error("IndexedDB non disponibile"));
+        return;
+      }
+
+      const request = version ? indexedDB.open(DB_NAME, version) : indexedDB.open(DB_NAME);
+      request.onupgradeneeded = (event) => {
+        const db = event.target.result;
+        if (!db.objectStoreNames.contains(CONNECTION_STORE)) {
+          const store = db.createObjectStore(CONNECTION_STORE, { keyPath: "id" });
+          store.createIndex("workspaceId", "workspaceId", { unique: false });
+          store.createIndex("type", "type", { unique: false });
+          store.createIndex("status", "status", { unique: false });
+          store.createIndex("updatedAt", "updatedAt", { unique: false });
+        }
+      };
+      request.onsuccess = (event) => resolve(event.target.result);
+      request.onerror = (event) => reject(event.target.error || new Error("Errore apertura IndexedDB"));
+      request.onblocked = () => reject(new Error("IndexedDB bloccato da un'altra scheda"));
+    });
+
+  const ensureStore = async () => {
+    const db = await openDb();
+    if (db.objectStoreNames.contains(CONNECTION_STORE)) return db;
+
+    const nextVersion = db.version + 1;
+    db.close();
+    return openDb(nextVersion);
+  };
+
+  const readAll = async (storeName) => {
+    const db = await ensureStore();
+    try {
+      if (!db.objectStoreNames.contains(storeName)) return [];
+
+      return await new Promise((resolve, reject) => {
+        const request = db.transaction(storeName, "readonly").objectStore(storeName).getAll();
+        request.onsuccess = (event) => resolve(Array.from(event.target.result || []));
+        request.onerror = (event) => reject(event.target.error || new Error(`Errore lettura ${storeName}`));
+      });
+    } finally {
+      db.close();
+    }
+  };
+
+  const write = async (storeName, record) => {
+    const db = await ensureStore();
+    try {
+      return await new Promise((resolve, reject) => {
+        const request = db.transaction(storeName, "readwrite").objectStore(storeName).put(record);
+        request.onsuccess = () => resolve(record);
+        request.onerror = (event) => reject(event.target.error || new Error(`Errore salvataggio ${storeName}`));
+      });
+    } finally {
+      db.close();
+    }
+  };
+
+  const remove = async (id) => {
+    const db = await ensureStore();
+    try {
+      return await new Promise((resolve, reject) => {
+        const request = db.transaction(CONNECTION_STORE, "readwrite").objectStore(CONNECTION_STORE).delete(id);
+        request.onsuccess = () => resolve(id);
+        request.onerror = (event) => reject(event.target.error || new Error("Errore eliminazione collegamento"));
+      });
+    } finally {
+      db.close();
+    }
+  };
+
+  const contentOf = (record) =>
+    record?.content && typeof record.content === "object" ? record.content : record || {};
+
+  const normalizeWidget = (record, index) => {
+    const content = contentOf(record);
+    const type = normalizeText(content.type || content.kind || content.boxType, "boxLens");
+    const id = normalizeText(record?.id || content.id, `widget_${index}`);
+    return {
+      id,
+      sourceId: normalizeText(content.sourceId || id, id),
+      name: normalizeText(content.name || content.title, type === "boxTracker" ? "Box Tracker" : "Box Lens"),
+      type,
+      endpoint: normalizeText(content.endpoint || content.runtime?.endpoint || content.source || content.runtime?.source),
+      method: normalizeText(content.method || content.runtime?.method, type === "boxTracker" ? "GET" : "EVENT"),
+      outputChannel: normalizeText(content.outputChannel || content.runtime?.output || content.channel, "default"),
+      trackerType: normalizeText(content.trackerType || content.runtime?.source || content.source),
+    };
+  };
+
+  const connectionTypeFrom = (connection, from, to) => {
+    if (from?.type === "boxTracker" && to?.type === "boxLens") return "Tracker -> Source";
+    if (from?.endpoint?.startsWith("wss://")) return "WebSocket";
+    if (from?.endpoint?.includes("rss") || from?.trackerType === "rss") return "RSS Feed";
+    if (from?.endpoint?.startsWith("http")) return "API Endpoint";
+    if (connection.type) return connection.type;
+    return "Widget -> Widget";
+  };
+
+  const normalizeConnection = (record, index = 0) => {
+    const content = contentOf(record);
+    const now = new Date().toISOString();
+    const id = normalizeText(record?.id || content.id, `conn_${Date.now()}_${index}`);
+
+    return {
+      id,
+      name: normalizeText(content.name || content.label, "Collegamento"),
+      type: normalizeText(content.type, "Widget -> Widget"),
+      from: normalizeText(content.from || content.sourceName || content.fromName || content.fromBoxId, "Source"),
+      fromKind: normalizeText(content.fromKind || content.sourceType || "box"),
+      to: normalizeText(content.to || content.targetName || content.toName || content.toBoxId, "Target"),
+      targetMeta: normalizeText(content.targetMeta || content.endpoint || content.toBoxId || "local"),
+      status: normalizeText(content.status, "active"),
+      lastTest: normalizeText(content.lastTest, "Mai"),
+      result: normalizeText(content.result, "Non testato"),
+      method: normalizeText(content.method, "EVENT"),
+      frequency: normalizeText(content.frequency || content.channel, "On event"),
+      timeout: normalizeText(content.timeout, "10 secondi"),
+      retries: Number(content.retries) || 0,
+      createdAt: normalizeText(content.createdAt, now),
+      updatedAt: normalizeText(content.updatedAt, now),
+      endpoint: normalizeText(content.endpoint || content.targetMeta || "local://connection"),
+      workspaceId: normalizeText(content.workspaceId),
+      workspaceName: normalizeText(content.workspaceName),
+      fromBoxId: normalizeText(content.fromBoxId),
+      toBoxId: normalizeText(content.toBoxId),
+      channel: normalizeText(content.channel, "default"),
+      mapping: content.mapping && typeof content.mapping === "object" ? { ...content.mapping } : {},
+      raw: record,
+    };
+  };
+
+  const buildWorkspaceConnections = async () => {
+    const [pages, widgetRecords] = await Promise.all([readAll(PAGE_STORE), readAll(WIDGET_STORE)]);
+    const widgets = widgetRecords.map(normalizeWidget);
+    const widgetsById = new Map();
+    widgets.forEach((widget) => {
+      widgetsById.set(widget.id, widget);
+      widgetsById.set(widget.sourceId, widget);
+    });
+
+    return pages.flatMap((record, pageIndex) => {
+      const page = contentOf(record);
+      const boxes = Array.isArray(page.boxes) ? page.boxes : [];
+      const boxesById = new Map(boxes.map((box) => [box.id, box]));
+      const workspaceName = normalizeText(page.name || page.title, `Workspace ${pageIndex + 1}`);
+
+      return (Array.isArray(page.connections) ? page.connections : []).map((connection, index) => {
+        const fromBox = boxesById.get(connection.fromBoxId) || {};
+        const toBox = boxesById.get(connection.toBoxId) || {};
+        const fromAsset = widgetsById.get(fromBox.assetId) || widgetsById.get(fromBox.sourceId) || null;
+        const toAsset = widgetsById.get(toBox.assetId) || widgetsById.get(toBox.sourceId) || null;
+        const now = new Date().toISOString();
+        const id = normalizeText(connection.id, `connection_${record.id || page.id}_${index}`);
+
+        return normalizeConnection({
+          id,
+          name: `${fromAsset?.name || fromBox.name || connection.fromBoxId} -> ${toAsset?.name || toBox.name || connection.toBoxId}`,
+          type: connectionTypeFrom(connection, fromAsset || fromBox, toAsset || toBox),
+          from: fromAsset?.name || fromBox.name || connection.fromBoxId,
+          fromKind: fromAsset?.type || fromBox.type || "box",
+          to: toAsset?.name || toBox.name || connection.toBoxId,
+          targetMeta: toAsset?.endpoint || toBox.sourceId || connection.toBoxId,
+          status: "active",
+          lastTest: "Mai",
+          result: "Importato da workspace",
+          method: fromAsset?.method || "EVENT",
+          frequency: connection.channel || "On event",
+          timeout: "10 secondi",
+          retries: 0,
+          createdAt: page.createdAt || page.updatedAt || now,
+          updatedAt: page.updatedAt || now,
+          endpoint: fromAsset?.endpoint || `workspace://${record.id || page.id}/${id}`,
+          workspaceId: record.id || page.id,
+          workspaceName,
+          fromBoxId: connection.fromBoxId,
+          toBoxId: connection.toBoxId,
+          channel: connection.channel || "default",
+          mapping: connection.mapping || {},
+        }, index);
+      });
+    });
+  };
+
+  const list = async () => {
+    const records = (await readAll(CONNECTION_STORE)).map(normalizeConnection);
+    if (records.length) return records;
+
+    const imported = await buildWorkspaceConnections();
+    await Promise.all(imported.map((connection) => write(CONNECTION_STORE, connection)));
+    return imported;
+  };
+
+  const upsert = async (connection) => write(CONNECTION_STORE, normalizeConnection(connection));
+
+  const duplicate = async (connection) => {
+    const now = new Date().toISOString();
+    return upsert({
+      ...connection,
+      id: `conn_${Date.now()}`,
+      name: `${connection.name} Copy`,
+      createdAt: now,
+      updatedAt: now,
+      lastTest: "Mai",
+      result: "Duplicato localmente",
+    });
+  };
+
+  const syncWorkspaceConnections = async ({ workspace, boxes = [], connections = [] }) => {
+    const widgetsByBoxId = new Map(boxes.map((box) => [box.id, box]));
+    const workspaceId = workspace?.id || "";
+    const workspaceName = normalizeText(workspace?.name || workspace?.title, "Workspace");
+    const now = new Date().toISOString();
+
+    return Promise.all(connections.map((connection, index) => {
+      const fromBox = widgetsByBoxId.get(connection.fromBoxId) || {};
+      const toBox = widgetsByBoxId.get(connection.toBoxId) || {};
+      return upsert({
+        id: connection.id || `connection_${workspaceId}_${index}`,
+        name: `${fromBox.name || connection.fromBoxId} -> ${toBox.name || connection.toBoxId}`,
+        type: connectionTypeFrom(connection, fromBox, toBox),
+        from: fromBox.name || connection.fromBoxId,
+        fromKind: fromBox.type || "box",
+        to: toBox.name || connection.toBoxId,
+        targetMeta: toBox.sourceId || toBox.assetId || connection.toBoxId,
+        status: "active",
+        lastTest: "Mai",
+        result: "Sincronizzato da workspace",
+        method: "EVENT",
+        frequency: connection.channel || "On event",
+        timeout: "10 secondi",
+        retries: 0,
+        createdAt: now,
+        updatedAt: now,
+        endpoint: `workspace://${workspaceId}/${connection.id}`,
+        workspaceId,
+        workspaceName,
+        fromBoxId: connection.fromBoxId,
+        toBoxId: connection.toBoxId,
+        channel: connection.channel || "default",
+        mapping: connection.mapping || {},
+      });
+    }));
+  };
+
+  return {
+    CONNECTION_STORE,
+    duplicate,
+    list,
+    normalizeConnection,
+    remove,
+    syncWorkspaceConnections,
+    upsert,
+  };
+})();

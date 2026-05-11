@@ -188,6 +188,13 @@ const persistWorkspaceSilently = async () => {
   try {
     await waitForWorkspaceStore();
     await db.updateData(tlConfig.TABLES.TL_PAGES, workspacePayload());
+    if (window.TrackerLensConnectionsStore?.syncWorkspaceConnections) {
+      await window.TrackerLensConnectionsStore.syncWorkspaceConnections({
+        workspace: workspaceState.workspace,
+        boxes: workspaceState.boxes,
+        connections: workspaceState.connections,
+      });
+    }
     workspaceState.savedLabel = "Salvato localmente";
   } catch (error) {
     console.error("Errore autosalvataggio workspace:", error);

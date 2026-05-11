@@ -2,7 +2,7 @@ window.TrackerLensSidebar = (() => {
   const defaultItems = [
     { id: "dashboard", icon: "dashboard", label: "Aggiungi box", url: "editorWorkspace.html" },
     { id: "library", icon: "folder_open", label: "Asset", url: "library.html" },
-    { id: "links", icon: "link", label: "Collegamenti" },
+    { id: "links", icon: "link", label: "Collegamenti", url: "connections.html" },
     { id: "database", icon: "database", label: "Database", url: "database.html" },
     { id: "stats", icon: "monitoring", label: "Statistiche" },
     { id: "ai", icon: "psychology", label: "AI" },
