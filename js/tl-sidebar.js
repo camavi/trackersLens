@@ -3,7 +3,7 @@ window.TrackerLensSidebar = (() => {
     { id: "dashboard", icon: "dashboard", label: "Aggiungi box", url: "editorWorkspace.html" },
     { id: "library", icon: "folder_open", label: "Asset", url: "library.html" },
     { id: "links", icon: "link", label: "Collegamenti" },
-    { id: "database", icon: "database", label: "Database" },
+    { id: "database", icon: "database", label: "Database", url: "database.html" },
     { id: "stats", icon: "monitoring", label: "Statistiche" },
     { id: "ai", icon: "psychology", label: "AI" },
     { id: "settings", icon: "settings", label: "Impostazioni" },

@@ -183,6 +183,10 @@ Nota aggiornata 2026-05-11: il Monitor boxTracker e stato ricompattato per suppo
 
 Nota aggiornata 2026-05-11: il brand header di `editorWorkspace.html`, `library.html` e `workspace.html` e stato riallineato allo stile gia corretto di `editorBoxLens.html`/`editorBoxTracker.html`: area brand a 250px, header/topbar a 70px, logo e titolo in flex con gap stabile, padding 18px e bordo destro sul blocco brand.
 
+Nota aggiornata 2026-05-11: e stata aggiunta la nuova schermata `database.html` per "IndexedDB Data Explorer". La voce Database della sidebar standard (`js/tl-sidebar.js`) ora naviga a questa pagina e resta evidenziata con `activeId: "database"`. La UI usa componenti CMSwift per shell/topbar/sidebar, search, toolbar, select, griglie, bottoni e card; il CSS custom in `css/indexedDbExplorer.css` e limitato al tema premium Tracker Lens, tabella dati, inspector JSON, glow, glass UI, griglia puntinata e scrollbar. La logica in `js/indexedDbExplorer.js` legge gli store reali IndexedDB quando disponibili, mostra gli store target `tl_widgets`, `tl_pages`, `tl_tracker_logs`, `tl_settings`, `tl_connections`, `tl_cache`, `tl_history`, include filtri per tipo/categoria/workspace, viste table/grid/json, inspector con preview JSON evidenziata, azioni rapide e footer di stato. Se il database e vuoto o non leggibile mostra un dataset mock professionale per mantenere il mockup visuale completo.
+
+Nota aggiornata 2026-05-11: nella tabella di `database.html` la colonna `Actions` e stata resa a larghezza minima fissa per evitare bottoni schiacciati. La tabella ora usa `min-width: 1220px`, l'ultima colonna ha `min-width: 336px`, le azioni non vanno a capo e sui viewport stretti si usa lo scroll orizzontale del wrapper invece di comprimere o nascondere i pulsanti.
+
 
 `library.html`, `editorWorkspace.html` e i punti che aprono un `boxTracker` ora passano `trackerId` quando esiste un record sorgente, cosi viene aperto in modalita modifica:
 
