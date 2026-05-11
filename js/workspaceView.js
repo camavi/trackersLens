@@ -8,6 +8,13 @@ const workspaceViewState = {
   connections: [],
   runtimes: new Map(),
   trackerTimers: new Map(),
+  trackerStats: new Map(),
+  trackerLog: [],
+  trackerLogSeq: 0,
+  trackerLogPaused: false,
+  trackerLogPending: 0,
+  expandedTrackers: new Set(),
+  pausedTrackers: new Set(),
 };
 
 const icon = (name, size = "md") => _.Icon({ name, size });
@@ -25,6 +32,12 @@ const openEditor = () => {
   const workspaceId = workspaceViewState.workspace.id;
   openChromePage(`editorWorkspace.html${workspaceId ? `?workspaceId=${encodeURIComponent(workspaceId)}` : ""}`);
 };
+
+const boxById = (boxId) =>
+  workspaceViewState.boxes.find((box) => box.id === boxId) || null;
+
+const trackerBoxes = () =>
+  workspaceViewState.boxes.filter((box) => box.type === "boxTracker");
 
 const renderBrand = () =>
   _.Row(
@@ -46,6 +59,7 @@ const renderTopbar = () =>
     }),
     _.Toolbar(
       { class: "tl-view-actions", align: "center", gap: 16 },
+      btn({ class: "tl-view-monitor", onclick: openTrackerMonitorDialog }, icon("monitoring", "sm"), "Monitor"),
       btn({ class: "tl-view-edit", onclick: openEditor }, icon("edit", "sm"), "Edit"),
       btn({ class: "tl-view-menu", "aria-label": "Menu workspace" }, icon("more_vert"))
     )
@@ -209,23 +223,23 @@ const renderRuntimeBox = (box) =>
 
 const renderWorkspaceBox = (box) =>
   hasRuntimeView(box) ? renderRuntimeBox(box) :
-  _.article(
-    {
-      class: `tl-view-box${box.type === "boxTracker" ? " is-tracker" : ""}`,
-      style: {
-        gridColumn: `${box.x || 1} / span ${box.width || 6}`,
-        gridRow: `${box.y || 1} / span ${box.height || 4}`,
-        "--asset-color": box.color || (box.type === "boxTracker" ? "#35c979" : "#9b5cf5"),
-        zIndex: box.zIndex || 1,
+    _.article(
+      {
+        class: `tl-view-box${box.type === "boxTracker" ? " is-tracker" : ""}`,
+        style: {
+          gridColumn: `${box.x || 1} / span ${box.width || 6}`,
+          gridRow: `${box.y || 1} / span ${box.height || 4}`,
+          "--asset-color": box.color || (box.type === "boxTracker" ? "#35c979" : "#9b5cf5"),
+          zIndex: box.zIndex || 1,
+        },
       },
-    },
-    _.span({ class: "tl-view-box-icon" }, icon(box.icon || (box.type === "boxTracker" ? "cloud_queue" : "dashboard"), "sm")),
-    _.div(
-      { class: "tl-view-box-copy" },
-      _.h2(box.name || "Box"),
-      _.p(box.type || "boxLens")
-    )
-  );
+      _.span({ class: "tl-view-box-icon" }, icon(box.icon || (box.type === "boxTracker" ? "cloud_queue" : "dashboard"), "sm")),
+      _.div(
+        { class: "tl-view-box-copy" },
+        _.h2(box.name || "Box"),
+        _.p(box.type || "boxLens")
+      )
+    );
 
 const hydrateWorkspaceBoxes = async (boxes) => {
   const assets = await window.TrackerLensLocalLibrary.listWidgetAssets();
@@ -297,7 +311,13 @@ const cleanupRuntimeBoxes = () => {
 };
 
 const cleanupTrackerRuntimes = () => {
-  workspaceViewState.trackerTimers.forEach((timerId) => clearInterval(timerId));
+  workspaceViewState.trackerTimers.forEach((runtime) => {
+    if (typeof runtime === "function") {
+      runtime();
+      return;
+    }
+    clearInterval(runtime);
+  });
   workspaceViewState.trackerTimers.clear();
 };
 
@@ -321,7 +341,614 @@ const runtimeListener = (runtime, channel) => {
   return listener[channel] || listener.default || listener["*"] || null;
 };
 
-const emitTrackerEvent = (fromBoxId, channel = "default", payload = {}) => {
+const trackerConnections = (trackerId) =>
+  workspaceViewState.connections.filter((connection) => connection.fromBoxId === trackerId);
+
+const connectedLensNames = (trackerId) =>
+  trackerConnections(trackerId)
+    .map((connection) => boxById(connection.toBoxId)?.name || connection.toBoxId)
+    .filter(Boolean);
+
+const formatMonitorTime = (value) =>
+  value ? new Date(value).toLocaleTimeString() : "--";
+
+const formatMonitorTimestamp = (value) => {
+  if (!value) return "--";
+  const date = new Date(value);
+  const ms = String(date.getMilliseconds()).padStart(3, "0");
+  return `${date.toLocaleTimeString()}.${ms}`;
+};
+
+const shortValue = (value, fallback = "--") => {
+  if (value === null || value === undefined || value === "") return fallback;
+  return String(value);
+};
+
+const payloadFieldLabel = (key) => {
+  if (!key) return "--";
+  return String(key);
+};
+
+const compactJson = (payload) => {
+  try {
+    return JSON.stringify(payload, null, 2);
+  } catch {
+    return String(payload);
+  }
+};
+
+const clonePayloadSnapshot = (payload) => {
+  if (payload === null || payload === undefined) return payload;
+  try {
+    if (typeof structuredClone === "function") return structuredClone(payload);
+  } catch {
+    // fallback sotto
+  }
+  try {
+    return JSON.parse(JSON.stringify(payload));
+  } catch {
+    return payload;
+  }
+};
+
+const previewPayload = (payload) => {
+  const text = compactJson(payload);
+  return text.length > 900 ? `${text.slice(0, 900)}\n...` : text;
+};
+
+const previewPayloadText = (text = "") =>
+  text.length > 900 ? `${text.slice(0, 900)}\n...` : text;
+
+const normalizePayloadText = (value, fallbackPayload) => {
+  const text = String(value || "").trim();
+  if (!text) return compactJson(fallbackPayload);
+  try {
+    return JSON.stringify(JSON.parse(text), null, 2);
+  } catch {
+    return text;
+  }
+};
+
+const sourceLabel = (box) =>
+  box.source || box.runtime?.source || box.runtime?.runtime?.source || box.trackerType || box.runtime?.trackerType || "manual";
+
+const endpointLabel = (box) =>
+  box.endpoint || box.runtime?.endpoint || box.runtime?.runtime?.endpoint || "";
+
+const monitorStatusLabel = (status) => ({
+  starting: "Avvio",
+  live: "Live",
+  error: "Errore",
+  idle: "Idle",
+  stopped: "Fermo",
+  paused: "Pausa",
+})[status] || "Idle";
+
+const trackerStat = (box) => {
+  const current = workspaceViewState.trackerStats.get(box.id) || {};
+  return {
+    id: box.id,
+    status: workspaceViewState.pausedTrackers.has(box.id) ? "paused" : current.status || (box.active === false || box.autoStart === false ? "stopped" : "idle"),
+    eventCount: Number(current.eventCount) || 0,
+    errorCount: Number(current.errorCount) || 0,
+    lastAt: current.lastAt || "",
+    lastLatencyMs: current.lastLatencyMs || 0,
+    channel: current.channel || trackerChannel(box),
+    lastPayload: current.lastPayload || trackerPayload(box),
+    lastError: current.lastError || "",
+    startedAt: current.startedAt || "",
+  };
+};
+
+const updateTrackerStat = (boxId, patch = {}) => {
+  const box = boxById(boxId);
+  if (!box) return;
+  const previous = trackerStat(box);
+  workspaceViewState.trackerStats.set(boxId, { ...previous, ...patch });
+  refreshTrackerRow(boxId);
+  refreshTrackerActionsDialog(boxId);
+};
+
+const pushTrackerLog = (entry) => {
+  const payload = clonePayloadSnapshot(entry.payload);
+  const payloadText = entry.type === "event" ? normalizePayloadText(entry.payloadText, payload) : "";
+  const logEntry = {
+    id: `log_${Date.now()}_${++workspaceViewState.trackerLogSeq}`,
+    seq: workspaceViewState.trackerLogSeq,
+    at: new Date().toISOString(),
+    ...entry,
+    payload,
+    payloadText,
+  };
+  workspaceViewState.trackerLog.unshift(logEntry);
+  workspaceViewState.trackerLog = workspaceViewState.trackerLog.slice(0, 30);
+  if (workspaceViewState.trackerLogPaused) {
+    workspaceViewState.trackerLogPending += 1;
+  }
+  return logEntry;
+};
+
+const recordTrackerEvent = (boxId, channel, payload, payloadText = "") => {
+  const box = boxById(boxId);
+  if (!box || box.type !== "boxTracker") return;
+  const previous = trackerStat(box);
+  const payloadSnapshot = clonePayloadSnapshot(payload);
+  const latency = payload?._trackerRuntime?.latencyMs || payload?._trackerTest?.latencyMs || 0;
+  const next = {
+    status: "live",
+    eventCount: previous.eventCount + 1,
+    lastAt: new Date().toISOString(),
+    lastLatencyMs: Number(latency) || previous.lastLatencyMs || 0,
+    channel,
+    lastPayload: payloadSnapshot,
+    lastError: "",
+  };
+  workspaceViewState.trackerStats.set(boxId, { ...previous, ...next });
+  refreshTrackerRow(boxId);
+  refreshTrackerActionsDialog(boxId);
+  appendTrackerLogEntry(pushTrackerLog({ type: "event", trackerId: boxId, trackerName: box.name || boxId, channel, payload: payloadSnapshot, payloadText }));
+};
+
+const recordTrackerError = (boxId, error) => {
+  const box = boxById(boxId);
+  if (!box || box.type !== "boxTracker") return;
+  const previous = trackerStat(box);
+  const message = error?.message || String(error || "Errore tracker");
+  workspaceViewState.trackerStats.set(boxId, {
+    ...previous,
+    status: "error",
+    errorCount: previous.errorCount + 1,
+    lastAt: new Date().toISOString(),
+    lastError: message,
+  });
+  refreshTrackerRow(boxId);
+  refreshTrackerActionsDialog(boxId);
+  appendTrackerLogEntry(pushTrackerLog({ type: "error", trackerId: boxId, trackerName: box.name || boxId, channel: previous.channel, error: message }));
+};
+
+const renderMonitorMetric = (label, value, tone = "") =>
+  _.Card(
+    { class: `tl-monitor-metric${tone ? ` is-${tone}` : ""}` },
+    _.span({ class: "tl-monitor-metric-label" }, label),
+    _.strong(value)
+  );
+
+const renderMonitorSummaryPill = (label, value, tone = "") =>
+  _.div(
+    { class: `tl-monitor-summary-pill${tone ? ` is-${tone}` : ""}` },
+    _.span(label),
+    _.strong(value)
+  );
+
+const renderTrackerPulse = (stat) =>
+  _.div(
+    { class: `tl-monitor-signal is-${stat.status}` },
+    ...Array.from({ length: 14 }, (unused, index) =>
+      _.span({
+        style: {
+          "--delay": `${index * 42}ms`,
+        },
+      })
+    )
+  );
+
+const renderPayloadFields = (payload) => {
+  const entries = payload && typeof payload === "object" && !Array.isArray(payload)
+    ? Object.entries(payload).filter(([key]) => !key.startsWith("_")).slice(0, 8)
+    : [];
+  if (!entries.length) return _.div({ class: "tl-monitor-empty-line" }, "Nessun campo payload leggibile");
+
+  return _.Grid(
+    { class: "tl-monitor-fields", cols: "repeat(auto-fit, minmax(132px, 1fr))", gap: 8 },
+    ...entries.map(([key, value]) =>
+      _.div(
+        { class: "tl-monitor-field" },
+        _.span(payloadFieldLabel(key)),
+        _.strong(typeof value === "object" ? compactJson(value).slice(0, 80) : shortValue(value))
+      )
+    )
+  );
+};
+
+const trackerLogEntries = (trackerId = "") =>
+  workspaceViewState.trackerLog.filter((entry) => !trackerId || entry.trackerId === trackerId);
+
+const cleanupTrackerRuntime = (boxId) => {
+  const runtime = workspaceViewState.trackerTimers.get(boxId);
+  if (!runtime) return;
+  if (typeof runtime === "function") runtime();
+  else clearInterval(runtime);
+  workspaceViewState.trackerTimers.delete(boxId);
+};
+
+const toggleTrackerExpanded = (boxId) => {
+  if (workspaceViewState.expandedTrackers.has(boxId)) workspaceViewState.expandedTrackers.delete(boxId);
+  else workspaceViewState.expandedTrackers.add(boxId);
+  refreshTrackerMonitor(true);
+};
+
+const toggleTrackerPaused = (boxId) => {
+  const box = boxById(boxId);
+  if (!box) return;
+
+  if (workspaceViewState.pausedTrackers.has(boxId)) {
+    workspaceViewState.pausedTrackers.delete(boxId);
+    startTrackerRuntime(box);
+  } else {
+    workspaceViewState.pausedTrackers.add(boxId);
+    cleanupTrackerRuntime(boxId);
+    updateTrackerStat(boxId, { status: "paused" });
+  }
+
+  refreshTrackerMonitor(true);
+};
+
+const trackerPauseActionLabel = (boxId) =>
+  workspaceViewState.pausedTrackers.has(boxId) ? "Riattiva boxTracker" : "Pausa boxTracker";
+
+const openTrackerLogDialog = (trackerId = "") => {
+  const tracker = trackerId ? boxById(trackerId) : null;
+  const dialog = _.Dialog({
+    class: "tl-tracker-log-dialog",
+    panelClass: "tl-tracker-log-panel",
+    size: "lg",
+    title: tracker ? `Log ${tracker.name || tracker.id}` : "Log boxTracker",
+    subtitle: tracker ? `Eventi ricevuti dal canale ${trackerChannel(tracker)}` : "Eventi raccolti dai tracker del workspace.",
+    icon: "article",
+    closeButton: true,
+    scrollable: true,
+    bodyMaxHeight: "70vh",
+    content: () => _.div({ class: "tl-monitor-log-dialog-body" }, renderTrackerMonitorLogRows(trackerId)),
+    actions: ({ close }) => _.Toolbar({ align: "end", gap: 8 }, btn({ onclick: close }, "Chiudi")),
+  });
+  dialog.open();
+};
+
+const renderTrackerActionsContentNodes = (box) => {
+  const currentStat = trackerStat(box);
+  return [
+    _.Grid(
+      { cols: 2, gap: 8 },
+      renderMonitorMetric("Stato", monitorStatusLabel(currentStat.status)),
+      renderMonitorMetric("Eventi", currentStat.eventCount),
+      renderMonitorMetric("Errori", currentStat.errorCount, currentStat.errorCount ? "danger" : ""),
+      renderMonitorMetric("Latenza", currentStat.lastLatencyMs ? `${currentStat.lastLatencyMs} ms` : "--")
+    ),
+    _.Card(
+      { class: "tl-monitor-json-card" },
+      _.h3("Ultimo payload"),
+      _.pre(previewPayload(currentStat.lastPayload || {}))
+    ),
+  ];
+};
+
+const refreshTrackerActionsDialog = (boxId) => {
+  const box = boxById(boxId);
+  if (!box) return;
+  const host = document.querySelector(`[data-tracker-actions-content="${safeCssQueryId(boxId)}"]`);
+  if (!host) return;
+  host.replaceChildren(...renderTrackerActionsContentNodes(box));
+};
+
+const openTrackerActionsDialog = (box) => {
+  const stat = trackerStat(box);
+  const dialog = _.Dialog({
+    class: "tl-tracker-actions-dialog",
+    panelClass: "tl-tracker-actions-panel",
+    size: "md",
+    title: box.name || "BoxTracker",
+    subtitle: `${sourceLabel(box)} · canale ${stat.channel}`,
+    icon: "more_vert",
+    closeButton: true,
+    content: () => _.div(
+      { class: "tl-tracker-actions-content", "data-tracker-actions-content": box.id },
+      ...renderTrackerActionsContentNodes(box)
+    ),
+    actions: ({ close }) => _.Toolbar(
+      { align: "end", gap: 8 },
+      btn({ onclick: () => openTrackerLogDialog(box.id) }, icon("article", "sm"), "Log"),
+      btn(
+        {
+          onclick: () => {
+            toggleTrackerPaused(box.id);
+            close();
+            setTimeout(() => openTrackerActionsDialog(boxById(box.id) || box), 0);
+          },
+        },
+        icon(workspaceViewState.pausedTrackers.has(box.id) ? "play_arrow" : "pause", "sm"),
+        trackerPauseActionLabel(box.id)
+      ),
+      btn({ onclick: close }, "Chiudi")
+    ),
+  });
+  dialog.open();
+};
+
+const renderTrackerMonitorDetailNodes = (box, stat, connections, names) => [
+    _.Grid(
+      { class: "tl-monitor-info-grid", cols: "repeat(auto-fit, minmax(180px, 1fr))", gap: 8 },
+      _.div(_.span("ID istanza"), _.strong(box.id)),
+      _.div(_.span("Asset sorgente"), _.strong(shortValue(box.sourceId || box.assetId))),
+      _.div(_.span("Endpoint"), _.strong(endpointLabel(box) || "sample/manual")),
+      _.div(_.span("Collegamenti"), _.strong(String(connections.length)))
+    ),
+    _.div(
+      { class: "tl-monitor-lens-list" },
+      names.length
+        ? names.map((name) => _.span(name))
+        : _.span({ class: "is-empty" }, "Nessun boxLens collegato")
+    ),
+    _.Card(
+      { class: "tl-monitor-network is-inline" },
+      _.h3("Mappa collegamenti"),
+      _.p(`${connections.length} connessioni per questo tracker`),
+      _.div(
+        { class: "tl-monitor-network-lines" },
+        ...connections.map((connection) =>
+          _.div(
+            _.span(boxById(connection.fromBoxId)?.name || connection.fromBoxId),
+            _.span({ class: "tl-monitor-link-line", "aria-hidden": "true" }),
+            _.strong(boxById(connection.toBoxId)?.name || connection.toBoxId)
+          )
+        )
+      )
+    ),
+    renderPayloadFields(stat.lastPayload)
+  ];
+
+const renderTrackerMonitorDetails = (box, stat, connections, names) =>
+  _.div(
+    { class: "tl-monitor-row-details", "data-tracker-row-details": box.id },
+    ...renderTrackerMonitorDetailNodes(box, stat, connections, names)
+  );
+
+const renderTrackerMonitorCard = (box) => {
+  const stat = trackerStat(box);
+  const connections = trackerConnections(box.id);
+  const names = connectedLensNames(box.id);
+  const status = monitorStatusLabel(stat.status);
+  const source = sourceLabel(box);
+  const expanded = workspaceViewState.expandedTrackers.has(box.id);
+  const paused = workspaceViewState.pausedTrackers.has(box.id);
+
+  return _.Card(
+    { class: `tl-monitor-row is-${stat.status}${expanded ? " is-expanded" : ""}`, "data-tracker-row": box.id },
+    _.Row(
+      { class: "tl-monitor-row-main", align: "center", justify: "space-between", gap: 12 },
+      _.Row(
+        { class: "tl-monitor-row-identity", align: "center", gap: 10 },
+        _.span({ class: "tl-monitor-tracker-icon", style: { "--tracker-color": box.color || "#35c979" } }, icon(box.icon || "cloud_queue", "sm")),
+        _.div(
+          _.h3(box.name || "BoxTracker"),
+          _.p({ "data-tracker-row-channel": box.id }, `${source} · canale ${stat.channel}`)
+        )
+      ),
+      renderTrackerPulse(stat),
+      _.Grid(
+        { class: "tl-monitor-row-metrics", cols: 4, gap: 6 },
+        _.div(_.span("Eventi"), _.strong({ "data-tracker-row-events": box.id }, String(stat.eventCount))),
+        _.div(_.span("Errori"), _.strong({ "data-tracker-row-errors": box.id }, String(stat.errorCount))),
+        _.div(_.span("Latenza"), _.strong({ "data-tracker-row-latency": box.id }, stat.lastLatencyMs ? `${stat.lastLatencyMs} ms` : "--")),
+        _.div(_.span("Ultimo"), _.strong({ "data-tracker-row-last": box.id }, formatMonitorTime(stat.lastAt)))
+      ),
+      _.Toolbar(
+        { class: "tl-monitor-row-actions", align: "center", gap: 6 },
+        _.span({ class: `tl-monitor-status is-${stat.status}`, "data-tracker-row-status": box.id }, status),
+        btn({ class: "tl-monitor-row-btn", "aria-label": paused ? "Riprendi tracker" : "Metti in pausa tracker", onclick: () => toggleTrackerPaused(box.id) }, icon(paused ? "play_arrow" : "pause", "sm")),
+        btn({ class: "tl-monitor-row-btn", "aria-label": "Apri log tracker", onclick: () => openTrackerLogDialog(box.id) }, icon("article", "sm")),
+        btn({ class: "tl-monitor-row-btn", "aria-label": "Espandi tracker", onclick: () => toggleTrackerExpanded(box.id) }, icon(expanded ? "keyboard_arrow_up" : "keyboard_arrow_down", "sm")),
+        btn({ class: "tl-monitor-row-btn", "aria-label": "Altre azioni tracker", onclick: () => openTrackerActionsDialog(box) }, icon("more_vert", "sm"))
+      )
+    ),
+    expanded ? renderTrackerMonitorDetails(box, stat, connections, names) : null,
+    stat.lastError ? _.div({ class: "tl-monitor-error" }, stat.lastError) : null
+  );
+};
+
+const setTrackerRowText = (selector, value) => {
+  const element = document.querySelector(selector);
+  if (element) element.textContent = value;
+};
+
+const setTrackerRowClass = (element, baseClass, status) => {
+  if (!element) return;
+  element.className = `${baseClass} is-${status}`;
+};
+
+const refreshTrackerRow = (boxId) => {
+  const box = boxById(boxId);
+  if (!box) return;
+  const row = document.querySelector(`[data-tracker-row="${safeCssQueryId(boxId)}"]`);
+  if (!row) return;
+
+  const stat = trackerStat(box);
+  row.className = `tl-monitor-row cms-card is-${stat.status}${workspaceViewState.expandedTrackers.has(boxId) ? " is-expanded" : ""}`;
+  setTrackerRowClass(row.querySelector(`[data-tracker-row-status="${safeCssQueryId(boxId)}"]`), "tl-monitor-status", stat.status);
+  setTrackerRowClass(row.querySelector(".tl-monitor-signal"), "tl-monitor-signal", stat.status);
+  setTrackerRowText(`[data-tracker-row-status="${safeCssQueryId(boxId)}"]`, monitorStatusLabel(stat.status));
+  setTrackerRowText(`[data-tracker-row-channel="${safeCssQueryId(boxId)}"]`, `${sourceLabel(box)} · canale ${stat.channel}`);
+  setTrackerRowText(`[data-tracker-row-events="${safeCssQueryId(boxId)}"]`, String(stat.eventCount));
+  setTrackerRowText(`[data-tracker-row-errors="${safeCssQueryId(boxId)}"]`, String(stat.errorCount));
+  setTrackerRowText(`[data-tracker-row-latency="${safeCssQueryId(boxId)}"]`, stat.lastLatencyMs ? `${stat.lastLatencyMs} ms` : "--");
+  setTrackerRowText(`[data-tracker-row-last="${safeCssQueryId(boxId)}"]`, formatMonitorTime(stat.lastAt));
+
+  const details = row.querySelector(`[data-tracker-row-details="${safeCssQueryId(boxId)}"]`);
+  if (details) {
+    details.replaceChildren(...renderTrackerMonitorDetailNodes(box, stat, trackerConnections(boxId), connectedLensNames(boxId)));
+  }
+};
+
+const toggleTrackerLogPaused = () => {
+  workspaceViewState.trackerLogPaused = !workspaceViewState.trackerLogPaused;
+  if (!workspaceViewState.trackerLogPaused) workspaceViewState.trackerLogPending = 0;
+  refreshTrackerMonitor(true);
+};
+
+const renderTrackerMonitorLogRows = (trackerId = "") => {
+  const entries = trackerLogEntries(trackerId);
+  if (!entries.length) {
+    return _.div(
+      { class: "tl-monitor-log-empty-body" },
+      _.div({ class: "tl-dialog-icon" }, icon("pending", "md")),
+      _.h3("Nessuna attivita ancora"),
+      _.p("Il monitor si aggiorna appena un boxTracker emette dati, incontra errori o viene riconnesso.")
+    );
+  }
+
+  return _.div(
+    { class: "tl-monitor-log-list", "data-tracker-log-list": "true" },
+    ...entries.map(renderTrackerLogRow)
+  );
+};
+
+const renderTrackerLogRow = (entry) =>
+  _.Card(
+    { class: `tl-monitor-log-row is-${entry.type}`, "data-tracker-log-entry": entry.id },
+    _.Row(
+      { align: "center", justify: "space-between", gap: 12 },
+      _.strong(`#${entry.seq} · ${entry.trackerName || entry.trackerId}`),
+      _.span(formatMonitorTimestamp(entry.at))
+    ),
+    _.p(entry.type === "error" ? entry.error : `Evento su canale ${entry.channel || "default"}`),
+    entry.type === "event" ? _.pre(previewPayloadText(entry.payloadText || compactJson(entry.payload))) : null
+  );
+
+const updateTrackerLogHeader = () => {
+  const counter = document.querySelector("[data-tracker-log-count]");
+  if (!counter) return;
+  counter.textContent = workspaceViewState.trackerLogPaused
+    ? `${workspaceViewState.trackerLogPending} eventi ricevuti mentre la vista e in pausa`
+    : `${workspaceViewState.trackerLog.length} eventi visibili`;
+};
+
+const appendTrackerLogEntry = (entry) => {
+  if (workspaceViewState.trackerLogPaused) {
+    updateTrackerLogHeader();
+    return;
+  }
+
+  const list = document.querySelector("[data-tracker-log-list]");
+  if (!list) {
+    updateTrackerLogHeader();
+    return;
+  }
+
+  const previousHeight = list.scrollHeight;
+  const wasScrolled = list.scrollTop > 4;
+  list.prepend(renderTrackerLogRow(entry));
+
+  while (list.children.length > workspaceViewState.trackerLog.length) {
+    list.lastElementChild?.remove();
+  }
+
+  if (wasScrolled) {
+    list.scrollTop += list.scrollHeight - previousHeight;
+  }
+
+  updateTrackerLogHeader();
+};
+
+const renderTrackerMonitorLog = () =>
+  _.Card(
+    { class: `tl-monitor-log-box${workspaceViewState.trackerLogPaused ? " is-paused" : ""}` },
+    _.Row(
+      { class: "tl-monitor-log-head", align: "center", justify: "space-between", gap: 12 },
+      _.div(
+        _.h3("Log eventi"),
+        _.p(
+          { "data-tracker-log-count": "true" },
+          workspaceViewState.trackerLogPaused
+            ? `${workspaceViewState.trackerLogPending} eventi ricevuti mentre la vista e in pausa`
+            : `${workspaceViewState.trackerLog.length} eventi visibili`
+        )
+      ),
+      _.Toolbar(
+        { align: "center", gap: 8 },
+        btn(
+          { class: `tl-monitor-log-toggle${workspaceViewState.trackerLogPaused ? " is-paused" : ""}`, onclick: toggleTrackerLogPaused },
+          icon(workspaceViewState.trackerLogPaused ? "play_arrow" : "pause", "sm"),
+          workspaceViewState.trackerLogPaused ? "Play" : "Pausa"
+        ),
+        btn({ class: "tl-monitor-log-refresh", onclick: () => refreshTrackerMonitor(true) }, icon("refresh", "sm"))
+      )
+    ),
+    workspaceViewState.trackerLogPaused
+      ? _.div({ class: "tl-monitor-log-freeze" }, icon("pause", "sm"), "Vista in pausa: i nuovi eventi vengono raccolti senza spostare il log.")
+      : null,
+    renderTrackerMonitorLogRows()
+  );
+
+const renderTrackerMonitorContent = () => {
+  const trackers = trackerBoxes();
+  const stats = trackers.map(trackerStat);
+  const liveCount = stats.filter((stat) => stat.status === "live" || stat.status === "starting").length;
+  const errorCount = stats.reduce((count, stat) => count + stat.errorCount, 0);
+  const eventCount = stats.reduce((count, stat) => count + stat.eventCount, 0);
+
+  if (!trackers.length) {
+    return _.div(
+      { class: "tl-monitor-dialog-content" },
+      _.Card(
+        { class: "tl-monitor-empty" },
+        _.div({ class: "tl-dialog-icon" }, icon("cloud_off", "md")),
+        _.h3("Nessun boxTracker nel workspace"),
+        _.p("Collega un boxTracker a un boxLens dall'editor workspace per vedere traffico, payload e stato runtime in questo monitor.")
+      )
+    );
+  }
+
+  return _.div(
+    { class: "tl-monitor-dialog-content" },
+    _.Toolbar(
+      { class: "tl-monitor-summary", cols: 4, gap: 10 },
+      renderMonitorSummaryPill("Tracker", trackers.length, "green"),
+      renderMonitorSummaryPill("Runtime attivi", liveCount, liveCount ? "green" : ""),
+      renderMonitorSummaryPill("Eventi totali", eventCount),
+      renderMonitorSummaryPill("Errori", errorCount, errorCount ? "danger" : ""),
+      btn({ class: "tl-monitor-open-log", onclick: () => openTrackerLogDialog() }, icon("article", "sm"), "Log completo")
+    ),
+    _.Grid(
+      { class: "tl-monitor-overview is-full", cols: "minmax(0, 1fr)", gap: 14 },
+      _.div(
+        { class: "tl-monitor-card-list" },
+        ...trackers.map(renderTrackerMonitorCard)
+      )
+    )
+  );
+};
+
+const refreshTrackerMonitor = (force = false) => {
+  if (workspaceViewState.trackerLogPaused && !force) return;
+  const host = document.querySelector("[data-tracker-monitor-content]");
+  if (!host) return;
+  workspaceViewState.trackerLogPending = 0;
+  host.replaceChildren(renderTrackerMonitorContent());
+};
+
+const openTrackerMonitorDialog = () => {
+  const dialog = _.Dialog({
+    class: "tl-tracker-monitor-dialog",
+    panelClass: "tl-tracker-monitor-panel",
+    size: "xl",
+    title: "Monitor boxTracker",
+    subtitle: "Attivita runtime, payload, errori e collegamenti dei tracker nel workspace aperto.",
+    icon: "monitoring",
+    closeButton: true,
+    scrollable: true,
+    bodyMaxHeight: "72vh",
+    content: () => _.div({ "data-tracker-monitor-content": "true" }, renderTrackerMonitorContent()),
+    actions: ({ close }) => _.Toolbar(
+      { align: "end", gap: 8 },
+      btn({ onclick: () => refreshTrackerMonitor(true) }, icon("refresh", "sm"), "Aggiorna"),
+      btn({ onclick: close }, "Chiudi")
+    ),
+  });
+  dialog.open();
+};
+
+const emitTrackerEvent = (fromBoxId, channel = "default", payload = {}, payloadText = "") => {
+  recordTrackerEvent(fromBoxId, channel, payload, payloadText);
+
   workspaceViewState.connections
     .filter((connection) =>
       connection.fromBoxId === fromBoxId &&
@@ -371,7 +998,7 @@ const mountRuntimeBoxes = () => {
 };
 
 const trackerChannel = (box) =>
-  box.outputChannel || box.runtime?.output || box.channels?.[0] || "default";
+  box.outputChannel || box.runtime?.outputChannel || box.runtime?.output || box.channels?.[0] || "default";
 
 const trackerPayload = (box) =>
   box.sampleOutput || box.runtime?.sampleOutput || {
@@ -380,14 +1007,267 @@ const trackerPayload = (box) =>
     emittedAt: new Date().toISOString(),
   };
 
-const startTrackerRuntime = (box) => {
-  const channel = trackerChannel(box);
-  const emit = () => emitTrackerEvent(box.id, channel, trackerPayload(box));
-  queueMicrotask(emit);
+const parseHeadersText = (value = "") => {
+  const text = String(value || "").trim();
+  if (!text) return {};
 
-  const intervalMs = Number(box.runtime?.intervalMs || box.runtime?.mockIntervalMs || 0);
-  if (intervalMs > 0) {
-    workspaceViewState.trackerTimers.set(box.id, setInterval(emit, intervalMs));
+  if (text.startsWith("{")) {
+    const parsed = JSON.parse(text);
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) throw new Error("Headers JSON non valido.");
+    return parsed;
+  }
+
+  return text.split(/\r?\n/).reduce((headers, line) => {
+    const separator = line.indexOf(":");
+    if (separator <= 0) return headers;
+    const key = line.slice(0, separator).trim();
+    const headerValue = line.slice(separator + 1).trim();
+    if (key) headers[key] = headerValue;
+    return headers;
+  }, {});
+};
+
+const parseBodyText = (value = "") => {
+  const text = String(value || "").trim();
+  if (!text) return undefined;
+  if (text.startsWith("{") || text.startsWith("[")) return JSON.parse(text);
+  return text;
+};
+
+const buildUrlWithQuery = (endpoint, query = "") => {
+  const text = String(query || "").trim();
+  if (!text) return endpoint;
+  if (text.startsWith("?") || text.includes("=")) {
+    const separator = endpoint.includes("?") ? "&" : "?";
+    return `${endpoint}${separator}${text.replace(/^\?/, "")}`;
+  }
+  return endpoint;
+};
+
+const parseFeedPayload = (xmlText) => {
+  const parser = new DOMParser();
+  const xml = parser.parseFromString(xmlText, "application/xml");
+  const parseError = xml.querySelector("parsererror");
+  if (parseError) throw new Error("Feed RSS/Atom non valido.");
+
+  const nodes = [...xml.querySelectorAll("item, entry")].slice(0, 10);
+  const items = nodes.map((node) => ({
+    title: node.querySelector("title")?.textContent?.trim() || "",
+    link: node.querySelector("link")?.getAttribute("href") || node.querySelector("link")?.textContent?.trim() || "",
+    publishedAt: node.querySelector("pubDate, published, updated")?.textContent?.trim() || "",
+    summary: node.querySelector("description, summary, content")?.textContent?.trim() || "",
+  }));
+
+  return {
+    title: xml.querySelector("channel > title, feed > title")?.textContent?.trim() || "",
+    items,
+  };
+};
+
+const parseResponsePayload = async (response, source) => {
+  const contentType = response.headers.get("content-type") || "";
+  const text = await response.text();
+
+  if (!response.ok) {
+    throw new Error(`HTTP ${response.status}: ${text.slice(0, 180) || response.statusText}`);
+  }
+
+  if (source === "rss" || contentType.includes("xml") || contentType.includes("rss") || contentType.includes("atom")) {
+    return parseFeedPayload(text);
+  }
+
+  if (contentType.includes("json")) return JSON.parse(text);
+
+  try {
+    return JSON.parse(text);
+  } catch {
+    return { text };
+  }
+};
+
+const parseWebSocketMessage = (data) => {
+  if (typeof data !== "string") return { data: String(data) };
+  try {
+    return JSON.parse(data);
+  } catch {
+    return { text: data };
+  }
+};
+
+const getPathValue = (payload, path) =>
+  String(path || "").split(".").reduce((value, key) => {
+    if (value && Object.prototype.hasOwnProperty.call(value, key)) return value[key];
+    return undefined;
+  }, payload);
+
+const setPathValue = (payload, path, value) => {
+  const keys = String(path || "").split(".").filter(Boolean);
+  if (!keys.length) return;
+  const lastKey = keys.pop();
+  const target = keys.reduce((node, key) => {
+    if (!node[key] || typeof node[key] !== "object") node[key] = {};
+    return node[key];
+  }, payload);
+  target[lastKey] = value;
+};
+
+const applyTransformRules = (payload, transformText = "", tracker = {}, started = performance.now()) => {
+  const mapped = payload && typeof payload === "object" && !Array.isArray(payload) ? { ...payload } : { value: payload };
+
+  String(transformText || "").split(/\r?\n/).forEach((line) => {
+    const match = line.match(/^\s*([^#][^>-]*?)\s*(?:->|=>)\s*([A-Za-z0-9_.-]+)\s*$/);
+    if (!match) return;
+    const value = getPathValue(payload, match[1].trim());
+    if (value !== undefined) setPathValue(mapped, match[2].trim(), value);
+  });
+
+  return {
+    ...mapped,
+    _trackerRuntime: {
+      receivedAt: new Date().toISOString(),
+      latencyMs: Math.max(1, Math.round(performance.now() - started)),
+      source: tracker.source,
+      endpoint: tracker.endpoint,
+    },
+  };
+};
+
+const trackerRuntimeConfig = (box) => {
+  const asset = box.runtime && typeof box.runtime === "object" ? box.runtime : {};
+  const runtime = asset.runtime && typeof asset.runtime === "object" ? asset.runtime : {};
+  return {
+    ...runtime,
+    ...asset,
+    ...box,
+    source: box.source || asset.source || runtime.source || box.trackerType || asset.trackerType || "manual",
+    trackerType: box.trackerType || asset.trackerType || runtime.source || "manual",
+    runtimeMode: box.runtimeMode || asset.runtimeMode || runtime.mode || "manual",
+    endpoint: box.endpoint || asset.endpoint || runtime.endpoint || "",
+    method: box.method || asset.method || runtime.method || "GET",
+    timeout: Number(box.timeout || asset.timeout || runtime.timeout) || 10,
+    reconnect: box.reconnect ?? asset.reconnect ?? runtime.reconnect ?? true,
+    reconnectInterval: Number(box.reconnectInterval || asset.reconnectInterval || runtime.reconnectInterval) || 5,
+    intervalMs: Number(box.intervalMs || asset.intervalMs || runtime.intervalMs) || 0,
+    outputChannel: trackerChannel(box),
+    sampleOutput: box.sampleOutput || asset.sampleOutput || trackerPayload(box),
+  };
+};
+
+const runRestTracker = async (tracker, started) => {
+  const controller = new AbortController();
+  const timeoutMs = Math.max(1, Number(tracker.timeout) || 10) * 1000;
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  const method = (tracker.method || "GET").toUpperCase();
+  const headers = parseHeadersText(tracker.headersText);
+  const bodyValue = method === "GET" || method === "HEAD" ? undefined : parseBodyText(tracker.query || "");
+  if (bodyValue && typeof bodyValue === "object" && !headers["Content-Type"] && !headers["content-type"]) {
+    headers["Content-Type"] = "application/json";
+  }
+
+  try {
+    const response = await fetch(buildUrlWithQuery(tracker.endpoint, method === "GET" ? tracker.query || "" : ""), {
+      method,
+      headers,
+      signal: controller.signal,
+      body: bodyValue && typeof bodyValue === "object" ? JSON.stringify(bodyValue) : bodyValue,
+    });
+    return applyTransformRules(await parseResponsePayload(response, tracker.source), tracker.transformText, tracker, started);
+  } finally {
+    clearTimeout(timer);
+  }
+};
+
+const runManualTracker = (tracker, started) => {
+  const queryPayload = parseBodyText(tracker.query || "");
+  const payload = queryPayload === undefined ? tracker.sampleOutput : queryPayload;
+  return applyTransformRules(payload, tracker.transformText, tracker, started);
+};
+
+const executeTrackerRuntime = async (tracker) => {
+  const started = performance.now();
+  const source = tracker.source || tracker.trackerType;
+  if (source === "rest" || source === "rss") return runRestTracker(tracker, started);
+  if (source === "manual" || !tracker.endpoint) return runManualTracker(tracker, started);
+  return runRestTracker(tracker, started);
+};
+
+const startWebSocketTrackerRuntime = (box, tracker, emit) => {
+  if (!tracker.endpoint) {
+    queueMicrotask(() => emit(runManualTracker(tracker)));
+    return null;
+  }
+
+  let disposed = false;
+  let socket = null;
+  let reconnectTimer = null;
+
+  const connect = () => {
+    if (disposed) return;
+    socket = new WebSocket(tracker.endpoint);
+    socket.onopen = () => {
+      const query = String(tracker.query || "").trim();
+      if (query) socket.send(query);
+    };
+    socket.onmessage = (event) => {
+      const payload = applyTransformRules(parseWebSocketMessage(event.data), tracker.transformText, tracker);
+      emit(payload, event.data);
+    };
+    socket.onerror = () => {
+      recordTrackerError(box.id, new Error("Errore connessione WebSocket."));
+      socket?.close();
+    };
+    socket.onclose = () => {
+      if (!disposed && tracker.reconnect) {
+        reconnectTimer = setTimeout(connect, Math.max(1, Number(tracker.reconnectInterval) || 5) * 1000);
+      }
+    };
+  };
+
+  connect();
+
+  return () => {
+    disposed = true;
+    if (reconnectTimer) clearTimeout(reconnectTimer);
+    socket?.close();
+  };
+};
+
+const startTrackerRuntime = (box) => {
+  if (workspaceViewState.pausedTrackers.has(box.id)) {
+    updateTrackerStat(box.id, { status: "paused" });
+    return;
+  }
+
+  const tracker = trackerRuntimeConfig(box);
+  if (tracker.active === false || tracker.autoStart === false) {
+    updateTrackerStat(box.id, { status: "stopped", channel: tracker.outputChannel || trackerChannel(box) });
+    return;
+  }
+
+  const channel = tracker.outputChannel || trackerChannel(box);
+  const emit = (payload = trackerPayload(box), payloadText = "") => emitTrackerEvent(box.id, channel, payload, payloadText);
+  updateTrackerStat(box.id, { status: "starting", channel, startedAt: new Date().toISOString() });
+
+  if ((tracker.source || tracker.trackerType) === "websocket") {
+    const dispose = startWebSocketTrackerRuntime(box, tracker, emit);
+    if (dispose) workspaceViewState.trackerTimers.set(box.id, dispose);
+    return;
+  }
+
+  const run = async () => {
+    try {
+      emit(await executeTrackerRuntime(tracker));
+    } catch (error) {
+      console.error(`Errore runtime boxTracker ${box.id}:`, error);
+      recordTrackerError(box.id, error);
+      emit(tracker.sampleOutput || trackerPayload(box));
+    }
+  };
+
+  run();
+
+  if (tracker.intervalMs > 0) {
+    workspaceViewState.trackerTimers.set(box.id, setInterval(run, tracker.intervalMs));
   }
 };
 

@@ -169,6 +169,21 @@ Nota aggiornata 2026-05-10: `editorWorkspace.html`/`js/workspace.js` e stato con
 
 Nota aggiornata 2026-05-10: `workspace.html`/`js/workspaceView.js` e stato toccato solo nelle aree shell sicure: brand e action toolbar usano `_.Row`/`_.Toolbar`. Il canvas runtime, il layer box, il CSS scoped dei boxLens e il dispatch eventi boxTracker -> boxLens restano custom e non vanno convertiti a componenti layout generici senza una verifica visuale dedicata.
 
+Nota aggiornata 2026-05-11: `workspace.html` include ora un pulsante `Monitor` nella topbar, accanto a `Edit`, che apre un `_.Dialog` CMSwift per il monitoraggio live dei `boxTracker` del workspace. Il dialog usa componenti CMSwift (`_.Dialog`, `_.Toolbar`, `_.Grid`, `_.Row`, `_.Card`, `_.Btn`, `_.Icon`) e CSS custom solo per la grafica di stato: metriche runtime, barre pulse, mappa collegamenti, ultimo payload, log eventi/errori e card per ogni tracker. `js/workspaceView.js` mantiene una mappa `trackerStats` e un buffer `trackerLog`, aggiornati quando un tracker emette verso i boxLens o registra errori. Punto ancora prototipale: il runtime esegue REST/RSS/manual/WebSocket nella pagina viewer, ma non esiste ancora un worker/background centralizzato per continuare il monitoraggio quando `workspace.html` e chiuso.
+
+Nota aggiornata 2026-05-11: il log del Monitor boxTracker conserva snapshot immutabili dei payload. Per i WebSocket salva nella singola entry anche la stringa raw ricevuta da `event.data`, cosi ogni riga dello storico mostra il dato esatto arrivato in quel momento e non un riferimento che puo essere sovrascritto dall'ultimo evento.
+
+Nota aggiornata 2026-05-11: lo storico eventi del Monitor boxTracker e stato incapsulato in un box dedicato con controllo `Pausa/Play`. Quando la vista e in pausa i WebSocket continuano a raccogliere eventi nel buffer, ma il dialog non viene ridisegnato automaticamente; premendo `Play` o `Aggiorna` si torna a vedere gli ultimi eventi raccolti. Questo rende leggibili stream molto rapidi senza fermare il runtime dei tracker.
+
+Nota aggiornata 2026-05-11: lo storico eventi non ridisegna piu tutto il dialog a ogni messaggio. Quando il monitor e aperto e non e in pausa, `workspaceView.js` inserisce solo la nuova card nel contenitore log, rimuove l'ultima oltre il limite e preserva lo `scrollTop`; questo evita la perdita dello scroll durante stream WebSocket ad alta frequenza.
+
+Nota aggiornata 2026-05-11: anche la row tracker del Monitor boxTracker ora viene aggiornata in modo mirato. Gli eventi runtime aggiornano solo testo metriche, stato, segnale e dettagli espansi tramite attributi `data-tracker-row-*`, senza ricreare la riga intera e senza far perdere hover/focus sui bottoni.
+
+Nota aggiornata 2026-05-11: il Monitor boxTracker e stato ricompattato per supportare piu tracker. Ogni tracker e ora una riga compatta con stato, segnale runtime, metriche, pausa/play del singolo tracker, apertura log dedicato, espansione dettagli e dialog azioni. Il log completo e stato spostato in un dialog separato, mentre l'animazione principale e passata da barre grandi a un segnale puntuale piu adatto a runtime/stream.
+
+Nota aggiornata 2026-05-11: il brand header di `editorWorkspace.html`, `library.html` e `workspace.html` e stato riallineato allo stile gia corretto di `editorBoxLens.html`/`editorBoxTracker.html`: area brand a 250px, header/topbar a 70px, logo e titolo in flex con gap stabile, padding 18px e bordo destro sul blocco brand.
+
+
 `library.html`, `editorWorkspace.html` e i punti che aprono un `boxTracker` ora passano `trackerId` quando esiste un record sorgente, cosi viene aperto in modalita modifica:
 
 ```txt

@@ -14,7 +14,7 @@ body {
   width: 100vw;
   height: 100vh;
   display: grid;
-  grid-template-rows: 60px minmax(0, 1fr);
+  grid-template-rows: 70px minmax(0, 1fr);
   overflow: hidden;
   background:
     radial-gradient(circle at 50% 0%, rgba(86, 191, 245, 0.07), transparent 34%),
@@ -22,10 +22,10 @@ body {
 }
 
 .tl-library-topbar {
-  height: 60px;
-  padding: 0 22px 0 28px;
+  height: 70px;
+  padding: 0 22px 0 0;
   display: grid;
-  grid-template-columns: 310px minmax(380px, 724px) auto;
+  grid-template-columns: 256px minmax(380px, 724px) auto;
   align-items: center;
   gap: 26px;
   border-bottom: 1px solid rgba(214, 226, 235, 0.09);
@@ -35,7 +35,13 @@ body {
 }
 
 .tl-library-brand {
+  height: 100%;
   min-width: 0;
+  padding: 0 18px;
+  display: flex;
+  align-items: center;
+  gap: 13px;
+  border-right: 1px solid var(--tl-border-soft);
 }
 
 .tl-library-brand .tl-brand-mark {
@@ -51,6 +57,7 @@ body {
   line-height: 1;
   font-weight: 800;
   letter-spacing: 0;
+  flex: 0 0 auto;
   white-space: nowrap;
 }
 
@@ -59,6 +66,7 @@ body {
 }
 
 .tl-library-brand .cms-icon {
+  flex: 0 0 auto;
   color: var(--tl-text-soft);
 }
 

@@ -17,22 +17,25 @@ body {
   min-height: 720px;
   padding: 0;
   display: grid;
-  grid-template-rows: 76px minmax(0, 1fr);
+  grid-template-rows: 70px minmax(0, 1fr);
   position: relative;
   background: linear-gradient(180deg, rgba(12, 19, 27, 0.98), rgba(7, 12, 18, 0.98));
 }
 
 .tl-workspace-header {
-  height: 76px;
+  height: 70px;
   display: grid;
-  grid-template-columns: 270px minmax(240px, 1fr) auto;
+  grid-template-columns: 256px minmax(240px, 1fr) auto;
   align-items: center;
   border-bottom: 1px solid var(--tl-border-soft);
 }
 
 .tl-app-brand {
   height: 100%;
-  padding: 0 22px;
+  padding: 0 18px;
+  display: flex;
+  align-items: center;
+  gap: 13px;
   border-right: 1px solid var(--tl-border-soft);
 }
 
@@ -46,6 +49,7 @@ body {
   margin: 0;
   font-size: 18px;
   font-weight: 800;
+  flex: 0 0 auto;
   white-space: nowrap;
 }
 
