@@ -79,7 +79,7 @@ const renderWorkspaceBoxes = () =>
         gridTemplateRows: `repeat(${workspaceViewState.workspace.rows || 40}, minmax(0, 1fr))`,
       },
     },
-    ...workspaceViewState.boxes.map(renderWorkspaceBox)
+    ...workspaceViewState.boxes.filter((box) => !box.hidden).map(renderWorkspaceBox)
   );
 
 const getRuntimeCode = (box) => {

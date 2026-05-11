@@ -377,6 +377,24 @@ body {
   position: relative;
 }
 
+.tl-link-tracker-btn.cms-btn {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  width: 30px;
+  height: 30px;
+  min-width: 30px;
+  padding: 0;
+  color: var(--tl-text);
+  border-color: rgba(53, 201, 121, 0.34);
+  background: rgba(16, 185, 129, 0.14);
+}
+
+.tl-link-tracker-btn.cms-btn:hover {
+  border-color: rgba(53, 201, 121, 0.68);
+  background: rgba(16, 185, 129, 0.22);
+}
+
 .tl-placed-box.is-selected {
   border-color: rgba(255, 199, 44, 0.82);
   box-shadow: 0 0 0 1px rgba(255, 199, 44, 0.18);
@@ -404,6 +422,102 @@ body {
   grid-column: 2;
   color: var(--tl-text-muted);
   font-size: 11px;
+}
+
+.tl-tracker-link-panel {
+  color: var(--tl-text);
+  background: #101821;
+}
+
+.tl-tracker-link-list {
+  min-width: min(620px, 78vw);
+}
+
+.tl-tracker-link-content {
+  min-width: min(620px, 78vw);
+}
+
+.tl-tracker-link-search {
+  margin-bottom: 12px;
+}
+
+.tl-tracker-link-search .cms-control {
+  border-color: var(--tl-border-soft);
+  background: rgba(4, 9, 14, 0.54);
+}
+
+.tl-tracker-link-card>.cms-card-body,
+.tl-tracker-link-empty>.cms-card-body {
+  padding: 12px;
+}
+
+.tl-tracker-link-card {
+  border-color: var(--tl-border-soft);
+  background: rgba(255, 255, 255, 0.035);
+}
+
+.tl-tracker-link-card.is-hidden,
+.tl-tracker-link-empty.is-hidden {
+  display: none;
+}
+
+.tl-tracker-link-card.is-linked {
+  border-color: rgba(53, 201, 121, 0.48);
+  background: rgba(53, 201, 121, 0.08);
+}
+
+.tl-tracker-link-row {
+  width: 100%;
+}
+
+.tl-tracker-link-icon,
+.tl-dialog-icon {
+  width: 34px;
+  height: 34px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  color: #061014;
+  border-radius: var(--tl-radius-sm);
+  background: var(--asset-color, #35c979);
+}
+
+.tl-tracker-link-name {
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.tl-tracker-link-meta {
+  margin-top: 3px;
+  color: var(--tl-text-muted);
+  font-size: 11px;
+}
+
+.tl-tracker-link-action.cms-btn.is-linked {
+  color: var(--tl-success);
+  border-color: rgba(53, 201, 121, 0.4);
+}
+
+.tl-tracker-link-empty {
+  max-width: 520px;
+  text-align: center;
+}
+
+.tl-tracker-link-empty .tl-dialog-icon {
+  margin: 0 auto 12px;
+  color: var(--tl-text);
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.tl-tracker-link-empty h3 {
+  margin: 0 0 8px;
+}
+
+.tl-tracker-link-empty p {
+  margin: 0 0 14px;
+  color: var(--tl-text-muted);
+  line-height: 1.45;
 }
 
 .tl-resize-handles {

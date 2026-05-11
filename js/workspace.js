@@ -117,6 +117,7 @@ const selectedBox = () => workspaceState.boxes.find((box) => box.id === workspac
 const selectedBoxes = () => workspaceState.selectedBoxIds.map((id) => workspaceState.boxes.find((box) => box.id === id)).filter(Boolean);
 const isBoxSelected = (boxId) => workspaceState.selectedBoxIds.includes(boxId);
 const boxById = (boxId) => workspaceState.boxes.find((box) => box.id === boxId) || null;
+const visibleWorkspaceBoxes = () => workspaceState.boxes.filter((box) => !box.hidden);
 const clamp = (value, min, max) => Math.max(min, Math.min(max, value));
 const nextZIndex = () => Math.max(1, ...workspaceState.boxes.map((box) => box.zIndex || 1)) + 1;
 const assetById = (id) => id ? workspaceState.localAssets.find((asset) => asset.id === id || asset.sourceId === id) || null : null;
@@ -158,6 +159,7 @@ const serializeWorkspaceBox = (box) => ({
   width: box.width || 6,
   height: box.height || 4,
   zIndex: box.zIndex || 1,
+  hidden: Boolean(box.hidden),
   channels: Array.isArray(box.channels) ? [...box.channels] : [],
 });
 
@@ -358,6 +360,197 @@ const visibleAssets = () =>
     return matchesType && (!query || asset.searchText?.includes(query) || asset.name.toLowerCase().includes(query));
   });
 
+const trackerAssets = () => workspaceState.localAssets.filter((asset) => asset.type === "boxTracker");
+
+const trackerChannel = (tracker) =>
+  tracker.outputChannel || tracker.runtime?.output || tracker.channels?.[0] || "default";
+
+const matchesTrackerAsset = (box, asset) =>
+  box?.type === "boxTracker" && [asset.id, asset.sourceId].filter(Boolean).some((id) => [box.assetId, box.sourceId, box.id].includes(id));
+
+const trackerInstanceForAsset = (asset) =>
+  workspaceState.boxes.find((box) => matchesTrackerAsset(box, asset)) || null;
+
+const trackerConnectionForLens = (asset, lensBox) => {
+  const tracker = trackerInstanceForAsset(asset);
+  if (!tracker) return null;
+  return workspaceState.connections.find((connection) => connection.fromBoxId === tracker.id && connection.toBoxId === lensBox.id) || null;
+};
+
+const createHiddenTrackerBox = (asset) =>
+  displayBoxFromAsset(asset, {
+    id: `tracker_${asset.id}_${Date.now()}`,
+    assetId: asset.id,
+    sourceId: asset.sourceId || asset.id,
+    type: "boxTracker",
+    hidden: true,
+    x: 1,
+    y: 1,
+    width: 1,
+    height: 1,
+    zIndex: 1,
+    channels: [trackerChannel(asset)],
+  });
+
+const linkTrackerAssetToLens = (asset, lensBox, closeDialog) => {
+  commitWorkspaceChange(`${asset.name} collegato a ${lensBox.name}`, () => {
+    let tracker = trackerInstanceForAsset(asset);
+    if (!tracker) {
+      tracker = createHiddenTrackerBox(asset);
+      workspaceState.boxes.push(tracker);
+    }
+
+    const hasConnection = workspaceState.connections.some((connection) => connection.fromBoxId === tracker.id && connection.toBoxId === lensBox.id);
+    if (!hasConnection) {
+      workspaceState.connections.push({
+        id: `connection_${Date.now()}`,
+        fromBoxId: tracker.id,
+        toBoxId: lensBox.id,
+        channel: trackerChannel(tracker),
+        mapping: {},
+      });
+    }
+    selectBoxes([lensBox.id]);
+  });
+  persistWorkspaceSilently();
+  closeDialog?.();
+};
+
+const unlinkTrackerAssetFromLens = (asset, lensBox, closeDialog) => {
+  commitWorkspaceChange(`${asset.name} scollegato da ${lensBox.name}`, () => {
+    const tracker = trackerInstanceForAsset(asset);
+    if (!tracker) return;
+
+    workspaceState.connections = workspaceState.connections.filter((connection) => !(connection.fromBoxId === tracker.id && connection.toBoxId === lensBox.id));
+    const stillUsed = workspaceState.connections.some((connection) => connection.fromBoxId === tracker.id || connection.toBoxId === tracker.id);
+    if (tracker.hidden && !stillUsed) {
+      workspaceState.boxes = workspaceState.boxes.filter((box) => box.id !== tracker.id);
+    }
+    selectBoxes([lensBox.id]);
+  });
+  persistWorkspaceSilently();
+  closeDialog?.();
+};
+
+const trackerSearchText = (tracker) =>
+  [
+    tracker.name,
+    tracker.category,
+    tracker.description,
+    tracker.outputChannel,
+    tracker.runtime?.output,
+    trackerChannel(tracker),
+  ].filter(Boolean).map((value) => String(value).toLowerCase()).join(" ");
+
+const filterTrackerDialogList = (value = "") => {
+  const query = String(value).trim().toLowerCase();
+  const cards = [...document.querySelectorAll(".tl-tracker-link-card")];
+  let visibleCount = 0;
+
+  cards.forEach((card) => {
+    const matches = !query || card.dataset.searchText?.includes(query);
+    card.classList.toggle("is-hidden", !matches);
+    if (matches) visibleCount += 1;
+  });
+
+  document.querySelector(".tl-tracker-link-empty.is-filtered")?.classList.toggle("is-hidden", visibleCount > 0);
+};
+
+const trackerDialogInputValue = (eventOrValue) => {
+  if (eventOrValue && typeof eventOrValue === "object" && "target" in eventOrValue) return eventOrValue.target?.value || "";
+  return eventOrValue || "";
+};
+
+const renderTrackerLinkDialogContent = (lensBox, closeDialog) => {
+  const trackers = trackerAssets();
+  if (!trackers.length) {
+    return _.Card(
+      { class: "tl-tracker-link-empty" },
+      _.div({ class: "tl-dialog-icon" }, icon("cloud_off", "md")),
+      _.h3("Nessun boxTracker disponibile"),
+      _.p("Crea o salva un boxTracker nella libreria locale, poi torna qui per collegarlo al boxLens."),
+      btn({ onclick: () => { closeDialog?.(); openChromePage("editorBoxTracker.html"); } }, icon("add", "sm"), "Crea boxTracker")
+    );
+  }
+
+  return _.div(
+    { class: "tl-tracker-link-content" },
+    _.Input({
+      class: "tl-tracker-link-search",
+      placeholder: "Cerca boxTracker...",
+      icon: "search",
+      onInput: (event) => filterTrackerDialogList(trackerDialogInputValue(event)),
+    }),
+    _.Grid(
+      { class: "tl-tracker-link-list", cols: 1, gap: 10 },
+      ...trackers.map((tracker) => {
+        const connection = trackerConnectionForLens(tracker, lensBox);
+        const linked = Boolean(connection);
+        return _.Card(
+          { class: `tl-tracker-link-card${linked ? " is-linked" : ""}`, "data-search-text": trackerSearchText(tracker) },
+          _.Row(
+            { class: "tl-tracker-link-row", align: "center", justify: "space-between", gap: 12 },
+            _.Row(
+              { align: "center", gap: 10 },
+              _.span({ class: "tl-tracker-link-icon", style: { "--asset-color": tracker.color } }, icon(tracker.icon || "cloud_queue", "sm")),
+              _.div(
+                _.div({ class: "tl-tracker-link-name" }, tracker.name),
+                _.div({ class: "tl-tracker-link-meta" }, `${tracker.category || "Dati"} · canale ${trackerChannel(tracker)}`)
+              )
+            ),
+            btn(
+              {
+                class: linked ? "tl-tracker-link-action is-linked" : "tl-tracker-link-action",
+                onclick: () => linked ? unlinkTrackerAssetFromLens(tracker, lensBox, closeDialog) : linkTrackerAssetToLens(tracker, lensBox, closeDialog),
+              },
+              icon(linked ? "link_off" : "link", "sm"),
+              linked ? "Scollega" : "Collega"
+            )
+          )
+        );
+      })
+    ),
+    _.Card(
+      { class: "tl-tracker-link-empty is-filtered is-hidden" },
+      _.div({ class: "tl-dialog-icon" }, icon("search_off", "md")),
+      _.h3("Nessun tracker trovato"),
+      _.p("Modifica la ricerca per vedere altri boxTracker disponibili.")
+    )
+  );
+};
+
+const focusTrackerDialogSearch = () => {
+  requestAnimationFrame(() => {
+    const input = document.querySelector(".tl-tracker-link-search input");
+    if (!input) return;
+    input.focus();
+  });
+};
+
+const openTrackerLinkDialog = (event, lensBox) => {
+  event?.stopPropagation?.();
+  event?.preventDefault?.();
+
+  const dialog = _.Dialog({
+    class: "tl-tracker-link-dialog",
+    panelClass: "tl-tracker-link-panel",
+    size: "lg",
+    title: `Collega tracker a ${lensBox.name}`,
+    subtitle: "Scegli un boxTracker dalla libreria locale. Il collegamento viene salvato come connessione del workspace.",
+    icon: "hub",
+    closeButton: true,
+    scrollable: true,
+    bodyMaxHeight: "62vh",
+    onOpen: focusTrackerDialogSearch,
+    content: ({ close }) => renderTrackerLinkDialogContent(lensBox, close),
+    actions: ({ close }) => _.Toolbar(
+      { align: "end", gap: 8 },
+      btn({ onclick: close }, "Chiudi")
+    ),
+  });
+  dialog.open();
+};
+
 const renderAssetList = () => {
   if (workspaceState.assetsLoading) {
     return _.div({ class: "tl-box-list-state" }, "Caricamento libreria locale...");
@@ -485,10 +678,10 @@ const renderCanvas = () =>
             gridTemplateRows: `repeat(${workspaceState.workspace.rows}, minmax(0, 1fr))`,
           },
         },
-        ...workspaceState.boxes.map(renderPlacedBox)
+        ...visibleWorkspaceBoxes().map(renderPlacedBox)
       ),
       workspaceState.selectionRect ? renderSelectionRect() : null,
-      workspaceState.boxes.length ? null : renderDropZone()
+      visibleWorkspaceBoxes().length ? null : renderDropZone()
     )
   );
 
@@ -504,10 +697,11 @@ const renderDropZone = () =>
   );
 
 const renderPlacedBox = (box) =>
-  _.button(
+  _.div(
     {
       class: `tl-placed-box${isBoxSelected(box.id) ? " is-selected" : ""}${workspaceState.connectDraft?.fromBoxId === box.id ? " is-connect-source" : ""}`,
-      type: "button",
+      role: "button",
+      tabindex: 0,
       style: {
         gridColumn: `${box.x} / span ${box.width}`,
         gridRow: `${box.y} / span ${box.height}`,
@@ -528,6 +722,17 @@ const renderPlacedBox = (box) =>
     _.span({ class: "tl-asset-icon" }, icon(box.icon, "sm")),
     _.span({ class: "tl-placed-title" }, box.name),
     _.span({ class: "tl-placed-meta" }, `${box.width} x ${box.height} celle`),
+    box.type === "boxLens" && !workspaceState.previewMode
+      ? btn(
+        {
+          class: "tl-link-tracker-btn",
+          "aria-label": `Collega boxTracker a ${box.name}`,
+          onmousedown: (event) => event.stopPropagation(),
+          onclick: (event) => openTrackerLinkDialog(event, box),
+        },
+        icon("hub", "sm")
+      )
+      : null,
     isBoxSelected(box.id) && workspaceState.activeTool === "resize" ? renderResizeHandles(box.id) : null
   );
 
@@ -1237,8 +1442,8 @@ const handleWorkspaceKeys = (event) => {
   }
   if ((event.metaKey || event.ctrlKey) && key === "a") {
     event.preventDefault();
-    selectBoxes(workspaceState.boxes.map((box) => box.id));
-    setNotice(`${workspaceState.boxes.length} box selezionati`);
+    selectBoxes(visibleWorkspaceBoxes().map((box) => box.id));
+    setNotice(`${visibleWorkspaceBoxes().length} box selezionati`);
     mountWorkspace();
     return;
   }

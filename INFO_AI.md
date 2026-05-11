@@ -2253,3 +2253,56 @@ Nota comportamento:
 
 - Se due schede sono aperte e una deve aggiornare la struttura IndexedDB, le altre chiudono la connessione al DB e la riaprono alla prossima operazione.
 - Questo evita il caso in cui library/editor/workspace sembrano non caricare dati finche l'utente non chiude manualmente tutte le schede.
+
+## Aggiornamento 2026-05-11 - Collegamento boxTracker da boxLens nel workspace
+
+Obiettivo della sessione: aggiungere in `editorWorkspace.html` un collegamento diretto da ogni `boxLens` ai `boxTracker` disponibili, usando componenti CMSwift.
+
+Fatto:
+
+- In `js/workspace.js` ogni box visuale di tipo `boxLens` mostra ora un bottone con icona `hub` dentro il box, nascosto in modalita preview.
+- Il bottone apre un `_.Dialog` / CMSwift Dialog con la lista dei `boxTracker` presenti nella libreria locale.
+- Il dialog include ora una ricerca semplice CMSwift (`_.Input` con icona search) per filtrare i tracker per nome, categoria, descrizione o canale.
+- Nota successiva: e stato evitato `_.Search` perche mostra un menu risultati non desiderato in questo dialog; l'input filtra le card gia presenti nel DOM con `data-search-text` e classe `is-hidden`, senza fare re-render del Dialog.
+- Ogni tracker nel dialog mostra:
+  - nome;
+  - categoria;
+  - canale di output;
+  - stato collegato/non collegato;
+  - azione `Collega` o `Scollega`.
+- Se il tracker non e ancora presente nel workspace, il collegamento crea una istanza `boxTracker` nascosta (`hidden: true`) e poi crea la connessione:
+
+```js
+{
+  fromBoxId: "<boxTracker-instance-id>",
+  toBoxId: "<boxLens-instance-id>",
+  channel: "<output-channel>",
+  mapping: {}
+}
+```
+
+- `serializeWorkspaceBox()` salva ora anche `hidden`, cosi i tracker di background restano nel workspace senza essere visualizzati nel canvas.
+- `workspaceView.js` non renderizza i box con `hidden: true`, ma continua ad avviare i runtime dei `boxTracker`, quindi il collegamento resta utile per l'esecuzione.
+- Aggiunto CSS mirato in `css/workspace.css` per:
+  - bottone di collegamento dentro il boxLens;
+  - card del dialog;
+  - stato collegato;
+  - empty state quando non esistono tracker locali.
+
+Verifiche eseguite:
+
+- `node --check js/workspace.js`
+- `node --check js/workspaceView.js`
+- Chrome headless su `http://127.0.0.1:3025/editorWorkspace.html`: render iniziale caricato senza errori bloccanti.
+
+Cosa manca / prossimi passi:
+
+- Verificare manualmente in browser reale il flusso completo con dati IndexedDB reali:
+  - crea/salva un `boxTracker`;
+  - crea/salva un `boxLens`;
+  - inserisci il `boxLens` nel workspace;
+  - apri il dialog dal bottone `hub`;
+  - collega il tracker;
+  - salva e riapri il workspace;
+  - verifica in `workspace.html` che il runtime riceva eventi dal tracker nascosto.
+- Valutare una vista dedicata "Collegamenti" nel pannello laterale per vedere e gestire tutte le connessioni del workspace in forma tabellare.
