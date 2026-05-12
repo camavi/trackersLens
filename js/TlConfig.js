@@ -8,6 +8,7 @@ const tlConfig = {
     TL_PAGES: 'tl_pages',
     TL_WIDGETS: 'tl_widgets',
     TL_CONNECTIONS: 'tl_connections',
+    TL_SETTINGS: 'tl_settings',
     TL_AI_PROVIDERS: 'tl_ai_providers',
     TL_AI_AGENTS: 'tl_ai_agents',
     TL_AI_JOBS: 'tl_ai_jobs',
