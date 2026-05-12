@@ -199,6 +199,8 @@ Nota aggiornata 2026-05-12: corretti overflow e sovrapposizioni nella griglia di
 
 Nota aggiornata 2026-05-12: le metric card di `ai.html` sono state riallineate al riferimento visuale desiderato: icona neon in alto a destra colorata in base al tono della metrica, numero grande a sinistra, delta sotto e sparkline colorato in basso. I colori ora distinguono AI core viola, jobs/success verde, provider/network blu, errori rosso e token/costi oro.
 
+Nota aggiornata 2026-05-12: e stata aggiunta la schermata `profile.html` per "Profilo Utente", pensata come centro identita operativo dell'utente Tracker Lens e non come pagina account generica. La UI usa CMSwift per shell/topbar/sidebar, search, toolbar, grid, card, bottoni, select, icone e componenti compositivi; `css/profileView.css` gestisce solo l'identita visuale premium: dark mode, griglia puntinata, hero profilo, avatar glow, badge online, piano Premium, tabs, timeline, donut AI usage, chart workspace, quick actions, sicurezza, dispositivi, informazioni sistema e footer runtime live. La sidebar standard (`js/tl-sidebar.js`, `css/tl-sidebar.css`) ora rende il profilo utente navigabile verso `profile.html`, con stato attivo, avatar compatto, nome e stato online. Punto ancora prototipale: i dati della pagina profilo sono demo/statici; serviranno persistenza in `tl_settings`/store dedicato e collegamento a metriche reali IndexedDB per account, billing, dispositivi e usage AI.
+
 
 `library.html`, `editorWorkspace.html` e i punti che aprono un `boxTracker` ora passano `trackerId` quando esiste un record sorgente, cosi viene aperto in modalita modifica:
 

@@ -42,8 +42,13 @@ window.TrackerLensSidebar = (() => {
           _.Icon({ name: "help_outline", size: "md" })
         ),
         _.Btn(
-          { type: "button", class: "tl-view-profile", "aria-label": "Profilo utente" },
-          _.Icon({ name: "account_circle", size: "md" }),
+          {
+            type: "button",
+            class: `tl-view-profile${activeId === "profile" ? " is-active" : ""}`,
+            "aria-label": "Profilo utente",
+            onclick: () => navigate("profile.html"),
+          },
+          _.span({ class: "tl-view-profile-avatar", "aria-hidden": "true" }),
           _.span({ class: "tl-profile-dot", "aria-hidden": "true" })
         )
       )
