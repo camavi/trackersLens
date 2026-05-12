@@ -2373,3 +2373,40 @@ Cosa manca / prossimi passi:
 - Definire lo schema operativo di `tl_ai_prompt_flows` e renderizzare piu flow reali, non solo il primo.
 - Collegare pricing/token per stimare costi reali per provider/modello.
 - Aggiungere worker/runtime locale che esegua prompt e scriva su `tl_ai_jobs`, `tl_ai_logs`, `tl_ai_memory`.
+
+## Aggiornamento 2026-05-12 - Nuova pagina Impostazioni
+
+Obiettivo della sessione: aggiungere una schermata "Impostazioni" premium per configurare Tracker Lens come sistema operativo dati avanzato.
+
+Fatto:
+
+- Aggiunto `settings.html`, con shell CMSwift locale e sidebar standard Tracker Lens.
+- Aggiunto `js/settingsView.js`, composto con componenti CMSwift (`_.Search`, `_.Toolbar`, `_.Grid`, `_.Card`, `_.Btn`, `_.Icon`, `_.Input`, `_.Select`, `_.Toggle`) e piccoli elementi nativi solo per gli slider range.
+- Aggiunto `css/settingsView.css`, limitato al tema visuale: dark premium, griglia puntinata, glass panel, glow viola/verde/oro/rosso, hover tecnici, donut storage, footer runtime e scrollbar custom.
+- Aggiornata la voce `settings` in `js/tl-sidebar.js` per navigare a `settings.html` e restare attiva nella nuova pagina.
+- La pagina include: categorie impostazioni, generale, AI provider, connessioni, archiviazione/cache, notifiche, stato sistema, azioni rapide, backup/ripristino, sicurezza/API keys, informazioni sistema e footer diagnostico live.
+- Lo storage usa `navigator.storage.estimate()` quando disponibile per mostrare uso/quota reali del browser; il resto e al momento mock operativo UI.
+
+Verifiche eseguite:
+
+- `node --check js/settingsView.js`
+- `curl -I http://127.0.0.1:3027/settings.html`
+- Chrome headless su `http://127.0.0.1:3027/settings.html`: DOM renderizzato con shell completa.
+
+Cosa manca / prossimi passi:
+
+- Persistenza reale in IndexedDB per `tl_settings`, provider default, notifiche, connessioni e sicurezza.
+- Form dedicati per edit/import/export/reset invece di bottoni UI.
+- Collegare "Testa Connessione", "Testa Notifiche", backup e diagnostica a servizi reali.
+
+Nota aggiornata 2026-05-12: corretto overflow dei pannelli inferiori della pagina `settings.html` (`Backup & Ripristino`, `Sicurezza & API Keys`, `Informazioni Sistema`) aggiungendo scroll interno e scrollbar dark coerenti. La riga inferiore e stata aumentata a 330px e la lista API keys ha altezza massima dedicata per non tagliare bottoni e contenuti quando la riga grid e compatta.
+
+Nota aggiornata 2026-05-12: riallineato il layout centrale di `settings.html`. Il blocco impostazioni ora span su tutta la larghezza disponibile a destra della sidebar categorie e usa una griglia a 6 colonne: `Impostazioni Generali` e `AI Provider Predefinito` occupano la prima riga, mentre `Impostazioni Connessioni`, `Archiviazione & Cache` e `Notifiche` sono disposte orizzontalmente sulla seconda riga. `Stato Sistema` e `Azioni Rapide` sono stati spostati in una riga dedicata sotto il blocco centrale per evitare vuoti verticali e card che scendono in modo disordinato.
+
+Nota aggiornata 2026-05-12: corretta la sovrapposizione visiva tra le righe di `settings.html`. La griglia principale usa ora righe esplicite per centro, stato/azioni, pannelli inferiori e footer; `Stato Sistema` e `Azioni Rapide` hanno altezza e overflow controllati. I pannelli sono stati resi piu opachi per mantenere l'effetto premium senza mostrare card sovrapposte dietro.
+
+Nota aggiornata 2026-05-12: riorganizzato `settings.html` nella griglia richiesta: `Azioni Rapide` e una barra orizzontale unica sopra; poi tre card orizzontali (`Impostazioni Generali`, `AI Provider Predefinito`, `Stato Sistema`); poi tre card orizzontali (`Impostazioni Connessioni`, `Archiviazione & Cache`, `Notifiche`); infine `Backup & Ripristino`, `Sicurezza & API Keys` e `Informazioni Sistema`. La sidebar categorie `Impostazioni` resta nella colonna sinistra e copre le righe operative.
+
+Nota aggiornata 2026-05-12: la riga finale di `settings.html` ora e full-width e non condivide piu la colonna con la sidebar categorie. `Backup & Ripristino`, `Sicurezza & API Keys` e `Informazioni Sistema` sono dentro una sezione `tl-settings-bottom` a tre colonne che occupa tutta la larghezza orizzontale della griglia.
+
+Nota aggiornata 2026-05-12: aggiornata la proporzione della riga finale `tl-settings-bottom` in `settings.html`: `Backup & Ripristino` 25%, `Sicurezza & API Keys` 50%, `Informazioni Sistema` 25%.

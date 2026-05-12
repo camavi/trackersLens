@@ -6,7 +6,7 @@ window.TrackerLensSidebar = (() => {
     { id: "database", icon: "database", label: "Database", url: "database.html" },
     { id: "stats", icon: "monitoring", label: "Statistiche", url: "analytics.html" },
     { id: "ai", icon: "psychology", label: "AI", url: "ai.html" },
-    { id: "settings", icon: "settings", label: "Impostazioni" },
+    { id: "settings", icon: "settings", label: "Impostazioni", url: "settings.html" },
   ];
 
   const navigate = (url) => {
