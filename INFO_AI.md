@@ -193,6 +193,12 @@ Nota aggiornata 2026-05-11: e stata aggiunta la schermata `analytics.html` per "
 
 Nota aggiornata 2026-05-12: la search globale di `analytics.html` e stata riallineata al pattern di `library.html`: lo stile glass/topbar vive su un wrapper esterno, mentre `_.Search` CMSwift resta come componente interno. Questo evita che la classe visuale venga applicata anche al nodo `cms-search` interno e corregge label/input schiacciati nella topbar.
 
+Nota aggiornata 2026-05-12: e stata aggiunta la schermata `ai.html` per "AI Runtime Center". La voce AI della sidebar standard (`js/tl-sidebar.js`, id `ai`) ora naviga a questa pagina e resta evidenziata con `activeId: "ai"`. La UI usa CMSwift per shell/topbar/sidebar, search, toolbar, griglie, card, bottoni e tabella; `css/aiRuntimeCenter.css` gestisce solo il tema command-center premium: griglia puntinata, pannelli glass, glow viola/verde/oro/rosso, metric card, AI agents panel, flow graph, provider models, prompt pipeline, jobs table, live logs, AI memory, analytics e footer runtime. `js/aiRuntimeCenter.js` monta un mockup statico operativo con dati demo coerenti con un runtime agentico locale. Punto ancora prototipale: non esiste ancora uno store reale per provider AI, jobs, prompt flows, costi/token e log agentici; serviranno persistenza IndexedDB e runtime worker per renderla una control room AI reale.
+
+Nota aggiornata 2026-05-12: corretti overflow e sovrapposizioni nella griglia di `ai.html`. I pannelli Agents, Providers, Memory, Prompt Flows, Jobs e Logs ora hanno `min-height: 0`, overflow interno e scrollbar dark dove serve; le righe principali della grid sono state leggermente aumentate e i nodi dell'AI Flow sono stati compattati per evitare tagli/sovrapposizioni su viewport stretti.
+
+Nota aggiornata 2026-05-12: le metric card di `ai.html` sono state riallineate al riferimento visuale desiderato: icona neon in alto a destra colorata in base al tono della metrica, numero grande a sinistra, delta sotto e sparkline colorato in basso. I colori ora distinguono AI core viola, jobs/success verde, provider/network blu, errori rosso e token/costi oro.
+
 
 `library.html`, `editorWorkspace.html` e i punti che aprono un `boxTracker` ora passano `trackerId` quando esiste un record sorgente, cosi viene aperto in modalita modifica:
 
