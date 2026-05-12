@@ -43,7 +43,7 @@ const renderBrand = () =>
   _.Row(
     { class: "tl-view-brand" },
     _.span({ class: "tl-brand-mark", "aria-hidden": "true" }),
-    _.h1({ class: "tl-brand-title" }, "TRACKER ", _.span("LENS")),
+    _.h1({ class: "tl-brand-title" }, "TRACKERS ", _.span("LENS")),
     icon("chevron_right", "sm")
   );
 
@@ -665,36 +665,36 @@ const openTrackerActionsDialog = (box) => {
 };
 
 const renderTrackerMonitorDetailNodes = (box, stat, connections, names) => [
-    _.Grid(
-      { class: "tl-monitor-info-grid", cols: "repeat(auto-fit, minmax(180px, 1fr))", gap: 8 },
-      _.div(_.span("ID istanza"), _.strong(box.id)),
-      _.div(_.span("Asset sorgente"), _.strong(shortValue(box.sourceId || box.assetId))),
-      _.div(_.span("Endpoint"), _.strong(endpointLabel(box) || "sample/manual")),
-      _.div(_.span("Collegamenti"), _.strong(String(connections.length)))
-    ),
+  _.Grid(
+    { class: "tl-monitor-info-grid", cols: "repeat(auto-fit, minmax(180px, 1fr))", gap: 8 },
+    _.div(_.span("ID istanza"), _.strong(box.id)),
+    _.div(_.span("Asset sorgente"), _.strong(shortValue(box.sourceId || box.assetId))),
+    _.div(_.span("Endpoint"), _.strong(endpointLabel(box) || "sample/manual")),
+    _.div(_.span("Collegamenti"), _.strong(String(connections.length)))
+  ),
+  _.div(
+    { class: "tl-monitor-lens-list" },
+    names.length
+      ? names.map((name) => _.span(name))
+      : _.span({ class: "is-empty" }, "Nessun boxLens collegato")
+  ),
+  _.Card(
+    { class: "tl-monitor-network is-inline" },
+    _.h3("Mappa collegamenti"),
+    _.p(`${connections.length} connessioni per questo tracker`),
     _.div(
-      { class: "tl-monitor-lens-list" },
-      names.length
-        ? names.map((name) => _.span(name))
-        : _.span({ class: "is-empty" }, "Nessun boxLens collegato")
-    ),
-    _.Card(
-      { class: "tl-monitor-network is-inline" },
-      _.h3("Mappa collegamenti"),
-      _.p(`${connections.length} connessioni per questo tracker`),
-      _.div(
-        { class: "tl-monitor-network-lines" },
-        ...connections.map((connection) =>
-          _.div(
-            _.span(boxById(connection.fromBoxId)?.name || connection.fromBoxId),
-            _.span({ class: "tl-monitor-link-line", "aria-hidden": "true" }),
-            _.strong(boxById(connection.toBoxId)?.name || connection.toBoxId)
-          )
+      { class: "tl-monitor-network-lines" },
+      ...connections.map((connection) =>
+        _.div(
+          _.span(boxById(connection.fromBoxId)?.name || connection.fromBoxId),
+          _.span({ class: "tl-monitor-link-line", "aria-hidden": "true" }),
+          _.strong(boxById(connection.toBoxId)?.name || connection.toBoxId)
         )
       )
-    ),
-    renderPayloadFields(stat.lastPayload)
-  ];
+    )
+  ),
+  renderPayloadFields(stat.lastPayload)
+];
 
 const renderTrackerMonitorDetails = (box, stat, connections, names) =>
   _.div(

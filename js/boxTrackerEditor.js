@@ -280,7 +280,7 @@ const loadTrackerForEdit = async () => {
   if (!requestedTrackerId) {
     trackerState.loading = false;
     trackerState.notice = "";
-    document.title = "Tracker Lens - Nuovo boxTracker";
+    document.title = "Trackers Lens - Nuovo boxTracker";
     mountTrackerEditor();
     return;
   }
@@ -302,7 +302,7 @@ const loadTrackerForEdit = async () => {
     trackerState.loading = false;
     trackerState.notice = "";
     trackerState.savedLabel = "Caricato da IndexedDB";
-    document.title = `Tracker Lens - Modifica ${trackerState.tracker.name}`;
+    document.title = `Trackers Lens - Modifica ${trackerState.tracker.name}`;
     mountTrackerEditor();
   } catch (error) {
     console.error(error);
@@ -644,7 +644,7 @@ const runManualTest = async () => {
 const renderHeader = () =>
   _.header(
     { class: "tl-tracker-header" },
-    _.div({ class: "tl-tracker-brand" }, _.span({ class: "tl-brand-mark" }), _.h1({ class: "tl-brand-title" }, "TRACKER ", _.span("LENS")), icon("chevron_right", "sm")),
+    _.div({ class: "tl-tracker-brand" }, _.span({ class: "tl-brand-mark" }), _.h1({ class: "tl-brand-title" }, "TRACKERS ", _.span("LENS")), icon("chevron_right", "sm")),
     _.div({ class: "tl-workspace-heading" }, _.h1(trackerData.workspace.name, _.span({ class: "tl-online-dot" })), _.p("• ", trackerState.notice || trackerState.savedLabel)),
     _.Toolbar(
       { class: "tl-tracker-actions", align: "center", gap: 12 },

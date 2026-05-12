@@ -20,7 +20,7 @@ const renderHeader = () =>
       { class: "tl-brand" },
       _.span({ class: "tl-brand-mark", "aria-hidden": "true" }),
       _.div(
-        _.h1({ class: "tl-brand-title" }, "TRACKER ", _.span("LENS")),
+        _.h1({ class: "tl-brand-title" }, "TRACKERS ", _.span("LENS")),
         _.p({ class: "tl-brand-subtitle" }, "Your personal tracking workspace")
       )
     ),
@@ -176,7 +176,7 @@ const renderSide = () =>
 const renderFooter = () =>
   _.footer(
     { class: "tl-popup-footer" },
-    _.span(_.span({ class: "tl-status-dot", "aria-hidden": "true" }), " Tracker Lens v", tlConfig.VERSION),
+    _.span(_.span({ class: "tl-status-dot", "aria-hidden": "true" }), " Trackers Lens v", tlConfig.VERSION),
     _.span("Tutto salvato localmente"),
     _.span("Dati al sicuro sul tuo dispositivo ", icon("lock", "xs"))
   );

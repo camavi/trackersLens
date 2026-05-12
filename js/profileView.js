@@ -48,7 +48,7 @@ const quickActions = [
 ];
 
 const systemRows = [
-  ["Versione Tracker Lens", "v1.0.0"],
+  ["Versione Trackers Lens", "v1.0.0"],
   ["Ambiente", "Node.js"],
   ["Piattaforma", "darwin"],
   ["Architettura", "arm64"],
@@ -59,7 +59,7 @@ const renderBrand = () =>
   _.Row(
     { class: "tl-profile-brand" },
     _.span({ class: "tl-brand-mark", "aria-hidden": "true" }),
-    _.h1({ class: "tl-brand-title" }, "TRACKER ", _.span("LENS"))
+    _.h1({ class: "tl-brand-title" }, "TRACKERS ", _.span("LENS"))
   );
 
 const renderTopbar = () =>
@@ -72,7 +72,7 @@ const renderTopbar = () =>
         class: "tl-profile-search-input",
         label: "Cerca workspace, box, tracker, impostazioni...",
         value: "",
-        "aria-label": "Cerca in Tracker Lens",
+        "aria-label": "Cerca in Trackers Lens",
       })
     ),
     _.Toolbar(
@@ -109,7 +109,7 @@ const renderHero = () =>
         _.h2("Marco Rossi"),
         _.span({ class: "tl-profile-builder-badge" }, "Premium AI Builder", icon("crown", "sm"))
       ),
-      _.p("Costruisco dashboard intelligenti e sistemi di monitoraggio con Tracker Lens."),
+      _.p("Costruisco dashboard intelligenti e sistemi di monitoraggio con Trackers Lens."),
       _.Row(
         { class: "tl-profile-meta", gap: 18 },
         _.span(icon("calendar_month", "sm"), "Membro dal 12 Apr 2024"),

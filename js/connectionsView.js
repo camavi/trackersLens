@@ -343,7 +343,7 @@ const renderBrand = () =>
   _.Row(
     { class: "tl-link-brand" },
     _.span({ class: "tl-brand-mark", "aria-hidden": "true" }),
-    _.h1({ class: "tl-brand-title" }, "TRACKER ", _.span("LENS")),
+    _.h1({ class: "tl-brand-title" }, "TRACKERS ", _.span("LENS")),
     icon("chevron_right", "sm")
   );
 
@@ -695,17 +695,17 @@ const renderAnalytics = () =>
     const endpoints = Array.from(topEndpoints.entries()).sort((a, b) => b[1] - a[1]).slice(0, 5);
 
     return (
-  _.section(
-    { class: "tl-link-analytics", "aria-label": "Analytics collegamenti" },
-    _.Card({ class: "tl-link-analytics-card is-wide" }, _.Row({ justify: "space-between" }, _.h3("Attivita in Tempo Reale"), _.span(`${data.total} conn.`)), renderRealtimeChart()),
-    _.Card({ class: "tl-link-analytics-card" }, _.h3("Tasso di Successo"), _.div({ class: "tl-link-success-wrap" }, renderDonut("is-success", `${successRate}%`, "Successo"), _.div(_.p(`Successi ${data.active}`), _.p(`Errori ${data.error}`), _.p(`Timeout ${data.timeout}`)))),
-    _.Card({ class: "tl-link-analytics-card" }, _.h3("Distribuzione per Tipo"), _.div({ class: "tl-link-success-wrap" }, renderDonut("is-multi", String(data.total), "Totale"), _.div(...(topTypes.length ? topTypes.map((type) => _.p(`${type.name} ${type.count}`)) : [_.p("Nessun tipo salvato")])))),
-    _.Card(
-      { class: "tl-link-analytics-card" },
-      _.h3("Top Endpoint"),
-      ...(endpoints.length ? endpoints : [["Nessun endpoint", 0]]).map(([name, count]) => _.div({ class: "tl-link-endpoint" }, _.span(name), _.strong(String(count)), _.span({ class: "tl-link-bar", style: { "--w": `${Math.max(8, Math.min(100, count * 24))}%` } })))
-    )
-  )
+      _.section(
+        { class: "tl-link-analytics", "aria-label": "Analytics collegamenti" },
+        _.Card({ class: "tl-link-analytics-card is-wide" }, _.Row({ justify: "space-between" }, _.h3("Attivita in Tempo Reale"), _.span(`${data.total} conn.`)), renderRealtimeChart()),
+        _.Card({ class: "tl-link-analytics-card" }, _.h3("Tasso di Successo"), _.div({ class: "tl-link-success-wrap" }, renderDonut("is-success", `${successRate}%`, "Successo"), _.div(_.p(`Successi ${data.active}`), _.p(`Errori ${data.error}`), _.p(`Timeout ${data.timeout}`)))),
+        _.Card({ class: "tl-link-analytics-card" }, _.h3("Distribuzione per Tipo"), _.div({ class: "tl-link-success-wrap" }, renderDonut("is-multi", String(data.total), "Totale"), _.div(...(topTypes.length ? topTypes.map((type) => _.p(`${type.name} ${type.count}`)) : [_.p("Nessun tipo salvato")])))),
+        _.Card(
+          { class: "tl-link-analytics-card" },
+          _.h3("Top Endpoint"),
+          ...(endpoints.length ? endpoints : [["Nessun endpoint", 0]]).map(([name, count]) => _.div({ class: "tl-link-endpoint" }, _.span(name), _.strong(String(count)), _.span({ class: "tl-link-bar", style: { "--w": `${Math.max(8, Math.min(100, count * 24))}%` } })))
+        )
+      )
     );
   })();
 

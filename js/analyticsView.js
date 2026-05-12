@@ -329,7 +329,7 @@ const renderBrand = () =>
   _.Row(
     { class: "tl-analytics-brand" },
     _.span({ class: "tl-brand-mark", "aria-hidden": "true" }),
-    _.h1({ class: "tl-brand-title" }, "TRACKER ", _.span("LENS")),
+    _.h1({ class: "tl-brand-title" }, "TRACKERS ", _.span("LENS")),
     icon("chevron_right", "sm")
   );
 
@@ -382,7 +382,7 @@ const renderHeader = () =>
         _.span({ class: "tl-analytics-orb" }, icon("monitoring", "md")),
         _.div(
           _.h2("Analytics & System Overview"),
-          _.p("Panoramica completa del sistema Tracker Lens in tempo reale")
+          _.p("Panoramica completa del sistema Trackers Lens in tempo reale")
         )
       ),
       _.Toolbar(

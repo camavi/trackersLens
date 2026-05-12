@@ -325,7 +325,7 @@ const loadLensForEdit = async () => {
   if (!requestedLensId) {
     boxLensState.loading = false;
     boxLensState.notice = "";
-    document.title = `Tracker Lens - ${t("newLens")}`;
+    document.title = `Trackers Lens - ${t("newLens")}`;
     mountBoxLensEditor();
     return;
   }
@@ -335,7 +335,7 @@ const loadLensForEdit = async () => {
     if (!record) {
       boxLensState.loading = false;
       boxLensState.notice = t("editMissing");
-      document.title = `Tracker Lens - ${t("newLens")}`;
+      document.title = `Trackers Lens - ${t("newLens")}`;
       notify("warning", t("editMissing"));
       mountBoxLensEditor();
       return;
@@ -347,7 +347,7 @@ const loadLensForEdit = async () => {
     boxLensState.editingExisting = true;
     boxLensState.loading = false;
     boxLensState.notice = "";
-    document.title = `Tracker Lens - ${t("editLens")} ${boxLensState.box.name}`;
+    document.title = `Trackers Lens - ${t("editLens")} ${boxLensState.box.name}`;
     mountBoxLensEditor();
   } catch (error) {
     console.error(error);
@@ -364,7 +364,7 @@ const renderHeader = () =>
     _.div(
       { class: "tl-box-brand" },
       _.span({ class: "tl-brand-mark", "aria-hidden": "true" }),
-      _.h1({ class: "tl-brand-title" }, "TRACKER ", _.span("LENS")),
+      _.h1({ class: "tl-brand-title" }, "TRACKERS ", _.span("LENS")),
       icon("chevron_right", "sm")
     ),
     _.div(

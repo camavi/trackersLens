@@ -183,11 +183,11 @@ Nota aggiornata 2026-05-11: il Monitor boxTracker e stato ricompattato per suppo
 
 Nota aggiornata 2026-05-11: il brand header di `editorWorkspace.html`, `library.html` e `workspace.html` e stato riallineato allo stile gia corretto di `editorBoxLens.html`/`editorBoxTracker.html`: area brand a 250px, header/topbar a 70px, logo e titolo in flex con gap stabile, padding 18px e bordo destro sul blocco brand.
 
-Nota aggiornata 2026-05-11: e stata aggiunta la nuova schermata `database.html` per "IndexedDB Data Explorer". La voce Database della sidebar standard (`js/tl-sidebar.js`) ora naviga a questa pagina e resta evidenziata con `activeId: "database"`. La UI usa componenti CMSwift per shell/topbar/sidebar, search, toolbar, select, griglie, bottoni e card; il CSS custom in `css/indexedDbExplorer.css` e limitato al tema premium Tracker Lens, tabella dati, inspector JSON, glow, glass UI, griglia puntinata e scrollbar. La logica in `js/indexedDbExplorer.js` legge gli store reali IndexedDB quando disponibili, mostra gli store target `tl_widgets`, `tl_pages`, `tl_tracker_logs`, `tl_settings`, `tl_connections`, `tl_cache`, `tl_history`, include filtri per tipo/categoria/workspace, viste table/grid/json, inspector con preview JSON evidenziata, azioni rapide e footer di stato. Se il database e vuoto o non leggibile mostra un dataset mock professionale per mantenere il mockup visuale completo.
+Nota aggiornata 2026-05-11: e stata aggiunta la nuova schermata `database.html` per "IndexedDB Data Explorer". La voce Database della sidebar standard (`js/tl-sidebar.js`) ora naviga a questa pagina e resta evidenziata con `activeId: "database"`. La UI usa componenti CMSwift per shell/topbar/sidebar, search, toolbar, select, griglie, bottoni e card; il CSS custom in `css/indexedDbExplorer.css` e limitato al tema premium Trackers Lens, tabella dati, inspector JSON, glow, glass UI, griglia puntinata e scrollbar. La logica in `js/indexedDbExplorer.js` legge gli store reali IndexedDB quando disponibili, mostra gli store target `tl_widgets`, `tl_pages`, `tl_tracker_logs`, `tl_settings`, `tl_connections`, `tl_cache`, `tl_history`, include filtri per tipo/categoria/workspace, viste table/grid/json, inspector con preview JSON evidenziata, azioni rapide e footer di stato. Se il database e vuoto o non leggibile mostra un dataset mock professionale per mantenere il mockup visuale completo.
 
 Nota aggiornata 2026-05-11: nella tabella di `database.html` la colonna `Actions` e stata resa a larghezza minima fissa per evitare bottoni schiacciati. La tabella ora usa `min-width: 1220px`, l'ultima colonna ha `min-width: 336px`, le azioni non vanno a capo e sui viewport stretti si usa lo scroll orizzontale del wrapper invece di comprimere o nascondere i pulsanti.
 
-Nota aggiornata 2026-05-11: e stata aggiunta la nuova schermata `connections.html` per "Collegamenti". La voce `links` della sidebar standard (`js/tl-sidebar.js`) ora naviga a questa pagina e resta evidenziata con `activeId: "links"`. La UI usa componenti CMSwift per shell/topbar/sidebar, search, toolbar, select, griglie, card e bottoni; `css/connectionsView.css` gestisce solo il tema visuale premium Tracker Lens, dataflow table, inspector JSON, analytics, glow, glass UI, griglia puntinata e scrollbar. La logica in `js/connectionsView.js` legge ora collegamenti reali dallo store IndexedDB `tl_connections` tramite `js/tl-connections-store.js`; se lo store e vuoto importa i collegamenti salvati nei workspace (`tl_pages.content.connections`) e li normalizza. La pagina supporta creazione di un collegamento locale, test con aggiornamento `status/result/lastTest`, duplicazione ed eliminazione persistenti. `editorWorkspace.html` include lo stesso helper e `js/workspace.js` sincronizza i collegamenti del workspace nello store `tl_connections` dopo il salvataggio. Punto ancora prototipale: la modifica visuale completa dei campi del collegamento non ha ancora un form dedicato; il bottone `Modifica` e solo UI.
+Nota aggiornata 2026-05-11: e stata aggiunta la nuova schermata `connections.html` per "Collegamenti". La voce `links` della sidebar standard (`js/tl-sidebar.js`) ora naviga a questa pagina e resta evidenziata con `activeId: "links"`. La UI usa componenti CMSwift per shell/topbar/sidebar, search, toolbar, select, griglie, card e bottoni; `css/connectionsView.css` gestisce solo il tema visuale premium Trackers Lens, dataflow table, inspector JSON, analytics, glow, glass UI, griglia puntinata e scrollbar. La logica in `js/connectionsView.js` legge ora collegamenti reali dallo store IndexedDB `tl_connections` tramite `js/tl-connections-store.js`; se lo store e vuoto importa i collegamenti salvati nei workspace (`tl_pages.content.connections`) e li normalizza. La pagina supporta creazione di un collegamento locale, test con aggiornamento `status/result/lastTest`, duplicazione ed eliminazione persistenti. `editorWorkspace.html` include lo stesso helper e `js/workspace.js` sincronizza i collegamenti del workspace nello store `tl_connections` dopo il salvataggio. Punto ancora prototipale: la modifica visuale completa dei campi del collegamento non ha ancora un form dedicato; il bottone `Modifica` e solo UI.
 
 Nota aggiornata 2026-05-11: e stata aggiunta la schermata `analytics.html` per "Analytics & System Overview". La voce Statistiche della sidebar standard (`js/tl-sidebar.js`, id `stats`) ora naviga a questa pagina e resta evidenziata. La UI usa CMSwift per shell/topbar/sidebar, search, toolbar, griglie, card e bottoni; `css/analyticsView.css` gestisce il look command-center premium: griglia puntinata, pannelli glass, glow viola/verde/oro/rosso, metric card, stream live, chart CSS, gauge system health, tabella monitoraggio boxTracker, analytics avanzate e footer runtime. `js/analyticsView.js` ora renderizza prima un fallback demo e poi sostituisce i dati con aggregati reali da IndexedDB: `tl_widgets`, `tl_pages`, `tl_connections`, Storage API, tracker presenti nei workspace, distribuzione collegamenti, endpoint, workspace activity e stato servizi. Punto ancora prototipale: le metriche "richieste/min", latency e success rate sono stime derivate dai record locali finche non esiste uno store persistente di eventi runtime/telemetria boxTracker.
 
@@ -199,8 +199,7 @@ Nota aggiornata 2026-05-12: corretti overflow e sovrapposizioni nella griglia di
 
 Nota aggiornata 2026-05-12: le metric card di `ai.html` sono state riallineate al riferimento visuale desiderato: icona neon in alto a destra colorata in base al tono della metrica, numero grande a sinistra, delta sotto e sparkline colorato in basso. I colori ora distinguono AI core viola, jobs/success verde, provider/network blu, errori rosso e token/costi oro.
 
-Nota aggiornata 2026-05-12: e stata aggiunta la schermata `profile.html` per "Profilo Utente", pensata come centro identita operativo dell'utente Tracker Lens e non come pagina account generica. La UI usa CMSwift per shell/topbar/sidebar, search, toolbar, grid, card, bottoni, select, icone e componenti compositivi; `css/profileView.css` gestisce solo l'identita visuale premium: dark mode, griglia puntinata, hero profilo, avatar glow, badge online, piano Premium, tabs, timeline, donut AI usage, chart workspace, quick actions, sicurezza, dispositivi, informazioni sistema e footer runtime live. La sidebar standard (`js/tl-sidebar.js`, `css/tl-sidebar.css`) ora rende il profilo utente navigabile verso `profile.html`, con stato attivo, avatar compatto, nome e stato online. Punto ancora prototipale: i dati della pagina profilo sono demo/statici; serviranno persistenza in `tl_settings`/store dedicato e collegamento a metriche reali IndexedDB per account, billing, dispositivi e usage AI.
-
+Nota aggiornata 2026-05-12: e stata aggiunta la schermata `profile.html` per "Profilo Utente", pensata come centro identita operativo dell'utente Trackers Lens e non come pagina account generica. La UI usa CMSwift per shell/topbar/sidebar, search, toolbar, grid, card, bottoni, select, icone e componenti compositivi; `css/profileView.css` gestisce solo l'identita visuale premium: dark mode, griglia puntinata, hero profilo, avatar glow, badge online, piano Premium, tabs, timeline, donut AI usage, chart workspace, quick actions, sicurezza, dispositivi, informazioni sistema e footer runtime live. La sidebar standard (`js/tl-sidebar.js`, `css/tl-sidebar.css`) ora rende il profilo utente navigabile verso `profile.html`, con stato attivo, avatar compatto, nome e stato online. Punto ancora prototipale: i dati della pagina profilo sono demo/statici; serviranno persistenza in `tl_settings`/store dedicato e collegamento a metriche reali IndexedDB per account, billing, dispositivi e usage AI.
 
 `library.html`, `editorWorkspace.html` e i punti che aprono un `boxTracker` ora passano `trackerId` quando esiste un record sorgente, cosi viene aperto in modalita modifica:
 
@@ -220,7 +219,7 @@ Il runtime inline e implementato in:
 Il codice salvato del boxLens resta pulito. Lo scoping CSS viene applicato solo a runtime tramite attributo:
 
 ```html
-<article data-box-lens-instance="id_istanza">
+<article data-box-lens-instance="id_istanza"></article>
 ```
 
 Il CSS del boxLens viene trasformato in memoria, per esempio:
@@ -267,11 +266,11 @@ export default function boxLens(boxLen, context) {
     listener: {
       default(data) {
         // riceve dati da boxTracker collegati
-      }
+      },
     },
     destroy() {
       // cleanup opzionale
-    }
+    },
   };
 }
 ```
@@ -1183,7 +1182,7 @@ Nota Chrome Extension:
 Il service worker e minimale:
 
 ```js
-chrome.runtime.onInstalled.addListener(function() {
+chrome.runtime.onInstalled.addListener(function () {
   console.log("Extension installed!");
 });
 ```
@@ -1422,27 +1421,27 @@ Pero questo flusso non e ancora completo:
 
 10. Codice morto dopo `return` in `CreateWidget.setData()`.
 
-   Il ramo `localStorage`/`cms.fetchData` non puo essere raggiunto.
+Il ramo `localStorage`/`cms.fetchData` non puo essere raggiunto.
 
 11. `options.html` avvia due script di bootstrap.
 
-   Carica sia `defaultStart.js` sia `dashboard.js`, con possibile doppia inizializzazione.
+Carica sia `defaultStart.js` sia `dashboard.js`, con possibile doppia inizializzazione.
 
 12. Assenza di bounds nella griglia.
 
-   Il resize/move non impedisce di uscire dalla griglia o sovrapporsi.
+Il resize/move non impedisce di uscire dalla griglia o sovrapporsi.
 
 13. Incoerenza nomi `minY`/`maxY`.
 
-   Config default usa `minY`/`maxY`, form usa `MinY`/`MaxY`.
+Config default usa `minY`/`maxY`, form usa `MinY`/`MaxY`.
 
 14. IndexedDB creation strategy fragile.
 
-   `createTables()` incrementa la versione per ogni store. Funziona in modo prototipale, ma una migrazione esplicita unica sarebbe piu prevedibile.
+`createTables()` incrementa la versione per ogni store. Funziona in modo prototipale, ma una migrazione esplicita unica sarebbe piu prevedibile.
 
 15. Possibile problema con `chrome.action.onClicked`.
 
-   Con `default_popup` attivo, il click sull'icona apre il popup e non sempre scatena `onClicked`.
+Con `default_popup` attivo, il click sull'icona apre il popup e non sempre scatena `onClicked`.
 
 ## Suggerimenti per la prossima fase
 
@@ -1471,7 +1470,6 @@ Ordine pragmatico consigliato:
 6. Salvare layout pagina.
 
    Ogni box inserito dovrebbe avere:
-
    - `boxId`
    - `assetId`
    - `boxType`
@@ -1497,7 +1495,7 @@ Ordine pragmatico consigliato:
 
 10. Aggiungere test manuali documentati.
 
-   Anche senza framework, creare una checklist per caricare estensione, creare asset, cercarlo, inserirlo, spostarlo, ridimensionarlo, collegare tracker/lens e ricaricare pagina.
+Anche senza framework, creare una checklist per caricare estensione, creare asset, cercarlo, inserirlo, spostarlo, ridimensionarlo, collegare tracker/lens e ricaricare pagina.
 
 ## Note per future AI
 
@@ -1791,7 +1789,7 @@ Fatto:
   - `codemirror`;
   - linguaggi CSS, HTML, JavaScript e JSON;
   - theme dark `oneDark`;
-  - tema custom Tracker Lens per sfondo, gutter, selezione e font.
+  - tema custom Trackers Lens per sfondo, gutter, selezione e font.
 - `editorBoxLens.html` carica ora i file locali CM6 prima di `js/boxLensEditor.js`.
 - `js/boxLensEditor.js` usa CM6 per il pannello codice del `boxLens`.
 - I tab `Manifest`, `CSS`, `HTML`, `JS`, `Preview`, `Public` sono ora cliccabili e mantengono il contenuto editato in memoria.
@@ -2049,7 +2047,7 @@ Fatto:
 - Creata `css/workspaceView.css` per lo stile runtime del workspace.
 - Creata `js/workspaceView.js` usando componenti CMSwift (`_.Btn`, `_.Icon`, `_.Input` e helper DOM).
 - Layout implementato:
-  - topbar con logo Tracker Lens, testo `TRACKER LENS`, search, bottone `Edit` e menu;
+  - topbar con logo Trackers Lens, testo `Trackers Lens`, search, bottone `Edit` e menu;
   - sidebar compatta sinistra con add, asset/library, collegamenti, database, statistiche, AI e impostazioni;
   - help e profilo utente in basso;
   - canvas centrale vuoto con griglia a puntini e 48 colonne.
@@ -2378,11 +2376,11 @@ Cosa manca / prossimi passi:
 
 ## Aggiornamento 2026-05-12 - Nuova pagina Impostazioni
 
-Obiettivo della sessione: aggiungere una schermata "Impostazioni" premium per configurare Tracker Lens come sistema operativo dati avanzato.
+Obiettivo della sessione: aggiungere una schermata "Impostazioni" premium per configurare Trackers Lens come sistema operativo dati avanzato.
 
 Fatto:
 
-- Aggiunto `settings.html`, con shell CMSwift locale e sidebar standard Tracker Lens.
+- Aggiunto `settings.html`, con shell CMSwift locale e sidebar standard Trackers Lens.
 - Aggiunto `js/settingsView.js`, composto con componenti CMSwift (`_.Search`, `_.Toolbar`, `_.Grid`, `_.Card`, `_.Btn`, `_.Icon`, `_.Input`, `_.Select`, `_.Toggle`) e piccoli elementi nativi solo per gli slider range.
 - Aggiunto `css/settingsView.css`, limitato al tema visuale: dark premium, griglia puntinata, glass panel, glow viola/verde/oro/rosso, hover tecnici, donut storage, footer runtime e scrollbar custom.
 - Aggiornata la voce `settings` in `js/tl-sidebar.js` per navigare a `settings.html` e restare attiva nella nuova pagina.

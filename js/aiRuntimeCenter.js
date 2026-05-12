@@ -192,7 +192,7 @@ const renderBrand = () =>
   _.Row(
     { class: "tl-ai-brand" },
     _.span({ class: "tl-brand-mark", "aria-hidden": "true" }),
-    _.h1({ class: "tl-brand-title" }, "TRACKER ", _.span("LENS")),
+    _.h1({ class: "tl-brand-title" }, "TRACKERS ", _.span("LENS")),
     icon("chevron_right", "sm")
   );
 
@@ -241,7 +241,7 @@ const renderHeader = () =>
       { class: "tl-ai-title-row" },
       _.div(
         _.span({ class: "tl-ai-orb" }, icon("psychology_alt", "md")),
-        _.div(_.h2("AI Runtime Center"), _.p("Centro di orchestrazione AI di Tracker Lens"))
+        _.div(_.h2("AI Runtime Center"), _.p("Centro di orchestrazione AI di Trackers Lens"))
       ),
       _.Toolbar(
         { class: "tl-ai-head-actions", gap: 14 },

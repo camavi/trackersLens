@@ -261,7 +261,7 @@ const renderHeader = () =>
     _.Row(
       { class: "tl-app-brand" },
       _.span({ class: "tl-brand-mark", "aria-hidden": "true" }),
-      _.h1({ class: "tl-brand-title" }, "TRACKER ", _.span("LENS")),
+      _.h1({ class: "tl-brand-title" }, "TRACKERS ", _.span("LENS")),
       icon("chevron_right", "sm")
     ),
     _.div(

@@ -26,7 +26,7 @@ body {
   height: 70px;
   padding: 0 22px 0 0;
   display: grid;
-  grid-template-columns: 256px minmax(420px, 724px) auto;
+  grid-template-columns: 265px minmax(420px, 724px) auto;
   align-items: center;
   gap: 26px;
   border-bottom: 1px solid rgba(214, 226, 235, 0.09);

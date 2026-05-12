@@ -27,7 +27,7 @@ const formatDateTime = (value) => {
 
 const defaultSettings = {
   general: {
-    workspaceName: "Tracker Lens Workspace",
+    workspaceName: "Trackers Lens Workspace",
     language: "it",
     timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || "Europe/Rome",
     dateFormat: "dd/mm/yyyy",
@@ -249,7 +249,7 @@ const renderBrand = () =>
   _.Row(
     { class: "tl-settings-brand" },
     _.span({ class: "tl-brand-mark", "aria-hidden": "true" }),
-    _.h1({ class: "tl-brand-title" }, "TRACKER ", _.span("LENS"))
+    _.h1({ class: "tl-brand-title" }, "TRACKERS ", _.span("LENS"))
   );
 
 const renderTopbar = () =>
@@ -284,7 +284,7 @@ const renderHeader = () =>
       { class: "tl-settings-title-row" },
       _.div(
         _.span({ class: "tl-settings-orb" }, icon("settings", "md")),
-        _.div(_.h2("Impostazioni"), _.p("Configura e personalizza il comportamento di Tracker Lens"))
+        _.div(_.h2("Impostazioni"), _.p("Configura e personalizza il comportamento di Trackers Lens"))
       ),
       _.Toolbar(
         { class: "tl-settings-head-actions", gap: 14 },
@@ -298,7 +298,7 @@ const renderCategorySidebar = () =>
   _.aside(
     { class: "tl-settings-categories" },
     _.h2("Impostazioni"),
-    _.p("Configura e personalizza il comportamento di Tracker Lens"),
+    _.p("Configura e personalizza il comportamento di Trackers Lens"),
     _.div(
       { class: "tl-settings-category-list" },
       ...settingCategories.map(([title, description, iconName], index) =>
@@ -366,7 +366,7 @@ const renderGeneral = () =>
       renderSettingSelect("Formato Data", "general.dateFormat", [option("dd/mm/yyyy", "24/06/2024"), option("yyyy-mm-dd", "2024-06-24"), option("mm/dd/yyyy", "06/24/2024")]),
       renderSettingSelect("Formato Ora", "general.timeFormat", [option("24h", "24 ore"), option("12h", "12 ore")])
     ),
-    renderSettingToggle("Avvio automatico Tracker Lens", "general.autoStart")
+    renderSettingToggle("Avvio automatico Trackers Lens", "general.autoStart")
   );
 
 const renderRange = (label, value, min, max, suffix = "") =>
@@ -567,7 +567,7 @@ const renderSystemInfo = () => {
     { class: "tl-settings-panel tl-settings-system" },
     _.h3("Informazioni Sistema"),
     ...[
-      ["Versione Tracker Lens", (typeof tlConfig !== "undefined" ? tlConfig.VERSION : null) || "v1.0.0"],
+      ["Versione Trackers Lens", (typeof tlConfig !== "undefined" ? tlConfig.VERSION : null) || "v1.0.0"],
       ["Ambiente", location.protocol === "chrome-extension:" ? "Extension" : "Browser"],
       ["Piattaforma", platform],
       ["Architettura", architecture],

@@ -334,7 +334,7 @@ const renderBrand = () =>
   _.Row(
     { class: "tl-db-brand" },
     _.span({ class: "tl-brand-mark", "aria-hidden": "true" }),
-    _.h1({ class: "tl-brand-title" }, "TRACKER ", _.span("LENS")),
+    _.h1({ class: "tl-brand-title" }, "TRACKERS ", _.span("LENS")),
     icon("chevron_right", "sm")
   );
 
@@ -599,40 +599,40 @@ const renderInspector = () => {
     ),
     record
       ? _.div(
-          { class: "tl-db-inspector-body" },
-          _.div(
-            { class: "tl-db-record-hero" },
-            _.span({ class: `tl-db-orb is-${record.type === "boxTracker" ? "tracker" : "lens"}` }, icon(record.type === "boxTracker" ? "cloud_queue" : "widgets", "md")),
-            _.div(_.h3(record.name), _.p(record.id)),
-            renderTypeBadge(record.type)
-          ),
-          _.Grid(
-            { class: "tl-db-meta-grid", cols: 2, gap: 8 },
-            ...[
-              ["Categoria", record.category],
-              ["Versione", record.version],
-              ["Creato", formatDate(record.createdAt)],
-              ["Updated", formatDate(record.updatedAt)],
-              ["Workspace", record.workspace],
-              ["Stato", record.status],
-              ["Channels", record.channels.join(", ") || "default"],
-              ["Endpoint", record.endpoint],
-            ].map(([label, value]) => _.div({ class: "tl-db-meta" }, _.span(label), _.strong(value)))
-          ),
-          _.div(
-            { class: "tl-db-json-head" },
-            _.h3("JSON preview"),
-            _.span(`${formatBytes(record.size)} · readonly`)
-          ),
-          renderJsonPreview(record),
-          _.Toolbar(
-            { class: "tl-db-inspector-actions", gap: 8 },
-            btn({ class: "tl-db-primary", onclick: openEditor }, "Edit JSON"),
-            btn({ onclick: copySelectedJson }, "Copy JSON"),
-            btn({}, "Export"),
-            btn({ onclick: openEditor }, "Open Box")
-          )
+        { class: "tl-db-inspector-body" },
+        _.div(
+          { class: "tl-db-record-hero" },
+          _.span({ class: `tl-db-orb is-${record.type === "boxTracker" ? "tracker" : "lens"}` }, icon(record.type === "boxTracker" ? "cloud_queue" : "widgets", "md")),
+          _.div(_.h3(record.name), _.p(record.id)),
+          renderTypeBadge(record.type)
+        ),
+        _.Grid(
+          { class: "tl-db-meta-grid", cols: 2, gap: 8 },
+          ...[
+            ["Categoria", record.category],
+            ["Versione", record.version],
+            ["Creato", formatDate(record.createdAt)],
+            ["Updated", formatDate(record.updatedAt)],
+            ["Workspace", record.workspace],
+            ["Stato", record.status],
+            ["Channels", record.channels.join(", ") || "default"],
+            ["Endpoint", record.endpoint],
+          ].map(([label, value]) => _.div({ class: "tl-db-meta" }, _.span(label), _.strong(value)))
+        ),
+        _.div(
+          { class: "tl-db-json-head" },
+          _.h3("JSON preview"),
+          _.span(`${formatBytes(record.size)} · readonly`)
+        ),
+        renderJsonPreview(record),
+        _.Toolbar(
+          { class: "tl-db-inspector-actions", gap: 8 },
+          btn({ class: "tl-db-primary", onclick: openEditor }, "Edit JSON"),
+          btn({ onclick: copySelectedJson }, "Copy JSON"),
+          btn({}, "Export"),
+          btn({ onclick: openEditor }, "Open Box")
         )
+      )
       : _.div({ class: "tl-db-empty" }, "Seleziona un record per ispezionare il JSON.")
   );
 };
