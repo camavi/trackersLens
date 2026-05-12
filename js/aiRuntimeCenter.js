@@ -2,7 +2,37 @@ const icon = (name, size = "md") => _.Icon({ name, size });
 const btn = (props, ...children) => _.Btn({ type: "button", ...props }, ...children);
 const dot = (tone = "online") => _.span({ class: `tl-ai-dot is-${tone}`, "aria-hidden": "true" });
 
-const metrics = [
+const formatNumber = (value) => new Intl.NumberFormat("it-IT").format(Math.max(0, Math.round(value || 0)));
+const timeLabel = (value) => {
+  const date = value ? new Date(value) : null;
+  if (!date || Number.isNaN(date.getTime())) return "Mai";
+  return date.toLocaleTimeString("it-IT", { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+};
+const durationLabel = (ms = 0) => {
+  const value = Number(ms) || 0;
+  if (!value) return "-";
+  if (value < 1000) return `${value}ms`;
+  return `${Math.round(value / 1000)}s`;
+};
+const providerLatency = (value = 0) => value ? `${Math.round(value)}ms` : "n/d";
+const statusTone = (status = "") => window.TrackerLensAiRuntimeStore?.statusTone?.(status) || "warn";
+const sourceLabel = (status = "") => {
+  const value = String(status || "").toLowerCase();
+  if (["active", "running", "online", "success", "completed", "complete", "done"].includes(value)) return "Attivo";
+  if (["queued", "idle", "warning", "warn"].includes(value)) return value === "queued" ? "In Coda" : "Idle";
+  if (["error", "failed", "timeout", "offline"].includes(value)) return "Errore";
+  return status || "Idle";
+};
+
+let aiRuntimeMeta = {
+  loading: true,
+  error: "",
+  queryMs: 0,
+  lastUpdate: "",
+  indexedDb: "Loading",
+};
+
+let metrics = [
   { label: "Modelli Attivi", value: "4", delta: "+2 attivi", tone: "purple", icon: "psychology" },
   { label: "AI Jobs Attivi", value: "12", delta: "+3 da ieri", tone: "green", icon: "radar" },
   { label: "Richieste AI / min", value: "128", delta: "+18.4%", tone: "blue", icon: "rocket_launch" },
@@ -12,7 +42,7 @@ const metrics = [
   { label: "Costo Stimato (oggi)", value: "$0.82", delta: "+11.3%", tone: "gold", icon: "toll" },
 ];
 
-const agents = [
+let agents = [
   ["Market Analyzer", "Analizza mercati crypto in tempo reale", "Attivo", "online", "monitoring"],
   ["News Summarizer", "Riassume news da fonti RSS", "Attivo", "online", "article"],
   ["Sentiment Analyzer", "Analizza sentiment social e news", "Attivo", "online", "sentiment_satisfied"],
@@ -21,7 +51,7 @@ const agents = [
   ["Endpoint Debugger", "Monitora e risolve problemi endpoint", "Offline", "error", "bug_report"],
 ];
 
-const providers = [
+let providers = [
   ["OpenAI", "gpt-4.1-mini", "Online", "324ms", "online", "all_inclusive"],
   ["Anthropic", "claude-3-5-sonnet", "Online", "412ms", "online", "neurology"],
   ["Google Gemini", "gemini-1.5-pro", "Online", "298ms", "online", "auto_awesome"],
@@ -29,7 +59,7 @@ const providers = [
   ["LM Studio (Local)", "mistral-nemo:latest", "Online", "62ms", "online", "dns"],
 ];
 
-const jobs = [
+let jobs = [
   ["job_8f71a2", "Market Analyzer", "Analizza BTC trend", "In Esecuzione", "12:32:15", "14s", "1.2K", "online"],
   ["job_8f71a3", "News Summarizer", "Riassumi 5 news", "In Esecuzione", "12:32:10", "18s", "856", "online"],
   ["job_8f71a4", "Sentiment Analyzer", "Analizza sentiment", "In Coda", "12:32:20", "-", "-", "warn"],
@@ -38,7 +68,7 @@ const jobs = [
   ["job_8f71a7", "Endpoint Debugger", "Diagnostica CoinGecko", "Errore", "12:31:40", "10s", "412", "error"],
 ];
 
-const logs = [
+let logs = [
   ["12:32:18", "Market Analyzer", "Analisi completata con successo", "ai"],
   ["12:32:17", "Sentiment Analyzer", "Sentiment score: 72% bullish", "success"],
   ["12:32:16", "News Summarizer", "5 news riassunte in 18s", "success"],
@@ -49,20 +79,114 @@ const logs = [
   ["12:32:06", "Runtime Core", "Routing provider completato", "ai"],
 ];
 
-const memory = [
+let memory = [
   ["Mercato BTC", "Ultimo update: 2 min fa", "24 items", "psychology"],
   ["News Crypto", "Ultimo update: 5 min fa", "18 items", "article"],
   ["Sentiment Data", "Ultimo update: 2 min fa", "32 items", "sentiment_satisfied"],
   ["Workspace Context", "Ultimo update: 1 ora fa", "12 items", "deployed_code"],
 ];
 
-const workspaceActivity = [
+let workspaceActivity = [
   ["Crypto Dashboard", 92, "142"],
   ["News Monitor", 70, "98"],
   ["DeFi Analyzer", 54, "76"],
   ["Social Sentiment", 42, "54"],
   ["Market Overview", 31, "38"],
 ];
+
+const buildPromptBlocks = (flow) => {
+  const blocks = Array.isArray(flow?.blocks) ? flow.blocks : [];
+  if (blocks.length) {
+    return blocks.slice(0, 5).map((block, index) => [
+      block.title || block.name || `Step ${index + 1}`,
+      block.description || block.prompt || block.type || "Prompt step",
+      block.icon || (index === 0 ? "bolt" : "psychology"),
+      block.tone || ["green", "blue", "purple", "violet", "gold"][index % 5],
+    ]);
+  }
+  return [
+    ["Runtime", "Nessun prompt flow reale salvato", "psychology", "purple"],
+    ["Origine", "Crea record in tl_ai_prompt_flows", "database", "blue"],
+    ["Output", "In attesa di pipeline", "chat", "gold"],
+  ];
+};
+
+let promptBlocks = buildPromptBlocks();
+
+const buildRuntimeViewModel = (data, queryMs = 0) => {
+  const activeProviders = data.providers.filter((item) => statusTone(item.status) === "online").length;
+  const runningJobs = data.jobs.filter((item) => ["online", "warn"].includes(statusTone(item.status))).length;
+  const completedJobs = data.jobs.filter((item) => statusTone(item.status) === "complete").length;
+  const errorJobs = data.jobs.filter((item) => statusTone(item.status) === "error").length;
+  const tokenTotal = data.jobs.reduce((sum, item) => sum + (Number(item.tokens) || 0), 0);
+  const activeAgents = data.agents.filter((item) => ["online", "complete"].includes(statusTone(item.status))).length;
+  const aiConnections = data.connections.filter((item) => /ai|openai|anthropic|gemini|ollama|llm|prompt|agent|model|gpt|claude/i.test(`${item.name || ""} ${item.type || ""} ${item.endpoint || ""}`));
+  const requestEstimate = runningJobs * 12 + aiConnections.length * 8 + activeAgents * 3;
+  const totalJobs = Math.max(1, data.jobs.length);
+  const successRate = data.jobs.length ? (completedJobs / totalJobs) * 100 : activeAgents ? 100 : 0;
+  const errorRate = data.jobs.length ? (errorJobs / totalJobs) * 100 : 0;
+  const latestUpdate = [
+    ...data.jobs.map((item) => item.updatedAt || item.startedAt),
+    ...data.logs.map((item) => item.updatedAt || item.time),
+    ...data.agents.map((item) => item.updatedAt),
+    ...data.providers.map((item) => item.updatedAt),
+  ].filter(Boolean).sort((a, b) => new Date(b) - new Date(a))[0] || new Date().toISOString();
+  const workspaceMax = Math.max(1, ...data.pages.map((page) => page.boxes.length + page.connections.length));
+
+  return {
+    meta: {
+      loading: false,
+      error: "",
+      queryMs,
+      lastUpdate: timeLabel(latestUpdate),
+      indexedDb: data.stores?.length ? "Connected" : "Empty",
+    },
+    metrics: [
+      { label: "Modelli Attivi", value: formatNumber(activeProviders), delta: `${data.providers.length} configurati`, tone: "purple", icon: "psychology" },
+      { label: "AI Jobs Attivi", value: formatNumber(runningJobs), delta: `${data.jobs.length} totali`, tone: "green", icon: "radar" },
+      { label: "Richieste AI / min", value: formatNumber(requestEstimate), delta: "stima locale", tone: "blue", icon: "rocket_launch" },
+      { label: "Token Utilizzati (oggi)", value: formatNumber(tokenTotal), delta: data.jobs.length ? "da tl_ai_jobs" : "nessun job", tone: "gold", icon: "database" },
+      { label: "Success Rate", value: `${successRate.toFixed(1)}%`, delta: `${completedJobs} completati`, tone: "green", icon: "verified_user" },
+      { label: "Error Rate", value: `${errorRate.toFixed(1)}%`, delta: `${errorJobs} errori`, tone: "red", icon: "report" },
+      { label: "Costo Stimato (oggi)", value: "$0.00", delta: "pricing non collegato", tone: "gold", icon: "toll" },
+    ],
+    agents: data.agents.length
+      ? data.agents.slice(0, 8).map((item) => [item.name, item.description, sourceLabel(item.status), statusTone(item.status), item.icon || "psychology"])
+      : [["Nessun agente reale", "Crea record in tl_ai_agents o widget AI", "Idle", "warn", "psychology"]],
+    providers: data.providers.length
+      ? data.providers.slice(0, 8).map((item) => [item.name, item.model, sourceLabel(item.status), providerLatency(item.latencyMs), statusTone(item.status), item.icon || "psychology"])
+      : [["Nessun provider configurato", "tl_ai_providers", "Idle", "n/d", "warn", "dns"]],
+    jobs: data.jobs.length
+      ? data.jobs.slice(0, 12).map((item) => [item.id, item.agent, item.task, sourceLabel(item.status), timeLabel(item.startedAt), durationLabel(item.durationMs), item.tokens ? formatNumber(item.tokens) : "-", statusTone(item.status)])
+      : [["-", "Runtime AI", "Nessun job reale in tl_ai_jobs", "Idle", "Mai", "-", "-", "warn"]],
+    logs: data.logs.length
+      ? data.logs.slice(0, 12).map((item) => [timeLabel(item.time), item.source, item.message, statusTone(item.status)])
+      : [["-", "AI Runtime", "Nessun log reale in tl_ai_logs", "warn"]],
+    memory: data.memory.length
+      ? data.memory.slice(0, 8).map((item) => [item.name, item.meta || "Context locale", `${formatNumber(item.count)} items`, item.icon || "database"])
+      : [["Memoria AI vuota", "tl_ai_memory", "0 items", "database"]],
+    promptBlocks: buildPromptBlocks(data.promptFlows[0]),
+    workspaceActivity: data.pages.length
+      ? data.pages
+        .slice()
+        .sort((a, b) => (b.boxes.length + b.connections.length) - (a.boxes.length + a.connections.length))
+        .slice(0, 5)
+        .map((page) => [page.name, Math.max(10, Math.round(((page.boxes.length + page.connections.length) / workspaceMax) * 100)), formatNumber(page.boxes.length + page.connections.length)])
+      : [["Nessun workspace", 0, "0"]],
+  };
+};
+
+const applyRuntimeViewModel = (viewModel) => {
+  aiRuntimeMeta = viewModel.meta;
+  metrics = viewModel.metrics;
+  agents = viewModel.agents;
+  providers = viewModel.providers;
+  jobs = viewModel.jobs;
+  logs = viewModel.logs;
+  memory = viewModel.memory;
+  promptBlocks = viewModel.promptBlocks;
+  workspaceActivity = viewModel.workspaceActivity;
+};
 
 const renderBrand = () =>
   _.Row(
@@ -121,9 +245,9 @@ const renderHeader = () =>
       ),
       _.Toolbar(
         { class: "tl-ai-head-actions", gap: 14 },
-        _.span({ class: "tl-ai-live-pill" }, dot("online"), "AI System Online"),
+        _.span({ class: "tl-ai-live-pill" }, dot(aiRuntimeMeta.error ? "error" : "online"), aiRuntimeMeta.error ? "AI System Error" : "AI System Online"),
         btn({ class: "tl-ai-small-btn" }, icon("settings", "sm"), "Impostazioni AI"),
-        btn({ class: "tl-ai-icon-btn", "aria-label": "Aggiorna runtime AI" }, icon("refresh", "sm"))
+        btn({ class: "tl-ai-icon-btn", "aria-label": "Aggiorna runtime AI", onclick: refreshAiRuntime }, icon("refresh", "sm"))
       )
     ),
     _.Grid({ class: "tl-ai-metrics-grid", cols: "repeat(7, minmax(0, 1fr))", gap: 10 }, ...metrics.map(renderMetric))
@@ -184,13 +308,7 @@ const renderProviders = () =>
   );
 
 const renderPromptFlows = () => {
-  const blocks = [
-    ["Trigger", "BTC price drop -5% in 5m", "bolt", "green"],
-    ["Input Data", "Dati da 3 tracker + News recenti", "database", "blue"],
-    ["AI Prompt", "Market analysis Template #12", "psychology", "purple"],
-    ["AI Response", "Analisi generata 512 tokens", "chat", "violet"],
-    ["Action", "Aggiorna dashboard + Invia alert", "hub", "gold"],
-  ];
+  const blocks = promptBlocks;
   return _.section(
     { class: "tl-ai-prompts" },
     _.Row({ justify: "space-between", align: "center" }, _.h3("Prompt Flows"), btn({ class: "tl-ai-link-btn" }, "Visualizza tutti", icon("arrow_forward", "sm"))),
@@ -263,24 +381,24 @@ const renderAnalytics = () =>
     _.Card(
       { class: "tl-ai-analytics-card" },
       _.h3("Distribuzione per Tipo"),
-      _.div({ class: "tl-ai-donut-row" }, renderDonut("is-multi", "128", "Totale"), _.div(_.p("API Endpoint 34 (26.6%)"), _.p("Data Source 22 (17.2%)"), _.p("WebSocket 18 (14.1%)"), _.p("Widget -> API 20 (15.6%)"), _.p("Tracker -> Source 18 (14.0%)")))
+      _.div({ class: "tl-ai-donut-row" }, renderDonut("is-multi", metrics[1]?.value || "0", "Jobs"), _.div(...metrics.slice(0, 5).map((item) => _.p(`${item.label} ${item.value}`))))
     ),
     _.Card(
       { class: "tl-ai-analytics-card is-performance" },
       _.h3("AI Performance (24h)"),
       _.Grid(
         { cols: "repeat(4, minmax(0, 1fr))", gap: 8 },
-        _.div(_.span("Jobs Completati"), _.strong("342"), _.em("+18.7%")),
-        _.div(_.span("Tempo Medio"), _.strong("2.34s"), _.em("-0.42s")),
-        _.div(_.span("Token Totali"), _.strong("12M"), _.em("+21.7%")),
-        _.div(_.span("Costo Stimato"), _.strong("$0.82"), _.em("+11.3%"))
+        _.div(_.span("Jobs Attivi"), _.strong(metrics[1]?.value || "0"), _.em(metrics[1]?.delta || "")),
+        _.div(_.span("Query"), _.strong(`${aiRuntimeMeta.queryMs || 0}ms`), _.em("IndexedDB")),
+        _.div(_.span("Token Totali"), _.strong(metrics[3]?.value || "0"), _.em(metrics[3]?.delta || "")),
+        _.div(_.span("Costo Stimato"), _.strong(metrics[6]?.value || "$0.00"), _.em(metrics[6]?.delta || ""))
       ),
       renderSpark("purple", 20)
     ),
     _.Card(
       { class: "tl-ai-analytics-card" },
       _.h3("Storage AI"),
-      _.div({ class: "tl-ai-donut-row" }, renderDonut("is-storage", "68%", "Usato"), _.div(_.p("AI Memory 1.2 GB"), _.p("Prompt Cache 384 MB"), _.p("Logs AI 256 MB"), _.p("Outputs 164 MB")))
+      _.div({ class: "tl-ai-donut-row" }, renderDonut("is-storage", memory.length, "Blocchi"), _.div(...memory.slice(0, 4).map(([name, meta, count]) => _.p(`${name} ${count}`))))
     ),
     _.Card(
       { class: "tl-ai-analytics-card" },
@@ -293,14 +411,14 @@ const renderAnalytics = () =>
 const renderFooter = () =>
   _.footer(
     { class: "tl-ai-footer" },
-    _.span(dot("online"), "AI System Online"),
-    _.span("Query Time: 18ms"),
-    _.span("Uptime: 2h 47m 32s"),
-    _.span("Agents: 6 Attivi"),
-    _.span("Jobs in Coda: 4"),
-    _.span("Memory: 68%"),
-    _.span("IndexedDB: Connected"),
-    _.span("Last Update: 12:32:20"),
+    _.span(dot(aiRuntimeMeta.error ? "error" : "online"), aiRuntimeMeta.error || "AI System Online"),
+    _.span(`Query Time: ${aiRuntimeMeta.queryMs || 0}ms`),
+    _.span("Uptime: runtime locale"),
+    _.span(`Agents: ${agents.length}`),
+    _.span(`Jobs: ${jobs.length}`),
+    _.span(`Memory: ${memory.length}`),
+    _.span(`IndexedDB: ${aiRuntimeMeta.indexedDb}`),
+    _.span(`Last Update: ${aiRuntimeMeta.lastUpdate || "Mai"}`),
     renderSpark("green", 28)
   );
 
@@ -328,10 +446,27 @@ const renderShell = () =>
     )
   );
 
+const refreshAiRuntime = async () => {
+  const started = performance.now();
+  try {
+    const data = await window.TrackerLensAiRuntimeStore.list();
+    applyRuntimeViewModel(buildRuntimeViewModel(data, Math.max(1, Math.round(performance.now() - started))));
+  } catch (error) {
+    aiRuntimeMeta = {
+      loading: false,
+      error: error?.message || "Errore caricamento runtime AI",
+      queryMs: Math.max(1, Math.round(performance.now() - started)),
+      lastUpdate: timeLabel(new Date()),
+      indexedDb: "Error",
+    };
+  }
+  mountAiRuntime();
+};
+
 const mountAiRuntime = () => {
   const root = document.getElementById("tl-ai-root");
   if (!root) return;
   root.replaceChildren(renderShell());
 };
 
-mountAiRuntime();
+refreshAiRuntime();

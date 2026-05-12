@@ -2337,3 +2337,39 @@ Cosa manca / prossimi passi:
   - salva e riapri il workspace;
   - verifica in `workspace.html` che il runtime riceva eventi dal tracker nascosto.
 - Valutare una vista dedicata "Collegamenti" nel pannello laterale per vedere e gestire tutte le connessioni del workspace in forma tabellare.
+
+## Aggiornamento 2026-05-12 - Primo collegamento reale AI Runtime Center
+
+Obiettivo della sessione: iniziare a trasformare `ai.html` da mockup statico a control room collegata ai dati locali reali.
+
+Fatto:
+
+- Aggiunto `js/tl-ai-runtime-store.js` con store IndexedDB dedicati:
+  - `tl_ai_providers`;
+  - `tl_ai_agents`;
+  - `tl_ai_jobs`;
+  - `tl_ai_logs`;
+  - `tl_ai_memory`;
+  - `tl_ai_prompt_flows`.
+- Aggiornato `tlConfig.TABLES` con le nuove tabelle AI.
+- `ai.html` ora carica `tl-connections-store.js` e `tl-ai-runtime-store.js` prima di `aiRuntimeCenter.js`.
+- `js/aiRuntimeCenter.js` ora legge `TrackerLensAiRuntimeStore.list()` all'avvio e sul bottone refresh.
+- Le metriche principali non sono piu solo demo: vengono calcolate da provider, agenti, job, log, memoria, workspace, widget e connessioni locali.
+- Gli agenti vengono anche derivati dai dati reali esistenti quando widget, box workspace o connessioni contengono segnali AI (`ai`, `openai`, `anthropic`, `gemini`, `ollama`, `llm`, `prompt`, `agent`, `model`, `gpt`, `claude`).
+- Memory e workspace activity leggono dati reali da `tl_widgets`, `tl_pages` e `tl_connections`.
+- Jobs, logs, providers e prompt flows leggono le nuove tabelle `tl_ai_*`; se non esistono record mostrano stati vuoti/idle espliciti invece di numeri inventati.
+- Footer e pannello performance mostrano query time, conteggi reali e stato IndexedDB.
+
+Verifiche eseguite:
+
+- `node --check js/tl-ai-runtime-store.js`
+- `node --check js/aiRuntimeCenter.js`
+
+Cosa manca / prossimi passi:
+
+- Aggiungere UI CMSwift per creare/modificare provider AI reali dentro `tl_ai_providers`.
+- Collegare esecuzione reale dei job: creazione record in `tl_ai_jobs`, avanzamento stato, durata, token e output.
+- Persistire log agentici in `tl_ai_logs` dal runtime, non solo leggerli.
+- Definire lo schema operativo di `tl_ai_prompt_flows` e renderizzare piu flow reali, non solo il primo.
+- Collegare pricing/token per stimare costi reali per provider/modello.
+- Aggiungere worker/runtime locale che esegua prompt e scriva su `tl_ai_jobs`, `tl_ai_logs`, `tl_ai_memory`.

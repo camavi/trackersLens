@@ -7,7 +7,13 @@ const tlConfig = {
   TABLES: {
     TL_PAGES: 'tl_pages',
     TL_WIDGETS: 'tl_widgets',
-    TL_CONNECTIONS: 'tl_connections'
+    TL_CONNECTIONS: 'tl_connections',
+    TL_AI_PROVIDERS: 'tl_ai_providers',
+    TL_AI_AGENTS: 'tl_ai_agents',
+    TL_AI_JOBS: 'tl_ai_jobs',
+    TL_AI_LOGS: 'tl_ai_logs',
+    TL_AI_MEMORY: 'tl_ai_memory',
+    TL_AI_PROMPT_FLOWS: 'tl_ai_prompt_flows'
   },
 
   MANIFEST: [
