@@ -1,5 +1,172 @@
 # Active Tasks
 
+## [TASK-013]
+
+Title: Offline-first Mode
+
+Priority: High
+
+Status: Active
+
+Files:
+
+- `core/runtime/offline-first.js`
+- `docs/offline-first-mode.md`
+
+Dependencies:
+
+- `tl_offline_queue`
+- `tl_offline_cache`
+
+Regression Risk:
+
+Medium
+
+Description:
+
+Formalize local offline queue/cache behavior for future sync, package and marketplace operations.
+
+Runtime Notes:
+
+- 2026-05-18: added local queue/cache stores and status API.
+- Remaining: UI indicators, sync queue execution and conflict resolver.
+
+## [TASK-014]
+
+Title: Internal Package System
+
+Priority: High
+
+Status: Active
+
+Files:
+
+- `core/runtime/package-system.js`
+- `docs/internal-package-system.md`
+
+Dependencies:
+
+- `tl_packages`
+- `tl_package_lock`
+
+Regression Risk:
+
+Medium
+
+Description:
+
+Create local package registry and package lock foundation for boxes, runtime libraries and future marketplace packages.
+
+Runtime Notes:
+
+- 2026-05-18: added package manifest normalization, registration, dependency resolution and workspace locks.
+- Remaining: semver resolver, install flow and package inspector UI.
+
+## [TASK-015]
+
+Title: Runtime DevTools
+
+Priority: Critical
+
+Status: Active
+
+Files:
+
+- `core/runtime/devtools-runtime.js`
+- `database.html`
+- `docs/devtools-runtime.md`
+
+Dependencies:
+
+- TASK-013
+- TASK-014
+- TASK-016
+- TASK-019
+
+Regression Risk:
+
+Medium
+
+Description:
+
+Create one runtime loader for DevTools panels spanning graph, events, channels, performance, packages, offline and time travel.
+
+Runtime Notes:
+
+- 2026-05-18: added `TrackerLensDevToolsRuntime.load()` and loaded runtime modules in `database.html`.
+- Remaining: dedicated `devtools.html` with tabbed inspectors.
+
+## [TASK-016]
+
+Title: Time Travel Data
+
+Priority: High
+
+Status: Active
+
+Files:
+
+- `core/runtime/time-travel-store.js`
+- `core/runtime/runtime-snapshot-store.js`
+- `docs/time-travel-data.md`
+
+Dependencies:
+
+- `tl_time_travel_snapshots`
+- `tl_events`
+- `tl_runtime_nodes`
+- `tl_runtime_dependencies`
+
+Regression Risk:
+
+Medium
+
+Description:
+
+Persist versioned runtime snapshots that can later power timeline, replay, diff and restore.
+
+Runtime Notes:
+
+- 2026-05-18: added snapshot capture/list/latest APIs and extended runtime snapshots with core runtime stores.
+- Remaining: UI timeline, restore, replay and snapshot diff.
+
+## [TASK-019]
+
+Title: Box Graph Engine
+
+Priority: Critical
+
+Status: Active
+
+Files:
+
+- `core/runtime/graph-engine.js`
+- `core/runtime/runtime-graph-store.js`
+- `core/runtime/runtime-graph-model.js`
+- `flowMap.html`
+- `docs/box-graph-engine.md`
+
+Dependencies:
+
+- `tl_runtime_nodes`
+- `tl_runtime_dependencies`
+- `tl_flows`
+- `tl_channels`
+- `tl_events`
+
+Regression Risk:
+
+High
+
+Description:
+
+Create a shared graph engine facade for Flow Map, DevTools, Time Travel, Analytics and future generated workspaces.
+
+Runtime Notes:
+
+- 2026-05-18: added `TrackerLensGraphEngine.buildGraph()` and `inspectNode()`.
+- Remaining: make Flow Map consume the facade directly and add graph validation/path queries.
+
 ## [TASK-010]
 
 Title: Box Performance Monitor

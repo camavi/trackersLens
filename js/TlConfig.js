@@ -21,7 +21,13 @@ const tlConfig = {
     TL_FLOW_LOGS: 'tl_flow_logs',
     TL_AGENTS: 'tl_agents',
     TL_RUNTIME_NODES: 'tl_runtime_nodes',
-    TL_RUNTIME_DEPENDENCIES: 'tl_runtime_dependencies'
+    TL_RUNTIME_DEPENDENCIES: 'tl_runtime_dependencies',
+    TL_BOX_PERFORMANCE: 'tl_box_performance',
+    TL_OFFLINE_QUEUE: 'tl_offline_queue',
+    TL_OFFLINE_CACHE: 'tl_offline_cache',
+    TL_PACKAGES: 'tl_packages',
+    TL_PACKAGE_LOCK: 'tl_package_lock',
+    TL_TIME_TRAVEL_SNAPSHOTS: 'tl_time_travel_snapshots'
   },
 
   MANIFEST: [

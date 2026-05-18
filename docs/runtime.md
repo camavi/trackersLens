@@ -222,6 +222,18 @@ Tracked fields include:
 
 `workspace.html` records samples when boxTracker payloads/errors are emitted. `analytics.html` reads the same store and uses it for runtime cards and the tracker performance table.
 
+## Runtime Core Pack
+
+The post-performance runtime core now has first foundations for points 13, 14, 15, 16 and 19:
+
+- `core/runtime/offline-first.js`: local queue/cache for offline-first operation.
+- `core/runtime/package-system.js`: local package registry and workspace lock records.
+- `core/runtime/devtools-runtime.js`: aggregated loader for graph, offline, package, time travel and performance data.
+- `core/runtime/time-travel-store.js`: persisted runtime snapshots in `tl_time_travel_snapshots`.
+- `core/runtime/graph-engine.js`: facade over runtime snapshots and graph model.
+
+`core/runtime/runtime-snapshot-store.js` now includes offline, package, performance and time-travel records in runtime snapshots when the stores exist.
+
 Current limitations:
 
 - Event persistence is non-blocking and best-effort.

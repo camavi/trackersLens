@@ -24,11 +24,12 @@ Priorita immediata:
 
 Priorita successive:
 
-1. Sandbox isolation.
-2. Versioning boxes e dependency package.
-3. AI memory locale e Local AI provider.
-4. Workspace templates e AI generated workspaces.
-5. Marketplace verified e cloud sync opzionale.
+1. Offline-first mode.
+2. Internal package system.
+3. Runtime DevTools.
+4. Time travel data.
+5. Box graph engine come sorgente condivisa.
+6. Workspace templates e AI generated workspaces dopo il runtime core.
 
 ## Avanzamento dei 20 punti
 
@@ -44,15 +45,15 @@ Priorita successive:
 | 8 | Local AI First | Parziale avanzato | `docs/local-ai-first.md`, provider locali default `Ollama` e `LM Studio`, seed/probe provider locali in `TrackerLensAiRuntimeStore`, priorita local-first, toggle Settings e probe UI in AI Runtime Center. | Aggiungere router completions/chat locale, fetch modelli, CORS helper e fallback cloud esplicito. |
 | 9 | Marketplace Verified | Parziale avanzato | `core/runtime/marketplace-verification.js`, `docs/marketplace-verified.md`, store `tl_marketplace_trust`, scanner locale creator/signature/runtime permissions, badge Library `Verified/Trusted/Review/Blocked/Unscanned` e bottone `Verify`. | Aggiungere firma crittografica con public key, pagina marketplace remota e blocco import per asset unsafe. |
 | 10 | Box Performance Monitor | Parziale avanzato | `core/runtime/box-performance-monitor.js`, `docs/box-performance-monitor.md`, store `tl_box_performance`, metriche events/sec, latency, error rate, network/min e memoria stimata nel Monitor workspace e in Analytics. | Aggiungere CPU/memory piu reali, soglie warning/error, Flow Map overlay e worker runtime a workspace chiuso. |
-| 11 | Workspace Templates | Non iniziato | Nessun catalogo template strutturato. | Definire schema template e primi template locali: crypto, news, AI research. |
-| 12 | AI Generated Workspaces | Non iniziato | Nessun generatore workspace. | Usare template + schema `.tlworkspace` per generazione guidata da prompt. |
-| 13 | Offline-first Mode | Parziale | IndexedDB locale, runtime e library funzionano localmente. | Formalizzare modalita offline, cache policy, indicatori rete e sync queue futura. |
-| 14 | Internal Package System | Non iniziato | Nessun package system interno. | Definire naming `@trackers/*`, manifest package, dependency resolver locale. |
-| 15 | DevTools | Parziale | Database, Connections, Analytics, AI Center, Monitor e Flow Map sono basi DevTools. | Unificare in Runtime DevTools con tab Events, Channels, Graph, Logs, Performance, AI. |
-| 16 | Time Travel Data | Fondazione | `core/runtime/runtime-snapshot-store.js` carica snapshot runtime; event retention esiste. | Aggiungere snapshot persistenti versionati, replay eventi e rewind workspace. |
+| 11 | Workspace Templates | Rinviato | Nessun catalogo template strutturato. | Da fare dopo Offline, Package, DevTools, Time Travel e Graph Engine. |
+| 12 | AI Generated Workspaces | Rinviato | Nessun generatore workspace. | Da fare dopo Workspace Templates e Graph Engine stabile. |
+| 13 | Offline-first Mode | Parziale avanzato | `core/runtime/offline-first.js`, `docs/offline-first-mode.md`, store `tl_offline_queue` e `tl_offline_cache`, API status/queue/cache. | Indicatori UI offline, sync queue opzionale e conflict resolver. |
+| 14 | Internal Package System | Fondazione | `core/runtime/package-system.js`, `docs/internal-package-system.md`, store `tl_packages` e `tl_package_lock`, manifest package e dependency resolver base. | Resolver semver reale, package install e UI package inspector. |
+| 15 | DevTools | Parziale avanzato | `core/runtime/devtools-runtime.js`, `docs/devtools-runtime.md`, Database, Connections, Analytics, AI Center, Monitor e Flow Map come basi DevTools; loader runtime unificato. | Creare `devtools.html` dedicato con tab Events, Channels, Graph, Performance, Packages, Offline, Time Travel, AI. |
+| 16 | Time Travel Data | Parziale | `core/runtime/runtime-snapshot-store.js`, `core/runtime/time-travel-store.js`, `docs/time-travel-data.md`, store `tl_time_travel_snapshots`, snapshot runtime versionati. | UI timeline, restore selettivo, replay eventi e diff snapshot. |
 | 17 | Local-first Cloud-sync | Non iniziato | Local-first reale via IndexedDB; cloud sync assente. | Definire sync opzionale, conflitti, encryption e remote backup. |
 | 18 | Chrome Fork | Visione | Solo direzione strategica. | Rimandare fino a runtime/plugin stabile. |
-| 19 | Box Graph Engine | Parziale | `runtime-graph-store.js`, `runtime-graph-model.js`, `tl_runtime_nodes`, `tl_runtime_dependencies`, `tl_flows`. | Rendere il graph engine sorgente unica per Flow Map, workspace runtime e DevTools. |
+| 19 | Box Graph Engine | Parziale avanzato | `runtime-graph-store.js`, `runtime-graph-model.js`, `core/runtime/graph-engine.js`, `docs/box-graph-engine.md`, `tl_runtime_nodes`, `tl_runtime_dependencies`, `tl_flows`, facade `buildGraph()` / `inspectNode()`. | Rendere `TrackerLensGraphEngine` sorgente primaria di Flow Map, workspace runtime e DevTools. |
 | 20 | Runtime locale intelligente | In corso | La direzione e gia nel codice: local-first, runtime graph, channel registry, event logs, Flow Map. | Continuare a costruire il prodotto come runtime operating environment, non come dashboard. |
 
 ## Milestone consigliate

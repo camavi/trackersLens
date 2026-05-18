@@ -11,6 +11,12 @@ window.TrackerLensRuntimeSnapshotStore = (() => {
     runtimeNodes: tableName("TL_RUNTIME_NODES", "tl_runtime_nodes"),
     runtimeDependencies: tableName("TL_RUNTIME_DEPENDENCIES", "tl_runtime_dependencies"),
     connections: tableName("TL_CONNECTIONS", "tl_connections"),
+    offlineQueue: tableName("TL_OFFLINE_QUEUE", "tl_offline_queue"),
+    offlineCache: tableName("TL_OFFLINE_CACHE", "tl_offline_cache"),
+    packages: tableName("TL_PACKAGES", "tl_packages"),
+    packageLock: tableName("TL_PACKAGE_LOCK", "tl_package_lock"),
+    performance: tableName("TL_BOX_PERFORMANCE", "tl_box_performance"),
+    timeTravel: tableName("TL_TIME_TRAVEL_SNAPSHOTS", "tl_time_travel_snapshots"),
   };
 
   const ensureRuntimeStores = async () => {
@@ -64,6 +70,12 @@ window.TrackerLensRuntimeSnapshotStore = (() => {
         runtimeNodes,
         runtimeDependencies,
         connections,
+        offlineQueue: await readAllFromDb(db, STORES.offlineQueue),
+        offlineCache: await readAllFromDb(db, STORES.offlineCache),
+        packages: await readAllFromDb(db, STORES.packages),
+        packageLock: await readAllFromDb(db, STORES.packageLock),
+        performance: await readAllFromDb(db, STORES.performance),
+        timeTravel: await readAllFromDb(db, STORES.timeTravel),
         loadedAt: new Date().toISOString(),
       };
     } finally {

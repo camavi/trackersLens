@@ -3641,6 +3641,49 @@ Cosa manca / prossimi passi:
 - Soglie warning/error.
 - Overlay performance in Flow Map.
 
+## Aggiornamento 2026-05-18 - Runtime Core Pack punti 13/14/15/16/19
+
+Decisione: i punti 11 e 12 sono stati rinviati. Workspace Templates e AI Generated Workspaces verranno dopo Offline-first, Package System, DevTools, Time Travel e Graph Engine, per evitare template/generatori sopra un runtime ancora instabile.
+
+Fatto:
+
+- Punto 13 Offline-first Mode:
+  - aggiunto `core/runtime/offline-first.js`;
+  - aggiunti store `tl_offline_queue` e `tl_offline_cache`;
+  - API: `status()`, `enqueue()`, `cachePut()`, `listQueue()`, `listCache()`.
+- Punto 14 Internal Package System:
+  - aggiunto `core/runtime/package-system.js`;
+  - aggiunti store `tl_packages` e `tl_package_lock`;
+  - API: `register()`, `listPackages()`, `resolveDependencies()`, `lockWorkspace()`.
+- Punto 15 DevTools:
+  - aggiunto `core/runtime/devtools-runtime.js`;
+  - `database.html` carica i moduli runtime core;
+  - API: `TrackerLensDevToolsRuntime.load()`.
+- Punto 16 Time Travel Data:
+  - aggiunto `core/runtime/time-travel-store.js`;
+  - aggiunto store `tl_time_travel_snapshots`;
+  - `runtime-snapshot-store.js` include offline, package, performance e time travel quando presenti.
+- Punto 19 Box Graph Engine:
+  - aggiunto `core/runtime/graph-engine.js`;
+  - `flowMap.html` carica la facade graph engine;
+  - API: `buildGraph()` e `inspectNode()`.
+
+Documentazione aggiunta:
+
+- `docs/offline-first-mode.md`
+- `docs/internal-package-system.md`
+- `docs/devtools-runtime.md`
+- `docs/time-travel-data.md`
+- `docs/box-graph-engine.md`
+
+Cosa manca / prossimi passi:
+
+- UI offline indicator e sync queue reale.
+- Resolver semver e install package.
+- `devtools.html` dedicato.
+- Timeline/restore Time Travel.
+- Rendere `TrackerLensGraphEngine` sorgente primaria di Flow Map.
+
 ## Aggiornamento 2026-05-18 - Workspace Export Format punto 4
 
 Obiettivo della sessione: implementare il formato portabile `.tlworkspace` / `.tlbox` e agganciarlo a Library e Workspace.
