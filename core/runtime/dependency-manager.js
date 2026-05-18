@@ -139,6 +139,18 @@ window.TrackerLensDependencyManager = (() => {
 
   const channelOf = (record) => normalizeText(record.channel || record.name || record.frequency || record.outputChannel);
 
+  const uniqueStrings = (values = []) => [...new Set(values.filter(Boolean).map(String))];
+
+  const nodeTypeGroup = (type = "") => {
+    const value = normalizeText(type, "boxTracker");
+    if (value === "boxTracker" || value === "boxLens") return "widget";
+    if (value === "channel") return "channel";
+    if (value === "connection") return "connection";
+    if (value === "workspace") return "workspace";
+    if (value === "agent" || value === "aiAgent") return "agent";
+    return value;
+  };
+
   const buildTrackerReferenceSet = ({ id, record, workspaces }) => {
     const content = contentOf(record);
     const ids = new Set([id, record?.id, content.id, content.sourceId, content.assetId].filter(Boolean).map(String));
@@ -154,6 +166,99 @@ window.TrackerLensDependencyManager = (() => {
     });
 
     return ids;
+  };
+
+  const buildEntityReferenceSet = ({ id, type, record, workspaces, connections = [], channels = [], runtimeNodes = [], runtimeDependencies = [] }) => {
+    const group = nodeTypeGroup(type);
+    const content = contentOf(record);
+    const ids = new Set(uniqueStrings([id, record?.id, content.id, content.sourceId, content.assetId, content.nodeId, content.connectionId]));
+    const channelNames = new Set(uniqueStrings([
+      content.name,
+      content.channel,
+      content.outputChannel,
+      content.runtime?.output,
+      content.frequency,
+      group === "channel" ? id : "",
+    ]));
+
+    if (group === "workspace") {
+      (content.boxes || []).forEach((box) => {
+        uniqueStrings([box.id, box.assetId, box.sourceId]).forEach((value) => ids.add(value));
+        (Array.isArray(box.channels) ? box.channels : []).forEach((channel) => channelNames.add(String(channel)));
+        if (box.outputChannel) channelNames.add(String(box.outputChannel));
+      });
+      (content.connections || []).forEach((connection) => {
+        uniqueStrings([connection.id, connection.fromBoxId, connection.toBoxId, connection.fromNodeId, connection.toNodeId]).forEach((value) => ids.add(value));
+        const channel = channelOf(connection);
+        if (channel) channelNames.add(channel);
+      });
+    }
+
+    if (group === "connection") {
+      uniqueStrings([
+        content.fromBoxId,
+        content.toBoxId,
+        content.fromNodeId,
+        content.toNodeId,
+        content.sourceNodeId,
+        content.targetNodeId,
+        content.from,
+        content.to,
+      ]).forEach((value) => ids.add(value));
+      const channel = channelOf(content);
+      if (channel) channelNames.add(channel);
+    }
+
+    workspaces.forEach((workspace) => {
+      const workspaceHit = group === "workspace" && workspace.id === String(id);
+      workspace.boxes
+        .filter((box) =>
+          workspaceHit ||
+          [box.id, box.assetId, box.sourceId].filter(Boolean).some((value) => ids.has(String(value)))
+        )
+        .forEach((box) => {
+          uniqueStrings([box.id, box.assetId, box.sourceId]).forEach((value) => ids.add(value));
+          (Array.isArray(box.channels) ? box.channels : []).forEach((channel) => channelNames.add(String(channel)));
+          if (box.outputChannel) channelNames.add(String(box.outputChannel));
+        });
+      workspace.connections
+        .filter((connection) => workspaceHit || connectionReferences(connection, ids, channelNames))
+        .forEach((connection) => {
+          uniqueStrings([connection.id, connection.fromBoxId, connection.toBoxId, connection.fromNodeId, connection.toNodeId]).forEach((value) => ids.add(value));
+          const channel = channelOf(connection);
+          if (channel) channelNames.add(channel);
+        });
+    });
+
+    connections.forEach((connection) => {
+      const content = contentOf(connection);
+      if (connectionReferences(content, ids, channelNames)) {
+        uniqueStrings([connection.id, content.id, content.fromBoxId, content.toBoxId, content.fromNodeId, content.toNodeId]).forEach((value) => ids.add(value));
+        const channel = channelOf(content);
+        if (channel) channelNames.add(channel);
+      }
+    });
+    channels.forEach((channel) => {
+      const content = contentOf(channel);
+      if (channelReferences(content, ids, channelNames)) {
+        uniqueStrings([channel.id, content.id, content.name, content.channel]).forEach((value) => ids.add(value));
+        uniqueStrings([content.name, content.channel]).forEach((value) => channelNames.add(value));
+      }
+    });
+    runtimeNodes.forEach((node) => {
+      if (stringIncludesAny(node, [...ids, ...channelNames])) {
+        uniqueStrings([node.id, node.sourceRef, node.assetId]).forEach((value) => ids.add(value));
+        (node.channels || []).forEach((channel) => channelNames.add(String(channel)));
+      }
+    });
+    runtimeDependencies.forEach((dependency) => {
+      if (stringIncludesAny(dependency, [...ids, ...channelNames])) {
+        uniqueStrings([dependency.id, dependency.sourceNodeId, dependency.targetNodeId, dependency.connectionId]).forEach((value) => ids.add(value));
+        if (dependency.channel) channelNames.add(String(dependency.channel));
+      }
+    });
+
+    return { ids, channelNames };
   };
 
   const normalizeWorkspace = (record, index = 0) => {
@@ -318,18 +423,103 @@ window.TrackerLensDependencyManager = (() => {
   const inspectNode = async ({ id, type = "boxTracker" }) => {
     if (!id) throw new Error("ID nodo mancante");
     if (type === "boxTracker") return inspectTracker(id);
-    throw new Error(`Dependency scan non implementato per ${type}`);
+    await ensureRuntimeStores();
+
+    const [widgets, pages, connections, channels, flows, agents, runtimeNodes, runtimeDependencies] = await Promise.all([
+      readAll(STORES.widgets),
+      readAll(STORES.pages),
+      readAll(STORES.connections),
+      readAll(STORES.channels),
+      readAll(STORES.flows),
+      readAll(STORES.agents),
+      readAll(STORES.runtimeNodes),
+      readAll(STORES.runtimeDependencies),
+    ]);
+    const workspaces = pages.map(normalizeWorkspace);
+    const group = nodeTypeGroup(type);
+    const storesByGroup = {
+      widget: widgets,
+      channel: channels,
+      connection: connections,
+      workspace: pages,
+      agent: agents,
+    };
+    const candidates = storesByGroup[group] || runtimeNodes;
+    const record = candidates.find((candidate) => {
+      const content = contentOf(candidate);
+      return uniqueStrings([candidate?.id, content.id, content.name, content.sourceId, content.assetId, content.nodeId, content.connectionId]).includes(String(id));
+    }) || null;
+    const { ids, channelNames } = buildEntityReferenceSet({
+      id: String(id),
+      type,
+      record,
+      workspaces,
+      connections,
+      channels,
+      runtimeNodes,
+      runtimeDependencies,
+    });
+
+    const workspaceMatches = workspaces
+      .map((workspace) => {
+        const isWorkspace = group === "workspace" && workspace.id === String(id);
+        const boxes = workspace.boxes.filter((box) =>
+          isWorkspace || [box.id, box.assetId, box.sourceId].filter(Boolean).some((value) => ids.has(String(value)))
+        );
+        const localConnections = workspace.connections.filter((connection) => isWorkspace || connectionReferences(connection, ids, channelNames));
+        return isWorkspace || boxes.length || localConnections.length
+          ? { id: workspace.id, name: workspace.name, boxes, connections: localConnections, raw: workspace.raw }
+          : null;
+      })
+      .filter(Boolean);
+    const connectionMatches = connections.filter((connection) => connectionReferences(contentOf(connection), ids, channelNames));
+    const channelMatches = channels.filter((channel) => channelReferences(contentOf(channel), ids, channelNames));
+    const flowMatches = flows.filter((flow) => flowReferences(flow, ids, channelNames));
+    const agentMatches = agents.filter((agent) => agentReferences(agent, ids, channelNames));
+    const runtimeNodeMatches = runtimeNodes.filter((node) => stringIncludesAny(node, [...ids, ...channelNames]));
+    const dependencyMatches = runtimeDependencies.filter((dependency) => stringIncludesAny(dependency, [...ids, ...channelNames]));
+    const content = contentOf(record);
+    const report = {
+      id: String(id),
+      recordId: record?.id || String(id),
+      type,
+      label: normalizeText(content.name || content.title || content.label, String(id)),
+      channels: channelMatches,
+      channelNames: [...channelNames].filter(Boolean),
+      connections: connectionMatches,
+      flows: flowMatches,
+      workspaces: workspaceMatches,
+      agents: agentMatches,
+      actions: [],
+      runtimeNodes: runtimeNodeMatches,
+      dependencies: dependencyMatches,
+    };
+    report.total =
+      report.channels.length +
+      report.connections.length +
+      report.flows.length +
+      report.workspaces.length +
+      report.agents.length +
+      report.actions.length +
+      report.runtimeNodes.length +
+      report.dependencies.length;
+    report.hasDependencies = report.total > 0;
+    return report;
   };
 
-  const removeTrackerReferencesFromWorkspaces = async (report) => {
+  const removeReferencesFromWorkspaces = async (report) => {
     if (!report.workspaces.length) return [];
     const updatedPages = report.workspaces.map((workspace) => {
       const raw = workspace.raw;
       const content = { ...contentOf(raw) };
       const boxIds = new Set(workspace.boxes.map((box) => box.id));
+      const connectionIds = new Set(workspace.connections.map((connection) => connection.id));
       content.boxes = (content.boxes || []).filter((box) => !boxIds.has(box.id));
       content.connections = (content.connections || []).filter(
-        (connection) => !boxIds.has(connection.fromBoxId) && !boxIds.has(connection.toBoxId)
+        (connection) =>
+          !connectionIds.has(connection.id) &&
+          !boxIds.has(connection.fromBoxId) &&
+          !boxIds.has(connection.toBoxId)
       );
       content.updatedAt = new Date().toISOString();
       return { ...raw, content };
@@ -337,22 +527,47 @@ window.TrackerLensDependencyManager = (() => {
     return putRecords(STORES.pages, updatedPages);
   };
 
+  const removeTrackerReferencesFromWorkspaces = removeReferencesFromWorkspaces;
+
   const forceDeleteNode = async ({ id, type = "boxTracker", report = null }) => {
     const dependencyReport = report || await inspectNode({ id, type });
-    if (type !== "boxTracker") throw new Error(`Force delete non implementato per ${type}`);
+    const group = nodeTypeGroup(type);
+    const widgetDeleteIds = group === "widget" ? [id, dependencyReport.recordId] : [];
+    const channelDeleteIds = group === "channel"
+      ? [id, dependencyReport.recordId, ...dependencyReport.channels.map((channel) => channel.id)]
+      : dependencyReport.channels.map((channel) => channel.id);
+    const connectionDeleteIds = group === "connection"
+      ? [id, dependencyReport.recordId, ...dependencyReport.connections.map((connection) => connection.id)]
+      : dependencyReport.connections.map((connection) => connection.id);
+    const workspaceDeleteIds = group === "workspace" ? [id, dependencyReport.recordId] : [];
+    const agentDeleteIds = group === "agent" ? [id, dependencyReport.recordId] : [];
 
     await Promise.all([
-      deleteRecords(STORES.widgets, [...new Set([id, dependencyReport.recordId].filter(Boolean))]),
-      deleteRecords(STORES.connections, dependencyReport.connections.map((connection) => connection.id).filter(Boolean)),
-      deleteRecords(STORES.channels, dependencyReport.channels.map((channel) => channel.id).filter(Boolean)),
-      removeTrackerReferencesFromWorkspaces(dependencyReport),
+      deleteRecords(STORES.widgets, uniqueStrings(widgetDeleteIds)),
+      deleteRecords(STORES.connections, uniqueStrings(connectionDeleteIds)),
+      deleteRecords(STORES.channels, uniqueStrings(channelDeleteIds)),
+      deleteRecords(STORES.pages, uniqueStrings(workspaceDeleteIds)),
+      deleteRecords(STORES.agents, uniqueStrings(agentDeleteIds)),
+      deleteRecords(STORES.runtimeNodes, dependencyReport.runtimeNodes.map((node) => node.id).filter(Boolean)),
+      deleteRecords(STORES.runtimeDependencies, dependencyReport.dependencies.map((dependency) => dependency.id).filter(Boolean)),
+      removeReferencesFromWorkspaces(dependencyReport),
     ]);
 
     return dependencyReport;
   };
 
+  const canDeleteNode = async ({ id, type = "boxTracker" }) => {
+    const report = await inspectNode({ id, type });
+    return {
+      ok: !report.hasDependencies,
+      requiresForce: report.hasDependencies,
+      report,
+    };
+  };
+
   return {
     STORES,
+    canDeleteNode,
     ensureRuntimeStores,
     forceDeleteNode,
     inspectNode,

@@ -147,6 +147,23 @@ Persisted boxes now include:
 
 Legacy boxes with only `version` are normalized on editor save, library read, portable export and portable import.
 
+## Box Dependency System
+
+`core/runtime/dependency-manager.js` is the central dependency-safety gate for runtime mutations.
+
+It now supports:
+
+- `boxTracker`
+- `boxLens`
+- `channel`
+- `connection`
+- `workspace`
+- `agent` / `aiAgent`
+
+The public validation API is `canDeleteNode({ id, type })`; destructive cleanup goes through `forceDeleteNode({ id, type, report })`.
+
+`js/workspace.js` uses `inspectNode()` before deleting selected boxes, so boxLens deletion gets the same dependency report path as boxTracker deletion.
+
 Current limitations:
 
 - Event persistence is non-blocking and best-effort.

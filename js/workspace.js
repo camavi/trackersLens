@@ -1089,6 +1089,16 @@ const selectedDeleteDependencies = async (ids = []) => {
   const boxes = workspaceState.boxes.filter((box) => selected.has(box.id));
   const connections = workspaceState.connections.filter((connection) => selected.has(connection.fromBoxId) || selected.has(connection.toBoxId));
   let runtimeDependencies = [];
+  let managerReports = [];
+
+  if (window.TrackerLensDependencyManager?.inspectNode) {
+    managerReports = (await Promise.all(boxes.map((box) =>
+      window.TrackerLensDependencyManager.inspectNode({ id: box.id, type: box.type || "boxLens" }).catch((error) => {
+        console.warn("Dependency manager non disponibile per box:", box.id, error);
+        return null;
+      })
+    ))).filter(Boolean);
+  }
 
   try {
     const store = window.TrackerLensRuntimeGraphStore;
@@ -1104,14 +1114,19 @@ const selectedDeleteDependencies = async (ids = []) => {
   const channels = [...new Set([
     ...connections.map((connection) => connection.channel || "default"),
     ...runtimeDependencies.map((dependency) => dependency.channel || "default"),
+    ...managerReports.flatMap((report) => report.channelNames || []),
   ])];
+  const managerConnections = managerReports.flatMap((report) => report.connections || []);
+  const managerRuntimeDependencies = managerReports.flatMap((report) => report.dependencies || []);
+  const byId = (items = []) => [...new Map(items.filter(Boolean).map((item) => [item.id || JSON.stringify(item), item])).values()];
   return {
     boxes,
-    connections,
-    runtimeDependencies,
+    connections: byId([...connections, ...managerConnections]),
+    runtimeDependencies: byId([...runtimeDependencies, ...managerRuntimeDependencies]),
     channels,
-    total: connections.length + runtimeDependencies.length,
-    hasDependencies: connections.length > 0 || runtimeDependencies.length > 0,
+    reports: managerReports,
+    total: connections.length + runtimeDependencies.length + managerConnections.length + managerRuntimeDependencies.length,
+    hasDependencies: connections.length > 0 || runtimeDependencies.length > 0 || managerReports.some((report) => report.hasDependencies),
   };
 };
 

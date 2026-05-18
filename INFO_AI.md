@@ -3653,6 +3653,40 @@ Prossimi passi:
 - Migrazioni automatiche reali tra versioni box.
 - History multi-entry del changelog.
 
+## Aggiornamento 2026-05-18 - Box Dependency System punto 6
+
+Obiettivo della sessione: estendere il dependency safety oltre `boxTracker`.
+
+Fatto:
+
+- Aggiornato `core/runtime/dependency-manager.js`.
+- Aggiunto `docs/box-dependency-system.md`.
+- `inspectNode()` supporta ora:
+  - `boxTracker`;
+  - `boxLens`;
+  - `channel`;
+  - `connection`;
+  - `workspace`;
+  - `agent` / `aiAgent`.
+- Aggiunta API `canDeleteNode({ id, type })`.
+- `forceDeleteNode()` non e piu limitato a `boxTracker` e pulisce:
+  - widget;
+  - connections;
+  - channels;
+  - pages/workspace;
+  - agents;
+  - runtime nodes;
+  - runtime dependencies;
+  - riferimenti embedded nei workspace.
+- `js/workspace.js` usa il dependency manager prima della delete dei box selezionati, con fallback locale.
+- Aggiornati `docs/runtime.md` e `docs/new_vision_progress.md`.
+
+Prossimi passi:
+
+- Aggiungere store reali per processor/action.
+- Cleanup granulare dei flow record.
+- UI dedicata per dependency report su channel, connection e workspace.
+
 ## Aggiornamento 2026-05-18 - Inizio punto 3 Sandbox Isolation
 
 Obiettivo della sessione: aprire il punto 3 con un gate centrale di policy prima di costruire il runner iframe sandboxato.
