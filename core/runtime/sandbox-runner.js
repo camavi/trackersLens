@@ -1,5 +1,16 @@
 window.TrackerLensSandboxRunner = (() => {
   const instances = new Map();
+  const runtimeDebugEnabled = () => {
+    try {
+      return new URLSearchParams(window.location.search).get("debugRuntime") === "1" || localStorage.getItem("tl_debug_runtime") === "1";
+    } catch (_) {
+      return false;
+    }
+  };
+  const runtimeDebug = (label, payload = {}) => {
+    if (!runtimeDebugEnabled()) return;
+    console.debug(`[TL Sandbox Debug] ${label}`, payload);
+  };
 
   const escapeHtml = (value = "") =>
     String(value)
@@ -161,12 +172,27 @@ window.TrackerLensSandboxRunner = (() => {
           onError?.(new Error(`Sandbox payload exceeds ${maxPayloadKb}KB`));
           return;
         }
-        frame.contentWindow?.postMessage({
-          type: "tl:sandbox:update",
+        runtimeDebug("sandbox-update", {
+          instanceId: id,
+          boxId: box.id || "",
           channel: meta.channel || "default",
-          data: nextData,
-          meta,
-        }, "*");
+          payloadKeys: nextData && typeof nextData === "object" ? Object.keys(nextData).slice(0, 12) : [],
+        });
+        try {
+          frame.contentWindow?.postMessage({
+            type: "tl:sandbox:update",
+            channel: meta.channel || "default",
+            data: nextData,
+            meta,
+          }, "*");
+        } catch (error) {
+          runtimeDebug("sandbox-update-postmessage-error", {
+            instanceId: id,
+            boxId: box.id || "",
+            message: error?.message || String(error),
+          });
+          onError?.(error);
+        }
       },
       destroy() {
         window.clearTimeout(timeout);
