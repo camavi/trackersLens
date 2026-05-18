@@ -1121,11 +1121,28 @@ const registerEventBusSubscriptions = () => {
 
       handler(mapConnectionPayload(payload, connection.mapping), {
         channel: event.channel,
-        event,
-        connection,
-        fromBox: boxById(connection.fromBoxId),
-        toBox: boxById(connection.toBoxId),
-        workspace: workspaceViewState.workspace,
+        event: {
+          id: event.id || "",
+          workspaceId: event.workspaceId || workspaceViewState.workspace.id || "global",
+          channel: event.channel,
+          eventType: event.eventType || "emitted",
+          sourceNodeId: event.sourceNodeId || "",
+          targetNodeId: event.targetNodeId || "",
+          connectionId: event.connectionId || "",
+          status: event.status || "ok",
+          latencyMs: event.latencyMs || 0,
+          createdAt: event.createdAt || new Date().toISOString(),
+        },
+        connection: {
+          id: connection.id || "",
+          fromBoxId: connection.fromBoxId || "",
+          toBoxId: connection.toBoxId || "",
+          channel: connection.channel || event.channel || "default",
+          mapping: connection.mapping || {},
+        },
+        fromBox: { id: connection.fromBoxId || "", name: boxById(connection.fromBoxId)?.name || "" },
+        toBox: { id: connection.toBoxId || "", name: boxById(connection.toBoxId)?.name || "" },
+        workspace: { id: workspaceViewState.workspace.id || "global", name: workspaceViewState.workspace.name || "" },
       });
 
       persistRuntimeEvent({
