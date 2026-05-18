@@ -2308,39 +2308,54 @@ const createRuntimeLink = async (source, target, options = {}) => {
       targetPort,
     },
   };
-  const dependency = {
-    id: `dep_${workspaceId}_${connectionId}`.replace(/[^A-Za-z0-9_-]/g, "_"),
-    workspaceId,
-    sourceNodeId: source.id,
-    targetNodeId: target.id,
-    sourceType: source.type || "node",
-    targetType: target.type || "node",
-    channel,
-    connectionId,
-    status: "active",
-    metadata: { source: "flow-map", sourcePort, targetPort },
-    createdAt: now,
-    updatedAt: now,
-  };
+  let runtimeConnection = connection;
+  let workspaceSync = null;
 
   try {
-    if (window.TrackerLensConnectionsStore?.upsertAndSyncWorkspace) {
+    if (window.TrackerLensConnectionsStore?.upsertLibraryTrackerWorkspaceLink && source.workspaceId === "library_local") {
+      workspaceSync = await window.TrackerLensConnectionsStore.upsertLibraryTrackerWorkspaceLink({ source, target, connection });
+      if (!workspaceSync?.connection) {
+        throw new Error("Collegamento Library non materializzato nel workspace.");
+      }
+      runtimeConnection = workspaceSync?.connection || connection;
+    } else if (window.TrackerLensConnectionsStore?.upsertAndSyncWorkspace) {
       await window.TrackerLensConnectionsStore.upsertAndSyncWorkspace(connection);
     } else {
       await window.TrackerLensConnectionsStore?.upsert?.(connection);
     }
+    const dependency = {
+      id: `dep_${workspaceId}_${runtimeConnection.id || connectionId}`.replace(/[^A-Za-z0-9_-]/g, "_"),
+      workspaceId,
+      sourceNodeId: runtimeConnection.fromBoxId || source.id,
+      targetNodeId: runtimeConnection.toBoxId || target.id,
+      sourceType: source.type || "node",
+      targetType: target.type || "node",
+      channel: runtimeConnection.channel || channel,
+      connectionId: runtimeConnection.id || connectionId,
+      status: "active",
+      metadata: { source: "flow-map", sourcePort, targetPort },
+      createdAt: now,
+      updatedAt: now,
+    };
+    if (workspaceSync?.workspace && window.TrackerLensRuntimeGraphStore?.syncWorkspaceGraph) {
+      await window.TrackerLensRuntimeGraphStore.syncWorkspaceGraph({
+        workspace: workspaceSync.workspace,
+        boxes: workspaceSync.boxes || [],
+        connections: workspaceSync.connections || [],
+      });
+    }
     await window.TrackerLensRuntimeGraphStore?.upsertDependency?.({ dependency });
     await recordFlowAction({
       workspaceId,
-      connectionId,
-      message: `Runtime link created: ${connection.name}`,
+      connectionId: runtimeConnection.id || connectionId,
+      message: `Runtime link created: ${runtimeConnection.name || connection.name}`,
       context: {
         action: "runtime-link-created",
-        sourceNodeId: source.id,
-        targetNodeId: target.id,
+        sourceNodeId: runtimeConnection.fromBoxId || source.id,
+        targetNodeId: runtimeConnection.toBoxId || target.id,
         sourcePort,
         targetPort,
-        channel,
+        channel: runtimeConnection.channel || channel,
       },
     });
     state.linkingSourceId = "";
@@ -2350,8 +2365,8 @@ const createRuntimeLink = async (source, target, options = {}) => {
       nodeId: "",
       edgeId: dependency.id,
       nodeType: "",
-      channel,
-      connectionId,
+      channel: runtimeConnection.channel || channel,
+      connectionId: runtimeConnection.id || connectionId,
     };
     await loadRuntime();
   } catch (error) {

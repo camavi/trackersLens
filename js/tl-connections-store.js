@@ -133,6 +133,104 @@ window.TrackerLensConnectionsStore = (() => {
     mapping: connection.mapping && typeof connection.mapping === "object" ? { ...connection.mapping } : {},
   });
 
+  const trackerChannel = (asset = {}) =>
+    normalizeText(asset.outputChannel || asset.runtime?.output || asset.channels?.[0], "default");
+
+  const hiddenTrackerBoxFromAsset = (asset = {}, now = new Date().toISOString()) => ({
+    id: `tracker_${normalizeText(asset.assetId || asset.sourceRef || asset.id, "asset")}_${Date.now()}`,
+    assetId: normalizeText(asset.assetId || asset.sourceRef || asset.id),
+    sourceId: normalizeText(asset.sourceRef || asset.assetId || asset.id),
+    type: "boxTracker",
+    hidden: true,
+    x: 1,
+    y: 1,
+    width: 1,
+    height: 1,
+    zIndex: 1,
+    channels: [trackerChannel(asset)],
+    createdAt: now,
+    updatedAt: now,
+  });
+
+  const boxMatchesLibraryAsset = (box = {}, asset = {}) => {
+    const ids = [asset.assetId, asset.sourceRef, asset.id].filter(Boolean).map(String);
+    return box.type === "boxTracker" && ids.some((id) => [box.assetId, box.sourceId, box.id].filter(Boolean).map(String).includes(id));
+  };
+
+  const upsertLibraryTrackerWorkspaceLink = async ({ source = {}, target = {}, connection = {} } = {}) => {
+    const workspaceId = normalizeText(connection.workspaceId || target.workspaceId);
+    if (!workspaceId || source.workspaceId !== "library_local" || source.type !== "boxTracker" || !target.id) return null;
+
+    const record = await readRecord(PAGE_STORE, workspaceId);
+    const content = contentOf(record);
+    if (!content || !Array.isArray(content.boxes)) return null;
+
+    const now = new Date().toISOString();
+    const boxes = content.boxes.map((box) => ({ ...box }));
+    let trackerBox = boxes.find((box) => boxMatchesLibraryAsset(box, source));
+    if (!trackerBox) {
+      trackerBox = hiddenTrackerBoxFromAsset(source, now);
+      boxes.push(trackerBox);
+    }
+
+    const lensBox = boxes.find((box) => box.id === target.id);
+    if (!lensBox) return null;
+
+    const channel = normalizeText(connection.channel || trackerChannel(source), "default");
+    const workspaceConnection = workspaceConnectionPayload({
+      ...connection,
+      id: connection.id || `connection_${Date.now()}`,
+      fromBoxId: trackerBox.id,
+      toBoxId: lensBox.id,
+      channel,
+      mapping: connection.mapping || {},
+    });
+    const connections = Array.isArray(content.connections) ? content.connections : [];
+    const merged = new Map(connections.map((item) => [workspaceConnectionKey(item), { ...item, mapping: { ...(item.mapping || {}) } }]));
+    merged.set(workspaceConnectionKey(workspaceConnection), workspaceConnection);
+    const nextContent = {
+      ...content,
+      id: content.id || workspaceId,
+      updatedAt: now,
+      boxes,
+      connections: Array.from(merged.values()),
+    };
+
+    await write(PAGE_STORE, {
+      ...(record || {}),
+      id: workspaceId,
+      content: nextContent,
+    });
+
+    const normalizedConnection = normalizeConnection({
+      ...connection,
+      ...workspaceConnection,
+      name: connection.name || `${source.label || source.name || trackerBox.id} -> ${target.label || target.name || lensBox.id}`,
+      type: connection.type || "boxTracker -> boxLens",
+      from: source.label || source.name || trackerBox.id,
+      fromKind: "boxTracker",
+      to: target.label || target.name || lensBox.id,
+      targetMeta: target.sourceRef || target.assetId || lensBox.id,
+      workspaceId,
+      workspaceName: content.name || content.title || workspaceId,
+      endpoint: connection.endpoint || `workspace://${workspaceId}/${workspaceConnection.id}`,
+      result: connection.result || "Creato dalla Flow Map",
+      status: connection.status || "active",
+      method: connection.method || "EVENT",
+      frequency: channel,
+      updatedAt: now,
+    });
+    await write(CONNECTION_STORE, normalizedConnection);
+
+    return {
+      connection: normalizedConnection,
+      workspace: nextContent,
+      boxes,
+      connections: nextContent.connections,
+      trackerBox,
+    };
+  };
+
   const upsertWorkspaceContentConnection = async (connection = {}) => {
     const normalized = normalizeConnection(connection);
     const workspaceId = normalizeText(normalized.workspaceId);
@@ -175,6 +273,10 @@ window.TrackerLensConnectionsStore = (() => {
       const connections = Array.isArray(content.connections) ? content.connections : [];
       const nextConnections = connections.filter((connection) => connection.id !== connectionId);
       if (nextConnections.length === connections.length) continue;
+      const usedBoxIds = new Set(nextConnections.flatMap((connection) => [connection.fromBoxId, connection.toBoxId]).filter(Boolean));
+      const boxes = Array.isArray(content.boxes)
+        ? content.boxes.filter((box) => !box.hidden || box.type !== "boxTracker" || usedBoxIds.has(box.id))
+        : content.boxes;
 
       await write(PAGE_STORE, {
         ...(record || {}),
@@ -183,6 +285,7 @@ window.TrackerLensConnectionsStore = (() => {
           ...content,
           id: content.id || pageId,
           updatedAt: new Date().toISOString(),
+          boxes,
           connections: nextConnections,
         },
       });
@@ -389,6 +492,7 @@ window.TrackerLensConnectionsStore = (() => {
     remove,
     removeMany,
     removeWorkspaceContentConnection,
+    upsertLibraryTrackerWorkspaceLink,
     upsertAndSyncWorkspace,
     upsertWorkspaceContentConnection,
     syncWorkspaceConnections,
