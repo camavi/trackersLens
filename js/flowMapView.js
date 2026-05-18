@@ -78,6 +78,8 @@ const state = {
   pendingRuntimeRefresh: false,
   lastInteractionAt: 0,
   updatedAt: new Date(),
+  activeStatusPanel: "",
+  inspectorOpen: true,
 };
 
 state.viewport = loadStoredViewport() || state.viewport;
@@ -295,14 +297,14 @@ const loadRuntime = async (options = {}) => {
     state.runtime = { channels, flows, events, flowLogs, nodes, dependencies: mergedDependencies };
     state.libraryItems = libraryItems;
     state.connections = connections;
-    if (!state.focus.nodeId && nodes[0]?.id) state.focus.nodeId = nodes[0].id;
+    if (state.inspectorOpen && !state.focus.nodeId && nodes[0]?.id) state.focus.nodeId = nodes[0].id;
     state.updatedAt = new Date();
   } catch (error) {
     console.error("Errore Flow Map:", error);
     state.error = error?.message || "Errore caricamento Flow Map";
   } finally {
     state.loading = false;
-    if (!state.interaction) mount();
+    if (!state.interaction) mount({ preserveScroll: silent });
   }
 };
 
@@ -376,6 +378,9 @@ const pointerPercent = (event, canvas) => {
   };
 };
 
+const flowCoordinate = (value, min = -120, max = 220) =>
+  `${Math.max(min, Math.min(max, value))}%`;
+
 const workspaceForDraft = () =>
   (state.filters.workspaceId !== "all" ? state.filters.workspaceId : selectedNode()?.workspaceId || state.runtime.flows[0]?.workspaceId || "workspace_global");
 
@@ -448,8 +453,8 @@ const createDraftNodeAtPoint = async ({ item, canvas, event }) => {
     type: item.nodeType || "node",
     label: item.label,
     flowPosition: {
-      x: `${Math.max(2, Math.min(90, point.x))}%`,
-      y: `${Math.max(8, Math.min(88, point.y))}%`,
+      x: flowCoordinate(point.x),
+      y: flowCoordinate(point.y),
     },
     channels: [channelForDraft()].filter(Boolean),
     metadata: {
@@ -664,8 +669,8 @@ const handlePointerMove = (event) => {
     interaction.moved = true;
     const point = pointerPercent(event, interaction.canvas);
     state.nodePositions[interaction.nodeId] = {
-      x: `${Math.max(2, Math.min(90, point.x - interaction.offset.x))}%`,
-      y: `${Math.max(8, Math.min(88, point.y - interaction.offset.y))}%`,
+      x: flowCoordinate(point.x - interaction.offset.x),
+      y: flowCoordinate(point.y - interaction.offset.y),
     };
     const node = document.querySelector(`[data-flow-node-id="${escapeSelectorValue(interaction.nodeId)}"]`);
     if (node) {
@@ -752,12 +757,14 @@ const syncFilterQuery = () => {
 
 const focusLogLevel = (level = "all") => {
   state.filters = { ...state.filters, logLevel: level };
+  state.activeStatusPanel = level === "warning" || level === "error" ? level : "logs";
   syncFilterQuery();
-  const panel = document.querySelector(".tl-flow-events");
-  if (panel?.scrollIntoView) {
-    requestAnimationFrame(() => panel.scrollIntoView({ block: "nearest", behavior: "smooth" }));
-  }
   mount();
+};
+
+const toggleStatusPanel = (panel = "") => {
+  state.activeStatusPanel = state.activeStatusPanel === panel ? "" : panel;
+  mount({ preserveScroll: true });
 };
 
 const hasActiveFilters = () =>
@@ -833,6 +840,7 @@ const selectNode = (node) => {
     channel: nodeChannels(node)[0] || "",
     connectionId: "",
   };
+  state.inspectorOpen = true;
   mount();
 };
 
@@ -846,6 +854,7 @@ const selectEdge = (edge) => {
     connectionId: edge.connectionId || "",
   };
   state.inspectorTab = "details";
+  state.inspectorOpen = true;
   mount();
 };
 
@@ -859,6 +868,12 @@ const setGraphHover = (nodeId = "", portKey = "") => {
 const clearSelection = () => {
   state.focus = { mode: "", nodeId: "", edgeId: "", nodeType: "", channel: "", connectionId: "" };
   mount();
+};
+
+const closeInspector = () => {
+  state.focus = { mode: "", nodeId: "", edgeId: "", nodeType: "", channel: "", connectionId: "" };
+  state.inspectorOpen = false;
+  mount({ preserveScroll: true });
 };
 
 const selectedNode = () =>
@@ -1909,6 +1924,24 @@ const domPortPoint = (nodeId = "", side = "out", port = "") => {
   };
 };
 
+const edgeCanvasBounds = () => {
+  const host = document.querySelector(".tl-flow-canvas");
+  const rect = host?.getBoundingClientRect?.();
+  if (!rect) return null;
+  return {
+    width: Math.max(1, Math.round(rect.width * 3.4)),
+    height: Math.max(1, Math.round(rect.height * 3.4)),
+    offsetX: Math.round(rect.width * 1.2),
+    offsetY: Math.round(rect.height * 1.2),
+    rect,
+  };
+};
+
+const edgePoint = (point = {}, bounds = { offsetX: 0, offsetY: 0 }) => ({
+  x: point.x + bounds.offsetX,
+  y: point.y + bounds.offsetY,
+});
+
 const canvasPoint = (canvas, position, side = "out", offsetY = 0, portPercent = 50) => {
   const x = parseFloat(position.x) + (side === "out" ? 16.5 : 0);
   const y = parseFloat(position.y) + ((portPercent / 100) * 9.6);
@@ -1958,8 +1991,8 @@ const edgeCanvasPointFromEvent = (event) => {
   if (!host) return null;
   const rect = host.getBoundingClientRect();
   return {
-    x: (event.clientX - rect.left - state.viewport.panX) / state.viewport.zoom,
-    y: (event.clientY - rect.top - state.viewport.panY) / state.viewport.zoom,
+    x: (event.clientX - rect.left - state.viewport.panX) / state.viewport.zoom + (edgeCanvasBounds()?.offsetX || 0),
+    y: (event.clientY - rect.top - state.viewport.panY) / state.viewport.zoom + (edgeCanvasBounds()?.offsetY || 0),
   };
 };
 
@@ -1977,10 +2010,11 @@ const edgeAtPointer = (event) => {
     const targetNode = graph.nodes[toIndex];
     const host = document.querySelector(".tl-flow-canvas");
     const rect = host?.getBoundingClientRect();
-    if (!rect) return;
+    const bounds = edgeCanvasBounds();
+    if (!rect || !bounds) return;
     const offset = edgePortOffset(dependency, graph.dependencies);
-    const from = nodeCanvasPoint({ canvas: { width: rect.width, height: rect.height }, node: sourceNode, index: fromIndex, side: "out", port: dependencyPort(dependency, "out") });
-    const to = nodeCanvasPoint({ canvas: { width: rect.width, height: rect.height }, node: targetNode, index: toIndex, side: "in", port: dependencyPort(dependency, "in") });
+    const from = edgePoint(nodeCanvasPoint({ canvas: { width: rect.width, height: rect.height }, node: sourceNode, index: fromIndex, side: "out", port: dependencyPort(dependency, "out") }), bounds);
+    const to = edgePoint(nodeCanvasPoint({ canvas: { width: rect.width, height: rect.height }, node: targetNode, index: toIndex, side: "in", port: dependencyPort(dependency, "in") }), bounds);
     let previous = from;
     for (let step = 1; step <= 24; step += 1) {
       const current = bezierPoint(from, to, step / 24, offset);
@@ -2004,15 +2038,19 @@ const drawFlowEdges = () => {
   const host = document.querySelector(".tl-flow-canvas");
   if (!canvas || !host) return;
 
-  const rect = host.getBoundingClientRect();
+  const bounds = edgeCanvasBounds();
+  const rect = bounds?.rect;
+  if (!bounds || !rect) return;
   const dpr = window.devicePixelRatio || 1;
-  const width = Math.max(1, Math.round(rect.width));
-  const height = Math.max(1, Math.round(rect.height));
+  const width = bounds.width;
+  const height = bounds.height;
   if (canvas.width !== Math.round(width * dpr) || canvas.height !== Math.round(height * dpr)) {
     canvas.width = Math.round(width * dpr);
     canvas.height = Math.round(height * dpr);
     canvas.style.width = `${width}px`;
     canvas.style.height = `${height}px`;
+    canvas.style.left = `${-bounds.offsetX}px`;
+    canvas.style.top = `${-bounds.offsetY}px`;
   }
 
   const ctx = canvas.getContext("2d");
@@ -2031,8 +2069,8 @@ const drawFlowEdges = () => {
     const sourceNode = graph.nodes[fromIndex];
     const targetNode = graph.nodes[toIndex];
     const offset = edgePortOffset(dependency, graph.dependencies);
-    const from = nodeCanvasPoint({ canvas: { width, height }, node: sourceNode, index: fromIndex, side: "out", port: dependencyPort(dependency, "out") });
-    const to = nodeCanvasPoint({ canvas: { width, height }, node: targetNode, index: toIndex, side: "in", port: dependencyPort(dependency, "in") });
+    const from = edgePoint(nodeCanvasPoint({ canvas: { width: rect.width, height: rect.height }, node: sourceNode, index: fromIndex, side: "out", port: dependencyPort(dependency, "out") }), bounds);
+    const to = edgePoint(nodeCanvasPoint({ canvas: { width: rect.width, height: rect.height }, node: targetNode, index: toIndex, side: "in", port: dependencyPort(dependency, "in") }), bounds);
     const edge = activity.edgeActivity?.get?.(dependency.id);
     const isError = edge?.status === "error";
     const isLive = Boolean(edge);
@@ -2081,10 +2119,10 @@ const drawFlowEdges = () => {
     const sourceIndex = graph.nodes.findIndex((node) => node.id === state.interaction.sourceId);
     const sourceNode = graph.nodes[sourceIndex];
     if (sourceNode && state.interaction.point) {
-      const from = nodeCanvasPoint({ canvas: { width, height }, node: sourceNode, index: sourceIndex, side: "out", port: state.interaction.sourcePort || outputPortLabel(sourceNode) });
+      const from = edgePoint(nodeCanvasPoint({ canvas: { width: rect.width, height: rect.height }, node: sourceNode, index: sourceIndex, side: "out", port: state.interaction.sourcePort || outputPortLabel(sourceNode) }), bounds);
       const to = {
-        x: (state.interaction.point.x / 100) * width,
-        y: (state.interaction.point.y / 100) * height,
+        x: (state.interaction.point.x / 100) * rect.width + bounds.offsetX,
+        y: (state.interaction.point.y / 100) * rect.height + bounds.offsetY,
       };
       const rgb = toneRgb(graphTone(sourceNode));
       ctx.save();
@@ -2131,8 +2169,9 @@ const drawFlowEdges = () => {
 const positionEdgeLabels = () => {
   const host = document.querySelector(".tl-flow-canvas");
   const rect = host?.getBoundingClientRect?.();
+  const bounds = edgeCanvasBounds();
   const graph = state.edgeRender.graph || { nodes: [], dependencies: [] };
-  if (!rect) return;
+  if (!rect || !bounds) return;
 
   graph.dependencies.forEach((dependency) => {
     const label = document.querySelector(`.tl-flow-edge-label[data-edge-id="${escapeSelectorValue(dependency.id)}"]`);
@@ -2439,7 +2478,7 @@ const renderEdgeInspector = (edge) => {
 
   return _.aside(
     { class: "tl-flow-inspector" },
-    _.div({ class: "tl-flow-panel-title" }, _.strong("Edge Inspector"), btn({ "aria-label": "Close", onclick: clearSelection }, icon("close", "sm"))),
+    _.div({ class: "tl-flow-panel-title" }, _.strong("Edge Inspector"), btn({ "aria-label": "Close Inspector", title: "Close Inspector (Esc)", onclick: closeInspector }, icon("close", "sm"))),
     _.div(
       { class: "tl-flow-node-hero is-edge" },
       _.span({ class: `tl-flow-node-icon is-${graphTone(source || edge.sourceType || "cyan")}` }, icon("route", "md")),
@@ -2519,7 +2558,7 @@ const renderInspector = () => {
 
   return _.aside(
     { class: "tl-flow-inspector" },
-    _.div({ class: "tl-flow-panel-title" }, _.strong("Node Inspector"), btn({ "aria-label": "Close", onclick: clearSelection }, icon("close", "sm"))),
+    _.div({ class: "tl-flow-panel-title" }, _.strong("Node Inspector"), btn({ "aria-label": "Close Inspector", title: "Close Inspector (Esc)", onclick: closeInspector }, icon("close", "sm"))),
     node ? _.div(
       { class: "tl-flow-node-hero" },
       _.span({ class: `tl-flow-node-icon is-${graphTone(node)}` }, icon(graphIcon(node), "md")),
@@ -2653,6 +2692,124 @@ const renderOverview = () => {
   );
 };
 
+const recentEvents = (limit = 8) =>
+  state.runtime.events
+    .slice()
+    .sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt))
+    .slice(0, limit);
+
+const recentFlowLogs = (level = "all", limit = 8) =>
+  (state.runtime.flowLogs || [])
+    .slice()
+    .filter((log) => level === "all" || (log.level || "info") === level)
+    .sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt))
+    .slice(0, limit);
+
+const statusItems = () => {
+  const stats = runtimeOverviewStats();
+  return [
+    { id: "runtime", icon: "account_tree", label: `${state.runtime.nodes.length} nodes`, title: "Runtime" },
+    { id: "events", icon: "bolt", label: `${state.runtime.events.length} events`, title: "Events" },
+    { id: "logs", icon: "subject", label: `${state.runtime.flowLogs?.length || 0} logs`, title: "Flow logs" },
+    { id: "warning", icon: "warning", label: `${stats.warningLogs} warning`, title: "Warnings", tone: "gold" },
+    { id: "error", icon: "error", label: `${stats.errorLogs} error`, title: "Errors", tone: "red" },
+  ];
+};
+
+const renderStatusRuntimePanel = () => {
+  const stats = runtimeOverviewStats();
+  const rows = [
+    ["Nodes", state.runtime.nodes.length],
+    ["Connections", state.runtime.dependencies.length],
+    ["Channels", state.runtime.channels.length],
+    ["Events", state.runtime.events.length],
+    ["Flow logs", state.runtime.flowLogs?.length || 0],
+    ["Runtime", stats.runtime],
+    ["Draft", stats.draft],
+    ["Configured", stats.configured],
+    ["Library", stats.library],
+  ];
+  return _.div(
+    { class: "tl-flow-status-grid" },
+    ...rows.map(([label, value]) => _.div(_.span(label), _.strong(String(value))))
+  );
+};
+
+const renderStatusEventsPanel = () => {
+  const events = recentEvents();
+  return _.table(
+    _.thead(_.tr(_.th("Time"), _.th("Channel"), _.th("Event"), _.th("Source"), _.th("Size"))),
+    _.tbody(
+      ...(events.length ? events.map((event) =>
+        _.tr(
+          _.td(formatShortDate(event.createdAt)),
+          _.td(event.channel || "default"),
+          _.td(event.eventType || "event"),
+          _.td(event.sourceLabel || event.sourceNodeId || "runtime"),
+          _.td(`${event.sizeBytes || 0} B`)
+        )
+      ) : [_.tr(_.td({ colspan: 5 }, "Nessun evento runtime registrato."))])
+    )
+  );
+};
+
+const renderStatusLogsPanel = (level = "all") => {
+  const logs = recentFlowLogs(level);
+  return _.table(
+    _.thead(_.tr(_.th("Time"), _.th("Level"), _.th("Message"), _.th("Node"), _.th("Connection"))),
+    _.tbody(
+      ...(logs.length ? logs.map((log) =>
+        _.tr(
+          _.td(formatShortDate(log.createdAt)),
+          _.td(logLevelChip(log.level || "info")),
+          _.td(log.message || log.context?.action || "runtime log"),
+          _.td(log.nodeId || log.context?.sourceNodeId || "runtime"),
+          _.td(log.connectionId || log.context?.connectionId || "N/D")
+        )
+      ) : [_.tr(_.td({ colspan: 5 }, level === "all" ? "Nessun flow log runtime registrato." : `Nessun log ${level}.`))])
+    )
+  );
+};
+
+const renderStatusPopover = () => {
+  const active = statusItems().find((item) => item.id === state.activeStatusPanel);
+  if (!active) return null;
+  const level = active.id === "warning" || active.id === "error" ? active.id : "all";
+  return _.div(
+    { class: "tl-flow-status-popover" },
+    _.div(
+      { class: "tl-flow-status-popover-head" },
+      _.h2(active.title),
+      _.button({ type: "button", "aria-label": "Close", onclick: () => toggleStatusPanel(active.id) }, icon("close", "sm"))
+    ),
+    active.id === "runtime" ? renderStatusRuntimePanel()
+      : active.id === "events" ? renderStatusEventsPanel()
+      : renderStatusLogsPanel(level)
+  );
+};
+
+const renderStatusBar = () =>
+  _.div(
+    { class: "tl-flow-statusbar" },
+    renderStatusPopover(),
+    _.div(
+      { class: "tl-flow-statusbar-items" },
+      ...statusItems().map((item) =>
+        _.button(
+          {
+            type: "button",
+            class: `tl-flow-statusbar-btn${item.tone ? ` is-${item.tone}` : ""}${state.activeStatusPanel === item.id ? " is-active" : ""}`,
+            title: item.title,
+            onclick: () => toggleStatusPanel(item.id),
+          },
+          icon(item.icon, "sm"),
+          _.span(item.label)
+        )
+      )
+    ),
+    _.span({ class: "tl-flow-statusbar-updated" }, `Updated ${formatShortDate(state.updatedAt)}`)
+  );
+
 const renderShell = () =>
   _.div(
     { class: "tl-flow-shell" },
@@ -2662,18 +2819,34 @@ const renderShell = () =>
       renderHeader(),
       state.error ? _.div({ class: "tl-flow-error" }, state.error) : null,
       _.div(
-        { class: "tl-flow-grid" },
+        { class: `tl-flow-grid${state.inspectorOpen ? "" : " is-inspector-closed"}` },
         renderPalette(),
-        _.div({ class: "tl-flow-center" }, renderCanvas(), renderEvents()),
-        _.div({ class: "tl-flow-right" }, renderInspector(), renderOverview())
+        _.div({ class: "tl-flow-center" }, renderCanvas()),
+        state.inspectorOpen ? _.div({ class: "tl-flow-right" }, renderInspector()) : null,
+        renderStatusBar()
       )
     )
   );
 
-const mount = () => {
+const scrollPanels = [".tl-flow-inspector", ".tl-flow-status-popover", ".tl-flow-palette"];
+
+const capturePanelScroll = () =>
+  Object.fromEntries(scrollPanels.map((selector) => [selector, document.querySelector(selector)?.scrollTop || 0]));
+
+const restorePanelScroll = (positions = {}) => {
+  scrollPanels.forEach((selector) => {
+    const panel = document.querySelector(selector);
+    if (!panel) return;
+    panel.scrollTop = Math.min(positions[selector] || 0, panel.scrollHeight - panel.clientHeight);
+  });
+};
+
+const mount = (options = {}) => {
   const root = document.getElementById("tl-flow-map-root");
   if (!root) return;
+  const scrollPositions = options.preserveScroll ? capturePanelScroll() : null;
   root.replaceChildren(renderShell());
+  if (scrollPositions) restorePanelScroll(scrollPositions);
   requestAnimationFrame(() => {
     renderFlowEdges();
     requestAnimationFrame(renderFlowEdges);
@@ -2690,4 +2863,15 @@ window.setInterval(() => {
   }
   loadRuntime({ silent: true });
 }, 15000);
+window.addEventListener("keydown", (event) => {
+  if (event.key !== "Escape") return;
+  const target = event.target;
+  if (target?.closest?.("input, textarea, select, [contenteditable='true']")) return;
+  if (state.activeStatusPanel) {
+    state.activeStatusPanel = "";
+    mount({ preserveScroll: true });
+    return;
+  }
+  if (state.inspectorOpen) closeInspector();
+});
 window.addEventListener("resize", () => requestAnimationFrame(renderFlowEdges));
