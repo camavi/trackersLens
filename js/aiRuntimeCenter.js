@@ -163,8 +163,8 @@ const buildRuntimeViewModel = (data, queryMs = 0) => {
       ? data.logs.slice(0, 12).map((item) => [timeLabel(item.time), item.source, item.message, statusTone(item.status)])
       : [["-", "AI Runtime", "Nessun log reale in tl_ai_logs", "warn"]],
     memory: data.memory.length
-      ? data.memory.slice(0, 8).map((item) => [item.name, item.meta || "Context locale", `${formatNumber(item.count)} items`, item.icon || "database"])
-      : [["Memoria AI vuota", "tl_ai_memory", "0 items", "database"]],
+      ? data.memory.slice(0, 8).map((item) => [item.name, item.meta || "Context locale", `${formatNumber(item.count)} items`, item.icon || "database", item.scope || "workspace"])
+      : [["Memoria AI vuota", "tl_ai_memory", "0 items", "database", "workspace"]],
     promptBlocks: buildPromptBlocks(data.promptFlows[0]),
     workspaceActivity: data.pages.length
       ? data.pages
@@ -368,8 +368,8 @@ const renderMemory = () =>
   _.aside(
     { class: "tl-ai-memory" },
     _.Row({ justify: "space-between", align: "center" }, _.h3("AI Memory (Context)"), btn({ class: "tl-ai-link-btn" }, "Vedi tutto")),
-    ...memory.map(([name, meta, count, iconName]) =>
-      _.div({ class: "tl-ai-memory-row" }, _.span(icon(iconName, "sm")), _.div(_.strong(name), _.p(meta)), _.em(count))
+    ...memory.map(([name, meta, count, iconName, scope]) =>
+      _.div({ class: "tl-ai-memory-row" }, _.span(icon(iconName, "sm")), _.div(_.strong(name), _.p(meta)), _.em(count), _.small(scope || "workspace"))
     )
   );
 
@@ -469,4 +469,5 @@ const mountAiRuntime = () => {
   root.replaceChildren(renderShell());
 };
 
+mountAiRuntime();
 refreshAiRuntime();

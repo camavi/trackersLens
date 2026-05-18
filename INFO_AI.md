@@ -3687,6 +3687,42 @@ Prossimi passi:
 - Cleanup granulare dei flow record.
 - UI dedicata per dependency report su channel, connection e workspace.
 
+## Aggiornamento 2026-05-18 - AI Memory System punto 7
+
+Obiettivo della sessione: trasformare `tl_ai_memory` da demo generica a store reale con scope di memoria locale.
+
+Fatto:
+
+- Aggiornato `js/tl-ai-runtime-store.js`.
+- Aggiunto `docs/ai-memory-system.md`.
+- `tl_ai_memory` ora ha indici:
+  - `scope`;
+  - `workspaceId`;
+  - `agentId`;
+  - `kind`;
+  - `status`;
+  - `updatedAt`.
+- Scope supportati:
+  - `short`;
+  - `workspace`;
+  - `global`.
+- API aggiunte:
+  - `remember(record)`;
+  - `upsertMemory(record)`;
+  - `listMemory({ scope, workspaceId, agentId, query, limit })`;
+  - `buildMemoryContext({ workspaceId, agentId, query, limit })`;
+  - `cleanupShortMemory({ limit })`;
+  - `forgetMemory(id)`.
+- `js/aiRuntimeCenter.js` mostra lo scope nella sezione AI Memory.
+- `css/aiRuntimeCenter.css` aggiorna il layout della riga memoria.
+- Aggiornati `docs/runtime.md` e `docs/new_vision_progress.md`.
+
+Prossimi passi:
+
+- Embeddings/vector search locale.
+- Summarization locale per comprimere memoria short in workspace/global.
+- Memory inspector dedicato.
+
 ## Aggiornamento 2026-05-18 - Inizio punto 3 Sandbox Isolation
 
 Obiettivo della sessione: aprire il punto 3 con un gate centrale di policy prima di costruire il runner iframe sandboxato.

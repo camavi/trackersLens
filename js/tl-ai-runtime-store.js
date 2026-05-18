@@ -9,6 +9,20 @@ window.TrackerLensAiRuntimeStore = (() => {
     promptFlows: "tl_ai_prompt_flows",
   };
   const BASE_STORES = ["tl_widgets", "tl_pages", "tl_connections"];
+  const MEMORY_SCOPES = ["short", "workspace", "global"];
+  const MEMORY_LIMITS = {
+    short: 120,
+    workspace: 500,
+    global: 1000,
+  };
+  const STORE_INDEXES = {
+    [STORES.providers]: ["status", "updatedAt"],
+    [STORES.agents]: ["status", "updatedAt", "workspaceId"],
+    [STORES.jobs]: ["status", "updatedAt", "workspaceId", "agentId"],
+    [STORES.logs]: ["status", "updatedAt", "workspaceId", "agentId"],
+    [STORES.memory]: ["status", "updatedAt", "scope", "workspaceId", "agentId", "kind"],
+    [STORES.promptFlows]: ["status", "updatedAt", "workspaceId"],
+  };
 
   const normalizeText = (value, fallback = "") => {
     if (value === null || value === undefined) return fallback;
@@ -17,6 +31,16 @@ window.TrackerLensAiRuntimeStore = (() => {
 
   const contentOf = (record) =>
     record?.content && typeof record.content === "object" ? record.content : record || {};
+
+  const safeId = (value = "") => normalizeText(value, "memory").replace(/[^A-Za-z0-9_-]/g, "_");
+
+  const createIndexes = (store, indexes = []) => {
+    indexes.forEach((indexName) => {
+      if (!store.indexNames.contains(indexName)) {
+        store.createIndex(indexName, indexName, { unique: false });
+      }
+    });
+  };
 
   const openDb = (version = undefined) =>
     new Promise((resolve, reject) => {
@@ -28,12 +52,11 @@ window.TrackerLensAiRuntimeStore = (() => {
       const request = version ? indexedDB.open(DB_NAME, version) : indexedDB.open(DB_NAME);
       request.onupgradeneeded = (event) => {
         const db = event.target.result;
-        Object.values(STORES).forEach((storeName) => {
-          if (!db.objectStoreNames.contains(storeName)) {
-            const store = db.createObjectStore(storeName, { keyPath: "id" });
-            store.createIndex("status", "status", { unique: false });
-            store.createIndex("updatedAt", "updatedAt", { unique: false });
-          }
+        Object.entries(STORE_INDEXES).forEach(([storeName, indexes]) => {
+          const store = db.objectStoreNames.contains(storeName)
+            ? event.target.transaction.objectStore(storeName)
+            : db.createObjectStore(storeName, { keyPath: "id" });
+          createIndexes(store, indexes);
         });
       };
       request.onsuccess = (event) => {
@@ -48,7 +71,13 @@ window.TrackerLensAiRuntimeStore = (() => {
   const ensureStores = async () => {
     const db = await openDb();
     const missing = Object.values(STORES).filter((storeName) => !db.objectStoreNames.contains(storeName));
-    if (!missing.length) return db;
+    const missingIndexes = Object.entries(STORE_INDEXES).some(([storeName, indexes]) => {
+      if (!db.objectStoreNames.contains(storeName)) return true;
+      const transaction = db.transaction(storeName, "readonly");
+      const store = transaction.objectStore(storeName);
+      return indexes.some((indexName) => !store.indexNames.contains(indexName));
+    });
+    if (!missing.length && !missingIndexes) return db;
 
     const nextVersion = db.version + 1;
     db.close();
@@ -82,6 +111,20 @@ window.TrackerLensAiRuntimeStore = (() => {
         const request = db.transaction(storeName, "readwrite").objectStore(storeName).put(payload);
         request.onsuccess = () => resolve(payload);
         request.onerror = (event) => reject(event.target.error || new Error(`Errore salvataggio ${storeName}`));
+      });
+    } finally {
+      db.close();
+    }
+  };
+
+  const deleteRecord = async (storeName, id) => {
+    if (!id) return null;
+    const db = await ensureStores();
+    try {
+      return await new Promise((resolve, reject) => {
+        const request = db.transaction(storeName, "readwrite").objectStore(storeName).delete(id);
+        request.onsuccess = () => resolve(id);
+        request.onerror = (event) => reject(event.target.error || new Error(`Errore eliminazione ${storeName}`));
       });
     } finally {
       db.close();
@@ -154,12 +197,20 @@ window.TrackerLensAiRuntimeStore = (() => {
   const normalizeMemory = (record, index) => {
     const content = contentOf(record);
     const count = Array.isArray(content.items) ? content.items.length : Number(content.count || content.itemsCount || 0);
+    const scope = MEMORY_SCOPES.includes(content.scope) ? content.scope : "workspace";
     return {
       id: normalizeText(record?.id || content.id, `memory_${index}`),
-      name: normalizeText(content.name || content.title || content.key, "Memoria AI"),
-      meta: normalizeText(content.meta || content.description || content.updatedAt || record?.updatedAt, "Context locale"),
-      count,
-      icon: normalizeText(content.icon, "database"),
+      scope,
+      workspaceId: normalizeText(content.workspaceId || record?.workspaceId, scope === "global" ? "global" : "workspace_global"),
+      agentId: normalizeText(content.agentId || content.agent || record?.agentId, "shared"),
+      kind: normalizeText(content.kind || content.type, "note"),
+      name: normalizeText(content.name || content.title || content.key, scope === "short" ? "Short memory" : scope === "global" ? "Global memory" : "Workspace memory"),
+      meta: normalizeText(content.meta || content.description || content.summary || content.updatedAt || record?.updatedAt, "Context locale"),
+      text: normalizeText(content.text || content.value || content.content || content.summary),
+      tags: Array.isArray(content.tags) ? content.tags.map(String) : [],
+      weight: Number(content.weight || content.score || 1),
+      count: count || 1,
+      icon: normalizeText(content.icon, scope === "short" ? "history" : scope === "global" ? "database" : "dashboard_customize"),
       updatedAt: normalizeText(content.updatedAt || record?.updatedAt || content.createdAt || record?.createdAt),
       raw: record,
     };
@@ -247,10 +298,113 @@ window.TrackerLensAiRuntimeStore = (() => {
   };
 
   const derivedMemory = (widgets, pages, connections) => [
-    { id: "memory_widgets", name: "Widget AI rilevati", meta: "tl_widgets", count: widgets.filter(isAiLike).length, icon: "deployed_code" },
-    { id: "memory_workspaces", name: "Workspace context", meta: "tl_pages", count: pages.reduce((sum, page) => sum + page.boxes.length, 0), icon: "dashboard_customize" },
-    { id: "memory_connections", name: "Connessioni AI", meta: "tl_connections", count: connections.filter(isAiLike).length, icon: "hub" },
+    { id: "memory_widgets", scope: "global", name: "Widget AI rilevati", meta: "tl_widgets", count: widgets.filter(isAiLike).length, icon: "deployed_code" },
+    { id: "memory_workspaces", scope: "workspace", name: "Workspace context", meta: "tl_pages", count: pages.reduce((sum, page) => sum + page.boxes.length, 0), icon: "dashboard_customize" },
+    { id: "memory_connections", scope: "workspace", name: "Connessioni AI", meta: "tl_connections", count: connections.filter(isAiLike).length, icon: "hub" },
   ].filter((item) => item.count > 0);
+
+  const scopeSummaryMemory = (records = []) => {
+    const grouped = MEMORY_SCOPES.map((scope) => {
+      const items = records.filter((item) => item.scope === scope);
+      return {
+        id: `memory_scope_${scope}`,
+        scope,
+        name: scope === "short" ? "Short memory" : scope === "workspace" ? "Workspace memory" : "Global memory",
+        meta: scope === "short" ? "Sessione locale" : scope === "workspace" ? "Context per workspace" : "Conoscenza globale locale",
+        count: items.length,
+        icon: scope === "short" ? "history" : scope === "workspace" ? "dashboard_customize" : "database",
+        updatedAt: items.map((item) => item.updatedAt).filter(Boolean).sort((a, b) => new Date(b) - new Date(a))[0] || "",
+        raw: { items },
+      };
+    });
+    return grouped.filter((item) => item.count > 0);
+  };
+
+  const normalizeMemoryInput = (record = {}) => {
+    const now = new Date().toISOString();
+    const scope = MEMORY_SCOPES.includes(record.scope) ? record.scope : "workspace";
+    const workspaceId = normalizeText(record.workspaceId, scope === "global" ? "global" : "workspace_global");
+    const agentId = normalizeText(record.agentId || record.agent, "shared");
+    const kind = normalizeText(record.kind || record.type, "note");
+    const text = normalizeText(record.text || record.content || record.value || record.summary);
+    const baseId = [
+      "mem",
+      scope,
+      workspaceId,
+      agentId,
+      kind,
+      Date.now(),
+    ].map(safeId).join("_");
+    return {
+      status: normalizeText(record.status, "active"),
+      createdAt: normalizeText(record.createdAt, now),
+      ...record,
+      id: normalizeText(record.id, baseId),
+      scope,
+      workspaceId,
+      agentId,
+      kind,
+      name: normalizeText(record.name || record.title, kind === "fact" ? "Fact" : "Memory"),
+      text,
+      summary: normalizeText(record.summary, text.slice(0, 160)),
+      tags: Array.isArray(record.tags) ? record.tags.map(String) : [],
+      weight: Number(record.weight || 1),
+      updatedAt: now,
+    };
+  };
+
+  const readMemoryRecords = async () => {
+    const db = await ensureStores();
+    try {
+      return (await readAllFromDb(db, STORES.memory)).map(normalizeMemory);
+    } finally {
+      db.close();
+    }
+  };
+
+  const listMemory = async ({ scope = "", workspaceId = "", agentId = "", query = "", limit = 50 } = {}) => {
+    const records = await readMemoryRecords();
+    const q = normalizeText(query).toLowerCase();
+    return records
+      .filter((item) => !scope || item.scope === scope)
+      .filter((item) => !workspaceId || item.workspaceId === workspaceId || item.scope === "global")
+      .filter((item) => !agentId || item.agentId === agentId || item.agentId === "shared")
+      .filter((item) => !q || [item.name, item.meta, item.text, item.tags.join(" ")].join(" ").toLowerCase().includes(q))
+      .sort((a, b) => (b.weight - a.weight) || (new Date(b.updatedAt) - new Date(a.updatedAt)))
+      .slice(0, limit);
+  };
+
+  const buildMemoryContext = async ({ workspaceId = "", agentId = "", query = "", limit = 12 } = {}) => {
+    const scoped = await Promise.all([
+      listMemory({ scope: "short", workspaceId, agentId, query, limit: Math.ceil(limit / 3) }),
+      listMemory({ scope: "workspace", workspaceId, agentId, query, limit: Math.ceil(limit / 3) }),
+      listMemory({ scope: "global", workspaceId, agentId, query, limit: Math.ceil(limit / 3) }),
+    ]);
+    return scoped.flat().slice(0, limit).map((item) => ({
+      id: item.id,
+      scope: item.scope,
+      kind: item.kind,
+      text: item.text || item.meta || item.name,
+      weight: item.weight,
+      tags: item.tags,
+    }));
+  };
+
+  const cleanupShortMemory = async ({ limit = MEMORY_LIMITS.short } = {}) => {
+    const records = await listMemory({ scope: "short", limit: 10000 });
+    const stale = records.slice(limit);
+    await Promise.all(stale.map((item) => deleteRecord(STORES.memory, item.id)));
+    return { deleted: stale.length, kept: Math.min(records.length, limit) };
+  };
+
+  const remember = async (record = {}) => {
+    const payload = normalizeMemoryInput(record);
+    const saved = await write(STORES.memory, payload);
+    if (payload.scope === "short") cleanupShortMemory().catch((error) => console.warn("Cleanup short memory non completato:", error));
+    return normalizeMemory(saved, 0);
+  };
+
+  const forgetMemory = (id) => deleteRecord(STORES.memory, id);
 
   const list = async () => {
     const db = await ensureStores();
@@ -273,6 +427,7 @@ window.TrackerLensAiRuntimeStore = (() => {
         ...agentRecords.map(normalizeAgent),
         ...derivedAgents(widgets, pages, connections),
       ];
+      const memoryRecordsNormalized = memoryRecords.map(normalizeMemory);
 
       return {
         providers: providerRecords.map(normalizeProvider),
@@ -280,7 +435,8 @@ window.TrackerLensAiRuntimeStore = (() => {
         jobs: jobRecords.map(normalizeJob),
         logs: logRecords.map(normalizeLog),
         memory: [
-          ...memoryRecords.map(normalizeMemory),
+          ...scopeSummaryMemory(memoryRecordsNormalized),
+          ...memoryRecordsNormalized.slice(0, 8),
           ...derivedMemory(widgets, pages, connections),
         ],
         promptFlows: promptFlowRecords.map(normalizePromptFlow),
@@ -296,12 +452,19 @@ window.TrackerLensAiRuntimeStore = (() => {
 
   return {
     STORES,
+    MEMORY_SCOPES,
+    MEMORY_LIMITS,
+    buildMemoryContext,
+    cleanupShortMemory,
+    forgetMemory,
     list,
+    listMemory,
+    remember,
     upsertProvider: (record) => write(STORES.providers, record),
     upsertAgent: (record) => write(STORES.agents, record),
     upsertJob: (record) => write(STORES.jobs, record),
     upsertLog: (record) => write(STORES.logs, record),
-    upsertMemory: (record) => write(STORES.memory, record),
+    upsertMemory: remember,
     upsertPromptFlow: (record) => write(STORES.promptFlows, record),
     statusTone,
   };

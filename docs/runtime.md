@@ -164,6 +164,20 @@ The public validation API is `canDeleteNode({ id, type })`; destructive cleanup 
 
 `js/workspace.js` uses `inspectNode()` before deleting selected boxes, so boxLens deletion gets the same dependency report path as boxTracker deletion.
 
+## AI Memory System
+
+`js/tl-ai-runtime-store.js` now treats `tl_ai_memory` as a scoped local AI memory store.
+
+Supported scopes:
+
+- `short`
+- `workspace`
+- `global`
+
+Public APIs include `remember()`, `listMemory()`, `buildMemoryContext()`, `cleanupShortMemory()` and `forgetMemory()`.
+
+`ai.html` reads these records through `TrackerLensAiRuntimeStore.list()` and shows scope labels in the AI Memory panel.
+
 Current limitations:
 
 - Event persistence is non-blocking and best-effort.
