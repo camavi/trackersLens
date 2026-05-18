@@ -3,6 +3,12 @@ const trackerData = window.TrackerLensBoxTrackerData;
 const params = new URLSearchParams(window.location.search);
 const requestedTrackerId = params.get("trackerId") || params.get("boxTrackerId") || params.get("id");
 const isEditRequest = Boolean(requestedTrackerId);
+const requestedSource = params.get("source") || params.get("trackerType") || "";
+const requestedRuntimeMode = params.get("runtimeMode") || params.get("mode") || "";
+const requestedWorkspaceId = params.get("workspaceId") || "";
+const requestedChannel = params.get("channel") || "";
+const requestedDraftNodeId = params.get("draftNodeId") || "";
+const requestedRuntimeLabel = params.get("runtimeLabel") || "";
 const TRACKER_STORES = [
   { name: tlConfig.TABLES.TL_WIDGETS, columns: [{ name: "content" }] },
   { name: tlConfig.TABLES.TL_PAGES, columns: [{ name: "content" }] },
@@ -13,10 +19,12 @@ const makeTrackerId = () => requestedTrackerId || `tracker_${Date.now()}`;
 const defaultTracker = {
   ...trackerData.tracker,
   id: makeTrackerId(),
+  name: requestedRuntimeLabel || trackerData.tracker.name,
   type: "boxTracker",
-  trackerType: trackerData.tracker.trackerType || "websocket",
-  runtimeMode: trackerData.tracker.runtimeMode || "real-time",
-  source: trackerData.tracker.source || "websocket",
+  trackerType: requestedSource || trackerData.tracker.trackerType || "websocket",
+  runtimeMode: requestedRuntimeMode || trackerData.tracker.runtimeMode || "real-time",
+  source: requestedSource || trackerData.tracker.source || "websocket",
+  outputChannel: requestedChannel || trackerData.tracker.outputChannel,
   method: trackerData.tracker.method || "GET",
   endpoint: trackerData.tracker.endpoint || "wss://stream.binance.com:9443/ws/btcusdt@ticker",
   timeout: Number(trackerData.tracker.timeout) || 10,
@@ -43,6 +51,7 @@ const trackerState = {
   testLatency: "—",
   lastRun: "—",
   testRunning: false,
+  deleting: false,
   tagDraft: "",
   tracker: { ...defaultTracker },
   sampleOutput: { ...trackerData.sampleJson },
@@ -58,6 +67,16 @@ const openChromePage = (url) => {
     return;
   }
   window.location.assign(url);
+};
+
+const flowMapUrl = () => {
+  const query = new URLSearchParams();
+  query.set("runtime", "dependencies");
+  query.set("nodeId", trackerState.editingExisting ? trackerState.tracker.id : requestedDraftNodeId || trackerState.tracker.id);
+  query.set("nodeType", "boxTracker");
+  if (requestedWorkspaceId) query.set("workspaceId", requestedWorkspaceId);
+  if (trackerState.tracker.outputChannel) query.set("channel", trackerState.tracker.outputChannel);
+  return `flowMap.html?${query.toString()}`;
 };
 
 const icon = (name, size = "md") => _.Icon({ name, size });
@@ -176,6 +195,9 @@ const putTrackerRecord = async (payload) => {
     openedDb.close();
   }
 };
+
+const dependencyManager = () => window.TrackerLensDependencyManager;
+const channelRegistry = () => window.TrackerLensChannelRegistry;
 
 const trackerTypeOptions = trackerData.trackerTypes.map((item) => ({
   value: item.id,
@@ -334,6 +356,36 @@ const trackerPayload = () => ({
   },
 });
 
+const runtimeWorkspaceId = () => requestedWorkspaceId || "global";
+
+const syncDraftRuntimeNode = async (payload) => {
+  if (!requestedDraftNodeId || !window.TrackerLensRuntimeGraphStore?.promoteDraftNode) return null;
+  const channel = payload.content.outputChannel || payload.content.runtime?.output || "default";
+  return window.TrackerLensRuntimeGraphStore.promoteDraftNode({
+    draftNodeId: requestedDraftNodeId,
+    workspaceId: runtimeWorkspaceId(),
+    node: {
+      id: payload.id,
+      workspaceId: runtimeWorkspaceId(),
+      type: "boxTracker",
+      label: payload.content.name || payload.id,
+      sourceRef: payload.id,
+      assetId: payload.id,
+      inputs: [],
+      outputs: [channel].filter(Boolean),
+      channels: [channel].filter(Boolean),
+      status: payload.content.active !== false ? "active" : "inactive",
+      metadata: {
+        paletteLabel: requestedRuntimeLabel || "",
+        trackerType: payload.content.trackerType,
+        runtimeMode: payload.content.runtimeMode,
+        source: payload.content.source,
+        sampleOutput: payload.content.sampleOutput || {},
+      },
+    },
+  });
+};
+
 const saveTracker = async () => {
   if (trackerState.loading || trackerState.saving) return;
 
@@ -342,10 +394,20 @@ const saveTracker = async () => {
   mountTrackerEditor();
 
   try {
-    await putTrackerRecord(trackerPayload());
+    const payload = trackerPayload();
+    await putTrackerRecord(payload);
+    if (channelRegistry()?.upsertChannelForTracker) {
+      await channelRegistry().upsertChannelForTracker({
+        tracker: { ...payload.content, id: payload.id },
+        workspaceId: runtimeWorkspaceId(),
+      });
+    }
+    await syncDraftRuntimeNode(payload);
     trackerState.editingExisting = true;
     trackerState.savedLabel = "Salvato localmente";
-    trackerState.notice = "BoxTracker salvato";
+    trackerState.notice = requestedDraftNodeId
+      ? "BoxTracker salvato, channel registrato e draft runtime promosso"
+      : "BoxTracker salvato e channel registrato";
     notify("success", trackerState.notice);
   } catch (error) {
     console.error(error);
@@ -354,6 +416,179 @@ const saveTracker = async () => {
     notify("error", trackerState.notice);
   } finally {
     trackerState.saving = false;
+    mountTrackerEditor();
+  }
+};
+
+const dependencyCountLabel = (report) => {
+  if (!report?.hasDependencies) return "Nessuna dipendenza runtime rilevata";
+  return [
+    `${report.workspaces.length} workspace`,
+    `${report.channels.length || report.channelNames.length} channel`,
+    `${report.connections.length} connessioni`,
+    `${report.flows.length} flow`,
+    `${report.agents.length} agenti AI`,
+  ].join(" · ");
+};
+
+const renderDependencyList = (title, items, formatter) =>
+  _.Card(
+    { class: "tl-runtime-dependency-card" },
+    _.h3(title),
+    items.length
+      ? _.ul(...items.slice(0, 8).map((item) => _.li(formatter(item))))
+      : _.p({ class: "tl-muted" }, "Nessun riferimento")
+  );
+
+const renderDependencyReport = (report) =>
+  _.div(
+    { class: "tl-runtime-dependency-report" },
+    _.p(
+      "Il boxTracker ",
+      _.strong(report.label),
+      " e utilizzato da altri componenti del workspace. La cancellazione normale e bloccata per proteggere il runtime."
+    ),
+    _.Grid(
+      { cols: 2, gap: 10 },
+      renderDependencyList("Channels collegati", report.channelNames || [], (channel) => channel),
+      renderDependencyList("Workspace utilizzati", report.workspaces || [], (workspace) => `${workspace.name} (${workspace.boxes.length} box, ${workspace.connections.length} connessioni)`),
+      renderDependencyList("Connections attive", report.connections || [], (connection) => `${connection.name || connection.id || "Connection"} · ${connection.channel || connection.frequency || "default"}`),
+      renderDependencyList("AI Agent collegati", report.agents || [], (agent) => agent.name || agent.id || "AI Agent"),
+      renderDependencyList("Flow nodes", report.flows || [], (flow) => flow.name || flow.id || "Flow"),
+      renderDependencyList("Runtime mappings", report.dependencies || [], (dependency) => dependency.name || dependency.id || "Dependency")
+    )
+  );
+
+const openDependencyDetailsDialog = (report) => {
+  const dialog = _.Dialog({
+    class: "tl-runtime-dependency-dialog",
+    panelClass: "tl-runtime-dependency-panel",
+    size: "lg",
+    title: "Dipendenze runtime",
+    subtitle: dependencyCountLabel(report),
+    icon: "account_tree",
+    closeButton: true,
+    scrollable: true,
+    bodyMaxHeight: "68vh",
+    content: () => renderDependencyReport(report),
+    actions: ({ close }) => _.Toolbar({ align: "end", gap: 8 }, btn({ onclick: close }, "Chiudi")),
+  });
+  dialog.open();
+};
+
+const openDependenciesInInspector = (report, closeDialog = null) => {
+  const params = new URLSearchParams();
+  params.set("runtime", "dependencies");
+  params.set("nodeId", report.id || trackerState.tracker.id);
+  params.set("nodeType", report.type || "boxTracker");
+  if (report.channelNames?.[0]) params.set("channel", report.channelNames[0]);
+  if (report.connections?.[0]?.id) params.set("connectionId", report.connections[0].id);
+  closeDialog?.();
+  openChromePage(`flowMap.html?${params.toString()}`);
+};
+
+const performTrackerDelete = async ({ report = null, force = false, closeDialog = null } = {}) => {
+  if (trackerState.deleting) return;
+
+  const manager = dependencyManager();
+  if (!manager) {
+    notify("error", "Dependency manager non caricato.");
+    return;
+  }
+
+  trackerState.deleting = true;
+  trackerState.notice = force ? "Force delete runtime in corso..." : "Eliminazione boxTracker...";
+  mountTrackerEditor();
+
+  try {
+    const deleteReport = await manager.forceDeleteNode({
+      id: trackerState.tracker.id,
+      type: "boxTracker",
+      report,
+    });
+    closeDialog?.();
+    notify("success", force ? "BoxTracker eliminato con pulizia runtime" : "BoxTracker eliminato");
+    trackerState.notice = "BoxTracker eliminato";
+    trackerState.editingExisting = false;
+    setTimeout(() => openChromePage("library.html"), 250);
+    return deleteReport;
+  } catch (error) {
+    console.error(error);
+    notify("error", error.message || "Impossibile eliminare il boxTracker.");
+    trackerState.notice = "Errore eliminazione boxTracker";
+  } finally {
+    trackerState.deleting = false;
+    mountTrackerEditor();
+  }
+};
+
+const openSafeDeleteDialog = (report) => {
+  const dialog = _.Dialog({
+    class: "tl-runtime-delete-dialog",
+    panelClass: "tl-runtime-delete-panel",
+    size: "md",
+    title: "Eliminare questo boxTracker?",
+    subtitle: "Nessuna dipendenza runtime rilevata.",
+    icon: "delete",
+    closeButton: true,
+    content: () => _.p("Il boxTracker verra rimosso dalla libreria locale."),
+    actions: ({ close }) => _.Toolbar(
+      { align: "end", gap: 8 },
+      btn({ onclick: close }, "Cancel"),
+      btn({ class: "is-danger", onclick: () => performTrackerDelete({ report, closeDialog: close }) }, icon("delete", "sm"), "Delete")
+    ),
+  });
+  dialog.open();
+};
+
+const openDependencyWarningDialog = (report) => {
+  const dialog = _.Dialog({
+    class: "tl-runtime-delete-dialog",
+    panelClass: "tl-runtime-delete-panel",
+    size: "lg",
+    title: "Questo box e utilizzato nel runtime",
+    subtitle: dependencyCountLabel(report),
+    icon: "warning",
+    closeButton: true,
+    scrollable: true,
+    bodyMaxHeight: "68vh",
+    content: () => renderDependencyReport(report),
+    actions: ({ close }) => _.Toolbar(
+      { align: "end", gap: 8 },
+      btn({ onclick: close }, "Cancel"),
+      btn({ onclick: () => openDependenciesInInspector(report, close) }, icon("account_tree", "sm"), "View Dependencies"),
+      btn({ class: "is-danger", onclick: () => performTrackerDelete({ report, force: true, closeDialog: close }) }, icon("delete_forever", "sm"), "Force Delete")
+    ),
+  });
+  dialog.open();
+};
+
+const requestTrackerDelete = async () => {
+  if (!trackerState.editingExisting || trackerState.loading || trackerState.deleting) return;
+
+  const manager = dependencyManager();
+  if (!manager) {
+    notify("error", "Dependency manager non caricato.");
+    return;
+  }
+
+  trackerState.deleting = true;
+  trackerState.notice = "Verifica dipendenze runtime...";
+  mountTrackerEditor();
+
+  try {
+    const report = await manager.inspectNode({ id: trackerState.tracker.id, type: "boxTracker" });
+    if (report.hasDependencies) {
+      openDependencyWarningDialog(report);
+    } else {
+      openSafeDeleteDialog(report);
+    }
+  } catch (error) {
+    console.error(error);
+    notify("error", error.message || "Controllo dipendenze non riuscito.");
+    trackerState.notice = "Errore verifica dipendenze";
+  } finally {
+    trackerState.deleting = false;
     mountTrackerEditor();
   }
 };
@@ -641,8 +876,15 @@ const runManualTest = async () => {
   }
 };
 
-const renderHeader = () =>
-  _.header(
+const renderHeader = () => {
+  const deleteAction = trackerState.editingExisting
+    ? [btn({ class: "tl-icon-btn is-danger", "aria-label": "Elimina boxTracker", onclick: requestTrackerDelete, disabled: trackerState.loading || trackerState.deleting }, icon("delete"))]
+    : [];
+  const flowAction = requestedDraftNodeId
+    ? [btn({ class: "tl-cancel-btn", onclick: () => openChromePage(flowMapUrl()) }, icon("account_tree", "sm"), "Flow Map")]
+    : [];
+
+  return _.header(
     { class: "tl-tracker-header" },
     _.div({ class: "tl-tracker-brand" }, _.span({ class: "tl-brand-mark" }), _.h1({ class: "tl-brand-title" }, "TRACKERS ", _.span("LENS")), icon("chevron_right", "sm")),
     _.div({ class: "tl-workspace-heading" }, _.h1(trackerData.workspace.name, _.span({ class: "tl-online-dot" })), _.p("• ", trackerState.notice || trackerState.savedLabel)),
@@ -656,11 +898,14 @@ const renderHeader = () =>
       btn({ class: "tl-icon-btn", "aria-label": "Zoom in", onclick: () => setZoom(trackerState.zoom + 10) }, icon("add")),
       btn({ class: "tl-icon-btn", "aria-label": "Desktop", onclick: () => setPreviewView("json") }, icon("desktop_windows")),
       btn({ class: "tl-icon-btn", "aria-label": "Vista griglia", onclick: () => openChromePage("editorWorkspace.html") }, icon("dashboard")),
+      ...flowAction,
+      ...deleteAction,
       btn({ class: "tl-cancel-btn", onclick: () => openChromePage("editorWorkspace.html") }, icon("close", "sm"), "Annulla"),
       btn({ class: "tl-save-tracker", onclick: saveTracker, disabled: trackerState.loading || trackerState.saving }, icon("radio_button_checked", "sm"), trackerState.saving ? "Salvataggio..." : "Salva Tracker"),
       btn({ class: "tl-icon-btn", "aria-label": "Chiudi", onclick: () => openChromePage("editorWorkspace.html") }, icon("close"))
     )
   );
+};
 
 const renderKindCard = (type) =>
   _.Card(

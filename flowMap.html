@@ -3,31 +3,29 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Trackers Lens - Collegamenti</title>
+    <title>Trackers Lens - Flow Map</title>
 
     <link rel="stylesheet" href="CMSwift/css/min-ui.css" />
     <link rel="stylesheet" href="css/cms-palette.css" />
     <link rel="stylesheet" href="css/tl-foundation.css" />
     <link rel="stylesheet" href="css/tl-sidebar.css" />
-    <link rel="stylesheet" href="css/connectionsView.css" />
+    <link rel="stylesheet" href="css/flowMap.css" />
 
     <script src="CMSwift/js/min-cms.js"></script>
     <script src="CMSwift/js/min-ui.js"></script>
     <script src="js/TlConfig.js"></script>
     <script src="js/tl-sidebar.js"></script>
+    <script src="js/tl-local-library.js"></script>
     <script src="js/tl-connections-store.js"></script>
     <script src="core/runtime/dependency-manager.js"></script>
     <script src="core/runtime/channel-registry.js"></script>
     <script src="core/runtime/event-log-store.js"></script>
     <script src="core/runtime/runtime-graph-store.js"></script>
     <script src="core/runtime/runtime-snapshot-store.js"></script>
+    <script src="core/runtime/runtime-graph-model.js"></script>
   </head>
   <body>
-    <main
-      id="tl-connections-root"
-      class="tl-connections-root"
-      aria-label="Collegamenti Trackers Lens"
-    ></main>
-    <script src="js/connectionsView.js"></script>
+    <main id="tl-flow-map-root" class="tl-flow-map-root" aria-label="Flow Map Trackers Lens"></main>
+    <script src="js/flowMapView.js"></script>
   </body>
 </html>

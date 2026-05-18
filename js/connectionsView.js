@@ -1,6 +1,12 @@
 const icon = (name, size = "md") => _.Icon({ name, size });
 const btn = (props, ...children) => _.Btn({ type: "button", ...props }, ...children);
 const dot = (props = {}) => _.span({ ...props, class: `tl-link-dot${props.class ? ` ${props.class}` : ""}` });
+const runtimeParams = new URLSearchParams(window.location.search);
+
+if (runtimeParams.get("view") === "graph") {
+  runtimeParams.delete("view");
+  window.location.replace(`flowMap.html${runtimeParams.toString() ? `?${runtimeParams.toString()}` : ""}`);
+}
 
 const connectionTypes = [
   { name: "API Endpoint", color: "purple", icon: "api", count: 128 },
@@ -176,13 +182,29 @@ const connectionState = {
   error: "",
   connections: [],
   query: "",
-  type: "all",
+  type: runtimeParams.get("type") || "all",
   status: "all",
   sort: "recent",
-  view: "table",
-  selectedType: "all",
+  view: runtimeParams.get("view") === "grid" ? "grid" : "table",
+  selectedType: runtimeParams.get("type") || "all",
   selectedId: "",
   loadedAt: new Date(),
+  runtimeLoading: true,
+  runtimeError: "",
+  runtime: {
+    channels: [],
+    flows: [],
+    events: [],
+    runtimeNodes: [],
+    runtimeDependencies: [],
+  },
+  runtimeFocus: {
+    mode: runtimeParams.get("runtime") || "",
+    nodeId: runtimeParams.get("nodeId") || "",
+    nodeType: runtimeParams.get("nodeType") || "",
+    channel: runtimeParams.get("channel") || "",
+    connectionId: runtimeParams.get("connectionId") || "",
+  },
 };
 
 const typeColor = (type) => connectionTypes.find((item) => item.name === type)?.color || "purple";
@@ -199,7 +221,170 @@ const visibleConnections = () => {
 };
 
 const selectedConnection = () =>
-  visibleConnections().find((item) => item.id === connectionState.selectedId) || visibleConnections()[0] || connectionState.connections[0] || null;
+  visibleConnections().find((item) => item.id === connectionState.selectedId) ||
+  connectionState.connections.find((item) => item.id === connectionState.selectedId) ||
+  (hasRuntimeFocus() ? null : visibleConnections()[0]) ||
+  (hasRuntimeFocus() ? null : connectionState.connections[0]) ||
+  null;
+
+const fallbackConnection = () =>
+  visibleConnections()[0] ||
+  connectionState.connections[0] ||
+  null;
+
+const focusedRuntimeNode = () => {
+  const focus = connectionState.runtimeFocus;
+  if (!focus.nodeId) return null;
+  return connectionState.runtime.runtimeNodes.find((node) =>
+    [node.id, node.sourceRef, node.assetId].filter(Boolean).map(String).includes(focus.nodeId)
+  ) || null;
+};
+
+const connectionMatchesRuntimeFocus = (connection) => {
+  const focus = connectionState.runtimeFocus;
+  if (!connection || (!focus.nodeId && !focus.channel && !focus.connectionId)) return false;
+  if (focus.connectionId && connection.id === focus.connectionId) return true;
+  if (focus.nodeId && [connection.fromBoxId, connection.toBoxId, connection.fromNodeId, connection.toNodeId].filter(Boolean).map(String).includes(focus.nodeId)) return true;
+  if (focus.channel && [connection.channel, connection.frequency].filter(Boolean).map(String).includes(focus.channel)) return true;
+  return false;
+};
+
+const runtimeStoreName = (key, fallback) => tlConfig?.TABLES?.[key] || fallback;
+
+const readRuntimeStore = async (storeName) => {
+  if (window.TrackerLensRuntimeGraphStore?.ensureStores) {
+    await window.TrackerLensRuntimeGraphStore.ensureStores().then((db) => db?.close?.());
+  } else if (window.TrackerLensDependencyManager?.ensureRuntimeStores) {
+    await window.TrackerLensDependencyManager.ensureRuntimeStores().then((db) => db?.close?.());
+  }
+
+  return new Promise((resolve, reject) => {
+    const request = indexedDB.open(tlConfig.DB_NAME);
+    request.onsuccess = (event) => {
+      const db = event.target.result;
+      if (!db.objectStoreNames.contains(storeName)) {
+        db.close();
+        resolve([]);
+        return;
+      }
+      const tx = db.transaction(storeName, "readonly");
+      const store = tx.objectStore(storeName);
+      const read = store.getAll();
+      read.onsuccess = (readEvent) => {
+        db.close();
+        resolve(Array.from(readEvent.target.result || []));
+      };
+      read.onerror = (readEvent) => {
+        db.close();
+        reject(readEvent.target.error || new Error(`Errore lettura ${storeName}`));
+      };
+    };
+    request.onerror = (event) => reject(event.target.error || new Error(`Errore apertura ${tlConfig.DB_NAME}`));
+    request.onblocked = () => reject(new Error("IndexedDB bloccato da un'altra scheda"));
+  });
+};
+
+const loadRuntimeInspectorData = async () => {
+  connectionState.runtimeLoading = true;
+  connectionState.runtimeError = "";
+
+  try {
+    const snapshot = window.TrackerLensRuntimeSnapshotStore?.load
+      ? await window.TrackerLensRuntimeSnapshotStore.load({ includeConnections: false })
+      : null;
+    const [channels, flows, events, runtimeNodes, runtimeDependencies] = snapshot
+      ? [snapshot.channels, snapshot.flows, snapshot.events, snapshot.runtimeNodes, snapshot.runtimeDependencies]
+      : await Promise.all([
+        window.TrackerLensChannelRegistry?.list ? window.TrackerLensChannelRegistry.list() : readRuntimeStore(runtimeStoreName("TL_CHANNELS", "tl_channels")),
+        readRuntimeStore(runtimeStoreName("TL_FLOWS", "tl_flows")),
+        window.TrackerLensEventLogStore?.listEvents ? window.TrackerLensEventLogStore.listEvents() : readRuntimeStore(runtimeStoreName("TL_EVENTS", "tl_events")),
+        readRuntimeStore(runtimeStoreName("TL_RUNTIME_NODES", "tl_runtime_nodes")),
+        readRuntimeStore(runtimeStoreName("TL_RUNTIME_DEPENDENCIES", "tl_runtime_dependencies")),
+      ]);
+
+    connectionState.runtime = {
+      channels,
+      flows,
+      events,
+      runtimeNodes,
+      runtimeDependencies,
+    };
+  } catch (error) {
+    console.error("Errore caricamento Runtime Inspector:", error);
+    connectionState.runtimeError = error?.message || "Errore Runtime Inspector";
+  } finally {
+    connectionState.runtimeLoading = false;
+  }
+};
+
+const connectionRuntimeContext = (connection) => {
+  const focus = connectionState.runtimeFocus;
+  if (!connection && !focus.nodeId && !focus.channel && !focus.connectionId) {
+    return { channels: [], flows: [], events: [], nodes: [], dependencies: [] };
+  }
+
+  const ids = new Set([
+    connection?.id,
+    connection?.fromBoxId,
+    connection?.toBoxId,
+    connection?.fromNodeId,
+    connection?.toNodeId,
+    focus.nodeId,
+  ].filter(Boolean).map(String));
+  const channelNames = new Set([connection?.channel, connection?.frequency, focus.channel].filter(Boolean).map(String));
+  const workspaceId = connection?.workspaceId || "";
+
+  const dependencies = connectionState.runtime.runtimeDependencies.filter((dependency) =>
+    dependency.connectionId === connection?.id ||
+    dependency.connectionId === focus.connectionId ||
+    ids.has(String(dependency.sourceNodeId)) ||
+    ids.has(String(dependency.targetNodeId)) ||
+    channelNames.has(String(dependency.channel))
+  );
+  dependencies.forEach((dependency) => {
+    [dependency.sourceNodeId, dependency.targetNodeId].filter(Boolean).forEach((id) => ids.add(String(id)));
+    if (dependency.channel) channelNames.add(String(dependency.channel));
+  });
+
+  const nodes = connectionState.runtime.runtimeNodes.filter((node) =>
+    ids.has(String(node.id)) ||
+    ids.has(String(node.sourceRef)) ||
+    (workspaceId && node.workspaceId === workspaceId)
+  );
+  nodes.forEach((node) => {
+    (node.channels || []).forEach((channel) => channelNames.add(String(channel)));
+    (node.inputs || []).forEach((channel) => channelNames.add(String(channel)));
+    (node.outputs || []).forEach((channel) => channelNames.add(String(channel)));
+  });
+
+  const channels = connectionState.runtime.channels.filter((channel) =>
+    channelNames.has(String(channel.name)) ||
+    ids.has(String(channel.producerNodeId)) ||
+    ids.has(String(channel.producerBoxId)) ||
+    (Array.isArray(channel.subscribers) && channel.subscribers.some((subscriber) => ids.has(String(subscriber))))
+  );
+  channels.forEach((channel) => {
+    if (channel.name) channelNames.add(String(channel.name));
+  });
+
+  const flows = connectionState.runtime.flows.filter((flow) =>
+    (workspaceId && flow.workspaceId === workspaceId) ||
+    (Array.isArray(flow.connections) && [connection?.id, focus.connectionId].filter(Boolean).some((id) => flow.connections.includes(id))) ||
+    (Array.isArray(flow.nodes) && flow.nodes.some((node) => ids.has(String(node.id)) || ids.has(String(node.boxId))))
+  );
+
+  const events = connectionState.runtime.events
+    .filter((event) =>
+      channelNames.has(String(event.channel)) ||
+      ids.has(String(event.sourceNodeId)) ||
+      ids.has(String(event.targetNodeId)) ||
+      (workspaceId && event.workspaceId === workspaceId)
+    )
+    .sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt))
+    .slice(0, 8);
+
+  return { channels, flows, events, nodes, dependencies };
+};
 
 const stats = () => {
   const total = connectionState.connections.length;
@@ -217,13 +402,18 @@ const typeCount = (name) =>
 
 const loadConnections = async () => {
   connectionState.loading = true;
+  connectionState.runtimeLoading = true;
   connectionState.error = "";
   mountConnections();
 
   try {
-    const records = await window.TrackerLensConnectionsStore.list();
+    const [records] = await Promise.all([
+      window.TrackerLensConnectionsStore.list(),
+      loadRuntimeInspectorData(),
+    ]);
     connectionState.connections = records;
-    connectionState.selectedId = records[0]?.id || "";
+    const focusedConnection = records.find((record) => connectionMatchesRuntimeFocus(record));
+    connectionState.selectedId = focusedConnection?.id || (hasRuntimeFocus() ? "" : records[0]?.id || "");
     connectionState.loadedAt = new Date();
   } catch (error) {
     console.error("Errore caricamento collegamenti:", error);
@@ -291,8 +481,15 @@ const duplicateConnection = async (connection) => {
 const deleteConnection = async (connection) => {
   if (!connection) return;
   await window.TrackerLensConnectionsStore.remove(connection.id);
+  if (window.TrackerLensRuntimeGraphStore?.cleanupConnectionReferences) {
+    await window.TrackerLensRuntimeGraphStore.cleanupConnectionReferences({ connectionId: connection.id });
+  }
+  if (window.TrackerLensEventLogStore?.cleanupConnectionReferences) {
+    await window.TrackerLensEventLogStore.cleanupConnectionReferences({ connectionId: connection.id, workspaceId: connection.workspaceId || "" });
+  }
   connectionState.connections = connectionState.connections.filter((item) => item.id !== connection.id);
   connectionState.selectedId = connectionState.connections[0]?.id || "";
+  await loadRuntimeInspectorData();
   connectionState.loadedAt = new Date();
   mountConnections();
 };
@@ -323,6 +520,20 @@ const createConnection = async () => {
   mountConnections();
 };
 
+const refreshRuntimeInspector = async () => {
+  await loadRuntimeInspectorData();
+  connectionState.loadedAt = new Date();
+  mountConnections();
+};
+
+const clearRuntimeFocus = () => {
+  connectionState.runtimeFocus = { mode: "", nodeId: "", nodeType: "", channel: "", connectionId: "" };
+  const url = new URL(window.location.href);
+  ["runtime", "nodeId", "nodeType", "channel", "connectionId"].forEach((key) => url.searchParams.delete(key));
+  window.history.replaceState({}, "", `${url.pathname}${url.search}`);
+  mountConnections();
+};
+
 const setType = (type) => {
   connectionState.selectedType = type;
   connectionState.selectedId = "";
@@ -332,6 +543,16 @@ const setType = (type) => {
 const setView = (view) => {
   connectionState.view = view;
   mountConnections();
+};
+
+const openFlowMap = () => {
+  const params = new URLSearchParams();
+  if (connectionState.runtimeFocus.mode) params.set("runtime", connectionState.runtimeFocus.mode);
+  if (connectionState.runtimeFocus.nodeId) params.set("nodeId", connectionState.runtimeFocus.nodeId);
+  if (connectionState.runtimeFocus.nodeType) params.set("nodeType", connectionState.runtimeFocus.nodeType);
+  if (connectionState.runtimeFocus.channel) params.set("channel", connectionState.runtimeFocus.channel);
+  if (connectionState.runtimeFocus.connectionId) params.set("connectionId", connectionState.runtimeFocus.connectionId);
+  window.location.assign(`flowMap.html${params.toString() ? `?${params.toString()}` : ""}`);
 };
 
 const setSelected = (id) => {
@@ -360,6 +581,7 @@ const renderTopbar = () =>
     _.Toolbar(
       { class: "tl-link-actions", align: "center", gap: 16 },
       btn({ class: "tl-link-edit", onclick: createConnection }, icon("add", "sm"), "Nuovo"),
+      btn({ class: "tl-link-menu", "aria-label": "Aggiorna runtime", onclick: refreshRuntimeInspector }, icon("sync", "sm")),
       btn({ class: "tl-link-menu", "aria-label": "Menu collegamenti" }, icon("more_vert"))
     )
   );
@@ -463,7 +685,7 @@ const renderToolbar = () =>
         { class: "tl-link-view-switch", role: "group", "aria-label": "Cambia vista" },
         btn({ class: connectionState.view === "table" ? "is-active" : "", "aria-label": "Table", onclick: () => setView("table") }, icon("table_rows", "sm")),
         btn({ class: connectionState.view === "grid" ? "is-active" : "", "aria-label": "Grid", onclick: () => setView("grid") }, icon("grid_view", "sm")),
-        btn({ class: connectionState.view === "graph" ? "is-active" : "", "aria-label": "Graph", onclick: () => setView("graph") }, icon("account_tree", "sm"))
+        btn({ "aria-label": "Apri Flow Map", title: "Apri Flow Map", onclick: openFlowMap }, icon("account_tree", "sm"))
       )
     )
   );
@@ -537,22 +759,6 @@ const renderTableView = () => {
     );
   }
 
-  if (connectionState.view === "graph") {
-    return _.div(
-      { class: "tl-link-graph-view" },
-      ...items.slice(0, 7).map((item, index) =>
-        _.div(
-          { class: `tl-link-graph-node is-${typeColor(item.type)}`, style: { "--x": `${12 + (index % 4) * 24}%`, "--y": `${18 + Math.floor(index / 4) * 42}%` } },
-          _.span(item.name),
-          _.small(item.type)
-        )
-      ),
-      _.span({ class: "tl-link-graph-line one" }),
-      _.span({ class: "tl-link-graph-line two" }),
-      _.span({ class: "tl-link-graph-line three" })
-    );
-  }
-
   return _.div(
     { class: "tl-link-table-wrap" },
     _.table(
@@ -608,14 +814,139 @@ const renderJson = (item) => {
   );
 };
 
+const renderRuntimeMetric = (label, value, tone = "") =>
+  _.div({ class: `tl-runtime-metric${tone ? ` is-${tone}` : ""}` }, _.span(label), _.strong(String(value)));
+
+const hasRuntimeFocus = () =>
+  Boolean(connectionState.runtimeFocus.nodeId || connectionState.runtimeFocus.channel || connectionState.runtimeFocus.connectionId);
+
+const renderRuntimeFocus = () => {
+  if (!hasRuntimeFocus()) return null;
+  const focus = connectionState.runtimeFocus;
+  return _.div(
+    { class: "tl-runtime-focus" },
+    _.div(
+      _.strong("Dependency focus"),
+      _.span(
+        [
+          focus.nodeId ? `node ${focus.nodeId}` : "",
+          focus.channel ? `channel ${focus.channel}` : "",
+          focus.connectionId ? `connection ${focus.connectionId}` : "",
+        ].filter(Boolean).join(" · ")
+      )
+    ),
+    btn({ class: "tl-runtime-clear", onclick: clearRuntimeFocus }, icon("close", "sm"))
+  );
+};
+
+const renderRuntimeNodeSummary = () => {
+  const node = focusedRuntimeNode();
+  const focus = connectionState.runtimeFocus;
+  const runtime = connectionRuntimeContext(null);
+  const label = node?.label || focus.nodeId || "Runtime node";
+  const type = node?.type || focus.nodeType || "node";
+  const status = node?.status || (runtime.dependencies.length || runtime.channels.length ? "linked" : "not indexed");
+
+  return _.div(
+    { class: "tl-runtime-node-summary" },
+    _.div(
+      { class: "tl-link-hero is-runtime-node" },
+      _.span({ class: "tl-link-orb is-cyan" }, icon(type === "boxTracker" ? "storage" : "account_tree", "md")),
+      _.div(_.h3(label), _.p(focus.nodeId || node?.id || "runtime-focus")),
+      _.span({ class: `tl-link-status is-${status === "not indexed" ? "inactive" : "active"}` }, dot(), status)
+    ),
+    _.Grid(
+      { class: "tl-link-meta-grid", cols: 2, gap: 8 },
+      ...[
+        ["Tipo", type],
+        ["Workspace", node?.workspaceId || "N/D"],
+        ["Source ref", node?.sourceRef || "N/D"],
+        ["Channels", runtime.channels.map((channel) => channel.name).join(", ") || focus.channel || "N/D"],
+        ["Inputs", node?.inputs?.join(", ") || "N/D"],
+        ["Outputs", node?.outputs?.join(", ") || "N/D"],
+      ].map(([labelText, value]) => _.div({ class: "tl-link-meta" }, _.span(labelText), _.strong(value)))
+    )
+  );
+};
+
+const renderRuntimeList = (title, items, emptyLabel, formatter) =>
+  _.div(
+    { class: "tl-runtime-list" },
+    _.h3(title),
+    items.length
+      ? _.div(...items.map((item) => _.div({ class: "tl-runtime-list-row" }, ...formatter(item))))
+      : _.p({ class: "tl-link-muted" }, emptyLabel)
+  );
+
+const renderRuntimeInspector = (connection) => {
+  const runtime = connectionRuntimeContext(connection);
+
+  if (connectionState.runtimeLoading) {
+    return _.section({ class: "tl-runtime-inspector" }, _.h3("Runtime Inspector"), _.p({ class: "tl-link-muted" }, "Caricamento runtime graph..."));
+  }
+
+  if (connectionState.runtimeError) {
+    return _.section({ class: "tl-runtime-inspector" }, _.h3("Runtime Inspector"), _.p({ class: "tl-link-error-text" }, connectionState.runtimeError));
+  }
+
+  return _.section(
+    { class: "tl-runtime-inspector" },
+    _.Row({ justify: "space-between", align: "center" }, _.h3("Runtime Inspector"), btn({ class: "tl-runtime-refresh", onclick: refreshRuntimeInspector }, icon("sync", "sm"))),
+    renderRuntimeFocus(),
+    _.Grid(
+      { class: "tl-runtime-metrics", cols: 3, gap: 8 },
+      renderRuntimeMetric("Channels", runtime.channels.length, "green"),
+      renderRuntimeMetric("Nodes", runtime.nodes.length, "blue"),
+      renderRuntimeMetric("Events", runtime.events.length, "gold")
+    ),
+    renderRuntimeList(
+      "Channels",
+      runtime.channels.slice(0, 5),
+      "Nessun channel collegato.",
+      (channel) => [
+        _.strong(channel.name || channel.id),
+        _.span(`${channel.status || "unknown"} · ${channel.subscribers?.length || 0} subscribers`),
+      ]
+    ),
+    renderRuntimeList(
+      "Runtime Nodes",
+      runtime.nodes.slice(0, 5),
+      "Nessun runtime node collegato.",
+      (node) => [
+        _.strong(node.label || node.id),
+        _.span(`${node.type || "node"} · ${node.status || "unknown"}`),
+      ]
+    ),
+    renderRuntimeList(
+      "Dependencies",
+      runtime.dependencies.slice(0, 5),
+      "Nessuna dependency collegata.",
+      (dependency) => [
+        _.strong(`${dependency.sourceNodeId || "source"} -> ${dependency.targetNodeId || "target"}`),
+        _.span(dependency.channel || dependency.connectionId || "runtime mapping"),
+      ]
+    ),
+    renderRuntimeList(
+      "Recent Events",
+      runtime.events,
+      "Nessun evento runtime registrato.",
+      (event) => [
+        _.strong(`${event.eventType || "event"} · ${event.channel || "default"}`),
+        _.span(`${event.status || "ok"} · ${formatShortDate(event.createdAt)} · ${event.sizeBytes || 0} B`),
+      ]
+    )
+  );
+};
+
 const renderInspector = () => {
   const item = selectedConnection();
+  const isRuntimeNodeFocus = !item && hasRuntimeFocus();
   return _.aside(
     { class: "tl-link-inspector", "aria-label": "Dettagli collegamento" },
     _.div(
       { class: "tl-link-inspector-head" },
-      _.span({ class: "tl-link-kicker" }, "Selected connection"),
-      _.h2("Dettagli Collegamento")
+      _.span({ class: "tl-link-kicker" }, isRuntimeNodeFocus ? "Runtime focus" : "Selected connection"),
+      _.h2(isRuntimeNodeFocus ? "Dettagli Runtime Node" : "Dettagli Collegamento")
     ),
     item ? _.div(
       { class: "tl-link-inspector-body" },
@@ -644,6 +975,7 @@ const renderInspector = () => {
       ),
       _.div({ class: "tl-link-json-head" }, _.h3("Configurazione"), _.span("JSON preview")),
       renderJson(item),
+      renderRuntimeInspector(item),
       _.Toolbar(
         { class: "tl-link-inspector-actions", gap: 8 },
         btn({ class: "tl-link-primary", onclick: () => testConnection(item) }, icon("play_arrow", "sm"), "Testa collegamento"),
@@ -651,6 +983,10 @@ const renderInspector = () => {
         btn({ onclick: () => duplicateConnection(item) }, "Duplica"),
         btn({ class: "is-danger", onclick: () => deleteConnection(item) }, "Elimina")
       )
+    ) : isRuntimeNodeFocus ? _.div(
+      { class: "tl-link-inspector-body is-runtime-node" },
+      renderRuntimeNodeSummary(),
+      renderRuntimeInspector(null)
     ) : _.div({ class: "tl-link-empty" }, "Nessun collegamento selezionato.")
   );
 };
@@ -682,6 +1018,7 @@ const renderDonut = (className, value, label) =>
 const renderAnalytics = () =>
   (() => {
     const data = stats();
+    const runtime = connectionState.runtime;
     const successRate = data.total ? Math.round((data.active / data.total) * 1000) / 10 : 0;
     const topTypes = connectionTypes
       .map((type) => ({ ...type, count: typeCount(type.name) }))
@@ -698,6 +1035,7 @@ const renderAnalytics = () =>
       _.section(
         { class: "tl-link-analytics", "aria-label": "Analytics collegamenti" },
         _.Card({ class: "tl-link-analytics-card is-wide" }, _.Row({ justify: "space-between" }, _.h3("Attivita in Tempo Reale"), _.span(`${data.total} conn.`)), renderRealtimeChart()),
+        _.Card({ class: "tl-link-analytics-card" }, _.h3("Runtime Graph"), _.div({ class: "tl-link-success-wrap" }, renderDonut("is-multi", String(runtime.runtimeNodes.length), "Nodes"), _.div(_.p(`Channels ${runtime.channels.length}`), _.p(`Flows ${runtime.flows.length}`), _.p(`Events ${runtime.events.length}`)))),
         _.Card({ class: "tl-link-analytics-card" }, _.h3("Tasso di Successo"), _.div({ class: "tl-link-success-wrap" }, renderDonut("is-success", `${successRate}%`, "Successo"), _.div(_.p(`Successi ${data.active}`), _.p(`Errori ${data.error}`), _.p(`Timeout ${data.timeout}`)))),
         _.Card({ class: "tl-link-analytics-card" }, _.h3("Distribuzione per Tipo"), _.div({ class: "tl-link-success-wrap" }, renderDonut("is-multi", String(data.total), "Totale"), _.div(...(topTypes.length ? topTypes.map((type) => _.p(`${type.name} ${type.count}`)) : [_.p("Nessun tipo salvato")])))),
         _.Card(
@@ -733,5 +1071,16 @@ const mountConnections = () => {
   root.replaceChildren(renderShell());
 };
 
+const startRuntimeInspectorRefresh = () => {
+  window.setInterval(() => {
+    if (connectionState.runtimeLoading) return;
+    loadRuntimeInspectorData().then(() => {
+      connectionState.loadedAt = new Date();
+      mountConnections();
+    });
+  }, 10000);
+};
+
 mountConnections();
 loadConnections();
+startRuntimeInspectorRefresh();

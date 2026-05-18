@@ -20,6 +20,24 @@ const workspaceViewState = {
 const icon = (name, size = "md") => _.Icon({ name, size });
 const btn = (props, ...children) => _.Btn({ type: "button", ...props }, ...children);
 
+const runtimeEventStore = () => window.TrackerLensEventLogStore;
+
+const persistRuntimeEvent = (payload) => {
+  const store = runtimeEventStore();
+  if (!store?.recordEvent) return;
+  store.recordEvent(payload).catch((error) => {
+    console.warn("Evento runtime non persistito:", error);
+  });
+};
+
+const persistRuntimeFlowLog = (payload) => {
+  const store = runtimeEventStore();
+  if (!store?.recordFlowLog) return;
+  store.recordFlowLog(payload).catch((error) => {
+    console.warn("Flow log runtime non persistito:", error);
+  });
+};
+
 const openChromePage = (url) => {
   if (window.TrackerLensSidebar?.navigate) {
     window.TrackerLensSidebar.navigate(url);
@@ -487,6 +505,16 @@ const recordTrackerEvent = (boxId, channel, payload, payloadText = "") => {
   refreshTrackerRow(boxId);
   refreshTrackerActionsDialog(boxId);
   appendTrackerLogEntry(pushTrackerLog({ type: "event", trackerId: boxId, trackerName: box.name || boxId, channel, payload: payloadSnapshot, payloadText }));
+  persistRuntimeEvent({
+    workspaceId: workspaceViewState.workspace.id || "global",
+    channel,
+    eventType: "emitted",
+    sourceNodeId: boxId,
+    payload: payloadSnapshot,
+    payloadText,
+    status: "ok",
+    latencyMs: latency,
+  });
 };
 
 const recordTrackerError = (boxId, error) => {
@@ -504,6 +532,20 @@ const recordTrackerError = (boxId, error) => {
   refreshTrackerRow(boxId);
   refreshTrackerActionsDialog(boxId);
   appendTrackerLogEntry(pushTrackerLog({ type: "error", trackerId: boxId, trackerName: box.name || boxId, channel: previous.channel, error: message }));
+  persistRuntimeEvent({
+    workspaceId: workspaceViewState.workspace.id || "global",
+    channel: previous.channel || "default",
+    eventType: "error",
+    sourceNodeId: boxId,
+    payload: { error: message },
+    status: "error",
+  });
+  persistRuntimeFlowLog({
+    workspaceId: workspaceViewState.workspace.id || "global",
+    nodeId: boxId,
+    level: "error",
+    message,
+  });
 };
 
 const renderMonitorMetric = (label, value, tone = "") =>
@@ -969,6 +1011,15 @@ const emitTrackerEvent = (fromBoxId, channel = "default", payload = {}, payloadT
         });
       } catch (error) {
         console.error("Errore listener boxLens:", error);
+        persistRuntimeEvent({
+          workspaceId: workspaceViewState.workspace.id || "global",
+          channel,
+          eventType: "delivery_error",
+          sourceNodeId: fromBoxId,
+          targetNodeId: connection.toBoxId,
+          payload: { error: error.message || String(error) },
+          status: "error",
+        });
       }
     });
 };

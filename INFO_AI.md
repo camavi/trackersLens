@@ -2412,3 +2412,1981 @@ Nota aggiornata 2026-05-12: la riga finale di `settings.html` ora e full-width e
 Nota aggiornata 2026-05-12: aggiornata la proporzione della riga finale `tl-settings-bottom` in `settings.html`: `Backup & Ripristino` 25%, `Sicurezza & API Keys` 50%, `Informazioni Sistema` 25%.
 
 Nota aggiornata 2026-05-12: `settings.html` non e piu solo mockup statico. E stato aggiunto lo store reale `tl_settings` in `TlConfig.TABLES` e la pagina ora legge/scrive una configurazione globale persistente in IndexedDB. I campi generali, AI provider, connessioni, storage, notifiche, backup e API keys sono collegati a `settingsState.settings` e salvabili. Le azioni rapide ora eseguono export/import JSON, reset impostazioni, pulizia `tl_cache` quando presente, diagnostica e refresh dati. La pagina legge anche dati reali da `tl_ai_providers` tramite `TrackerLensAiRuntimeStore`, da `tl_connections` tramite `TrackerLensConnectionsStore`, da `navigator.storage.estimate()` e da `performance.memory` quando disponibili. Il boot monta subito la UI e poi aggiorna i dati asincroni con timeout difensivi per evitare schermata vuota se IndexedDB resta bloccato.
+
+## Aggiornamento 2026-05-15 - Avvio task orchestration runtime enterprise
+
+Obiettivo della sessione: iniziare a trattare Trackers Lens come progetto runtime enterprise interconnesso, non piu come insieme di pagine o widget indipendenti.
+
+Fatto:
+
+- Presi come documenti guida `docs/flow.md` e `docs/new_vision.md`.
+- Aggiunta documentazione runtime:
+  - `docs/architecture.md`
+  - `docs/runtime.md`
+  - `docs/channels.md`
+- Creata la cartella `/tasks` con:
+  - `tasks/roadmap.md`
+  - `tasks/active_tasks.md`
+  - `tasks/completed_tasks.md`
+  - `tasks/blockers.md`
+  - `tasks/mvp.md`
+- Aggiunti placeholder strutturali:
+  - `core/README.md`
+  - `ui/README.md`
+  - `runtime/README.md`
+- Definita la regola critica: prima di cancellare, rinominare o cambiare output/input/channel/node id bisogna verificare dipendenze runtime, mappings, connections, flows e subscribers.
+- Definito il primo task critico `[TASK-001] Runtime Dependency Validator`.
+- Definito che `editorBoxTracker.html` / `js/boxTrackerEditor.js` devono diventare runtime-aware, partendo dalla cancellazione dei boxTracker usati da workspace, channels, connections, AI agents, actions e Flow Map.
+
+Nuova direzione architetturale:
+
+- Trackers Lens e un AI Runtime Operating Environment locale.
+- Il modello target e: `Sources -> boxTracker -> Channels -> Processors -> AI Agents -> boxLens -> Actions`.
+- I nuovi store runtime target sono:
+  - `tl_channels`
+  - `tl_connections`
+  - `tl_flows`
+  - `tl_events`
+  - `tl_flow_logs`
+  - `tl_agents`
+  - `tl_runtime_nodes`
+  - `tl_runtime_dependencies`
+
+Cosa manca / prossimi passi:
+
+- Implementare `core/runtime/dependency-manager.js`.
+- Implementare `core/runtime/channel-registry.js`.
+- Aggiungere in modo additivo gli store runtime mancanti in `TlConfig.TABLES` / IndexedDB.
+- Integrare la dependency validation nella cancellazione di `boxTracker`.
+- Aggiungere dialog CMSwift "Questo box e utilizzato nel runtime" con azioni Cancel, View Dependencies e Force Delete.
+- Estendere la prima base Runtime Inspector in `connections.html` con deep link e navigazione node-centric.
+
+## Aggiornamento 2026-05-15 - Primo Dependency Manager runtime
+
+Obiettivo della sessione: iniziare l'implementazione concreta della milestone runtime, partendo da store runtime additivi e cancellazione sicura dei boxTracker.
+
+Fatto:
+
+- Aggiornato `js/TlConfig.js` con i nuovi store runtime:
+  - `tl_channels`
+  - `tl_flows`
+  - `tl_events`
+  - `tl_flow_logs`
+  - `tl_agents`
+  - `tl_runtime_nodes`
+  - `tl_runtime_dependencies`
+- Aggiunto `core/runtime/dependency-manager.js`.
+- Il dependency manager espone:
+  - `ensureRuntimeStores()`
+  - `inspectNode({ id, type })`
+  - `forceDeleteNode({ id, type, report })`
+- `ensureRuntimeStores()` crea gli store mancanti in IndexedDB in modo additivo, senza rinominare gli store esistenti.
+- `inspectNode()` per `boxTracker` legge e correla:
+  - `tl_widgets`
+  - `tl_pages`
+  - `tl_connections`
+  - `tl_channels`
+  - `tl_flows`
+  - `tl_agents`
+  - `tl_runtime_nodes`
+  - `tl_runtime_dependencies`
+- Aggiornato `editorBoxTracker.html` per caricare il dependency manager.
+- Aggiornato `js/boxTrackerEditor.js`:
+  - aggiunto bottone elimina nella toolbar quando si modifica un tracker esistente;
+  - prima della cancellazione viene eseguito `inspectNode`;
+  - se non ci sono dipendenze, appare conferma semplice;
+  - se ci sono dipendenze, appare dialog CMSwift "Questo box e utilizzato nel runtime";
+  - il dialog mostra channels, workspace, connections, agenti AI, flow e runtime mappings;
+  - azioni disponibili: Cancel, View Dependencies, Force Delete;
+  - Force Delete chiama il manager e rimuove widget, connessioni, channels e riferimenti workspace collegati.
+- Aggiornato `css/boxTrackerEditor.css` con stile danger e card per il report dipendenze.
+- Aggiornati task runtime in `/tasks`.
+
+Verifiche eseguite:
+
+- `node --check core/runtime/dependency-manager.js`
+- `node --check js/boxTrackerEditor.js`
+- `node --check js/TlConfig.js`
+- `python3 -m http.server 3031`
+- `curl -I http://127.0.0.1:3031/editorBoxTracker.html`
+- `curl -I http://127.0.0.1:3031/core/runtime/dependency-manager.js`
+
+Cosa manca / prossimi passi:
+
+- Test visuale nel browser con IndexedDB reale e tracker collegato a workspace.
+- Completare `core/runtime/channel-registry.js` con rename/delete validation e inspector UI.
+- Aggiungere retention/cleanup per `tl_events` / `tl_flow_logs`.
+- Estendere la dependency validation a `editorBoxLens.html`, `editorWorkspace.html`, `connections.html`, `ai.html` e azioni/workspace.
+- Collegare "View Dependencies" al Runtime Inspector e poi alla Flow Map completa.
+
+## Aggiornamento 2026-05-15 - Channel Registry, Event Logs e Runtime Graph
+
+Obiettivo della sessione: continuare la milestone runtime senza fermarsi al dependency validator, aggiungendo i primi moduli dati per channels, events e graph.
+
+Fatto:
+
+- Aggiunto `core/runtime/channel-registry.js`.
+- `editorBoxTracker.html` ora carica anche il Channel Registry.
+- `js/boxTrackerEditor.js` ora, dopo il salvataggio del boxTracker, registra/aggiorna un channel globale in `tl_channels`.
+- `editorWorkspace.html` ora carica Dependency Manager, Channel Registry e Runtime Graph Store.
+- `js/workspace.js` ora, durante `persistWorkspaceSilently()`, sincronizza:
+  - `tl_connections` tramite `TrackerLensConnectionsStore`;
+  - `tl_channels` e subscribers tramite `TrackerLensChannelRegistry`;
+  - `tl_runtime_nodes`, `tl_runtime_dependencies` e `tl_flows` tramite `TrackerLensRuntimeGraphStore`.
+- Aggiunto `core/runtime/event-log-store.js`.
+- `workspace.html` ora carica `js/TlConfig.js`, Dependency Manager ed Event Log Store.
+- `js/workspaceView.js` ora persiste in modo non bloccante:
+  - eventi emessi dai boxTracker in `tl_events`;
+  - errori tracker in `tl_events` e `tl_flow_logs`;
+  - errori di delivery verso boxLens in `tl_events`.
+- Aggiunto `core/runtime/runtime-graph-store.js`.
+- Il salvataggio workspace crea una base reale per Flow Map:
+  - runtime nodes da box workspace;
+  - runtime dependencies da connessioni;
+  - un flow record per workspace.
+
+Verifiche eseguite:
+
+- `node --check core/runtime/channel-registry.js`
+- `node --check core/runtime/event-log-store.js`
+- `node --check core/runtime/runtime-graph-store.js`
+- `node --check core/runtime/dependency-manager.js`
+- `node --check js/boxTrackerEditor.js`
+- `node --check js/workspace.js`
+- `node --check js/workspaceView.js`
+- `curl -I http://127.0.0.1:3031/core/runtime/channel-registry.js`
+- `curl -I http://127.0.0.1:3031/core/runtime/event-log-store.js`
+- `curl -I http://127.0.0.1:3031/core/runtime/runtime-graph-store.js`
+- `curl -I http://127.0.0.1:3031/editorWorkspace.html`
+- `curl -I http://127.0.0.1:3031/editorBoxTracker.html`
+- `curl -I http://127.0.0.1:3031/workspace.html`
+
+Cosa manca / prossimi passi:
+
+- Test browser reale con dati IndexedDB esistenti e salvataggio workspace/tracker.
+- Estendere Runtime Inspector con deep link da dependency dialog e navigazione node-centric.
+- Aggiungere retention/cleanup per `tl_events`, per evitare crescita eccessiva con stream WebSocket.
+- Implementare validazione runtime per rename/delete channels.
+- Estendere dependency validation a boxLens, workspace, AI agents, processors e actions.
+
+## Aggiornamento 2026-05-15 - Runtime Inspector in connections.html
+
+Obiettivo della sessione: rendere visibili i dati runtime appena introdotti, usando `connections.html` come primo inspector operativo prima di costruire una Flow Map dedicata.
+
+Fatto:
+
+- `connections.html` ora carica:
+  - `core/runtime/dependency-manager.js`
+  - `core/runtime/channel-registry.js`
+  - `core/runtime/event-log-store.js`
+  - `core/runtime/runtime-graph-store.js`
+- `js/connectionsView.js` ora carica dati runtime da:
+  - `tl_channels`
+  - `tl_flows`
+  - `tl_events`
+  - `tl_runtime_nodes`
+  - `tl_runtime_dependencies`
+- Aggiunto `connectionRuntimeContext(connection)`, che correla la connessione selezionata con:
+  - channel collegati;
+  - runtime nodes;
+  - dependencies;
+  - flows;
+  - eventi recenti.
+- L'inspector destro di `connections.html` mostra ora una sezione `Runtime Inspector` con:
+  - metriche Channels / Nodes / Events;
+  - lista channels;
+  - lista runtime nodes;
+  - lista dependencies;
+  - recent events.
+- Aggiunto bottone refresh runtime nella topbar e nel pannello Runtime Inspector.
+- L'analytics footer mostra anche conteggi runtime graph: channels, flows, events e nodes.
+- Aggiornato `css/connectionsView.css` per metriche/list runtime compatte e scroll interno.
+
+Verifiche eseguite:
+
+- `node --check js/connectionsView.js`
+- `curl -I http://127.0.0.1:3031/connections.html`
+- `curl -I http://127.0.0.1:3031/js/connectionsView.js`
+- `curl -I http://127.0.0.1:3031/core/runtime/runtime-graph-store.js`
+
+Cosa manca / prossimi passi:
+
+- Test visuale browser con dati runtime reali generati da salvataggio tracker/workspace.
+- Fatto nell'aggiornamento successivo: inspector node-centric e retention/cleanup base per `tl_events`.
+
+## Aggiornamento 2026-05-15 - Deep link View Dependencies
+
+Obiettivo della sessione: collegare il dialog di cancellazione runtime-aware al Runtime Inspector.
+
+Fatto:
+
+- In `js/boxTrackerEditor.js`, il bottone `View Dependencies` del dialog "Questo box e utilizzato nel runtime" ora apre:
+
+```txt
+connections.html?runtime=dependencies&nodeId=<trackerId>&nodeType=boxTracker&channel=<channel>&connectionId=<connectionId>
+```
+
+- In `js/connectionsView.js` sono stati aggiunti query param runtime:
+  - `runtime`
+  - `nodeId`
+  - `nodeType`
+  - `channel`
+  - `connectionId`
+- `connections.html` ora prova a selezionare automaticamente la connection collegata al nodo/channel richiesto.
+- Il Runtime Inspector mostra un blocco `Dependency focus` quando la pagina arriva da un deep link.
+- Aggiunto bottone per pulire il focus runtime senza ricaricare la pagina.
+- Aggiunto stile in `css/connectionsView.css` per il focus runtime.
+
+Verifiche eseguite:
+
+- `node --check js/boxTrackerEditor.js`
+- `node --check js/connectionsView.js`
+- `curl -I "http://127.0.0.1:3031/connections.html?runtime=dependencies&nodeId=tracker_demo&nodeType=boxTracker&channel=btc.price"`
+- `curl -I http://127.0.0.1:3031/editorBoxTracker.html`
+
+Cosa manca / prossimi passi:
+
+- Test visuale end-to-end con un vero tracker usato da un workspace.
+- Fatto nell'aggiornamento successivo: inspector node-centric quando non esiste una connection diretta e retention/cleanup base per `tl_events`.
+
+## Aggiornamento 2026-05-15 - Node-centric inspector, retention eventi e delete workspace safety
+
+Obiettivo della sessione: continuare senza fermarsi sulla safety runtime e rendere l'inspector utile anche quando il deep link punta a un nodo senza connection diretta.
+
+Fatto:
+
+- `js/connectionsView.js` ora supporta inspector node-centric:
+  - se `connections.html` arriva con `nodeId` ma non trova una connection diretta, non seleziona piu automaticamente la prima connection;
+  - mostra `Dettagli Runtime Node`;
+  - mostra tipo, workspace, source ref, channels, inputs e outputs del nodo;
+  - mantiene le liste runtime di channels, nodes, dependencies ed eventi.
+- `css/connectionsView.css` aggiornato per il layout node-centric.
+- `core/runtime/event-log-store.js` ora ha retention automatica best-effort:
+  - max 500 eventi per workspace/channel;
+  - max 300 flow log per workspace.
+- `js/workspace.js` ora blocca la cancellazione normale di box selezionati quando ci sono connessioni workspace collegate.
+- Il pannello di conferma delete del workspace ora mostra:
+  - messaggio runtime-aware;
+  - elenco breve delle connessioni coinvolte;
+  - azioni Annulla, View, Force.
+- `View` apre `connections.html` con focus runtime su box/channel/connection coinvolti.
+- `css/workspace.css` aggiornato per lo stato bloccato e le righe dipendenze.
+
+Verifiche eseguite:
+
+- `node --check js/connectionsView.js`
+- `node --check core/runtime/event-log-store.js`
+- `node --check js/workspace.js`
+- `curl -I "http://127.0.0.1:3031/connections.html?runtime=dependencies&nodeId=tracker_demo&nodeType=boxTracker&channel=btc.price"`
+- `curl -I http://127.0.0.1:3031/core/runtime/event-log-store.js`
+- `curl -I http://127.0.0.1:3031/editorWorkspace.html`
+
+Cosa manca / prossimi passi:
+
+- Test visuale browser end-to-end con IndexedDB reale.
+- Estendere il delete scan workspace anche a `tl_runtime_dependencies` persistite, oltre alle connessioni locali correnti.
+- Aggiungere impostazioni UI per retention eventi.
+- Fatto nell'aggiornamento successivo: prima Flow Map visuale in `connections.html` graph view.
+
+## Aggiornamento 2026-05-15 - Prima Flow Map visuale runtime
+
+Obiettivo della sessione: iniziare la Flow Map visuale usando i dati reali runtime gia persistiti, senza aspettare una pagina dedicata separata.
+
+Fatto:
+
+- La vista `Graph` di `connections.html` non mostra piu solo nodi mock da `tl_connections`.
+- `js/connectionsView.js` ora costruisce un modello graph runtime da:
+  - `tl_runtime_nodes`
+  - `tl_runtime_dependencies`
+  - `tl_channels`
+  - `tl_flows`
+- Se non ci sono runtime nodes, la vista fa fallback ai collegamenti in `tl_connections`.
+- I nodi vengono tipizzati visualmente:
+  - boxTracker verde;
+  - boxLens blu;
+  - AI agent viola;
+  - processor purple;
+  - action oro;
+  - default cyan.
+- Le connessioni vengono disegnate come curve SVG tra source e target.
+- Cliccando un nodo nella Flow Map, il Runtime Inspector va in focus su quel nodo.
+- Quando `connections.html` arriva con query param runtime, apre direttamente la vista `Graph`.
+- Aggiornato `css/connectionsView.css` per il canvas Flow Map, header, linee SVG e nodi selezionati.
+
+Verifiche eseguite:
+
+- `node --check js/connectionsView.js`
+- `curl -I http://127.0.0.1:3031/connections.html`
+
+Cosa manca / prossimi passi:
+
+- Test visuale browser della Flow Map con IndexedDB reale.
+- Pan/zoom della Flow Map.
+- Inspector laterale dedicato per node details avanzati.
+- Fatto nell'aggiornamento successivo: live/error pulse da `tl_events`.
+- Valutare pagina dedicata `flowMap.html` quando la graph view supera lo spazio di `connections.html`.
+
+## Aggiornamento 2026-05-15 - Live pulse Flow Map
+
+Obiettivo della sessione: rendere la Flow Map non solo statica, ma capace di mostrare attivita runtime recente usando gli eventi gia persistiti in `tl_events`.
+
+Fatto:
+
+- `js/connectionsView.js` ora calcola attivita recente da `tl_events` con finestra di 60 secondi.
+- La Flow Map evidenzia nodi attivi con classe `is-live`.
+- La Flow Map evidenzia nodi/edge in errore con classe `is-error`.
+- Le linee SVG delle dependency attive usano animazione dash/pulse.
+- I nodi attivi mostrano count eventi e timestamp breve dell'ultimo evento.
+- Il header della Flow Map mostra conteggi:
+  - nodes;
+  - edges;
+  - live;
+  - errors.
+- La vista Graph ricarica i dati runtime ogni 10 secondi solo quando `connectionState.view === "graph"`.
+- `css/connectionsView.css` aggiornato con:
+  - animazione `tl-flow-pulse`;
+  - animazione `tl-node-pulse`;
+  - glow live/error per nodi;
+  - stroke live/error per edge.
+
+Verifiche eseguite:
+
+- `node --check js/connectionsView.js`
+- `curl -I http://127.0.0.1:3031/connections.html`
+
+Cosa manca / prossimi passi:
+
+- Test visuale browser con eventi reali prodotti da `workspace.html`.
+- Pan/zoom canvas Flow Map.
+- Fatto nell'aggiornamento successivo: filtri workspace/channel/activity.
+- Possibile estrazione in pagina dedicata `flowMap.html`.
+
+## Aggiornamento 2026-05-15 - Filtri Flow Map e delete scan persistito
+
+Obiettivo della sessione: rendere la Flow Map usabile su graph piu grandi e completare il primo blocco di sicurezza workspace con dependency persistite.
+
+Fatto:
+
+- `js/connectionsView.js` ora ha `flowFilters`:
+  - `workspaceId`;
+  - `channel`;
+  - `activity`.
+- La vista Graph mostra una barra filtri dentro il canvas:
+  - workspace;
+  - channel;
+  - All activity / Live only / Errors only.
+- Il filtro `channel` eredita il channel del deep link `View Dependencies`, quindi il graph si apre gia sul flusso interessato.
+- `runtimeGraphModel()` filtra nodi e dependency per workspace/channel.
+- `filterGraphByActivity()` filtra il graph in base agli eventi recenti live/error.
+- Aggiunto stato vuoto quando nessun nodo corrisponde ai filtri Flow Map.
+- `css/connectionsView.css` aggiornato per filter bar e stato vuoto.
+- `js/workspace.js` ora include anche `tl_runtime_dependencies` persistite nel controllo prima di eliminare box dal workspace.
+- Il pannello delete workspace mostra quante dependency persistite sono coinvolte.
+- La sidebar standard (`js/tl-sidebar.js`) ora espone una voce `Flow Map` che apre `connections.html?view=graph`.
+- `connections.html` legge `?view=graph` e attiva la voce Flow Map nella sidebar.
+
+Verifiche eseguite:
+
+- `node --check js/connectionsView.js`
+- `node --check js/workspace.js`
+- `curl -I http://127.0.0.1:3031/editorWorkspace.html`
+- `curl -I http://127.0.0.1:3031/connections.html`
+- `node --check js/tl-sidebar.js`
+- `curl -I "http://127.0.0.1:3031/connections.html?view=graph"`
+
+Cosa manca / prossimi passi:
+
+- Test visuale browser con IndexedDB reale.
+- Fatto nell'aggiornamento successivo: pan/zoom della Flow Map e movimento manuale nodi.
+- Filtri per status specifico dei nodi e per tipo nodo.
+- Estrarre `flowMap.html` quando serve spazio pieno dedicato.
+
+## Aggiornamento 2026-05-15 - Pan, zoom e movimento Flow Map
+
+Obiettivo della sessione: permettere di muovere la Flow Map invece di lasciarla come graph statico.
+
+Fatto:
+
+- `js/connectionsView.js` ora mantiene stato viewport Flow Map:
+  - zoom;
+  - pan X/Y;
+  - posizioni manuali dei nodi.
+- Aggiunti controlli UI nella vista Graph:
+  - zoom out;
+  - percentuale zoom;
+  - zoom in;
+  - reset viewport.
+- Il canvas Flow Map supporta drag per spostare la mappa.
+- I nodi Flow Map supportano drag manuale dentro il canvas.
+- `graphNodePosition()` usa la posizione manuale del nodo quando presente.
+- `core/runtime/runtime-graph-store.js` espone `updateFlowNodePosition()`.
+- Al termine del drag, la posizione manuale del nodo viene salvata come `flowPosition` in:
+  - `tl_flows`;
+  - `tl_runtime_nodes`.
+- Al caricamento della Flow Map, `runtimeGraphModel()` rilegge `flowPosition` dai flow/nodi runtime.
+- `css/connectionsView.css` aggiornato con layer trasformabile, cursori e stili dei controlli.
+
+Verifiche eseguite:
+
+- `node --check js/connectionsView.js`
+- `node --check core/runtime/runtime-graph-store.js`
+- `node --check js/workspace.js`
+- `curl -I "http://127.0.0.1:3031/connections.html?view=graph"`
+- `curl -I http://127.0.0.1:3031/core/runtime/runtime-graph-store.js`
+
+Cosa manca / prossimi passi:
+
+- Test visuale browser con IndexedDB reale.
+- Node details drawer avanzato.
+- Estrarre `flowMap.html` quando la Flow Map richiede spazio pieno dedicato.
+
+## Aggiornamento 2026-05-15 - Flow Map dedicata
+
+Decisione architetturale: la Flow Map non deve vivere come vista principale dentro `connections.html`, perche rompe la responsabilita della pagina Collegamenti e limita troppo lo spazio del canvas.
+
+Fatto:
+
+- Creata pagina dedicata `flowMap.html`.
+- Aggiunto `js/flowMapView.js`:
+  - legge `tl_channels`;
+  - legge `tl_flows`;
+  - legge `tl_events`;
+  - legge `tl_runtime_nodes`;
+  - legge `tl_runtime_dependencies`;
+  - usa `tl_connections` solo come supporto/futuro fallback.
+- Aggiunto `css/flowMap.css` con layout runtime dedicato:
+  - sidebar Trackers Lens;
+  - palette nodi a sinistra;
+  - canvas Flow Map centrale full-space;
+  - node inspector a destra;
+  - runtime overview;
+  - event inspector inferiore.
+- La Flow Map dedicata supporta:
+  - filtri workspace/channel/type/activity;
+  - pan canvas;
+  - zoom;
+  - reset viewport;
+  - drag nodi;
+  - persistenza `flowPosition` tramite `TrackerLensRuntimeGraphStore.updateFlowNodePosition()`;
+  - deep link runtime `?runtime=dependencies&nodeId=...&nodeType=...&channel=...`.
+- Aggiornato `js/tl-sidebar.js`: la voce Flow Map ora apre `flowMap.html`.
+- Aggiornato `js/boxTrackerEditor.js`: `View Dependencies` apre `flowMap.html`.
+- Aggiornato `js/workspace.js`: `View Dependencies` apre `flowMap.html`.
+- Aggiornato `js/connectionsView.js`: la pagina Collegamenti non usa piu la Graph view come destinazione principale; il bottone graph apre `flowMap.html` preservando il focus runtime.
+- Aggiunto redirect compatibile da `connections.html?view=graph` a `flowMap.html`.
+
+Verifiche eseguite:
+
+- `node --check js/flowMapView.js`
+- `node --check js/connectionsView.js`
+- `node --check js/boxTrackerEditor.js`
+- `node --check js/workspace.js`
+- `curl -I http://127.0.0.1:3031/flowMap.html`
+- `curl -I "http://127.0.0.1:3031/flowMap.html?runtime=dependencies&nodeId=tracker_demo&nodeType=boxTracker&channel=btc.price"`
+- `curl -I http://127.0.0.1:3031/css/flowMap.css`
+- `curl -I http://127.0.0.1:3031/js/flowMapView.js`
+
+Cosa manca / prossimi passi:
+
+- Test visuale browser con dati IndexedDB reali.
+- Estrarre la logica graph condivisa da `connectionsView.js` e `flowMapView.js` in un modulo comune runtime.
+- Rifinire node inspector con tabs reali per Outputs, Logs e Stats.
+- Pulizia dei CSS graph legacy rimasti in `css/connectionsView.css` quando la migrazione sara stabilizzata.
+
+## Aggiornamento 2026-05-15 - Pulizia Connections e Runtime Snapshot
+
+Obiettivo della sessione: continuare la separazione tra pagina Collegamenti e pagina Flow Map, evitando duplicazioni runtime inutili.
+
+Fatto:
+
+- `js/connectionsView.js` non contiene piu:
+  - stato pan/zoom Flow Map;
+  - filtri canvas Flow Map;
+  - drag nodi;
+  - renderer graph runtime;
+  - helper visuali Flow Map.
+- `css/connectionsView.css` non contiene piu gli stili `.tl-link-graph-*` e `.tl-flow-*`.
+- Aggiunto `core/runtime/runtime-snapshot-store.js`.
+- `runtime-snapshot-store.js` centralizza lettura di:
+  - `tl_channels`;
+  - `tl_flows`;
+  - `tl_events`;
+  - `tl_runtime_nodes`;
+  - `tl_runtime_dependencies`;
+  - `tl_connections`.
+- `connections.html` e `flowMap.html` caricano il nuovo snapshot store.
+- `js/connectionsView.js` usa lo snapshot store per il Runtime Inspector.
+- `js/flowMapView.js` usa lo snapshot store per la Flow Map.
+
+Verifiche eseguite:
+
+- `node --check core/runtime/runtime-snapshot-store.js`
+- `node --check js/connectionsView.js`
+- `node --check js/flowMapView.js`
+- `curl -I http://127.0.0.1:3031/core/runtime/runtime-snapshot-store.js`
+- `curl -I http://127.0.0.1:3031/flowMap.html`
+- `curl -I http://127.0.0.1:3031/connections.html`
+- `curl -I "http://127.0.0.1:3031/connections.html?view=graph&nodeId=demo"`
+
+Cosa manca / prossimi passi:
+
+- Estrarre il graph model puro da `js/flowMapView.js` verso un modulo runtime dedicato.
+- Test visuale browser con dati IndexedDB reali.
+- Rifinire inspector tabs reali Outputs / Logs / Stats.
+
+## Aggiornamento 2026-05-15 - Runtime Graph Model condiviso
+
+Obiettivo della sessione: togliere da `js/flowMapView.js` la logica pura di costruzione graph, lasciando alla pagina Flow Map solo rendering e interazione UI.
+
+Fatto:
+
+- Aggiunto `core/runtime/runtime-graph-model.js`.
+- Il modulo espone:
+  - `build()`;
+  - `nodeChannels()`;
+  - `nodePosition()`;
+  - `recentActivity()`;
+  - `filterByActivity()`;
+  - `toneForType()`;
+  - `iconForType()`.
+- `flowMap.html` carica il nuovo modulo prima di `js/flowMapView.js`.
+- `js/flowMapView.js` usa `TrackerLensRuntimeGraphModel` per:
+  - costruire il graph runtime;
+  - applicare filtri workspace/channel/type;
+  - calcolare posizioni nodi;
+  - calcolare live/error activity;
+  - filtrare per activity;
+  - risolvere icone e colori nodo.
+
+Verifiche eseguite:
+
+- `node --check core/runtime/runtime-graph-model.js`
+- `node --check js/flowMapView.js`
+- `curl -I http://127.0.0.1:3031/core/runtime/runtime-graph-model.js`
+- `curl -I http://127.0.0.1:3031/flowMap.html`
+
+Cosa manca / prossimi passi:
+
+- Test visuale browser con dati IndexedDB reali.
+- Runtime cleanup quando box/connection vengono rimossi.
+- Tabs reali Outputs / Logs / Stats nell'inspector Flow Map.
+
+## Aggiornamento 2026-05-15 - Runtime cleanup su sync/delete
+
+Obiettivo della sessione: evitare nodi, dependency e connection fantasma nella Flow Map dopo cancellazioni o salvataggi workspace.
+
+Fatto:
+
+- `core/runtime/runtime-graph-store.js`:
+  - aggiunto `deleteRecords()`;
+  - `syncWorkspaceGraph()` ora legge i record esistenti dello stesso workspace;
+  - elimina `tl_runtime_nodes` non piu presenti nel workspace;
+  - elimina `tl_runtime_dependencies` non piu presenti nel workspace;
+  - preserva `flowPosition` manuale dei nodi ancora presenti;
+  - aggiorna `tl_flows` con nodes/connections correnti;
+  - aggiunto `cleanupConnectionReferences({ connectionId })`.
+- `js/tl-connections-store.js`:
+  - aggiunto `removeMany()`;
+  - `syncWorkspaceConnections()` ora elimina da `tl_connections` i collegamenti stale dello stesso workspace.
+- `core/runtime/channel-registry.js`:
+  - aggiunto `deleteRecords()`;
+  - `syncWorkspaceChannels()` ora elimina channel workspace stale;
+  - `syncWorkspaceChannels()` ora elimina runtime dependencies stale dello stesso workspace.
+- `js/connectionsView.js`:
+  - quando un collegamento viene eliminato, chiama `TrackerLensRuntimeGraphStore.cleanupConnectionReferences()`;
+  - ricarica il Runtime Inspector dopo il cleanup.
+
+Verifiche eseguite:
+
+- `node --check core/runtime/runtime-graph-store.js`
+- `node --check core/runtime/channel-registry.js`
+- `node --check js/tl-connections-store.js`
+- `node --check js/workspace.js`
+- `node --check js/connectionsView.js`
+- `curl -I http://127.0.0.1:3031/core/runtime/runtime-graph-store.js`
+- `curl -I http://127.0.0.1:3031/connections.html`
+
+Cosa manca / prossimi passi:
+
+- Test browser con cancellazione reale di box/connection e verifica Flow Map.
+- Cleanup opzionale degli eventi storici `tl_events` legati a nodi cancellati, da definire con retention policy.
+- Inspector tabs reali Outputs / Logs / Stats.
+
+## Aggiornamento 2026-05-15 - Inspector tabs e cleanup eventi runtime
+
+Obiettivo della sessione: completare due parti rimaste aperte dopo la separazione della Flow Map: inspector tabs reali e cleanup eventi collegato alle cancellazioni.
+
+Fatto:
+
+- `js/flowMapView.js`:
+  - aggiunto stato `inspectorTab`;
+  - tab `Details` mostra informazioni generali, channel e dependencies;
+  - tab `Outputs` mostra outputs, inputs e record Channel Registry;
+  - tab `Logs` mostra eventi runtime recenti del nodo;
+  - tab `Stats` mostra incoming/outgoing edges, channels, eventi recenti, errori e status.
+- `css/flowMap.css`:
+  - le tab dell'inspector sono ora button reali, non span decorativi.
+- `core/runtime/event-log-store.js`:
+  - aggiunto `deleteRecords()`;
+  - aggiunto `listFlowLogs()`;
+  - aggiunto `cleanupNodeReferences({ nodeIds, workspaceId })`;
+  - aggiunto `cleanupConnectionReferences({ connectionId, workspaceId })`;
+  - `recordEvent()` ora accetta `connectionId`;
+  - `recordFlowLog()` ora accetta `connectionId`.
+- `js/workspace.js`:
+  - quando vengono eliminati box dal workspace, richiama cleanup eventi/log per i node id eliminati.
+- `js/connectionsView.js`:
+  - quando viene eliminato un collegamento, richiama cleanup eventi/log per il connection id.
+- `editorWorkspace.html`:
+  - carica `core/runtime/event-log-store.js`, necessario per cleanup durante delete workspace.
+
+Verifiche eseguite:
+
+- `node --check core/runtime/event-log-store.js`
+- `node --check js/connectionsView.js`
+- `node --check js/workspace.js`
+- `node --check js/flowMapView.js`
+- `curl -I http://127.0.0.1:3031/core/runtime/event-log-store.js`
+- `curl -I http://127.0.0.1:3031/editorWorkspace.html`
+- `curl -I http://127.0.0.1:3031/flowMap.html`
+- Browser headless DOM check su `flowMap.html`
+- Browser headless DOM check su `connections.html`
+
+Cosa manca / prossimi passi:
+
+- Test manuale nel browser con dataset reale: creare workspace, creare connection, cancellare box/connection e verificare Flow Map.
+- Aggiungere controlli Settings per retention/cleanup eventi.
+- Migliorare UX delle palette node in Flow Map collegandole ad azioni reali.
+
+## Aggiornamento 2026-05-15 - Palette Flow Map collegata
+
+Obiettivo della sessione: evitare che la palette `Add Node` della Flow Map sia solo decorativa.
+
+Fatto:
+
+- `js/flowMapView.js`:
+  - i pulsanti Sources aprono `editorBoxTracker.html` con parametri coerenti:
+    - REST API -> `source=rest&trackerType=rest&runtimeMode=interval`;
+    - WebSocket -> `source=websocket&trackerType=websocket&runtimeMode=real-time`;
+    - RSS Feed -> `source=rss&trackerType=rss&runtimeMode=interval`;
+  - Existing Tracker apre `library.html`;
+  - Box Lens apre `editorBoxLens.html`;
+  - AI nodes aprono `ai.html`;
+  - Save to DB apre `database.html`;
+  - webhook/processor/action nodes aprono `connections.html` con `type` prefiltrato;
+  - workspace/channel correnti vengono propagati nella query quando presenti.
+- `js/boxTrackerEditor.js`:
+  - legge `source`, `trackerType`, `runtimeMode` e `mode` dalla query string per inizializzare il nuovo tracker.
+- `js/connectionsView.js`:
+  - legge `type` dalla query string per impostare filtro e selected type iniziali.
+
+Verifiche eseguite:
+
+- `node --check js/flowMapView.js`
+- `node --check js/boxTrackerEditor.js`
+- `node --check js/connectionsView.js`
+- `curl -I "http://127.0.0.1:3031/editorBoxTracker.html?source=rest&trackerType=rest&runtimeMode=interval"`
+- `curl -I "http://127.0.0.1:3031/connections.html?type=Webhook%20Call"`
+- `curl -I http://127.0.0.1:3031/flowMap.html`
+
+Cosa manca / prossimi passi:
+
+- Drag-to-create reale sul canvas.
+- Wizard per configurare processor/action direttamente dalla Flow Map.
+- Test manuale con dataset runtime reale.
+
+## Aggiornamento 2026-05-15 - Drag-to-create draft nodes
+
+Obiettivo della sessione: rendere la Flow Map capace di creare nodi runtime draft via drag dalla palette al canvas.
+
+Fatto:
+
+- `core/runtime/runtime-graph-store.js`:
+  - aggiunto `createDraftNode()`;
+  - crea record `draft_*` in `tl_runtime_nodes`;
+  - aggiorna/crea il flow workspace in `tl_flows`;
+  - salva `flowPosition` nel punto di drop;
+  - marca il nodo con `status: "draft"` e `metadata.draft = true`.
+- `js/flowMapView.js`:
+  - i palette item sono draggable;
+  - il canvas accetta dragover/drop;
+  - il drop calcola la posizione percentuale nel canvas;
+  - il drop crea un draft runtime node nello workspace corrente o in `workspace_global`;
+  - il nodo draft viene selezionato e la Flow Map ricarica lo snapshot runtime.
+- `css/flowMap.css`:
+  - aggiunti cursori grab/grabbing per palette item draggable.
+
+Verifiche eseguite:
+
+- `node --check js/flowMapView.js`
+- `node --check core/runtime/runtime-graph-store.js`
+- `curl -I http://127.0.0.1:3031/js/flowMapView.js`
+- `curl -I http://127.0.0.1:3031/core/runtime/runtime-graph-store.js`
+
+Nota aggiunta:
+
+- `Link Here` controlla source, target e channel prima di scrivere;
+- se il collegamento esiste gia, viene selezionato l'edge esistente invece di creare duplicati.
+- se IndexedDB fallisce durante la creazione link, la Flow Map mostra `state.error` invece di lasciare solo un errore console.
+
+## Aggiornamento 2026-05-16 - Promozione draft Flow Map verso boxLens reale
+
+Obiettivo della sessione: chiudere anche il percorso runtime `drag Box Lens -> Configure Draft -> Save Lens`, come gia fatto per `boxTracker`.
+
+Fatto:
+
+- `editorBoxLens.html`:
+  - carica ora `core/runtime/runtime-graph-store.js`.
+- `js/boxLensEditor.js`:
+  - legge query param runtime da Flow Map:
+    - `workspaceId`;
+    - `channel`;
+    - `draftNodeId`;
+    - `runtimeLabel`;
+  - inizializza nome e channel default del boxLens usando il contesto runtime quando disponibile;
+  - mostra bottone `Flow Map` quando l'editor e aperto da un draft node;
+  - dopo il salvataggio chiama `TrackerLensRuntimeGraphStore.promoteDraftNode()`;
+  - promuove il draft in un runtime node `boxLens` reale con:
+    - `inputs` dai channels del boxLens;
+    - `sourceRef` / `assetId` puntati al record salvato in `tl_widgets`;
+    - status `active` / `inactive`;
+    - metadata `boxType`, `visibility` e `paletteLabel`.
+- `tasks/active_tasks.md`:
+  - aggiornato TASK-007: resta da estendere il pattern ad AI Agent, Processor e Action.
+
+Verifiche eseguite:
+
+- `node --check js/boxLensEditor.js`
+- `node --check core/runtime/runtime-graph-store.js`
+- `curl -I` su `editorBoxLens.html` con parametri runtime draft
+- `curl -I http://127.0.0.1:3031/js/boxLensEditor.js`
+- `curl -I http://127.0.0.1:3031/core/runtime/runtime-graph-store.js`
+
+Nota verifica:
+
+- Il controllo headless Chrome su `editorBoxLens.html` non ha prodotto output utile in questa sessione; le verifiche sintattiche e HTTP sono passate.
+
+## Aggiornamento 2026-05-16 - Config inline Processor, Action e AI Agent
+
+Obiettivo della sessione: evitare che i draft `processor`, `action` e `aiAgent` restino nodi orfani in Flow Map in attesa di pagine dedicate.
+
+Fatto:
+
+- `core/runtime/runtime-graph-store.js`:
+  - aggiunta API `upsertRuntimeNode({ node })`;
+  - aggiorna/crea un record in `tl_runtime_nodes`;
+  - aggiorna anche il record `tl_flows.nodes` del workspace;
+  - conserva metadata esistenti e normalizza `createdAt` / `updatedAt`.
+- `js/flowMapView.js`:
+  - aggiunto riconoscimento nodi inline-configurabili:
+    - `processor`;
+    - `action`;
+    - `aiAgent`;
+  - `Configure Draft` / `Open Config` apre un dialog CMSwift interno invece di mandare sempre a `connections.html`;
+  - il dialog permette di impostare:
+    - label;
+    - input channel;
+    - output channel, escluso action;
+    - mode / action type / agent role;
+    - config libera per JSON, prompt, regole o target;
+  - il salvataggio imposta `status: active`, `metadata.configured: true` e `metadata.draft: false`;
+  - dopo il salvataggio ricarica la Flow Map e mantiene il nodo selezionato.
+- `css/flowMap.css`:
+  - aggiunto stile per form configurazione runtime inline.
+- `tasks/active_tasks.md`:
+  - TASK-007 aggiornato: resta da sostituire l'MVP inline con wizard/editor piu ricchi.
+
+Verifiche eseguite:
+
+- `node --check js/flowMapView.js`
+- `node --check core/runtime/runtime-graph-store.js`
+- `curl -I http://127.0.0.1:3031/js/flowMapView.js`
+- `curl -I http://127.0.0.1:3031/css/flowMap.css`
+- Browser headless DOM check su `flowMap.html`
+
+## Aggiornamento 2026-05-16 - Channel Registry per nodi runtime inline
+
+Obiettivo della sessione: rendere coerenti i channel quando un nodo Processor, Action o AI Agent viene configurato direttamente dalla Flow Map.
+
+Fatto:
+
+- `core/runtime/channel-registry.js`:
+  - aggiunta API `upsertChannelsForRuntimeNode({ node })`;
+  - registra gli output del nodo come producer channel;
+  - registra gli input del nodo come subscriber;
+  - rimuove riferimenti stale del nodo da channel non piu usati;
+  - conserva metadata esistenti dei channel quando possibile.
+- `js/flowMapView.js`:
+  - dopo `TrackerLensRuntimeGraphStore.upsertRuntimeNode()` chiama `TrackerLensChannelRegistry.upsertChannelsForRuntimeNode()`;
+  - se l'utente cambia input/output su un nodo con dependency attive, mostra dialog CMSwift `Channel usati nel runtime`;
+  - `Save Anyway` consente il salvataggio esplicito e aggiorna node + Channel Registry.
+
+Verifiche eseguite:
+
+- `node --check js/flowMapView.js`
+- `node --check core/runtime/channel-registry.js`
+- `curl -I http://127.0.0.1:3031/core/runtime/channel-registry.js`
+- `curl -I http://127.0.0.1:3031/js/flowMapView.js`
+
+## Aggiornamento 2026-05-16 - Delete nodi runtime inline configurati
+
+Obiettivo della sessione: completare il ciclo operativo MVP dei nodi Processor, Action e AI Agent configurati inline, aggiungendo cancellazione sicura e cleanup registry.
+
+Fatto:
+
+- `core/runtime/channel-registry.js`:
+  - aggiunta API `cleanupNodeReferences({ nodeId, workspaceId })`;
+  - rimuove il nodo da `producerNodeId`, `producerBoxId` e `subscribers` nei channel collegati;
+  - aggiorna `updatedAt` dei record toccati.
+- `js/flowMapView.js`:
+  - `Delete Node` e ora disponibile per nodi inline configurati (`processor`, `action`, `aiAgent`);
+  - il dialog riusa il warning runtime-aware con conteggio dependency;
+  - la cancellazione pulisce:
+    - `tl_runtime_nodes`;
+    - `tl_runtime_dependencies`;
+    - `tl_flows.nodes`;
+    - `tl_events` / `tl_flow_logs`;
+    - riferimenti in `tl_channels`.
+- `tasks/active_tasks.md`:
+  - aggiornato TASK-007 con il cleanup completo dei nodi inline configurati.
+
+Verifiche eseguite:
+
+- `node --check js/flowMapView.js`
+- `node --check core/runtime/channel-registry.js`
+- `curl -I http://127.0.0.1:3031/js/flowMapView.js`
+- `curl -I http://127.0.0.1:3031/core/runtime/channel-registry.js`
+
+## Aggiornamento 2026-05-16 - Undo Node per Flow Map
+
+Obiettivo della sessione: aggiungere un recupero rapido dopo la cancellazione di nodi runtime, coerente con `Undo Link`.
+
+Fatto:
+
+- `js/flowMapView.js`:
+  - aggiunto stato `lastDeletedNode`;
+  - prima di cancellare un runtime node salva snapshot in memoria con:
+    - record node;
+    - dependency persistenti collegate;
+    - channel records collegati;
+  - la topbar mostra `Undo Node` quando esiste uno snapshot;
+  - `Undo Node` ripristina:
+    - runtime node tramite `TrackerLensRuntimeGraphStore.upsertRuntimeNode()`;
+    - dependency persistenti tramite `TrackerLensRuntimeGraphStore.upsertDependency()`;
+    - channel records tramite `TrackerLensChannelRegistry.restoreChannelRecords()`;
+  - dopo il restore seleziona il nodo ripristinato.
+- `core/runtime/channel-registry.js`:
+  - aggiunta API `restoreChannelRecords(records)`.
+
+Nota tecnica:
+
+- L'undo e in memoria e dura finche la pagina resta aperta.
+- Non ripristina eventi/log cancellati; per ora ripristina il grafo runtime e il registry, che sono i riferimenti piu critici.
+
+Verifiche eseguite:
+
+- `node --check js/flowMapView.js`
+- `node --check core/runtime/channel-registry.js`
+- `curl -I http://127.0.0.1:3031/js/flowMapView.js`
+- `curl -I http://127.0.0.1:3031/core/runtime/channel-registry.js`
+- `curl -I http://127.0.0.1:3031/css/flowMap.css`
+- Browser headless DOM check su `flowMap.html`
+
+Cosa manca / prossimi passi:
+
+- Test manuale drag/drop in browser reale con IndexedDB.
+- Conversione draft node -> asset reale/editor specifico.
+- Wizard per configurare processor/action direttamente dalla Flow Map.
+
+## Aggiornamento 2026-05-15 - Fix drag palette Flow Map
+
+Problema rilevato: il drag-to-create basato sul drag/drop HTML nativo dei `<button>` della palette non era affidabile. In pratica il browser poteva non avviare correttamente il drop sul canvas.
+
+Fatto:
+
+- `js/flowMapView.js`:
+  - aggiunto drag pointer-based per la palette;
+  - `beginPalettePointer()`;
+  - `handlePalettePointerMove()`;
+  - `endPalettePointer()`;
+  - `cancelPalettePointer()`;
+  - il rilascio sopra `.tl-flow-canvas` crea il draft node tramite `createDraftNodeAtPoint()`;
+  - il click semplice resta attivo e apre l'editor/pagina corretta;
+  - il click viene soppresso solo dopo un vero drag.
+- `css/flowMap.css`:
+  - aggiunta classe `.is-draggable`;
+  - aggiunto stato globale `body.is-flow-palette-dragging`;
+  - il canvas viene evidenziato durante il drag.
+- Rimosso l'uso operativo del drag nativo HTML dai palette button per evitare interferenze.
+
+Verifiche eseguite:
+
+- `node --check js/flowMapView.js`
+- `rg -n "draggable|is-draggable|beginPalettePointer|handleCanvasDrop" js/flowMapView.js css/flowMap.css`
+
+Cosa manca / prossimi passi:
+
+- Test manuale in browser reale con mouse/trackpad.
+- Se serve, aggiungere ghost preview del nodo durante il drag.
+
+## Aggiornamento 2026-05-15 - Colori palette Flow Map
+
+Obiettivo della sessione: rendere il menu `Add Node` della Flow Map piu leggibile e vicino al riferimento visuale, con icone colorate per tipo nodo.
+
+Fatto:
+
+- `js/flowMapView.js`:
+  - aggiunta proprieta `tone` agli item della palette;
+  - Sources:
+    - REST API verde;
+    - WebSocket giallo;
+    - RSS arancio;
+    - Webhook viola;
+  - Trackers:
+    - Box Tracker giallo;
+    - Existing Tracker verde;
+  - Processors:
+    - Filter viola;
+    - Transform blu;
+    - Condition rosso;
+    - Throttle arancio;
+  - AI Agents:
+    - Analyzer viola;
+    - Sentiment blu;
+    - Debugger lime;
+  - Outputs:
+    - Box Lens rosa;
+    - Notification giallo;
+    - Save to DB cyan;
+    - Webhook Call teal.
+- `css/flowMap.css`:
+  - aggiunti tile icona colorati dentro gli item;
+  - aggiunto bordo/gradient leggero per colore;
+  - aggiunto hover piu visibile;
+  - aggiunti dot colorati sui titoli delle sezioni.
+
+Verifiche eseguite:
+
+- `node --check js/flowMapView.js`
+- `curl -I http://127.0.0.1:3031/css/flowMap.css`
+- `curl -I http://127.0.0.1:3031/js/flowMapView.js`
+- Browser headless DOM check su `flowMap.html`
+
+## Aggiornamento 2026-05-15 - Parita colori/icona palette e canvas Flow Map
+
+Problema rilevato: i button della palette avevano colore/icona corretti, ma i draft node creati sul canvas potevano usare il fallback generico del tipo nodo. Esempio: `REST API` era verde nella palette ma il box canvas poteva avere icona/colore diversi.
+
+Fatto:
+
+- `js/flowMapView.js`:
+  - `createDraftNodeAtPoint()` salva nei metadata del draft node:
+    - `paletteLabel`;
+    - `paletteAction`;
+    - `tone`;
+    - `icon`.
+  - il rendering dei nodi canvas usa `graphTone(node)` e `graphIcon(node)` invece del solo tipo.
+- `core/runtime/runtime-graph-model.js`:
+  - aggiunta mappa visuale per label palette;
+  - `toneForType()` e `iconForType()` leggono prima metadata/node, poi fallback da label;
+  - i draft node gia creati prima della modifica possono ereditare colore/icona dal label senza essere ricreati.
+- `css/flowMap.css`:
+  - i box canvas usano `--node-rgb` per bordo, glow, background e tile icona;
+  - l'icona dell'inspector usa lo stesso token colore del nodo.
+
+Verifiche eseguite:
+
+- `node --check js/flowMapView.js`
+- `node --check core/runtime/runtime-graph-model.js`
+
+Cosa manca / prossimi passi:
+
+- Test manuale in browser reale del drag `REST API` -> canvas per confermare parita visuale con IndexedDB reale.
+
+## Aggiornamento 2026-05-16 - Azioni draft node Flow Map
+
+Obiettivo della sessione: rendere i draft node creati dal drag della palette gestibili direttamente dall'inspector, senza lasciarli come nodi runtime orfani.
+
+Fatto:
+
+- `core/runtime/runtime-graph-store.js`:
+  - aggiunta `deleteRuntimeNodeReferences()`;
+  - la rimozione cancella:
+    - record in `tl_runtime_nodes`;
+    - dependency collegate in `tl_runtime_dependencies`;
+    - riferimenti nodo dentro `tl_flows.nodes`.
+- `js/flowMapView.js`:
+  - aggiunto resolver `paletteItemForNode()`;
+  - aggiunto `configureNode()` per aprire l'entry point corretto partendo da un draft node selezionato;
+  - aggiunto `deleteRuntimeNode()` con conferma se esistono dependency runtime;
+  - l'inspector ora mostra:
+    - `Configure Draft`;
+    - `Delete Draft`;
+  - i link di configurazione portano con se `workspaceId`, `channel`, `runtimeNodeId`, `draftNodeId` e `runtimeLabel`.
+- `css/flowMap.css`:
+  - aggiunte azioni compatte nell'inspector;
+  - corretto un carattere `}` extra nella sezione colori palette.
+
+Verifiche eseguite:
+
+- `node --check js/flowMapView.js`
+- `node --check core/runtime/runtime-graph-store.js`
+- `curl -I http://127.0.0.1:3031/flowMap.html`
+- Browser headless DOM check su `flowMap.html`
+
+Cosa manca / prossimi passi:
+
+- Conversione completa draft -> record reale quando l'editor salva il nuovo box/agent/action.
+- Dialog CMSwift dedicato al posto di `window.confirm()` per la cancellazione draft con dependency.
+
+## Aggiornamento 2026-05-16 - Promozione draft Flow Map verso boxTracker reale
+
+Obiettivo della sessione: chiudere il percorso runtime `drag REST API -> Configure Draft -> Save Tracker`, evitando che il draft rimanga separato dal boxTracker salvato.
+
+Fatto:
+
+- `core/runtime/runtime-graph-store.js`:
+  - aggiunta `promoteDraftNode()`;
+  - la promozione:
+    - legge il draft node;
+    - crea/sostituisce il runtime node reale con ID del tracker salvato;
+    - conserva `flowPosition`;
+    - aggiorna dependency che puntavano al draft;
+    - aggiorna `tl_flows.nodes`;
+    - salva metadata `promotedFrom`.
+- `flowMap.html` / `js/flowMapView.js`:
+  - `Configure Draft` passa a editor/pagine di configurazione:
+    - `workspaceId`;
+    - `channel`;
+    - `runtimeNodeId`;
+    - `draftNodeId`;
+    - `runtimeLabel`.
+- `editorBoxTracker.html`:
+  - carica `core/runtime/runtime-graph-store.js`.
+- `js/boxTrackerEditor.js`:
+  - legge `workspaceId`, `channel`, `draftNodeId`, `runtimeLabel`;
+  - usa `workspaceId` reale per registrare il channel;
+  - se `draftNodeId` esiste, dopo il salvataggio chiama `promoteDraftNode()`;
+  - mostra un'azione `Flow Map` nel topbar quando l'editor e stato aperto da un draft runtime;
+  - il messaggio di salvataggio indica quando il draft runtime e stato promosso.
+
+Verifiche eseguite:
+
+- `node --check js/boxTrackerEditor.js`
+- `node --check core/runtime/runtime-graph-store.js`
+- `curl -I` su `editorBoxTracker.html` con parametri draft runtime
+- Browser headless DOM check su `editorBoxTracker.html`
+
+Cosa manca / prossimi passi:
+
+- Applicare lo stesso pattern di promozione a `boxLens`, AI Agent, Processor e Action.
+- Dopo salvataggio, valutare redirect automatico verso `flowMap.html?nodeId=<trackerId>`.
+
+## Aggiornamento 2026-05-16 - Bridge libreria IndexedDB verso Flow Map
+
+Problema rilevato: `library.html` mostrava dati salvati in IndexedDB perche legge `tl_widgets` / `tl_pages` tramite `TrackerLensLocalLibrary`, mentre `flowMap.html` leggeva solo gli store runtime gia materializzati (`tl_runtime_nodes`, `tl_flows`, `tl_runtime_dependencies`, `tl_channels`). Quindi un box salvato in libreria ma non ancora inserito/promosso nel grafo runtime non appariva nella Flow Map.
+
+Fatto:
+
+- `flowMap.html`:
+  - carica ora `js/tl-local-library.js`.
+- `js/flowMapView.js`:
+  - legge anche `TrackerLensLocalLibrary.listLibraryItems()`;
+  - converte `boxTracker` e `boxLens` della libreria in nodi virtuali `library_local`;
+  - evita duplicati se lo stesso asset e gia presente come runtime node;
+  - mostra origine `Local Library` nell'inspector;
+  - aggiorna header canvas con `tl_runtime_nodes + tl_widgets`;
+  - aggiunge conteggio `library` nei metric summary.
+- `core/runtime/runtime-graph-model.js`:
+  - corretto filtro workspace `all`: non forza piu il primo workspace disponibile;
+  - questo permette di vedere insieme runtime nodes e nodi virtuali di libreria.
+
+Nota runtime:
+
+- Il bridge e non distruttivo: non scrive in IndexedDB e non materializza automaticamente i box libreria in `tl_runtime_nodes`.
+- I nodi libreria sono visibilità/inspect, mentre la materializzazione runtime resta gestita da workspace sync o promozione draft.
+
+Verifiche eseguite:
+
+- `node --check js/flowMapView.js`
+- `node --check core/runtime/runtime-graph-model.js`
+- `curl -I http://127.0.0.1:3031/flowMap.html`
+- `curl -I http://127.0.0.1:3031/js/tl-local-library.js`
+- Browser headless DOM check su `flowMap.html`
+
+Cosa manca / prossimi passi:
+
+- Test manuale nello stesso browser/profilo dove `library.html` mostra i dati reali IndexedDB.
+- Aggiungere filtro origine `Runtime / Library / All`.
+
+## Aggiornamento 2026-05-16 - Collegamenti visuali Flow Map
+
+Obiettivo della sessione: mostrare i collegamenti nella Flow Map anche quando non sono ancora materializzati solo in `tl_runtime_dependencies`, e migliorare la grafica delle linee come nel riferimento visuale.
+
+Fatto:
+
+- `js/flowMapView.js`:
+  - aggiunto merge dei collegamenti da tre fonti:
+    - dependency reali `tl_runtime_dependencies`;
+    - connessioni salvate/importate `tl_connections`;
+    - collegamenti inferiti quando producer e consumer condividono lo stesso channel;
+  - aggiunta risoluzione flessibile dei nodi tramite `id`, `sourceRef`, `assetId` e `label`;
+  - i collegamenti virtuali sono marcati con metadata:
+    - `source: tl_connections`;
+    - `source: channel-match`;
+  - il canvas ora disegna ogni edge come gruppo SVG con:
+    - linea glow;
+    - linea principale;
+    - porta source;
+    - porta target.
+- `css/flowMap.css`:
+  - aggiunti colori edge coerenti con il tone del nodo sorgente;
+  - aggiunto glow sulle linee;
+  - aggiunti endpoint/porte colorate;
+  - le dependency virtuali usano tratto tratteggiato;
+  - live/error mantengono animazione e colore dedicati.
+
+Nota runtime:
+
+- Questa modifica non scrive nuovi collegamenti in IndexedDB; rende visibili quelli esistenti o inferibili.
+- La persistenza formale resta `tl_runtime_dependencies`; il merge serve come bridge visuale finché tutto il runtime non materializza automaticamente ogni relazione.
+
+Verifiche eseguite:
+
+- `node --check js/flowMapView.js`
+- `curl -I http://127.0.0.1:3031/js/flowMapView.js`
+
+## Aggiornamento 2026-05-16 - Stato finale Flow Map runtime controls
+
+Obiettivo della sessione: chiudere gli ultimi affinamenti operativi della Flow Map dopo il renderer ibrido.
+
+Fatto:
+
+- `js/flowMapView.js`:
+  - `Delete Draft` usa ora un dialog CMSwift runtime-aware, non piu `window.confirm()`;
+  - il dialog draft mostra node, type, workspace e numero dependency prima di pulire graph/event references;
+  - aggiunto filtro `origin` con opzioni `All origins`, `Runtime`, `Library`;
+  - supportato query param `?origin=runtime` / `?origin=library`;
+  - aggiunto `fitVisibleGraph()` per centrare e scalare i nodi visibili nel canvas;
+  - il bottone griglia e stato chiarito come `Reset view`.
+- `core/runtime/runtime-graph-model.js`:
+  - il filtro origine viene applicato nel graph model;
+  - le dependency visibili vengono ricalcolate dopo il filtro, quindi non restano edge verso nodi nascosti.
+- `tasks/active_tasks.md`:
+  - aggiornato TASK-007 con dialog draft delete, filtro origine e Fit view reale.
+
+Verifiche eseguite:
+
+- `node --check js/flowMapView.js`
+- `node --check core/runtime/runtime-graph-model.js`
+- `curl -I http://127.0.0.1:3031/js/flowMapView.js`
+- `curl -I http://127.0.0.1:3031/core/runtime/runtime-graph-model.js`
+
+## Aggiornamento 2026-05-17 - Flow Map port anchoring e auto-height nodi
+
+Obiettivo della sessione: correggere il comportamento Blueprint quando un nodo espone molti output, evitando porte schiacciate e linee che entrano nel box in punti casuali.
+
+Fatto:
+
+- `js/flowMapView.js`:
+  - aggiunto ancoraggio reale delle linee sui port DOM tramite coordinate della porta renderizzata;
+  - canvas drawing, hit-testing edge, label edge e preview drag usano ora la posizione effettiva della porta input/output;
+  - l'offset per linee parallele non sposta piu gli endpoint: modifica solo la curvatura Bezier, lasciando ingresso/uscita centrati sul port;
+  - il fallback geometrico resta disponibile solo se il port DOM non e ancora montato;
+  - ogni nodo calcola `--port-count` e `minHeight` in base al numero massimo di porte input/output.
+- `css/flowMap.css`:
+  - i nodi Flow Map ora crescono in altezza in base al numero di porte;
+  - i port non vengono piu compressi dentro un box troppo basso.
+
+Nota runtime:
+
+- I collegamenti non sono piu agganciati a una stima verticale del node box: arrivano al punto input/output specifico, piu vicino al comportamento Unreal Blueprint.
+
+Verifiche eseguite:
+
+- `node --check js/flowMapView.js`
+- `curl -I http://127.0.0.1:3031/flowMap.html`
+- `curl -I http://127.0.0.1:3031/js/flowMapView.js`
+- `curl -I http://127.0.0.1:3031/css/flowMap.css`
+- `git diff --check -- js/flowMapView.js css/flowMap.css`
+
+## Aggiornamento 2026-05-17 - Flow Map Blueprint node polish
+
+Obiettivo della sessione: avvicinare la grafica dei nodi al riferimento Blueprint, rendendo gli output leggibili senza tooltip e distinguendo visivamente porte collegate/non collegate.
+
+Fatto:
+
+- `js/flowMapView.js`:
+  - aggiunto rilevamento `isPortConnected()` per capire se una porta input/output e realmente usata da una dependency visibile;
+  - i port ricevono la classe `is-connected` solo quando hanno un link;
+  - la distribuzione verticale dei port ora evita header/footer e usa una fascia centrale stabile;
+  - il footer nodo mostra una riga compatta con attivita/output/library/status e conteggio `in/out`.
+- `css/flowMap.css`:
+  - header nodo ridisegnato con icona e titolo troncato con ellissi;
+  - aggiunto gradiente per tipo nodo usando `--node-rgb`;
+  - le label output sono sempre visibili a sinistra del port;
+  - i cerchi output/input senza collegamento restano vuoti, quelli collegati sono pieni;
+  - aggiunta footer bar compatta nel nodo.
+
+Nota UI:
+
+- Le label output sono renderizzate come parte visiva del nodo, non piu come tooltip temporanei.
+
+Verifiche eseguite:
+
+- `node --check js/flowMapView.js`
+- `curl -I http://127.0.0.1:3031/css/flowMap.css`
+
+## Aggiornamento 2026-05-17 - Flow Map auto-refresh sicuro durante drag
+
+Problema rilevato: l'auto-refresh runtime poteva partire mentre l'utente stava trascinando un nodo/link/canvas. `loadRuntime()` rimontava la pagina, interrompendo il pointer drag e lasciando il nodo in una posizione incoerente.
+
+Fatto:
+
+- `js/flowMapView.js`:
+  - `loadRuntime()` ora accetta `silent` / `force`;
+  - se esiste una `state.interaction` attiva, il refresh non fa `mount()` e viene messo in coda con `pendingRuntimeRefresh`;
+  - l'intervallo automatico usa `loadRuntime({ silent: true })`;
+  - dopo la fine del drag c'e una finestra breve prima del refresh, cosi la posizione ha tempo di essere salvata;
+  - il refresh in coda viene eseguito solo quando non ci sono interazioni attive.
+
+Verifiche eseguite:
+
+- `node --check js/flowMapView.js`
+- `curl -I http://127.0.0.1:3031/js/flowMapView.js`
+- `git diff --check -- js/flowMapView.js`
+
+## Aggiornamento 2026-05-17 - Blueprint Flow Map completion pass
+
+Titolo lavoro: `Blueprint Flow Map Completion - port snap, validation, highlight, inspector, layout persistence, payload debug`.
+
+Obiettivo della sessione: completare i 7 passaggi principali per trasformare la Flow Map da mappa collegabile a editor Blueprint runtime piu professionale.
+
+Fatto:
+
+- Port target highlight e snap:
+  - durante drag da output viene scelta la porta input piu vicina se non si colpisce esattamente il pin;
+  - la porta target riceve highlight diretto;
+  - le porte incompatibili mostrano stato rosso.
+- Validazione tipo base:
+  - aggiunti helper `portByName()`, `normalizedPortType()`, `portsAreCompatible()` e `connectionValidation()`;
+  - `all` resta compatibile come payload completo;
+  - `int/float/number` vengono normalizzati come `number`;
+  - `object/array` vengono normalizzati come `object`;
+  - link duplicati e type mismatch vengono bloccati prima del salvataggio;
+  - i link bloccati registrano un warning best-effort in `tl_flow_logs`.
+- Highlight linee correlate:
+  - hover su node o port evidenzia solo gli edge collegati;
+  - gli edge non correlati vengono attenuati;
+  - le label edge seguono lo stesso stato `related/dimmed`.
+- Edge Inspector avanzato:
+  - mostra source/target port con tipo;
+  - mostra type check;
+  - aggiunta sezione `Mapping` con route, payload e ultimo valore disponibile.
+- Persistenza layout:
+  - pan/zoom vengono salvati in `localStorage` per workspace/origin filter;
+  - reset/fit/zoom/pan aggiornano la viewport persistita;
+  - `Fit view` usa altezza reale stimata dei nodi, inclusi nodi con molti output.
+- Runtime debug sulle linee:
+  - le label edge espongono tooltip con porta/channel/evento recente/payload preview;
+  - le label con eventi recenti mostrano un piccolo dot live/error.
+
+Verifiche eseguite:
+
+- `node --check js/flowMapView.js`
+- `git diff --check -- js/flowMapView.js css/flowMap.css`
+- `curl -I http://127.0.0.1:3031/js/flowMapView.js`
+- `curl -I http://127.0.0.1:3031/css/flowMap.css`
+
+## Aggiornamento 2026-05-16 - Badge stato runtime Flow Map
+
+Obiettivo della sessione: rendere leggibile lo stato dei nodi direttamente sul canvas, senza dover aprire ogni inspector.
+
+Fatto:
+
+- `js/flowMapView.js`:
+  - aggiunto helper `nodeBadges()` per calcolare badge runtime dei nodi;
+  - i box del canvas mostrano ora badge per `Library`, `Draft`, `Configured` / `Runtime`, `Live` ed `Error`;
+  - i badge sono limitati a due per nodo per non rompere il layout.
+  - l'Overview mostra ora conteggi aggregati per runtime nodes, draft, configured e library.
+- `css/flowMap.css`:
+  - aggiunti stili compatti e colorati per i badge runtime dei nodi.
+  - aggiunti mini-chip nell'Overview per leggere rapidamente lo stato del grafo.
+
+Cosa manca / prossimi passi:
+
+- Aggiungere un pannello di dettaglio dedicato alle dipendenze runtime per nodo.
+
+## Aggiornamento 2026-05-16 - Inspector dipendenze runtime
+
+Obiettivo della sessione: rendere piu chiaro l'impatto runtime di un nodo selezionato prima di configurarlo o cancellarlo.
+
+Fatto:
+
+- `js/flowMapView.js`:
+  - aggiunti helper `dependencySummary()` e `dependencyRow()`;
+  - la sezione inspector `Used By` e diventata `Runtime Dependencies`;
+  - ora mostra conteggi `in` / `out`, direzione del collegamento e nome del nodo collegato invece di soli ID tecnici.
+- `css/flowMap.css`:
+  - aggiunti chip compatti per direzione e summary dipendenze.
+
+Cosa manca / prossimi passi:
+
+- Usare la stessa struttura nel dialog di delete runtime-aware per boxTracker/boxLens.
+
+## Aggiornamento 2026-05-16 - Delete warning runtime-aware per nodi
+
+Obiettivo della sessione: allineare la cancellazione dei nodi configurabili alla regola enterprise dependency-aware.
+
+Fatto:
+
+- `js/flowMapView.js`:
+  - il dialog delete nodo ora distingue una delete semplice da una delete con dependency runtime;
+  - quando esistono collegamenti mostra totale dependency, count `in` / `out` e fino a 5 link impattati;
+  - l'azione distruttiva diventa `Force Delete` quando il nodo e usato nel runtime.
+- `css/flowMap.css`:
+  - aggiunto box warning `Impacted Links` nel dialog delete.
+
+Cosa manca / prossimi passi:
+
+- Estendere lo stesso warning anche ai flussi di delete dentro gli editor dedicati `editorBoxTracker.html` e `editorBoxLens.html`.
+
+## Aggiornamento 2026-05-16 - Channel Registry roles in inspector
+
+Obiettivo della sessione: rendere visibile il ruolo reale del nodo nei channel runtime.
+
+Fatto:
+
+- `js/flowMapView.js`:
+  - `selectedChannelRecords()` include ora anche i channel dove il nodo e subscriber, non solo producer/mapped;
+  - aggiunto `channelRoleForNode()` per calcolare `producer`, `subscriber`, `producer + subscriber` o `mapped`;
+  - la tab `Outputs` mostra ruolo channel e numero subscriber in chip separati.
+- `css/flowMap.css`:
+  - aggiunti stili compatti per righe channel registry, ruolo e count subscribers.
+
+Cosa manca / prossimi passi:
+
+- Aggiungere validazione dedicata per rename/change channel usando lo stesso ruolo producer/subscriber.
+
+## Aggiornamento 2026-05-16 - Flow Map operational logs
+
+Obiettivo della sessione: far lasciare traccia runtime alle operazioni manuali della Flow Map.
+
+Fatto:
+
+- `js/flowMapView.js`:
+  - aggiunto helper `recordFlowAction()` sopra `TrackerLensEventLogStore.recordFlowLog()`;
+  - configurazione inline di processor/action/AI agent registra un flow log `runtime-node-configured`;
+  - cancellazione nodo registra un flow log warning `runtime-node-deleted` dopo il cleanup;
+  - creazione link registra `runtime-link-created`;
+  - cancellazione link registra warning `runtime-link-deleted` dopo il cleanup precedente.
+
+Nota runtime:
+
+- I log sono best-effort: un errore di logging non blocca config, delete o link creation.
+
+Cosa manca / prossimi passi:
+
+- Mostrare anche `tl_flow_logs` nella tab Logs dell'inspector, non solo `tl_events`.
+
+## Aggiornamento 2026-05-16 - Flow logs visibili in Flow Map
+
+Obiettivo della sessione: chiudere il ciclo operativo dei log appena introdotti.
+
+Fatto:
+
+- `core/runtime/runtime-snapshot-store.js`:
+  - lo snapshot runtime carica ora anche `tl_flow_logs`;
+  - usa `TrackerLensEventLogStore.listFlowLogs()` quando disponibile.
+- `js/flowMapView.js`:
+  - `state.runtime` include `flowLogs`;
+  - la tab `Logs` del nodo mostra separatamente `Runtime Events` e `Flow Logs`;
+  - l'`Edge Inspector` mostra anche i flow logs collegati alla connection o ai nodi source/target;
+  - `Runtime Overview` mostra il count totale dei flow logs.
+  - il pannello basso `Event Inspector` mostra anche una tabella globale `Flow Logs` con gli ultimi log runtime.
+- `css/flowMap.css`:
+  - aggiunto separatore compatto per la sezione globale `Flow Logs`.
+
+Cosa manca / prossimi passi:
+
+- Aggiungere filtri specifici per livello log (`info`, `warning`, `error`) nell'Event Inspector.
+
+## Aggiornamento 2026-05-16 - Filtro livello Flow Logs
+
+Obiettivo della sessione: rendere navigabili i flow logs globali quando le operazioni runtime iniziano ad accumularsi.
+
+Fatto:
+
+- `js/flowMapView.js`:
+  - aggiunto filtro `logLevel` nello stato Flow Map;
+  - il pannello globale `Flow Logs` ora filtra per `All logs`, `Info`, `Warning`, `Error`.
+- `css/flowMap.css`:
+  - aggiunta variante compatta `tl-flow-select is-tiny` per controlli dentro l'Event Inspector.
+
+Cosa manca / prossimi passi:
+
+- Rendere il livello log visuale con chip colore nella tabella globale.
+
+## Aggiornamento 2026-05-16 - Chip livello Flow Logs
+
+Obiettivo della sessione: rendere immediatamente leggibili warning/error nella tabella globale dei flow logs.
+
+Fatto:
+
+- `js/flowMapView.js`:
+  - aggiunto helper `logLevelChip()`;
+  - la colonna `Level` dei flow logs usa ora chip visuali invece di testo grezzo.
+- `css/flowMap.css`:
+  - aggiunti chip colore per `info`, `warning`, `error`.
+
+Cosa manca / prossimi passi:
+
+- Aggiungere un piccolo summary count per livello log nell'Overview.
+
+## Aggiornamento 2026-05-16 - Log health in Runtime Overview
+
+Obiettivo della sessione: rendere visibili warning/error runtime senza dover aprire i log globali.
+
+Fatto:
+
+- `js/flowMapView.js`:
+  - `runtimeOverviewStats()` calcola ora anche flow logs `warning` e `error`;
+  - `Runtime Overview` mostra una riga `Log health` con chip `warn` ed `err`.
+- `css/flowMap.css`:
+  - aggiunta variante rossa per `tl-flow-mini-chip`.
+
+Cosa manca / prossimi passi:
+
+- Collegare click su `warn/err` al filtro `logLevel` globale.
+
+## Aggiornamento 2026-05-16 - Log health cliccabile
+
+Obiettivo della sessione: rendere operativo il summary `Log health` dell'Overview.
+
+Fatto:
+
+- `js/flowMapView.js`:
+  - aggiunto helper `focusLogLevel()`;
+  - i chip `warn` ed `err` nell'Overview filtrano ora i Flow Logs rispettivamente su `warning` ed `error`;
+  - dopo il click la vista scorre verso l'Event Inspector.
+- `css/flowMap.css`:
+  - i mini-chip cliccabili hanno hover state e cursore coerente.
+
+Cosa manca / prossimi passi:
+
+- Aggiungere reset rapido a `All logs` direttamente nel pannello Flow Logs.
+
+## Aggiornamento 2026-05-16 - Reset filtro Flow Logs
+
+Obiettivo della sessione: rendere reversibile in un click il filtro log impostato da Overview o select.
+
+Fatto:
+
+- `js/flowMapView.js`:
+  - il pannello globale `Flow Logs` mostra `Clear` quando `logLevel` non e `all`;
+  - `Clear` ripristina `All logs`.
+- `css/flowMap.css`:
+  - aggiunti stili compatti per bottone ghost dentro l'Event Inspector.
+
+Cosa manca / prossimi passi:
+
+- Persistenza opzionale dei filtri Flow Map in query string o localStorage.
+
+## Aggiornamento 2026-05-16 - Filtri Flow Map persistenti in query string
+
+Obiettivo della sessione: rendere ricaricabile e condivisibile lo stato filtrato della Flow Map.
+
+Fatto:
+
+- `js/flowMapView.js`:
+  - anche `type` e `activity` vengono inizializzati da query string;
+  - `setFilter()` aggiorna ora la query string con `history.replaceState()`;
+  - i filtri con valore `all` vengono rimossi dall'URL per mantenerlo pulito;
+  - `focusLogLevel()` aggiorna anche l'URL quando filtra warning/error dai chip Overview.
+
+Cosa manca / prossimi passi:
+
+- Aggiungere reset generale dei filtri runtime.
+
+## Aggiornamento 2026-05-16 - Reset generale filtri Flow Map
+
+Obiettivo della sessione: evitare che una vista filtrata nasconda nodi/log senza un modo rapido per tornare allo stato completo.
+
+Fatto:
+
+- `js/flowMapView.js`:
+  - aggiunti helper `hasActiveFilters()` e `resetFilters()`;
+  - la filterbar mostra `Reset` quando almeno un filtro e diverso da `all`;
+  - `Reset` ripristina tutti i filtri a `all` e pulisce la query string.
+- `css/flowMap.css`:
+  - aggiunto stile compatto per il bottone reset nella filterbar.
+
+Cosa manca / prossimi passi:
+
+- Salvare eventualmente pan/zoom in query string solo quando serve condividere una vista precisa.
+
+## Aggiornamento 2026-05-16 - Flow Map Blueprint interaction
+
+Obiettivo della sessione: ridurre il caos visivo delle linee e rendere il collegamento tra nodi piu naturale, in stile Unreal Blueprint.
+
+Fatto:
+
+- `js/flowMapView.js`:
+  - rimossa la generazione automatica dei link `channel-match`;
+  - ora la Flow Map non disegna piu linee solo perche due nodi condividono un channel;
+  - restano visibili solo runtime dependencies reali e `tl_connections`;
+  - i link letti da `tl_connections` sono trattati come collegamenti reali e non piu come edge virtuali/tratteggiati;
+  - i nodi canvas sono passati da `<button>` a `<div role="button">` per permettere porte interne valide;
+  - aggiunte porte input/output sui nodi;
+  - trascinando dalla porta output parte una preview canvas del collegamento;
+  - rilasciando su un altro nodo viene creato un link persistente usando la stessa logica di `Start Link` / `Link Here`.
+- `css/flowMap.css`:
+  - aggiunti stili per porte input/output;
+  - durante il drag link le porte input vengono evidenziate;
+  - la porta output usa cursore `crosshair`.
+
+Nota runtime:
+
+- Questo e il primo passo verso un'interazione Blueprint-like: link espliciti, preview durante il drag, creazione persistente su drop.
+
+Cosa manca / prossimi passi:
+
+- Migliorare il target drop mostrando highlight solo sui nodi compatibili.
+- In futuro aggiungere porte multiple per channel/output specifici, non solo porta unica input/output.
+
+## Aggiornamento 2026-05-16 - Blueprint link target feedback
+
+Obiettivo della sessione: rendere il drag-to-connect meno ambiguo e piu vicino a un editor Blueprint.
+
+Fatto:
+
+- `js/flowMapView.js`:
+  - aggiunto `linkHoverTargetId` nello stato Flow Map;
+  - aggiunti helper `canConnectNodes()`, `updateLinkHoverTarget()`, `setNodeLinkClass()` e `clearLinkDomState()`;
+  - durante il drag da porta output viene evidenziato solo il nodo target collegabile;
+  - i target gia collegati con lo stesso channel non vengono evidenziati come nuovi link;
+  - il drop usa il target validato, non solo l'elemento sotto il puntatore;
+  - `pointercancel` ora annulla sempre il drag senza creare link accidentali.
+- `css/flowMap.css`:
+  - aggiunto stato `is-link-hover` per bordo/glow del nodo target;
+  - rimossa l'evidenziazione globale di tutte le porte input durante il drag.
+
+Cosa manca / prossimi passi:
+
+- Aggiungere porte multiple per channel specifici e routing edge piu pulito quando ci sono piu link paralleli.
+
+## Aggiornamento 2026-05-16 - Blueprint port labels e edge offset
+
+Obiettivo della sessione: migliorare leggibilita di porte e collegamenti nella Flow Map.
+
+Fatto:
+
+- `js/flowMapView.js`:
+  - aggiunti helper `inputPortLabel()` e `outputPortLabel()`;
+  - le porte input/output espongono ora label channel via tooltip e `data-port-label`;
+  - aggiunto `edgePortOffset()` per separare leggermente link condivisi/paralleli;
+  - offset applicato a canvas drawing, hit-testing e label HTML dei channel.
+- `css/flowMap.css`:
+  - le porte mostrano label compatte su hover/link mode;
+  - aggiunti micro-stati visivi non invasivi per leggere il channel collegabile.
+
+Cosa manca / prossimi passi:
+
+- Sostituire la porta singola con porte multiple reali quando un nodo ha piu input/output.
+
+## Aggiornamento 2026-05-16 - Blueprint multi-port foundation
+
+Obiettivo della sessione: passare dalla porta unica generica a una base multi-port coerente con input/output/channel.
+
+Fatto:
+
+- `js/flowMapView.js`:
+  - aggiunto `nodePortLabels()` con massimo 4 porte per lato;
+  - i nodi renderizzano ora piu porte input/output quando hanno piu channels, inputs o outputs;
+  - aggiunto `portPercentForChannel()` per calcolare la posizione verticale della porta legata al channel;
+  - canvas drawing, hit-testing, label channel e preview drag usano ora la porta piu coerente col channel;
+  - se non esiste una porta specifica, resta fallback stabile sulla porta centrale.
+- `css/flowMap.css`:
+  - le porte usano `--port-y`, quindi possono distribuirsi verticalmente sul nodo.
+
+Cosa manca / prossimi passi:
+
+- Far scegliere esplicitamente il channel trascinando da una porta specifica, non solo dal nodo sorgente.
+
+## Aggiornamento 2026-05-17 - Blueprint explicit output ports
+
+Obiettivo della sessione: trasformare il collegamento da nodo-nodo a nodo-porta-channel, mantenendo una porta principale pass-through.
+
+Fatto:
+
+- `js/flowMapView.js`:
+  - aggiunta porta `all` come prima porta input/output di ogni nodo;
+  - `all` funziona come pass-through e usa il channel migliore calcolato dal runtime;
+  - il drag da una porta output specifica porta con se il channel della porta;
+  - aggiunti `sourcePort` e `targetPort` nella creazione link;
+  - quando il drop avviene sul nodo ma non esattamente su una porta input, viene scelta automaticamente la porta input piu compatibile col channel;
+  - `tl_connections.mapping` salva `sourcePort` e `targetPort`;
+  - `tl_runtime_dependencies.metadata` salva `sourcePort` e `targetPort`;
+  - drawing, hit-testing, label edge e preview drag usano `sourcePort` / `targetPort` quando disponibili.
+  - `Edge Inspector` mostra ora `Source port` e `Target port`.
+- `css/flowMap.css`:
+  - la porta `all` ha forma quadrata/diamante compatta per distinguerla dalle porte channel specifiche.
+
+Nota runtime:
+
+- Il primo output passa tutto; gli output specifici permettono collegamenti mirati per item/channel.
+
+Cosa manca / prossimi passi:
+
+- Migliorare la selezione del target port con snap visivo alla porta piu vicina.
+
+## Aggiornamento 2026-05-17 - Output item ports da Sample JSON
+
+Obiettivo della sessione: rendere le porte output coerenti con i singoli item dell'output reale, non solo con il channel.
+
+Fatto:
+
+- `js/boxTrackerEditor.js`:
+  - quando un draft `boxTracker` viene promosso, `sampleOutput` viene salvato in `metadata.sampleOutput`.
+- `core/runtime/runtime-graph-store.js`:
+  - i runtime node creati da workspace box includono `metadata.sampleOutput` quando disponibile.
+- `js/flowMapView.js`:
+  - i runtime node vengono arricchiti al volo con `sampleOutput` della Local Library quando il nodo workspace non lo contiene ancora;
+  - le library node mantengono `metadata.sampleOutput`;
+  - aggiunti `valueType()`, `sampleOutputFields()`, `nodePorts()`;
+  - le porte output ora sono:
+    - `all` per passare tutto;
+    - un output per ogni campo top-level del Sample JSON, per esempio `p`, `s`, `E`;
+  - ogni porta conserva un tipo rilevato: `int`, `float`, `string`, `bool`, `object`, `array`, `any`;
+  - il drag da una porta campo continua a salvare quel campo come `sourcePort`.
+  - i link ricostruiti da `tl_connections` preservano `mapping.sourcePort` e `mapping.targetPort` nel graph.
+  - i nodi mostrano `N output fields` quando le porte campo sono state derivate dal sample.
+- `core/runtime/runtime-graph-store.js`:
+  - `syncWorkspaceGraph()` legge anche `tl_widgets` per arricchire i box workspace con `sampleOutput` della Library;
+  - le dependency rigenerate da workspace connections preservano `sourcePort` e `targetPort` in metadata.
+- `css/flowMap.css`:
+  - colori porta per tipo:
+    - numeri `int` / `float`;
+    - `string`;
+    - `object` / `array`;
+    - `bool`.
+  - aggiunta legenda tipi nel Runtime Overview.
+
+Nota runtime:
+
+- La porta `all` rappresenta tutto il payload. Le porte specifiche rappresentano item/campi del payload.
+
+Cosa manca / prossimi passi:
+
+- Aggiungere legenda colori nel pannello Flow Map e validazione tipo input/output.
+
+## Aggiornamento 2026-05-16 - Creazione collegamenti dalla Flow Map
+
+Obiettivo della sessione: permettere di creare collegamenti persistenti direttamente dalla pagina Flow Map, senza passare sempre da `connections.html`.
+
+Fatto:
+
+- `core/runtime/runtime-graph-store.js`:
+  - aggiunta API `upsertDependency({ dependency })`;
+  - salva/aggiorna un record in `tl_runtime_dependencies`;
+  - aggiorna il flow workspace aggiungendo il `connectionId` in `tl_flows.connections`.
+- `js/flowMapView.js`:
+  - aggiunto stato `linkingSourceId`;
+  - l'inspector nodo mostra `Start Link`;
+  - dopo aver scelto un source, un secondo nodo mostra `Link Here`;
+  - `Cancel Link` esce dalla modalità collegamento;
+  - la creazione scrive un record in `tl_connections` tramite `TrackerLensConnectionsStore.upsert()`;
+  - la creazione scrive anche la dependency runtime tramite `TrackerLensRuntimeGraphStore.upsertDependency()`;
+  - dopo il salvataggio viene selezionato l'edge appena creato.
+- `css/flowMap.css`:
+  - aggiunto banner compatto della source attiva;
+  - aggiunti stati visuali `is-link-source` e `is-link-target`.
+
+Verifiche eseguite:
+
+- `node --check js/flowMapView.js`
+- `node --check core/runtime/runtime-graph-store.js`
+- `curl -I http://127.0.0.1:3031/js/flowMapView.js`
+- `curl -I http://127.0.0.1:3031/core/runtime/runtime-graph-store.js`
+
+## Aggiornamento 2026-05-16 - Dialog delete draft node Flow Map
+
+Obiettivo della sessione: rimuovere l'ultimo `window.confirm()` operativo dalla cancellazione dei draft node in Flow Map.
+
+Fatto:
+
+- `js/flowMapView.js`:
+  - sostituito il confirm nativo di `Delete Draft` con dialog CMSwift;
+  - il dialog mostra node, type, workspace e numero di dependency runtime collegate;
+  - la cancellazione continua a pulire:
+    - record `tl_runtime_nodes`;
+    - dependency collegate in `tl_runtime_dependencies`;
+    - riferimenti in `tl_flows.nodes`;
+    - eventi/log collegati tramite `TrackerLensEventLogStore.cleanupNodeReferences()`.
+
+Verifiche eseguite:
+
+- `node --check js/flowMapView.js`
+
+## Aggiornamento 2026-05-16 - Filtro origine Flow Map
+
+Obiettivo della sessione: permettere di separare nella Flow Map i nodi runtime reali dai box virtuali letti dalla Local Library.
+
+Fatto:
+
+- `js/flowMapView.js`:
+  - aggiunto filtro `origin` con opzioni `All origins`, `Runtime`, `Library`;
+  - supportato anche query param `?origin=runtime` / `?origin=library`.
+- `core/runtime/runtime-graph-model.js`:
+  - il filtro origine viene applicato nel graph model;
+  - gli edge vengono ricalcolati dopo il filtro, evitando collegamenti verso nodi non visibili.
+
+Verifiche eseguite:
+
+- `node --check js/flowMapView.js`
+- `node --check core/runtime/runtime-graph-model.js`
+
+## Aggiornamento 2026-05-16 - Fit view reale Flow Map
+
+Obiettivo della sessione: rendere operativo il controllo `Fit view` della Flow Map.
+
+Fatto:
+
+- `js/flowMapView.js`:
+  - aggiunto `fitVisibleGraph()`;
+  - il controllo calcola il bounding box dei nodi visibili dopo filtri workspace/channel/type/origin/activity;
+  - aggiorna pan e zoom per centrare la mappa nel canvas;
+  - il bottone griglia resta come `Reset view` a zoom 100%.
+
+Verifiche eseguite:
+
+- `node --check js/flowMapView.js`
+- `curl -I http://127.0.0.1:3031/css/flowMap.css`
+- Browser headless DOM check su `flowMap.html`
+
+Cosa manca / prossimi passi:
+
+- Test manuale nel profilo browser con dati reali IndexedDB per confermare che i link appaiano tra i nodi libreria/runtime.
+- Aggiungere label channel sulle linee e menu edge inspector.
+
+## Aggiornamento 2026-05-16 - Renderer ibrido Flow Map
+
+Decisione tecnica: passare subito a un renderer ibrido per evitare di costruire troppo codice su un modello solo HTML/SVG.
+
+Architettura scelta:
+
+- HTML/CMSwift:
+  - nodi;
+  - palette;
+  - inspector;
+  - toolbar;
+  - drag/select.
+- Canvas 2D:
+  - collegamenti/edge;
+  - glow;
+  - porte source/target;
+  - linee virtuali tratteggiate;
+  - edge live animati.
+
+Fatto:
+
+- `js/flowMapView.js`:
+  - rimosso il rendering operativo SVG degli edge;
+  - aggiunto `<canvas class="tl-flow-edge-canvas">` come layer sotto i nodi HTML;
+  - aggiunto `drawFlowEdges()`;
+  - aggiunto drawing Canvas 2D con Bezier, glow, dash, porte e colore per tone del nodo sorgente;
+  - il canvas viene ridisegnato dopo mount, resize e drag nodo;
+  - aggiunta animazione `requestAnimationFrame` per edge live.
+- `css/flowMap.css`:
+  - rimossi stili SVG non piu usati;
+  - aggiunto solo lo stile strutturale del canvas edge layer.
+
+Nota runtime:
+
+- I nodi restano DOM/CMSwift per mantenere eventi, accessibilita e inspector semplici.
+- Il layer collegamenti ora e pronto per routing piu avanzato, minimap e performance migliori.
+
+Verifiche eseguite:
+
+- `node --check js/flowMapView.js`
+- `rg` per confermare assenza di vecchi riferimenti `tl-flow-lines`, `tl-flow-line`, `tl-flow-port`, `svg()`
+- `curl -I` su `js/flowMapView.js`
+- `curl -I` su `css/flowMap.css`
+- Browser headless DOM check su `flowMap.html`
+
+Cosa manca / prossimi passi:
+
+- Aggiungere hit-testing edge su canvas per selezionare un collegamento.
+- Aggiungere labels channel sopra il canvas con overlay HTML o drawing canvas.
+
+## Aggiornamento 2026-05-16 - Edge hit-testing e inspector collegamenti
+
+Obiettivo della sessione: rendere il canvas edge layer interattivo, non solo visuale.
+
+Fatto:
+
+- `js/flowMapView.js`:
+  - aggiunto `edgeId` nello stato focus;
+  - aggiunto hit-testing su Canvas 2D tramite campionamento delle curve Bezier;
+  - il click vicino a una linea seleziona il collegamento invece di iniziare il pan;
+  - l'edge selezionato viene ridisegnato con linea/glow piu marcati;
+  - aggiunto `Edge Inspector`;
+  - l'inspector edge mostra:
+    - ID;
+    - source node;
+    - target node;
+    - channel;
+    - origine (`tl_runtime_dependencies`, `tl_connections`, `channel-match`);
+    - connectionId;
+    - eventi recenti correlati.
+- Il pan ridisegna anche il canvas edge layer durante il movimento, evitando disallineamenti visivi.
+
+Verifiche eseguite:
+
+- `node --check js/flowMapView.js`
+- `curl -I http://127.0.0.1:3031/js/flowMapView.js`
+- Browser headless DOM check su `flowMap.html`
+
+Cosa manca / prossimi passi:
+
+- Aggiungere label channel sulle linee.
+- Aggiungere azioni edge: View Source, View Target, Delete Connection quando l'origine e persistita.
+
+## Aggiornamento 2026-05-16 - Channel labels su Flow Map ibrida
+
+Obiettivo della sessione: rendere leggibili i channel dei collegamenti senza disegnare testo fragile dentro il Canvas.
+
+Fatto:
+
+- `js/flowMapView.js`:
+  - aggiunto overlay HTML per label channel posizionato sul midpoint della Bezier;
+  - le label usano lo stesso graph model/posizionamento del canvas edge layer;
+  - click sulla label seleziona lo stesso edge e apre `Edge Inspector`;
+  - le label virtuali sono marcate come tali.
+- `css/flowMap.css`:
+  - aggiunto stile compatto pill per `.tl-flow-edge-label`;
+  - stato hover/selected;
+  - stile dashed per label di edge virtuali.
+
+Nota tecnica:
+
+- Il renderer resta ibrido:
+  - canvas per disegno edge performante;
+  - HTML overlay per label leggibili, selezionabili e compatibili con inspector.
+
+Verifiche eseguite:
+
+- `node --check js/flowMapView.js`
+- `curl -I http://127.0.0.1:3031/css/flowMap.css`
+- Browser headless DOM check su `flowMap.html`
+
+Cosa manca / prossimi passi:
+
+- Azioni edge persistenti: View Source, View Target, Delete Connection.
+
+## Aggiornamento 2026-05-16 - Azioni Edge Inspector
+
+Obiettivo della sessione: completare il primo ciclo operativo sugli edge selezionati nel renderer ibrido.
+
+Fatto:
+
+- `js/flowMapView.js`:
+  - aggiunte azioni nell'`Edge Inspector`:
+    - `Source`;
+    - `Target`;
+    - `Delete Link`;
+    - `Read Only` per edge virtuali/inferiti;
+  - `Source` seleziona il nodo sorgente;
+  - `Target` seleziona il nodo target;
+  - `Delete Link` e disponibile solo per edge con `connectionId`;
+  - delete persistente chiama:
+    - `TrackerLensConnectionsStore.remove(connectionId)`;
+    - `TrackerLensRuntimeGraphStore.cleanupConnectionReferences({ connectionId })`;
+    - `TrackerLensEventLogStore.cleanupConnectionReferences({ connectionId })`;
+  - dopo delete viene pulito il focus edge e ricaricata la Flow Map.
+- `css/flowMap.css`:
+  - aggiunto layout a 3 colonne per azioni edge.
+
+Verifiche eseguite:
+
+- `node --check js/flowMapView.js`
+- `node --check core/runtime/event-log-store.js`
+- `curl -I http://127.0.0.1:3031/js/flowMapView.js`
+- `curl -I http://127.0.0.1:3031/css/flowMap.css`
+
+Cosa manca / prossimi passi:
+
+- Sostituire `window.confirm()` con dialog CMSwift runtime-aware per la cancellazione edge.
+- Aggiungere undo/restore per edge cancellati.
+
+## Aggiornamento 2026-05-16 - Dialog delete edge e Undo Link
+
+Obiettivo della sessione: rendere la cancellazione edge coerente con l'interfaccia runtime, evitando `window.confirm()` e aggiungendo un ripristino rapido.
+
+Fatto:
+
+- `js/flowMapView.js`:
+  - sostituito il confirm nativo della delete edge con dialog CMSwift;
+  - il dialog mostra:
+    - source;
+    - target;
+    - channel;
+    - connection id;
+  - dopo la delete, il record `tl_connections` eliminato viene mantenuto in memoria come `lastDeletedConnection`;
+  - la topbar mostra `Undo Link` quando esiste un collegamento appena cancellato;
+  - `Undo Link` ripristina il record tramite `TrackerLensConnectionsStore.upsert()` e ricarica la Flow Map.
+- `css/flowMap.css`:
+  - aggiunto stile per il dialog delete edge e il riepilogo connection.
+
+Verifiche eseguite:
+
+- `node --check js/flowMapView.js`
+- `curl -I http://127.0.0.1:3031/js/flowMapView.js`
+- `curl -I http://127.0.0.1:3031/css/flowMap.css`
+
+Cosa manca / prossimi passi:
+
+- Persistenza undo oltre al reload pagina, se serve.
+- Dialog CMSwift anche per la cancellazione draft node.
+
+## Aggiornamento 2026-05-16 - Fix click box Flow Map dopo canvas edge layer
+
+Problema rilevato: dopo l'introduzione dell'hit-testing delle linee, il click sui box poteva non selezionare piu il nodo in modo affidabile. Il nodo avviava sempre una interaction di drag su `pointerdown` con `preventDefault`, quindi in alcuni casi il `click` finale non arrivava.
+
+Fatto:
+
+- `js/flowMapView.js`:
+  - `beginNodeDrag()` salva ora `startX`, `startY` e `moved`;
+  - il drag reale parte solo dopo una soglia minima di 4px;
+  - se il pointerup arriva senza movimento, `endInteraction()` seleziona direttamente il nodo;
+  - se c'e movimento reale, salva la posizione come prima.
+
+Verifiche eseguite:
+
+- `node --check js/flowMapView.js`
+- `curl -I http://127.0.0.1:3031/js/flowMapView.js`
+
+## Aggiornamento 2026-05-16 - Stato finale Flow Map runtime controls
+
+Obiettivo della sessione: chiudere gli ultimi affinamenti operativi della Flow Map dopo il renderer ibrido.
+
+Fatto:
+
+- `js/flowMapView.js`:
+  - `Delete Draft` usa ora un dialog CMSwift runtime-aware, non piu `window.confirm()`;
+  - il dialog draft mostra node, type, workspace e numero dependency prima di pulire graph/event references;
+  - aggiunto filtro `origin` con opzioni `All origins`, `Runtime`, `Library`;
+  - supportato query param `?origin=runtime` / `?origin=library`;
+  - aggiunto `fitVisibleGraph()` per centrare e scalare i nodi visibili nel canvas;
+  - il bottone griglia e stato chiarito come `Reset view`.
+- `core/runtime/runtime-graph-model.js`:
+  - il filtro origine viene applicato nel graph model;
+  - le dependency visibili vengono ricalcolate dopo il filtro, quindi non restano edge verso nodi nascosti.
+- `tasks/active_tasks.md`:
+  - aggiornato TASK-007 con dialog draft delete, filtro origine e Fit view reale.
+
+Verifiche eseguite:
+
+- `node --check js/flowMapView.js`
+- `node --check core/runtime/runtime-graph-model.js`
+- `curl -I http://127.0.0.1:3031/js/flowMapView.js`
+- `curl -I http://127.0.0.1:3031/core/runtime/runtime-graph-model.js`

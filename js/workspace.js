@@ -195,6 +195,20 @@ const persistWorkspaceSilently = async () => {
         connections: workspaceState.connections,
       });
     }
+    if (window.TrackerLensChannelRegistry?.syncWorkspaceChannels) {
+      await window.TrackerLensChannelRegistry.syncWorkspaceChannels({
+        workspace: workspaceState.workspace,
+        boxes: workspaceState.boxes,
+        connections: workspaceState.connections,
+      });
+    }
+    if (window.TrackerLensRuntimeGraphStore?.syncWorkspaceGraph) {
+      await window.TrackerLensRuntimeGraphStore.syncWorkspaceGraph({
+        workspace: workspaceState.workspace,
+        boxes: workspaceState.boxes,
+        connections: workspaceState.connections,
+      });
+    }
     workspaceState.savedLabel = "Salvato localmente";
   } catch (error) {
     console.error("Errore autosalvataggio workspace:", error);
@@ -817,16 +831,34 @@ const renderActionMenu = () =>
   );
 
 const renderConfirmPanel = () =>
-  _.Card(
-    { class: "tl-confirm-panel" },
-    _.div({ class: "tl-confirm-title" }, "Vuoi eliminare i box selezionati?"),
-    _.p("Le istanze verranno rimosse dal canvas insieme alle connessioni collegate. Gli asset in libreria resteranno disponibili."),
-    _.Grid(
-      { class: "tl-confirm-actions", cols: 2, gap: 8 },
-      btn({ onclick: cancelPendingConfirm }, "Annulla"),
-      btn({ class: "is-danger", onclick: confirmPendingDelete }, icon("delete", "sm"), "Elimina")
-    )
-  );
+  (() => {
+    const dependencies = workspaceState.pendingConfirm?.dependencies || { connections: [], runtimeDependencies: [], channels: [], total: 0 };
+    const blocked = workspaceState.pendingConfirm?.requiresForce;
+    return _.Card(
+      { class: `tl-confirm-panel${blocked ? " is-blocked" : ""}` },
+      _.div({ class: "tl-confirm-title" }, blocked ? "Questo box e collegato al runtime" : "Vuoi eliminare i box selezionati?"),
+      _.p(
+        blocked
+          ? `Sono presenti ${dependencies.connections.length} connessioni, ${dependencies.runtimeDependencies?.length || 0} dependency persistite e ${dependencies.channels.length} channel collegati. La cancellazione normale e bloccata.`
+          : "Le istanze verranno rimosse dal canvas insieme alle connessioni collegate. Gli asset in libreria resteranno disponibili."
+      ),
+      blocked ? _.div(
+        { class: "tl-confirm-deps" },
+        ...[
+          ...dependencies.connections.map((connection) => `${connection.fromBoxId} -> ${connection.toBoxId} · ${connection.channel || "default"}`),
+          ...(dependencies.runtimeDependencies || []).map((dependency) => `${dependency.sourceNodeId} -> ${dependency.targetNodeId} · ${dependency.channel || "runtime"}`),
+        ].slice(0, 4).map((label) => _.span(label))
+      ) : null,
+      _.Grid(
+        { class: "tl-confirm-actions", cols: blocked ? 3 : 2, gap: 8 },
+        ...[
+          btn({ onclick: cancelPendingConfirm }, "Annulla"),
+          blocked ? btn({ onclick: openWorkspaceDeleteDependencies }, icon("account_tree", "sm"), "View") : null,
+          btn({ class: "is-danger", onclick: () => confirmPendingDelete(blocked) }, icon(blocked ? "delete_forever" : "delete", "sm"), blocked ? "Force" : "Elimina"),
+        ].filter(Boolean)
+      )
+    );
+  })();
 
 const renderToolMenu = () => {
   if (!workspaceState.toolMenu) return null;
@@ -1039,7 +1071,51 @@ const duplicateSelectedBoxes = () => {
 
 const duplicateSelectedBox = duplicateSelectedBoxes;
 
-const deleteSelectedBoxes = () => {
+const selectedDeleteDependencies = async (ids = []) => {
+  const selected = new Set(ids);
+  const boxes = workspaceState.boxes.filter((box) => selected.has(box.id));
+  const connections = workspaceState.connections.filter((connection) => selected.has(connection.fromBoxId) || selected.has(connection.toBoxId));
+  let runtimeDependencies = [];
+
+  try {
+    const store = window.TrackerLensRuntimeGraphStore;
+    if (store?.readAll && store?.STORES?.runtimeDependencies) {
+      runtimeDependencies = (await store.readAll(store.STORES.runtimeDependencies)).filter((dependency) =>
+        selected.has(dependency.sourceNodeId) || selected.has(dependency.targetNodeId)
+      );
+    }
+  } catch (error) {
+    console.warn("Dipendenze runtime persistite non leggibili:", error);
+  }
+
+  const channels = [...new Set([
+    ...connections.map((connection) => connection.channel || "default"),
+    ...runtimeDependencies.map((dependency) => dependency.channel || "default"),
+  ])];
+  return {
+    boxes,
+    connections,
+    runtimeDependencies,
+    channels,
+    total: connections.length + runtimeDependencies.length,
+    hasDependencies: connections.length > 0 || runtimeDependencies.length > 0,
+  };
+};
+
+const openWorkspaceDeleteDependencies = () => {
+  const dependency = workspaceState.pendingConfirm?.dependencies;
+  const firstConnection = dependency?.connections?.[0];
+  const firstBox = dependency?.boxes?.[0];
+  const params = new URLSearchParams();
+  params.set("runtime", "dependencies");
+  if (firstBox?.id) params.set("nodeId", firstBox.id);
+  if (firstBox?.type) params.set("nodeType", firstBox.type);
+  if (dependency?.channels?.[0]) params.set("channel", dependency.channels[0]);
+  if (firstConnection?.id) params.set("connectionId", firstConnection.id);
+  openChromePage(`flowMap.html?${params.toString()}`);
+};
+
+const deleteSelectedBoxes = async () => {
   const ids = workspaceState.selectedBoxIds;
   if (!ids.length) {
     setNotice("Nessun box selezionato da eliminare");
@@ -1047,14 +1123,25 @@ const deleteSelectedBoxes = () => {
     return;
   }
 
-  workspaceState.pendingConfirm = { type: "delete", ids: [...ids] };
-  setNotice("Conferma eliminazione richiesta");
+  const dependencies = await selectedDeleteDependencies(ids);
+  workspaceState.pendingConfirm = {
+    type: "delete",
+    ids: [...ids],
+    dependencies,
+    requiresForce: dependencies.hasDependencies,
+  };
+  setNotice(dependencies.hasDependencies ? "Dipendenze runtime rilevate" : "Conferma eliminazione richiesta");
   mountWorkspace();
 };
 
-const confirmPendingDelete = () => {
+const confirmPendingDelete = (force = false) => {
   const ids = workspaceState.pendingConfirm?.type === "delete" ? workspaceState.pendingConfirm.ids : [];
   if (!ids.length) return cancelPendingConfirm();
+  if (workspaceState.pendingConfirm?.requiresForce && !force) {
+    setNotice("Eliminazione bloccata: usa View Dependencies o Force Delete.");
+    mountWorkspace();
+    return;
+  }
   commitWorkspaceChange("Box selezionati eliminati", () => {
     const selected = new Set(ids);
     workspaceState.boxes = workspaceState.boxes.filter((item) => !selected.has(item.id));
@@ -1062,6 +1149,12 @@ const confirmPendingDelete = () => {
     workspaceState.pendingConfirm = null;
     selectBoxes([]);
   });
+  if (window.TrackerLensEventLogStore?.cleanupNodeReferences) {
+    window.TrackerLensEventLogStore.cleanupNodeReferences({
+      nodeIds: ids,
+      workspaceId: workspaceState.workspace.id || "",
+    }).catch((error) => console.warn("Cleanup eventi nodi runtime non completato:", error));
+  }
   persistWorkspaceSilently();
 };
 

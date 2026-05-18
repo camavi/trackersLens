@@ -103,6 +103,20 @@ body {
   border-color: var(--tl-border);
 }
 
+.tl-icon-btn.is-danger.cms-btn,
+.tl-runtime-delete-dialog .is-danger.cms-btn {
+  color: #fecaca;
+  border-color: rgba(239, 68, 68, 0.45);
+  background: rgba(127, 29, 29, 0.24);
+}
+
+.tl-runtime-delete-dialog .is-danger.cms-btn:hover,
+.tl-icon-btn.is-danger.cms-btn:hover {
+  color: #fff;
+  border-color: rgba(239, 68, 68, 0.8);
+  background: rgba(220, 38, 38, 0.38);
+}
+
 .tl-tracker-body {
   min-height: 0;
   display: grid;
@@ -645,4 +659,43 @@ body {
   border-radius: 5px;
   color: var(--tl-text);
   background: rgba(255, 255, 255, 0.04);
+}
+
+.tl-runtime-dependency-report {
+  display: grid;
+  gap: 12px;
+  color: var(--tl-text-muted);
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.tl-runtime-dependency-report>p {
+  margin: 0;
+  color: var(--tl-text);
+}
+
+.tl-runtime-dependency-card.cms-card {
+  border-color: rgba(239, 68, 68, 0.22);
+  background: rgba(7, 12, 18, 0.68);
+}
+
+.tl-runtime-dependency-card .cms-card-body {
+  display: grid;
+  gap: 8px;
+}
+
+.tl-runtime-dependency-card h3 {
+  margin: 0;
+  color: var(--tl-text);
+  font-size: 13px;
+}
+
+.tl-runtime-dependency-card ul {
+  margin: 0;
+  padding-left: 18px;
+}
+
+.tl-runtime-dependency-card li {
+  margin: 4px 0;
+  color: var(--tl-text-muted);
 }

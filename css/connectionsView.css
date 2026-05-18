@@ -487,8 +487,7 @@ body {
 }
 
 .tl-link-table-wrap,
-.tl-link-card-grid,
-.tl-link-graph-view {
+.tl-link-card-grid {
   min-height: 0;
   overflow: auto;
 }
@@ -658,74 +657,6 @@ body {
   white-space: nowrap;
 }
 
-.tl-link-graph-view {
-  position: relative;
-  border: 1px solid rgba(214, 226, 235, 0.09);
-  border-radius: 8px;
-  background:
-    radial-gradient(circle, rgba(164, 183, 204, 0.16) 0.8px, transparent 1px),
-    rgba(0, 0, 0, 0.18);
-  background-size: 20px 20px;
-}
-
-.tl-link-graph-node {
-  position: absolute;
-  left: var(--x);
-  top: var(--y);
-  width: 162px;
-  padding: 10px;
-  border: 1px solid rgba(var(--tone), 0.25);
-  border-radius: 8px;
-  background: rgba(7, 13, 19, 0.88);
-  box-shadow: 0 0 30px rgba(var(--tone), 0.12);
-}
-
-.tl-link-graph-node span,
-.tl-link-graph-node small {
-  display: block;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.tl-link-graph-node span {
-  color: #fff;
-  font-weight: 800;
-}
-
-.tl-link-graph-node small {
-  margin-top: 4px;
-  color: rgb(var(--tone));
-}
-
-.tl-link-graph-line {
-  position: absolute;
-  height: 1px;
-  background: linear-gradient(90deg, transparent, rgba(163, 90, 240, 0.7), transparent);
-  transform-origin: left center;
-}
-
-.tl-link-graph-line.one {
-  left: 22%;
-  top: 35%;
-  width: 52%;
-  transform: rotate(8deg);
-}
-
-.tl-link-graph-line.two {
-  left: 20%;
-  top: 58%;
-  width: 58%;
-  transform: rotate(-10deg);
-}
-
-.tl-link-graph-line.three {
-  left: 42%;
-  top: 28%;
-  width: 36%;
-  transform: rotate(43deg);
-}
-
 .tl-link-inspector {
   display: grid;
   grid-template-rows: auto minmax(0, 1fr);
@@ -742,8 +673,12 @@ body {
 .tl-link-inspector-body {
   min-height: 0;
   display: grid;
-  grid-template-rows: auto auto auto minmax(0, 1fr) auto;
+  grid-template-rows: auto auto auto minmax(180px, 0.7fr) minmax(240px, 1fr) auto;
   gap: 12px;
+}
+
+.tl-link-inspector-body.is-runtime-node {
+  grid-template-rows: auto minmax(0, 1fr);
 }
 
 .tl-link-hero {
@@ -756,6 +691,19 @@ body {
   border: 1px solid rgba(214, 226, 235, 0.1);
   border-radius: 8px;
   background: rgba(255, 255, 255, 0.035);
+}
+
+.tl-link-hero.is-runtime-node {
+  margin-top: 0;
+  border-color: rgba(56, 189, 248, 0.22);
+  background:
+    radial-gradient(circle at 12% 0%, rgba(56, 189, 248, 0.11), transparent 38%),
+    rgba(255, 255, 255, 0.035);
+}
+
+.tl-runtime-node-summary {
+  display: grid;
+  gap: 12px;
 }
 
 .tl-link-orb {
@@ -894,14 +842,167 @@ body {
   color: #fecaca;
 }
 
+.tl-runtime-inspector {
+  min-height: 0;
+  padding: 12px;
+  display: grid;
+  gap: 10px;
+  overflow: auto;
+  border: 1px solid rgba(53, 201, 121, 0.16);
+  border-radius: 8px;
+  background:
+    radial-gradient(circle at 20% 0%, rgba(53, 201, 121, 0.08), transparent 36%),
+    rgba(3, 9, 14, 0.46);
+}
+
+.tl-runtime-inspector h3 {
+  margin: 0;
+  color: #fff;
+  font-size: 13px;
+}
+
+.tl-runtime-refresh.cms-btn {
+  width: 30px;
+  min-width: 30px;
+  height: 30px;
+  padding: 0;
+  color: #c9ffe0;
+  border-color: rgba(53, 201, 121, 0.18);
+  border-radius: 8px;
+  background: rgba(53, 201, 121, 0.06);
+}
+
+.tl-runtime-focus {
+  min-width: 0;
+  padding: 8px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 30px;
+  align-items: center;
+  gap: 8px;
+  border: 1px solid rgba(240, 184, 75, 0.2);
+  border-radius: 8px;
+  background: rgba(240, 184, 75, 0.055);
+}
+
+.tl-runtime-focus strong,
+.tl-runtime-focus span {
+  display: block;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tl-runtime-focus strong {
+  color: #f8d77c;
+  font-size: 11px;
+}
+
+.tl-runtime-focus span {
+  margin-top: 3px;
+  color: var(--tl-text-muted);
+  font-size: 11px;
+}
+
+.tl-runtime-clear.cms-btn {
+  width: 30px;
+  min-width: 30px;
+  height: 30px;
+  padding: 0;
+  color: #f8d77c;
+  border-color: rgba(240, 184, 75, 0.18);
+  border-radius: 8px;
+  background: rgba(240, 184, 75, 0.08);
+}
+
+.tl-runtime-metric {
+  min-width: 0;
+  padding: 8px;
+  border: 1px solid rgba(214, 226, 235, 0.08);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.025);
+}
+
+.tl-runtime-metric span,
+.tl-runtime-metric strong {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tl-runtime-metric span {
+  color: var(--tl-text-muted);
+  font-size: 10px;
+}
+
+.tl-runtime-metric strong {
+  margin-top: 3px;
+  color: #fff;
+  font-size: 17px;
+}
+
+.tl-runtime-metric.is-green strong {
+  color: #35c979;
+}
+
+.tl-runtime-metric.is-blue strong {
+  color: #38bdf8;
+}
+
+.tl-runtime-metric.is-gold strong {
+  color: #f0b84b;
+}
+
+.tl-runtime-list {
+  min-width: 0;
+  display: grid;
+  gap: 7px;
+}
+
+.tl-runtime-list-row {
+  min-width: 0;
+  padding: 8px;
+  display: grid;
+  gap: 3px;
+  border: 1px solid rgba(214, 226, 235, 0.08);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.025);
+}
+
+.tl-runtime-list-row strong,
+.tl-runtime-list-row span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tl-runtime-list-row strong {
+  color: #fff;
+  font-size: 12px;
+}
+
+.tl-runtime-list-row span,
+.tl-link-muted,
+.tl-link-error-text {
+  color: var(--tl-text-muted);
+  font-size: 11px;
+}
+
+.tl-link-error-text {
+  color: #fecaca;
+}
+
 .tl-link-analytics {
   position: relative;
   z-index: 1;
   grid-column: 1 / -1;
   min-height: 0;
   display: grid;
-  grid-template-columns: 1.3fr 1fr 1.15fr 1.15fr;
+  grid-template-columns: 1.25fr repeat(4, minmax(180px, 1fr));
   gap: 10px;
+  overflow: auto;
 }
 
 .tl-link-analytics-card.cms-card {
@@ -1080,7 +1181,6 @@ body {
 .tl-link-inspector::-webkit-scrollbar,
 .tl-link-table-wrap::-webkit-scrollbar,
 .tl-link-card-grid::-webkit-scrollbar,
-.tl-link-graph-view::-webkit-scrollbar,
 .tl-link-json::-webkit-scrollbar {
   width: 10px;
   height: 10px;
@@ -1090,7 +1190,6 @@ body {
 .tl-link-inspector::-webkit-scrollbar-track,
 .tl-link-table-wrap::-webkit-scrollbar-track,
 .tl-link-card-grid::-webkit-scrollbar-track,
-.tl-link-graph-view::-webkit-scrollbar-track,
 .tl-link-json::-webkit-scrollbar-track {
   background: rgba(0, 0, 0, 0.18);
 }
@@ -1099,7 +1198,6 @@ body {
 .tl-link-inspector::-webkit-scrollbar-thumb,
 .tl-link-table-wrap::-webkit-scrollbar-thumb,
 .tl-link-card-grid::-webkit-scrollbar-thumb,
-.tl-link-graph-view::-webkit-scrollbar-thumb,
 .tl-link-json::-webkit-scrollbar-thumb {
   border: 2px solid rgba(0, 0, 0, 0.18);
   border-radius: 999px;

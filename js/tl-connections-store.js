@@ -82,6 +82,23 @@ window.TrackerLensConnectionsStore = (() => {
     }
   };
 
+  const removeMany = async (ids = []) => {
+    const uniqueIds = [...new Set(ids.filter(Boolean).map(String))];
+    if (!uniqueIds.length) return [];
+    const db = await ensureStore();
+    try {
+      return await new Promise((resolve, reject) => {
+        const transaction = db.transaction(CONNECTION_STORE, "readwrite");
+        const store = transaction.objectStore(CONNECTION_STORE);
+        uniqueIds.forEach((id) => store.delete(id));
+        transaction.oncomplete = () => resolve(uniqueIds);
+        transaction.onerror = (event) => reject(event.target.error || new Error("Errore cleanup collegamenti workspace"));
+      });
+    } finally {
+      db.close();
+    }
+  };
+
   const contentOf = (record) =>
     record?.content && typeof record.content === "object" ? record.content : record || {};
 
@@ -225,6 +242,15 @@ window.TrackerLensConnectionsStore = (() => {
     const workspaceName = normalizeText(workspace?.name || workspace?.title, "Workspace");
     const now = new Date().toISOString();
 
+    const existing = await readAll(CONNECTION_STORE);
+    const nextIds = new Set(connections.map((connection, index) => connection.id || `connection_${workspaceId}_${index}`));
+    const staleIds = existing
+      .map(normalizeConnection)
+      .filter((connection) => connection.workspaceId === workspaceId && !nextIds.has(connection.id))
+      .map((connection) => connection.id);
+
+    await removeMany(staleIds);
+
     return Promise.all(connections.map((connection, index) => {
       const fromBox = widgetsByBoxId.get(connection.fromBoxId) || {};
       const toBox = widgetsByBoxId.get(connection.toBoxId) || {};
@@ -262,6 +288,7 @@ window.TrackerLensConnectionsStore = (() => {
     list,
     normalizeConnection,
     remove,
+    removeMany,
     syncWorkspaceConnections,
     upsert,
   };

@@ -14,7 +14,14 @@ const tlConfig = {
     TL_AI_JOBS: 'tl_ai_jobs',
     TL_AI_LOGS: 'tl_ai_logs',
     TL_AI_MEMORY: 'tl_ai_memory',
-    TL_AI_PROMPT_FLOWS: 'tl_ai_prompt_flows'
+    TL_AI_PROMPT_FLOWS: 'tl_ai_prompt_flows',
+    TL_CHANNELS: 'tl_channels',
+    TL_FLOWS: 'tl_flows',
+    TL_EVENTS: 'tl_events',
+    TL_FLOW_LOGS: 'tl_flow_logs',
+    TL_AGENTS: 'tl_agents',
+    TL_RUNTIME_NODES: 'tl_runtime_nodes',
+    TL_RUNTIME_DEPENDENCIES: 'tl_runtime_dependencies'
   },
 
   MANIFEST: [

@@ -1,0 +1,274 @@
+window.TrackerLensEventLogStore = (() => {
+  const DB_NAME = "TrackersLens";
+  const config = () => (typeof tlConfig !== "undefined" ? tlConfig : window.tlConfig) || {};
+  const tableName = (key, fallback) => config()?.TABLES?.[key] || fallback;
+
+  const STORES = {
+    events: tableName("TL_EVENTS", "tl_events"),
+    flowLogs: tableName("TL_FLOW_LOGS", "tl_flow_logs"),
+  };
+
+  const STORE_DEFINITIONS = [
+    { name: STORES.events, columns: [{ name: "workspaceId" }, { name: "channel" }, { name: "eventType" }, { name: "createdAt" }] },
+    { name: STORES.flowLogs, columns: [{ name: "workspaceId" }, { name: "flowId" }, { name: "createdAt" }] },
+  ];
+
+  const createIndexes = (store, columns = []) => {
+    columns.forEach((column) => {
+      if (!store.indexNames.contains(column.name)) {
+        store.createIndex(column.name, column?.keyPath ?? column.name, column?.options ?? { unique: false });
+      }
+    });
+  };
+
+  const createMissingStores = (db) => {
+    STORE_DEFINITIONS.forEach((definition) => {
+      if (db.objectStoreNames.contains(definition.name)) return;
+      createIndexes(db.createObjectStore(definition.name, { keyPath: "id" }), definition.columns);
+    });
+  };
+
+  const bindVersionChange = (db) => {
+    db.onversionchange = () => {
+      db.close();
+      console.warn("IndexedDB event log chiuso per consentire aggiornamento da un'altra scheda.");
+    };
+    return db;
+  };
+
+  const openDb = (version = undefined) =>
+    new Promise((resolve, reject) => {
+      if (!window.indexedDB) {
+        reject(new Error("IndexedDB non disponibile"));
+        return;
+      }
+
+      const request = version ? indexedDB.open(DB_NAME, version) : indexedDB.open(DB_NAME);
+      request.onupgradeneeded = (event) => createMissingStores(event.target.result);
+      request.onsuccess = (event) => resolve(bindVersionChange(event.target.result));
+      request.onerror = (event) => reject(event.target.error || new Error("Errore apertura IndexedDB event log"));
+      request.onblocked = () => reject(new Error("IndexedDB bloccato da un'altra scheda."));
+    });
+
+  const ensureStores = async () => {
+    if (window.TrackerLensDependencyManager?.ensureRuntimeStores) {
+      await window.TrackerLensDependencyManager.ensureRuntimeStores().then((db) => db?.close?.());
+    }
+
+    const db = await openDb();
+    const hasAllStores = STORE_DEFINITIONS.every((definition) => db.objectStoreNames.contains(definition.name));
+    if (hasAllStores) return db;
+
+    const nextVersion = db.version + 1;
+    db.close();
+    return openDb(nextVersion);
+  };
+
+  const write = async (storeName, record) => {
+    const db = await ensureStores();
+    try {
+      return await new Promise((resolve, reject) => {
+        const request = db.transaction(storeName, "readwrite").objectStore(storeName).put(record);
+        request.onsuccess = () => resolve(record);
+        request.onerror = (event) => reject(event.target.error || new Error(`Errore salvataggio ${storeName}`));
+      });
+    } finally {
+      db.close();
+    }
+  };
+
+  const deleteRecords = async (storeName, ids = []) => {
+    const uniqueIds = [...new Set(ids.filter(Boolean).map(String))];
+    if (!uniqueIds.length) return [];
+    const db = await ensureStores();
+    try {
+      return await new Promise((resolve, reject) => {
+        const transaction = db.transaction(storeName, "readwrite");
+        const store = transaction.objectStore(storeName);
+        uniqueIds.forEach((id) => store.delete(id));
+        transaction.oncomplete = () => resolve(uniqueIds);
+        transaction.onerror = (event) => reject(event.target.error || new Error(`Errore cleanup ${storeName}`));
+      });
+    } finally {
+      db.close();
+    }
+  };
+
+  const pruneByScope = async ({ storeName, workspaceId = "global", channel = "", limit = 500 }) => {
+    const db = await ensureStores();
+    try {
+      return await new Promise((resolve, reject) => {
+        const transaction = db.transaction(storeName, "readwrite");
+        const store = transaction.objectStore(storeName);
+        const request = store.getAll();
+        request.onsuccess = (event) => {
+          const records = Array.from(event.target.result || [])
+            .filter((record) => record.workspaceId === workspaceId)
+            .filter((record) => !channel || record.channel === channel)
+            .sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt));
+          records.slice(limit).forEach((record) => store.delete(record.id));
+        };
+        transaction.oncomplete = () => resolve(true);
+        transaction.onerror = (event) => reject(event.target.error || new Error(`Errore cleanup ${storeName}`));
+      });
+    } finally {
+      db.close();
+    }
+  };
+
+  const cleanupEvents = ({ workspaceId = "global", channel = "", limit = 500 } = {}) =>
+    pruneByScope({ storeName: STORES.events, workspaceId, channel, limit });
+
+  const cleanupFlowLogs = ({ workspaceId = "global", limit = 300 } = {}) =>
+    pruneByScope({ storeName: STORES.flowLogs, workspaceId, limit });
+
+  const cleanupNodeReferences = async ({ nodeIds = [], workspaceId = "" } = {}) => {
+    const ids = new Set(nodeIds.filter(Boolean).map(String));
+    if (!ids.size) return { eventIds: [], flowLogIds: [] };
+    const [events, flowLogs] = await Promise.all([listEvents(), listFlowLogs()]);
+    const eventIds = events
+      .filter((event) => !workspaceId || event.workspaceId === workspaceId)
+      .filter((event) => ids.has(String(event.sourceNodeId)) || ids.has(String(event.targetNodeId)))
+      .map((event) => event.id);
+    const flowLogIds = flowLogs
+      .filter((log) => !workspaceId || log.workspaceId === workspaceId)
+      .filter((log) => ids.has(String(log.nodeId)))
+      .map((log) => log.id);
+
+    await Promise.all([
+      deleteRecords(STORES.events, eventIds),
+      deleteRecords(STORES.flowLogs, flowLogIds),
+    ]);
+    return { eventIds, flowLogIds };
+  };
+
+  const cleanupConnectionReferences = async ({ connectionId = "", workspaceId = "" } = {}) => {
+    if (!connectionId) return { eventIds: [], flowLogIds: [] };
+    const [events, flowLogs] = await Promise.all([listEvents(), listFlowLogs()]);
+    const eventIds = events
+      .filter((event) => !workspaceId || event.workspaceId === workspaceId)
+      .filter((event) => event.connectionId === connectionId || event.context?.connectionId === connectionId)
+      .map((event) => event.id);
+    const flowLogIds = flowLogs
+      .filter((log) => !workspaceId || log.workspaceId === workspaceId)
+      .filter((log) => log.connectionId === connectionId || log.context?.connectionId === connectionId)
+      .map((log) => log.id);
+
+    await Promise.all([
+      deleteRecords(STORES.events, eventIds),
+      deleteRecords(STORES.flowLogs, flowLogIds),
+    ]);
+    return { eventIds, flowLogIds };
+  };
+
+  const payloadSize = (payload, payloadText = "") => {
+    const text = payloadText || JSON.stringify(payload || {});
+    return new Blob([text]).size;
+  };
+
+  const recordEvent = async ({
+    workspaceId = "global",
+    flowId = "",
+    channel = "default",
+    eventType = "emitted",
+    sourceNodeId = "",
+    targetNodeId = "",
+    connectionId = "",
+    payload = {},
+    payloadText = "",
+    status = "ok",
+    latencyMs = 0,
+  } = {}) => {
+    const createdAt = new Date().toISOString();
+    const event = {
+      id: `event_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+      workspaceId,
+      flowId,
+      channel,
+      eventType,
+      sourceNodeId,
+      targetNodeId,
+      connectionId,
+      payload,
+      status,
+      latencyMs: Number(latencyMs) || 0,
+      sizeBytes: payloadSize(payload, payloadText),
+      createdAt,
+    };
+
+    await write(STORES.events, event);
+    cleanupEvents({ workspaceId, channel, limit: 500 }).catch((error) => {
+      console.warn("Cleanup eventi runtime non completato:", error);
+    });
+    return event;
+  };
+
+  const recordFlowLog = async ({
+    workspaceId = "global",
+    flowId = "",
+    nodeId = "",
+    connectionId = "",
+    level = "info",
+    message = "",
+    context = {},
+  } = {}) => {
+    const createdAt = new Date().toISOString();
+    const log = {
+      id: `flowlog_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+      workspaceId,
+      flowId,
+      nodeId,
+      connectionId,
+      level,
+      message,
+      context,
+      createdAt,
+    };
+
+    await write(STORES.flowLogs, log);
+    cleanupFlowLogs({ workspaceId, limit: 300 }).catch((error) => {
+      console.warn("Cleanup flow logs non completato:", error);
+    });
+    return log;
+  };
+
+  const listEvents = async () => {
+    const db = await ensureStores();
+    try {
+      return await new Promise((resolve, reject) => {
+        const request = db.transaction(STORES.events, "readonly").objectStore(STORES.events).getAll();
+        request.onsuccess = (event) => resolve(Array.from(event.target.result || []));
+        request.onerror = (event) => reject(event.target.error || new Error("Errore lettura eventi runtime"));
+      });
+    } finally {
+      db.close();
+    }
+  };
+
+  const listFlowLogs = async () => {
+    const db = await ensureStores();
+    try {
+      return await new Promise((resolve, reject) => {
+        const request = db.transaction(STORES.flowLogs, "readonly").objectStore(STORES.flowLogs).getAll();
+        request.onsuccess = (event) => resolve(Array.from(event.target.result || []));
+        request.onerror = (event) => reject(event.target.error || new Error("Errore lettura flow logs runtime"));
+      });
+    } finally {
+      db.close();
+    }
+  };
+
+  return {
+    STORES,
+    cleanupConnectionReferences,
+    cleanupEvents,
+    cleanupFlowLogs,
+    cleanupNodeReferences,
+    deleteRecords,
+    ensureStores,
+    listFlowLogs,
+    listEvents,
+    recordEvent,
+    recordFlowLog,
+  };
+})();

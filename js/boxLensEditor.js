@@ -14,6 +14,10 @@ const t = (key) => lang[key] || window.TrackerLensLang?.en?.[key] || key;
 const params = new URLSearchParams(window.location.search);
 const requestedLensId = params.get("lensId");
 const isEditRequest = Boolean(requestedLensId);
+const requestedWorkspaceId = params.get("workspaceId") || "";
+const requestedChannel = params.get("channel") || "";
+const requestedDraftNodeId = params.get("draftNodeId") || "";
+const requestedRuntimeLabel = params.get("runtimeLabel") || "";
 const BOX_LENS_STORES = [
   { name: tlConfig.TABLES.TL_WIDGETS, columns: [{ name: "content" }] },
   { name: tlConfig.TABLES.TL_PAGES, columns: [{ name: "content" }] },
@@ -40,14 +44,15 @@ const buildManifest = (box) =>
 
 const defaultChannels = [
   {
-    id: "btc-price",
-    label: "Prezzo BTC Live",
+    id: requestedChannel || "btc-price",
+    label: requestedChannel || "Prezzo BTC Live",
   },
 ];
 
 const defaultBox = {
   ...boxLensData.box,
   id: makeLensId(),
+  name: requestedRuntimeLabel || boxLensData.box.name,
   status: boxLensData.box.status !== false,
   visibility: boxLensData.box.visibility || "private",
   boxType: "empty",
@@ -119,6 +124,19 @@ const openChromePage = (url) => {
     return;
   }
   window.location.assign(url);
+};
+
+const runtimeWorkspaceId = () => requestedWorkspaceId || "workspace_global";
+
+const flowMapUrl = () => {
+  const query = new URLSearchParams();
+  query.set("runtime", "dependencies");
+  query.set("nodeId", boxLensState.editingExisting ? boxLensState.box.id : requestedDraftNodeId || boxLensState.box.id);
+  query.set("nodeType", "boxLens");
+  if (requestedWorkspaceId) query.set("workspaceId", requestedWorkspaceId);
+  const channel = boxLensState.box.channels?.[0]?.id || requestedChannel || "";
+  if (channel) query.set("channel", channel);
+  return `flowMap.html?${query.toString()}`;
 };
 
 const icon = (name, size = "md") => _.Icon({ name, size });
@@ -382,6 +400,7 @@ const renderHeader = () =>
       btn({ class: "tl-icon-btn", "aria-label": "Zoom in", onclick: () => setZoom(10) }, icon("add")),
       btn({ class: "tl-icon-btn", "aria-label": "Desktop", onclick: () => setDevice("desktop") }, icon("desktop_windows")),
       btn({ class: "tl-icon-btn", "aria-label": "Griglia", onclick: () => setEditorMode("editor") }, icon("dashboard")),
+      requestedDraftNodeId ? btn({ class: "tl-cancel-btn", onclick: () => openChromePage(flowMapUrl()) }, icon("account_tree", "sm"), "Flow Map") : null,
       btn({ class: "tl-cancel-btn", onclick: () => openChromePage("editorWorkspace.html") }, icon("warning_amber", "sm"), t("cancel")),
       btn({ class: "tl-save-box", onclick: saveBoxLens, disabled: boxLensState.loading || boxLensState.saving }, icon("radio_button_checked", "sm"), boxLensState.saving ? "Salvataggio..." : t("saveBox")),
       btn({ class: "tl-icon-btn", "aria-label": "Chiudi", onclick: () => openChromePage("editorWorkspace.html") }, icon("close"))
@@ -956,6 +975,32 @@ const renderFooter = () =>
 
 const shortcut = (keys, label) => _.span(_.kbd({ class: "tl-kbd" }, keys), " ", label);
 
+const syncDraftRuntimeNode = async (payload) => {
+  if (!requestedDraftNodeId || !window.TrackerLensRuntimeGraphStore?.promoteDraftNode) return null;
+  const channels = (payload.content.channels || []).map((channel) => channel.id || channel).filter(Boolean);
+  return window.TrackerLensRuntimeGraphStore.promoteDraftNode({
+    draftNodeId: requestedDraftNodeId,
+    workspaceId: runtimeWorkspaceId(),
+    node: {
+      id: payload.id,
+      workspaceId: runtimeWorkspaceId(),
+      type: "boxLens",
+      label: payload.content.name || payload.id,
+      sourceRef: payload.id,
+      assetId: payload.id,
+      inputs: channels,
+      outputs: [],
+      channels,
+      status: payload.content.status !== false ? "active" : "inactive",
+      metadata: {
+        paletteLabel: requestedRuntimeLabel || "",
+        boxType: payload.content.boxType,
+        visibility: payload.content.visibility,
+      },
+    },
+  });
+};
+
 const saveBoxLens = async () => {
   if (boxLensState.loading || boxLensState.saving) return;
   persistEditorValue();
@@ -983,10 +1028,11 @@ const saveBoxLens = async () => {
 
   try {
     await putWidgetRecord(payload);
+    await syncDraftRuntimeNode(payload);
     boxLensState.editingExisting = true;
     boxLensState.localAssets = await window.TrackerLensLocalLibrary.listWidgetAssets();
-    boxLensState.notice = t("saved");
-    notify("success", t("saved"));
+    boxLensState.notice = requestedDraftNodeId ? "BoxLens salvato e draft runtime promosso" : t("saved");
+    notify("success", boxLensState.notice);
   } catch (error) {
     console.error(error);
     boxLensState.notice = t("saveError");
