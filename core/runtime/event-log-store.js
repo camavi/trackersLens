@@ -94,6 +94,27 @@ window.TrackerLensEventLogStore = (() => {
     }
   };
 
+  const clearStore = async (storeName) => {
+    const db = await ensureStores();
+    try {
+      return await new Promise((resolve, reject) => {
+        const request = db.transaction(storeName, "readwrite").objectStore(storeName).clear();
+        request.onsuccess = () => resolve(storeName);
+        request.onerror = (event) => reject(event.target.error || new Error(`Errore reset ${storeName}`));
+      });
+    } finally {
+      db.close();
+    }
+  };
+
+  const clearAll = async () => {
+    await Promise.all([clearStore(STORES.events), clearStore(STORES.flowLogs)]);
+    return {
+      stores: [STORES.events, STORES.flowLogs],
+      clearedAt: new Date().toISOString(),
+    };
+  };
+
   const pruneByScope = async ({ storeName, workspaceId = "global", channel = "", limit = 500 }) => {
     const db = await ensureStores();
     try {
@@ -261,6 +282,8 @@ window.TrackerLensEventLogStore = (() => {
 
   return {
     STORES,
+    clearAll,
+    clearStore,
     cleanupConnectionReferences,
     cleanupEvents,
     cleanupFlowLogs,

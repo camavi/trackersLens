@@ -62,6 +62,16 @@ window.TLRuntimeDebug = {
   launchLog() {
     return [...trackerLaunchLog];
   },
+  async clearLogs() {
+    if (!window.TrackerLensEventLogStore?.clearAll) {
+      throw new Error("TrackerLensEventLogStore.clearAll non disponibile. Ricarica workspace.html.");
+    }
+    const result = await window.TrackerLensEventLogStore.clearAll();
+    runtimeDebugTrace.length = 0;
+    trackerLaunchLog.length = 0;
+    console.info("[TL Runtime Debug] logs cleared", result);
+    return result;
+  },
   state() {
     return {
       enabled: runtimeDebugEnabled(),
@@ -99,6 +109,59 @@ const runtimeEventBus = () => {
     eventStore: runtimeEventStore(),
     channelRegistry: runtimeChannelRegistry(),
   });
+};
+
+const normalizeRuntimeConnection = (connection = {}) => {
+  const fromBoxId = connection.fromBoxId || connection.sourceNodeId || "";
+  const toBoxId = connection.toBoxId || connection.targetNodeId || "";
+  return {
+    ...connection,
+    fromBoxId,
+    toBoxId,
+    channel: connection.channel || "default",
+    mapping: connection.mapping && typeof connection.mapping === "object" ? { ...connection.mapping } : {},
+  };
+};
+
+const runtimeConnectionKey = (connection = {}) => {
+  if (connection.id) return `id:${connection.id}`;
+  return [
+    "edge",
+    connection.fromBoxId || connection.sourceNodeId || "",
+    connection.toBoxId || connection.targetNodeId || "",
+    connection.channel || "default",
+  ].join(":");
+};
+
+const loadWorkspaceConnections = async ({ workspaceId = "", contentConnections = [] } = {}) => {
+  const baseConnections = contentConnections.map(normalizeRuntimeConnection);
+  const store = window.TrackerLensConnectionsStore;
+  if (!store?.list) return baseConnections;
+
+  try {
+    const allConnections = await store.list();
+    const storeConnections = allConnections
+      .map(normalizeRuntimeConnection)
+      .filter((connection) => !workspaceId || !connection.workspaceId || connection.workspaceId === workspaceId)
+      .filter((connection) => connection.fromBoxId && connection.toBoxId);
+    const merged = new Map();
+    [...baseConnections, ...storeConnections].forEach((connection) => {
+      merged.set(runtimeConnectionKey(connection), connection);
+    });
+    runtimeDebug("workspace-connections-loaded", {
+      workspaceId,
+      contentConnections: baseConnections.length,
+      storeConnections: storeConnections.length,
+      mergedConnections: merged.size,
+    });
+    return Array.from(merged.values());
+  } catch (error) {
+    trackerLaunch("workspace-connections-store-error", {
+      workspaceId,
+      error: error?.message || String(error),
+    }, "warn");
+    return baseConnections;
+  }
 };
 
 const persistRuntimeEvent = (payload) => {
@@ -1836,7 +1899,10 @@ const loadWorkspaceView = async () => {
       id: record.id || content.id || workspace?.id || workspaceId,
     };
     workspaceViewState.boxes = await hydrateWorkspaceBoxes(Array.isArray(content.boxes) ? content.boxes : []);
-    workspaceViewState.connections = Array.isArray(content.connections) ? content.connections.map((connection) => ({ ...connection, mapping: { ...connection.mapping } })) : [];
+    workspaceViewState.connections = await loadWorkspaceConnections({
+      workspaceId: workspaceViewState.workspace.id || workspaceId,
+      contentConnections: Array.isArray(content.connections) ? content.connections : [],
+    });
     workspaceViewState.loading = false;
     workspaceViewState.error = "";
   } catch (error) {
