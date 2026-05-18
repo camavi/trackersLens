@@ -74,6 +74,7 @@ window.TrackerLensSandboxRunner = (() => {
       if (message.type === "tl:sandbox:frame-ready") {
         frame.contentWindow?.postMessage({
           type: "tl:sandbox:mount",
+          box,
           html: code.html || code.HTML || "",
           css: code.css || code.CSS || "",
           js: code.js || code.JS || "",

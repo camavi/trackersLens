@@ -27,6 +27,7 @@ Current behavior:
 - uses a real iframe page (`sandboxRunner.html`) with external scripts instead of `srcdoc`, so it can satisfy extension CSP rules
 - does not add a second HTML `sandbox` attribute to that iframe, because `sandboxRunner.html` is already isolated by the MV3 `manifest.sandbox` page policy
 - runs sandbox JavaScript through a one-way iframe runtime and reports ready/error/timeout to the host
+- executes the boxLens `export default function boxLens(boxLen, context)` inside the sandbox frame and registers returned listeners
 - delivers workspace events to the iframe through `postMessage`
 - supports sandbox-to-parent `context.emit(channel, payload)`
 - supports controlled `context.fetch(url, options)` through the parent capability bridge when `permissions.network` is enabled
@@ -53,6 +54,8 @@ Permission-gated APIs:
 
 - `fetch()` requires `network`
 - `WebSocket()` requires `websocket`
+- `context.fetch()` requires `network`
+- `context.websocket()` requires `websocket`
 - `navigator.clipboard` requires `clipboard`
 
 Preferred sandbox API:
@@ -81,7 +84,7 @@ await context.clipboard.writeText("copied from Trackers Lens");
   "version": "1.0.0",
   "permissions": {
     "network": false,
-    "websocket": false,
+    "websocket": true,
     "storage": false,
     "media": false,
     "clipboard": false,

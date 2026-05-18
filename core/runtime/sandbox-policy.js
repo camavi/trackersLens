@@ -69,8 +69,8 @@ window.TrackerLensSandboxPolicy = (() => {
       .filter((rule) => rule.pattern.test(source))
       .map((rule) => rule.reason);
 
-    if (!permissions.network && /\bfetch\s*\(/.test(source)) violations.push("fetch richiede permission network");
-    if (!permissions.websocket && /\bWebSocket\s*\(/.test(source)) violations.push("WebSocket richiede permission websocket");
+    if (!permissions.network && /(?:\bfetch\s*\(|\bcontext\.fetch\s*\()/.test(source)) violations.push("fetch richiede permission network");
+    if (!permissions.websocket && /(?:\bWebSocket\s*\(|\bcontext\.websocket\s*\()/.test(source)) violations.push("WebSocket richiede permission websocket");
     if (!permissions.clipboard && /\bnavigator\.clipboard\b/.test(source)) violations.push("clipboard richiede permission clipboard");
 
     return violations;

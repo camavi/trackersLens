@@ -56,21 +56,70 @@
 
   const applyDataBindings = (root, data = {}) => {
     if (!root) return;
-    root.querySelectorAll("[data-tl-bind]").forEach((element) => {
-      const key = element.getAttribute("data-tl-bind");
+    root.querySelectorAll("[data-tl-bind], [data-bind]").forEach((element) => {
+      const key = element.getAttribute("data-tl-bind") || element.getAttribute("data-bind");
       const value = readPath(data, key);
       if (value !== undefined && value !== null) element.textContent = String(value);
     });
   };
 
-  const mountRuntime = async ({ html = "", css = "", data = {}, policy = {} } = {}) => {
+  const createDefaultListener = (root) => (data = {}) => {
+    applyDataBindings(root, data);
+    const setText = (selector, value) => {
+      if (value === undefined || value === null) return;
+      root.querySelectorAll(selector).forEach((element) => {
+        element.textContent = String(value);
+      });
+    };
+    setText(".value", data.c ?? data.price ?? data.btcPrice);
+    setText(".change", data.P ?? data.change24h);
+    setText(".title", data.title);
+    setText(".source", data.source);
+  };
+
+  const normalizeRuntimeResult = (result = {}) => {
+    const normalized = result && typeof result === "object" ? result : {};
+    if (typeof normalized.listener === "function") return { default: normalized.listener, "*": normalized.listener };
+    if (normalized.listener && typeof normalized.listener === "object") return normalized.listener;
+    return {};
+  };
+
+  const executeRuntimeJs = async (root, js = "") => {
+    const source = String(js || "").trim();
+    if (!source) return {};
+    const moduleSource = source.replace(/^\s*export\s+default\s+/, "return ");
+    const exported = new Function(`${moduleSource}\n`)();
+    if (typeof exported !== "function") return {};
+    const context = {
+      box: sandboxContext.box || {},
+      data: sandboxContext.data || {},
+      policy: sandboxContext.policy || {},
+      emit: (channel = "default", payload = {}) => {
+        parent.postMessage({ type: "tl:sandbox:emit", channel, payload }, "*");
+      },
+      fetch: (url, options = {}) => requestCapability("fetch", { url, options }),
+      websocket: createSandboxWebSocket,
+      clipboard: {
+        writeText: (text = "") => requestCapability("clipboard-write", { text }),
+      },
+    };
+    return normalizeRuntimeResult(await exported(root, context));
+  };
+
+  const mountRuntime = async ({ html = "", css = "", js = "", data = {}, policy = {}, box = {} } = {}) => {
     try {
       const root = document.getElementById("tl-sandbox-root");
-      sandboxContext = { data: data || {}, policy: policy || {} };
+      sandboxContext = { box: box || {}, data: data || {}, policy: policy || {} };
       listeners = {};
       installCss(css);
       root.innerHTML = html || "";
-      applyDataBindings(root, sandboxContext.data);
+      const defaultListener = createDefaultListener(root);
+      listeners = {
+        default: defaultListener,
+        "*": defaultListener,
+        ...(await executeRuntimeJs(root, js)),
+      };
+      updateRuntime({ channel: "default", data: sandboxContext.data, meta: { initial: true } });
       parent.postMessage({ type: "tl:sandbox:ready" }, "*");
     } catch (error) {
       reportError(error);

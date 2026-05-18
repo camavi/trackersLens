@@ -4027,6 +4027,13 @@ Fatto:
 - `docs/sandbox-isolation.md` e `docs/new_vision_progress.md`:
   - aggiornati bridge e stato punto 3.
 
+Nota correttiva 2026-05-18:
+
+- `core/runtime/sandbox-frame.js` ora esegue davvero il JS del boxLens ricevuto dal parent.
+- Il frame supporta `export default function boxLens(boxLen, context)` e registra i listener restituiti dal boxLens.
+- Prima il frame montava solo HTML/CSS e inviava `ready`, quindi `context.websocket(...)` non poteva partire.
+- `core/runtime/sandbox-policy.js` valida anche `context.fetch(...)` e `context.websocket(...)`; per WebSocket serve `permissions.websocket: true` nel manifest del boxLens.
+
 Prossimi hardening:
 
 - Allowlist domain/origin per capability network.
