@@ -1671,9 +1671,29 @@ const renderHeader = () =>
         ? btn({ onclick: restoreLastChannelAction }, icon("undo", "sm"), "Undo Channel")
         : null,
       btn({ onclick: loadRuntime }, icon("sync", "sm"), "Refresh"),
+      btn({ onclick: openDevTools }, icon("developer_board", "sm"), "DevTools"),
       btn({ class: "is-primary", onclick: () => window.location.assign("connections.html") }, icon("link", "sm"), "Connections")
     )
   );
+
+const openDevTools = () => {
+  const query = new URLSearchParams();
+  const focusedChannel = state.focus.channel || (state.filters.channel !== "all" ? state.filters.channel : "");
+  query.set("tab", focusedChannel ? "channels" : "graph");
+  const node = selectedNode();
+  if (node?.id) {
+    query.set("type", "node");
+    query.set("id", node.id);
+    query.set("nodeId", node.id);
+  } else if (focusedChannel) {
+    query.set("type", "channel");
+    query.set("id", focusedChannel);
+    query.set("channel", focusedChannel);
+  }
+  if (state.filters.workspaceId !== "all") query.set("workspaceId", state.filters.workspaceId);
+  if (state.filters.channel !== "all") query.set("channel", state.filters.channel);
+  window.location.assign(`devtools.html?${query.toString()}`);
+};
 
 const openPaletteNode = (item, contextNode = selectedNode()) => {
   const query = new URLSearchParams();

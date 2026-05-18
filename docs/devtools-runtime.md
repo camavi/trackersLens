@@ -36,12 +36,22 @@ js/devtoolsView.js
 css/devtools.css
 ```
 
-La pagina espone tab per Overview, Graph, Offline, Packages, Time Travel e Performance usando `TrackerLensDevToolsRuntime.load()` come sorgente unica.
+La pagina espone tab per Overview, Graph, Events, Channels, Offline, Packages, Time Travel e Performance usando `TrackerLensDevToolsRuntime.load()` come sorgente unica.
+
+La UI supporta deep link e inspector JSON:
+
+```txt
+devtools.html?tab=graph&type=node&id=<nodeId>
+devtools.html?tab=events&type=event&id=<eventId>
+devtools.html?tab=channels&type=channel&id=<channelName>
+```
+
+`flowMap.html` apre DevTools con il nodo o channel corrente quando disponibile.
 
 `database.html` continua a caricare i moduli runtime core per ispezione IndexedDB e debug di basso livello.
 
 ## Prossimi step
 
-- Aggiungere tab Events e Channels con filtri dedicati.
-- Aggiungere deep link da Flow Map e Analytics.
+- Aggiungere filtri dedicati per Events e Channels.
+- Aggiungere deep link da Analytics.
 - Aggiungere tab AI quando il runtime AI locale avra un inspector stabile.

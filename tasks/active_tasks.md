@@ -98,7 +98,8 @@ Runtime Notes:
 
 - 2026-05-18: added `TrackerLensDevToolsRuntime.load()` and loaded runtime modules in `database.html`.
 - 2026-05-18: added dedicated `devtools.html` with Overview, Graph, Offline, Packages, Time Travel and Performance tabs.
-- Remaining: Events, Channels, AI tabs and deep links from Flow Map/Analytics.
+- 2026-05-18: added Events and Channels tabs, JSON inspector and Flow Map deep link into DevTools.
+- Remaining: Events/Channels filters, AI tab and deep links from Analytics.
 
 ## [TASK-016]
 

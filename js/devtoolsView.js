@@ -1,22 +1,29 @@
 const root = document.getElementById("tl-devtools-root");
 const icon = (name, size = "md") => _.Icon({ name, size });
 const btn = (props, ...children) => _.Btn({ type: "button", ...props }, ...children);
-
-const state = {
-  loading: true,
-  error: "",
-  tab: "overview",
-  data: null,
-};
+const params = new URLSearchParams(window.location.search);
 
 const tabs = [
   { id: "overview", label: "Overview", icon: "dashboard" },
   { id: "graph", label: "Graph", icon: "account_tree" },
+  { id: "events", label: "Events", icon: "bolt" },
+  { id: "channels", label: "Channels", icon: "hub" },
   { id: "offline", label: "Offline", icon: "cloud_off" },
   { id: "packages", label: "Packages", icon: "deployed_code" },
   { id: "time", label: "Time Travel", icon: "history" },
   { id: "performance", label: "Performance", icon: "speed" },
 ];
+
+const state = {
+  loading: true,
+  error: "",
+  tab: tabs.some((tab) => tab.id === params.get("tab")) ? params.get("tab") : "overview",
+  data: null,
+  selected: {
+    type: params.get("type") || (params.get("nodeId") ? "node" : params.get("eventId") ? "event" : params.get("channel") ? "channel" : ""),
+    id: params.get("id") || params.get("nodeId") || params.get("eventId") || params.get("channel") || "",
+  },
+};
 
 const formatDate = (value) => {
   if (!value) return "N/D";
@@ -25,6 +32,45 @@ const formatDate = (value) => {
 };
 
 const number = (value) => Number(value || 0).toLocaleString("it-IT");
+const runtime = () => state.data?.graph?.runtime || {};
+const graph = () => state.data?.graph?.graph || {};
+const jsonPreview = (value) => {
+  try {
+    return JSON.stringify(value ?? {}, null, 2);
+  } catch (_) {
+    return String(value ?? "");
+  }
+};
+
+const selectDetail = (type, id) => {
+  state.selected = { type, id: String(id || "") };
+  const query = new URLSearchParams(window.location.search);
+  query.set("tab", state.tab);
+  query.set("type", type);
+  query.set("id", String(id || ""));
+  history.replaceState(null, "", `${window.location.pathname}?${query.toString()}`);
+  mount();
+};
+
+const setTab = (tab) => {
+  state.tab = tab;
+  const query = new URLSearchParams(window.location.search);
+  query.set("tab", tab);
+  history.replaceState(null, "", `${window.location.pathname}?${query.toString()}`);
+  mount();
+};
+
+const closeInspector = () => {
+  state.selected = { type: "", id: "" };
+  const query = new URLSearchParams(window.location.search);
+  query.delete("type");
+  query.delete("id");
+  query.delete("nodeId");
+  query.delete("eventId");
+  query.delete("channel");
+  history.replaceState(null, "", `${window.location.pathname}?${query.toString()}`);
+  mount();
+};
 
 const metric = (label, value, iconName, tone = "cyan") =>
   _.article(
@@ -50,6 +96,9 @@ const table = (headers, rows) => {
     )
   );
 };
+
+const actionCell = (label, onclick) =>
+  _.td(btn({ class: "tl-devtools-row-action", onclick }, icon("open_in_new", "sm"), label));
 
 const renderOverview = () => {
   const data = state.data || {};
@@ -87,20 +136,20 @@ const renderOverview = () => {
 };
 
 const renderGraph = () => {
-  const graph = state.data?.graph || {};
-  const nodes = graph.graph?.nodes || [];
-  const dependencies = graph.graph?.dependencies || [];
+  const nodes = graph().nodes || [];
+  const dependencies = graph().dependencies || [];
   return _.section(
     { class: "tl-devtools-panel" },
     _.div(
       { class: "tl-devtools-section" },
       _.h2("Nodes"),
-      table(["Node", "Type", "Workspace", "Status"], nodes.map((node) =>
+      table(["Node", "Type", "Workspace", "Status", ""], nodes.map((node) =>
         _.tr(
           _.td(node.label || node.name || node.id || "N/D"),
           _.td(node.type || "N/D"),
           _.td(node.workspaceId || "N/D"),
-          _.td(node.status || "N/D")
+          _.td(node.status || "N/D"),
+          actionCell("Inspect", () => selectDetail("node", node.id))
         )
       ))
     ),
@@ -113,6 +162,64 @@ const renderGraph = () => {
           _.td(dependency.targetNodeId || "N/D"),
           _.td(dependency.channel || "runtime"),
           _.td(dependency.status || "N/D")
+        )
+      ))
+    )
+  );
+};
+
+const renderEvents = () => {
+  const events = [...(runtime().events || [])].sort((a, b) => Date.parse(b.createdAt || 0) - Date.parse(a.createdAt || 0));
+  const flowLogs = [...(runtime().flowLogs || [])].sort((a, b) => Date.parse(b.createdAt || 0) - Date.parse(a.createdAt || 0));
+  return _.section(
+    { class: "tl-devtools-panel" },
+    _.div(
+      { class: "tl-devtools-section" },
+      _.h2("Runtime Events"),
+      table(["Time", "Type", "Channel", "Source", "Target", "Status", ""], events.map((event) =>
+        _.tr(
+          _.td(formatDate(event.createdAt)),
+          _.td(event.eventType || event.type || "event"),
+          _.td(event.channel || "N/D"),
+          _.td(event.sourceNodeId || "N/D"),
+          _.td(event.targetNodeId || "N/D"),
+          _.td(event.status || "ok"),
+          actionCell("Inspect", () => selectDetail("event", event.id))
+        )
+      ))
+    ),
+    _.div(
+      { class: "tl-devtools-section" },
+      _.h2("Flow Logs"),
+      table(["Time", "Level", "Action", "Node", "Channel", ""], flowLogs.map((log) =>
+        _.tr(
+          _.td(formatDate(log.createdAt)),
+          _.td(log.level || "info"),
+          _.td(log.action || log.message || "log"),
+          _.td(log.nodeId || log.sourceNodeId || "N/D"),
+          _.td(log.channel || "N/D"),
+          actionCell("Inspect", () => selectDetail("flowLog", log.id))
+        )
+      ))
+    )
+  );
+};
+
+const renderChannels = () => {
+  const channels = [...(runtime().channels || [])].sort((a, b) => String(a.name || "").localeCompare(String(b.name || "")));
+  return _.section(
+    { class: "tl-devtools-panel" },
+    _.div(
+      { class: "tl-devtools-section" },
+      _.h2("Runtime Channels"),
+      table(["Name", "Workspace", "Producers", "Subscribers", "Updated", ""], channels.map((channel) =>
+        _.tr(
+          _.td(channel.name || channel.id || "N/D"),
+          _.td(channel.workspaceId || "global"),
+          _.td(number(channel.producers?.length)),
+          _.td(number(channel.subscribers?.length)),
+          _.td(formatDate(channel.updatedAt || channel.lastEventAt)),
+          actionCell("Inspect", () => selectDetail("channel", channel.name || channel.id))
         )
       ))
     )
@@ -192,11 +299,52 @@ const renderPerformance = () =>
 const activePanel = () => ({
   overview: renderOverview,
   graph: renderGraph,
+  events: renderEvents,
+  channels: renderChannels,
   offline: renderOffline,
   packages: renderPackages,
   time: renderTime,
   performance: renderPerformance,
 }[state.tab] || renderOverview)();
+
+const selectedRecord = () => {
+  const { type, id } = state.selected;
+  if (!type || !id) return null;
+  if (type === "node") return (graph().nodes || []).find((node) => node.id === id || node.sourceRef === id || node.assetId === id);
+  if (type === "event") return (runtime().events || []).find((event) => event.id === id);
+  if (type === "flowLog") return (runtime().flowLogs || []).find((log) => log.id === id);
+  if (type === "channel") return (runtime().channels || []).find((channel) => channel.name === id || channel.id === id);
+  if (type === "dependency") return (graph().dependencies || []).find((dependency) => dependency.id === id);
+  return null;
+};
+
+const renderInspector = () => {
+  const record = selectedRecord();
+  if (!record) return null;
+  const title = record.label || record.name || record.id || state.selected.id;
+  const dependencies = state.selected.type === "node"
+    ? (graph().dependencies || []).filter((dependency) => dependency.sourceNodeId === record.id || dependency.targetNodeId === record.id)
+    : [];
+  const events = state.selected.type === "node"
+    ? (runtime().events || []).filter((event) => event.sourceNodeId === record.id || event.targetNodeId === record.id)
+    : [];
+  return _.aside(
+    { class: "tl-devtools-inspector" },
+    _.div(
+      { class: "tl-devtools-inspector-head" },
+      _.div(_.span({ class: "tl-devtools-inspector-type" }, state.selected.type), _.h2(title)),
+      btn({ class: "tl-devtools-icon-btn", "aria-label": "Close inspector", onclick: closeInspector }, icon("close", "sm"))
+    ),
+    dependencies.length || events.length
+      ? _.div(
+        { class: "tl-devtools-inspector-stats" },
+        _.span(`${number(dependencies.length)} dependencies`),
+        _.span(`${number(events.length)} events`)
+      )
+      : null,
+    _.pre({ class: "tl-devtools-json" }, jsonPreview(record))
+  );
+};
 
 const renderContent = () => {
   if (state.loading) {
@@ -234,8 +382,7 @@ const renderContent = () => {
           {
             class: `tl-devtools-tab${state.tab === tab.id ? " is-active" : ""}`,
             onclick: () => {
-              state.tab = tab.id;
-              mount();
+              setTab(tab.id);
             },
           },
           icon(tab.icon, "sm"),
@@ -244,6 +391,7 @@ const renderContent = () => {
       )
     ),
     activePanel(),
+    renderInspector(),
     _.footer({ class: "tl-devtools-footer" }, `Loaded: ${formatDate(state.data?.loadedAt)}`),
   ];
 };

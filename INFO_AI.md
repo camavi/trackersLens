@@ -3660,7 +3660,9 @@ Fatto:
   - `database.html` carica i moduli runtime core;
   - API: `TrackerLensDevToolsRuntime.load()`;
   - aggiunta pagina dedicata `devtools.html` con `js/devtoolsView.js` e `css/devtools.css`;
-  - tab iniziali: Overview, Graph, Offline, Packages, Time Travel e Performance.
+  - tab: Overview, Graph, Events, Channels, Offline, Packages, Time Travel e Performance;
+  - inspector JSON per nodi, eventi, flow log e channel;
+  - `flowMap.html` apre DevTools con deep link al nodo o channel selezionato.
 - Punto 16 Time Travel Data:
   - aggiunto `core/runtime/time-travel-store.js`;
   - aggiunto store `tl_time_travel_snapshots`;
@@ -3683,7 +3685,7 @@ Cosa manca / prossimi passi:
 
 - UI offline indicator e sync queue reale.
 - Resolver semver e install package.
-- Tab Events/Channels/AI e deep link per DevTools.
+- Filtri Events/Channels, tab AI e deep link Analytics per DevTools.
 - Timeline/restore Time Travel.
 - Validazione graph e query path/impact nel Graph Engine.
 
