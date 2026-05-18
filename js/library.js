@@ -3,6 +3,7 @@ const btn = (props, ...children) => _.Btn({ type: "button", ...props }, ...child
 
 const libraryState = {
   loading: true,
+  verifying: false,
   error: "",
   widgets: [],
   query: "",
@@ -80,6 +81,23 @@ const importPortableFile = () => {
     }
   };
   input.click();
+};
+
+const scanMarketplaceTrust = async () => {
+  if (!window.TrackerLensMarketplaceVerification || !libraryState.widgets.length) return;
+  libraryState.verifying = true;
+  mountLibrary();
+
+  try {
+    await window.TrackerLensMarketplaceVerification.scanAssets(libraryState.widgets);
+    libraryState.widgets = await window.TrackerLensMarketplaceVerification.enrichAssets(libraryState.widgets);
+  } catch (error) {
+    console.warn("[TrackerLens Marketplace Verification]", error);
+    libraryState.error = error?.message || "Verifica marketplace non riuscita.";
+  } finally {
+    libraryState.verifying = false;
+    mountLibrary();
+  }
 };
 
 const normalizeText = (value, fallback = "") => {
@@ -206,6 +224,7 @@ const renderTopbar = () =>
     _.Toolbar(
       { class: "tl-library-actions", align: "center", gap: 16 },
       btn({ class: "tl-library-menu", onclick: importPortableFile }, icon("upload_file", "sm"), "Import"),
+      btn({ class: "tl-library-menu tl-library-verify", onclick: scanMarketplaceTrust }, icon("verified_user", "sm"), libraryState.verifying ? "Scan" : "Verify"),
       btn({ class: "tl-library-create", onclick: openCreateBox }, icon("edit", "sm"), "Crea nuovo box"),
       btn({ class: "tl-library-menu", "aria-label": "Menu libreria" }, icon("more_vert"))
     )
@@ -313,6 +332,26 @@ const renderBoxIcon = (box) => {
   return _.span({ class: className }, icon(box.icon || (box.type === "boxTracker" ? "cloud_queue" : "dashboard"), "md"));
 };
 
+const trustLabel = (trust = null) => {
+  if (!trust) return { label: "Unscanned", tone: "pending", icon: "shield" };
+  if (trust.status === "verified") return { label: "Verified", tone: "verified", icon: "verified_user" };
+  if (trust.status === "trusted") return { label: "Trusted", tone: "trusted", icon: "shield" };
+  if (trust.status === "blocked") return { label: "Blocked", tone: "blocked", icon: "gpp_bad" };
+  return { label: "Review", tone: "review", icon: "policy" };
+};
+
+const renderTrustBadge = (box) => {
+  const trust = trustLabel(box.trust);
+  return _.span(
+    {
+      class: `tl-trust-badge is-${trust.tone}`,
+      title: box.trust ? `${box.trust.trustLevel} · score ${box.trust.score}` : "Marketplace verification non ancora eseguita",
+    },
+    icon(trust.icon, "xs"),
+    trust.label
+  );
+};
+
 const renderBoxCard = (box) =>
   _.Card(
     {
@@ -329,7 +368,8 @@ const renderBoxCard = (box) =>
       _.div(
         { class: "tl-card-title" },
         _.h3(box.name),
-        _.div({ class: "tl-card-type" }, box.type)
+        _.div({ class: "tl-card-type" }, box.type),
+        renderTrustBadge(box)
       )
     ),
     _.p({ class: "tl-card-description" }, box.description),
@@ -337,7 +377,10 @@ const renderBoxCard = (box) =>
       { class: "tl-card-foot", align: "center", justify: "space-between", gap: 12 },
       _.div(
         _.div({ class: `tl-card-category${box.type === "boxTracker" ? " is-tracker" : ""}${box.type === "workspace" ? " is-workspace" : ""}` }, box.category),
-        _.div({ class: "tl-card-meta" }, `${box.author} · v${box.version}${box.runtimeVersion ? ` · ${box.runtimeVersion}` : ""}`)
+        _.div({ class: "tl-card-meta" }, `${box.author} · v${box.version}${box.runtimeVersion ? ` · ${box.runtimeVersion}` : ""}`),
+        box.trust?.runtime?.violations?.length
+          ? _.div({ class: "tl-card-warning" }, `${box.trust.runtime.violations.length} runtime issue`)
+          : null
       ),
       box.type === "workspace"
         ? btn(
@@ -454,6 +497,9 @@ const loadLibrary = async () => {
     const report = await window.TrackerLensLocalLibrary.inspect();
     console.info("[TrackerLens IndexedDB]", report);
     libraryState.widgets = await window.TrackerLensLocalLibrary.listLibraryItems();
+    if (window.TrackerLensMarketplaceVerification) {
+      libraryState.widgets = await window.TrackerLensMarketplaceVerification.enrichAssets(libraryState.widgets);
+    }
     libraryState.loading = false;
   } catch (error) {
     console.error(error);

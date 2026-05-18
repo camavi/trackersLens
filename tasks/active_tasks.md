@@ -1,5 +1,44 @@
 # Active Tasks
 
+## [TASK-009]
+
+Title: Marketplace Verified Trust Layer
+
+Priority: High
+
+Status: Active
+
+Files:
+
+- `core/runtime/marketplace-verification.js`
+- `js/library.js`
+- `js/tl-local-library.js`
+- `library.html`
+- `css/library.css`
+- `docs/marketplace-verified.md`
+
+Dependencies:
+
+- `tl_widgets`
+- `tl_pages`
+- `tl_marketplace_trust`
+- `core/runtime/sandbox-policy.js`
+
+Regression Risk:
+
+Medium
+
+Description:
+
+Create the first local trust layer for marketplace assets with creator identity, digest/signature metadata, runtime permission scan, review status and Library badges.
+
+Runtime Notes:
+
+- 2026-05-18: added local trust report store `tl_marketplace_trust`.
+- 2026-05-18: added scanner API for local assets and trust badges in `library.html`.
+- 2026-05-18: keep this task open for full end-to-end testing once the real remote marketplace exists.
+- Remaining: public-key signatures, remote marketplace page, import blocking for unsafe bundles and network/domain allowlist.
+
 ## [TASK-001]
 
 Title: Runtime Dependency Validator

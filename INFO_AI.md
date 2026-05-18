@@ -3581,6 +3581,37 @@ Verifiche eseguite:
 - `curl -I http://127.0.0.1:3031/js/flowMapView.js`
 - `curl -I http://127.0.0.1:3031/core/runtime/runtime-graph-model.js`
 
+## Aggiornamento 2026-05-18 - Marketplace Verified punto 9
+
+Obiettivo della sessione: introdurre la fondazione locale per asset marketplace verificabili prima di un marketplace remoto.
+
+Fatto:
+
+- `core/runtime/marketplace-verification.js`:
+  - aggiunto store IndexedDB `tl_marketplace_trust`;
+  - aggiunto scanner locale per creator, digest, firma dichiarata, sandbox/runtime safety, permissions, review status e score;
+  - aggiunte API `scanAsset()`, `scanAssets()`, `readAllReports()` ed `enrichAssets()`;
+  - stati supportati: `verified`, `trusted`, `review_required`, `blocked`.
+- `library.html`:
+  - carica `core/runtime/sandbox-policy.js` e `core/runtime/marketplace-verification.js`.
+- `js/library.js`:
+  - mostra badge trust su ogni card;
+  - aggiunge bottone `Verify` per scansionare la libreria locale;
+  - arricchisce gli asset con i report persistiti in `tl_marketplace_trust`.
+- `js/tl-local-library.js`:
+  - espone nei record normalizzati creator, marketplace, permissions, limits, runtime, dependencies e trust.
+- `css/library.css`:
+  - aggiunti stili per badge `Verified`, `Trusted`, `Review`, `Blocked`, `Unscanned`.
+- `docs/marketplace-verified.md`:
+  - documentato contratto iniziale del sistema verified/trusted/safe runtime.
+
+Cosa manca / prossimi passi:
+
+- Firma crittografica reale con public key creator.
+- Pagina marketplace remota.
+- Blocco import per asset unsafe.
+- Review remota e allowlist network/domain.
+
 ## Aggiornamento 2026-05-18 - Workspace Export Format punto 4
 
 Obiettivo della sessione: implementare il formato portabile `.tlworkspace` / `.tlbox` e agganciarlo a Library e Workspace.

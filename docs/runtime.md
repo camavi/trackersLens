@@ -191,6 +191,21 @@ Public APIs include `localProviderDefaults()`, `seedLocalProviders()`, `probePro
 
 `settings.html` defaults to Ollama with `localFirst: true`, and `ai.html` exposes a `Probe Local` provider action.
 
+## Marketplace Verified
+
+`core/runtime/marketplace-verification.js` defines the first local trust layer for future marketplace assets.
+
+It persists scan reports in `tl_marketplace_trust` and classifies assets as:
+
+- `verified`
+- `trusted`
+- `review_required`
+- `blocked`
+
+The scanner records creator profile, stable payload digest, declared signature, sandbox/runtime violations, permission usage, review status and trust score.
+
+`library.html` loads the verifier, shows trust badges on cards and exposes a `Verify` action to scan the local library.
+
 Current limitations:
 
 - Event persistence is non-blocking and best-effort.
