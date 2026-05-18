@@ -5,6 +5,7 @@ window.TrackerLensSidebar = (() => {
     { id: "links", icon: "link", label: "Collegamenti", url: "connections.html" },
     { id: "flow", icon: "account_tree", label: "Flow Map", url: "flowMap.html" },
     { id: "database", icon: "database", label: "Database", url: "database.html" },
+    { id: "devtools", icon: "developer_board", label: "DevTools", url: "devtools.html" },
     { id: "stats", icon: "monitoring", label: "Statistiche", url: "analytics.html" },
     { id: "ai", icon: "psychology", label: "AI", url: "ai.html" },
     { id: "settings", icon: "settings", label: "Impostazioni", url: "settings.html" },

@@ -73,6 +73,9 @@ Status: Active
 Files:
 
 - `core/runtime/devtools-runtime.js`
+- `devtools.html`
+- `js/devtoolsView.js`
+- `css/devtools.css`
 - `database.html`
 - `docs/devtools-runtime.md`
 
@@ -94,7 +97,8 @@ Create one runtime loader for DevTools panels spanning graph, events, channels, 
 Runtime Notes:
 
 - 2026-05-18: added `TrackerLensDevToolsRuntime.load()` and loaded runtime modules in `database.html`.
-- Remaining: dedicated `devtools.html` with tabbed inspectors.
+- 2026-05-18: added dedicated `devtools.html` with Overview, Graph, Offline, Packages, Time Travel and Performance tabs.
+- Remaining: Events, Channels, AI tabs and deep links from Flow Map/Analytics.
 
 ## [TASK-016]
 
@@ -165,7 +169,8 @@ Create a shared graph engine facade for Flow Map, DevTools, Time Travel, Analyti
 Runtime Notes:
 
 - 2026-05-18: added `TrackerLensGraphEngine.buildGraph()` and `inspectNode()`.
-- Remaining: make Flow Map consume the facade directly and add graph validation/path queries.
+- 2026-05-18: Flow Map now uses `TrackerLensGraphEngine.buildGraph()` as the primary runtime loader with snapshot fallback.
+- Remaining: graph validation, path queries, ancestors, descendants and impact analysis.
 
 ## [TASK-010]
 

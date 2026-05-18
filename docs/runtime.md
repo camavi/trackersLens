@@ -233,6 +233,8 @@ The post-performance runtime core now has first foundations for points 13, 14, 1
 - `core/runtime/graph-engine.js`: facade over runtime snapshots and graph model.
 
 `core/runtime/runtime-snapshot-store.js` now includes offline, package, performance and time-travel records in runtime snapshots when the stores exist.
+`devtools.html` is the first dedicated Runtime DevTools surface and reads `TrackerLensDevToolsRuntime.load()` for Overview, Graph, Offline, Packages, Time Travel and Performance panels.
+`flowMap.html` now loads runtime data through `TrackerLensGraphEngine.buildGraph()` first, with snapshot-store fallback for compatibility.
 
 Current limitations:
 

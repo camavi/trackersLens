@@ -26,10 +26,22 @@ Il loader aggrega:
 
 ## UI attuale
 
-La prima integrazione e caricata in `database.html`, che resta il punto piu vicino a un Runtime DevTools locale.
+La UI dedicata e `devtools.html`.
+
+File:
+
+```txt
+devtools.html
+js/devtoolsView.js
+css/devtools.css
+```
+
+La pagina espone tab per Overview, Graph, Offline, Packages, Time Travel e Performance usando `TrackerLensDevToolsRuntime.load()` come sorgente unica.
+
+`database.html` continua a caricare i moduli runtime core per ispezione IndexedDB e debug di basso livello.
 
 ## Prossimi step
 
-- Creare `devtools.html` dedicato.
-- Tab Events, Channels, Graph, Performance, Packages, Offline, Time Travel, AI.
-- Deep link da Flow Map e Analytics.
+- Aggiungere tab Events e Channels con filtri dedicati.
+- Aggiungere deep link da Flow Map e Analytics.
+- Aggiungere tab AI quando il runtime AI locale avra un inspector stabile.

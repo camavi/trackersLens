@@ -273,9 +273,12 @@ const loadRuntime = async (options = {}) => {
   if (!silent) mount();
 
   try {
-    const snapshot = window.TrackerLensRuntimeSnapshotStore?.load
-      ? await window.TrackerLensRuntimeSnapshotStore.load({ includeConnections: true })
+    const engineResult = window.TrackerLensGraphEngine?.buildGraph
+      ? await window.TrackerLensGraphEngine.buildGraph({ filters: {}, includeConnections: true })
       : null;
+    const snapshot = engineResult?.runtime || (window.TrackerLensRuntimeSnapshotStore?.load
+      ? await window.TrackerLensRuntimeSnapshotStore.load({ includeConnections: true })
+      : null);
     const [channels, flows, events, flowLogs, runtimeNodes, dependencies, connections, libraryItems] = snapshot
       ? await Promise.all([
         Promise.resolve(snapshot.channels),
@@ -306,6 +309,7 @@ const loadRuntime = async (options = {}) => {
     const nodes = enrichNodesWithLibrarySample(mergeLibraryNodes(runtimeNodes, libraryItems), libraryItems);
     const mergedDependencies = mergeConnectionDependencies(nodes, dependencies, connections);
     state.runtime = { channels, flows, events, flowLogs, nodes, dependencies: mergedDependencies };
+    state.graphEngine = engineResult;
     state.libraryItems = libraryItems;
     state.connections = connections;
     if (state.inspectorOpen && !state.focus.nodeId && nodes[0]?.id) state.focus.nodeId = nodes[0].id;

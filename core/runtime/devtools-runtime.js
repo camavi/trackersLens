@@ -10,14 +10,21 @@ window.TrackerLensDevToolsRuntime = (() => {
     }
   };
 
+  const safeValue = async (fn, fallback = null) => {
+    try {
+      return typeof fn === "function" ? await fn() : fallback;
+    } catch (error) {
+      console.warn("DevTools runtime source non disponibile:", error);
+      return fallback;
+    }
+  };
+
   const load = async () => {
-    const [graph, offline, packages, snapshots, performance] = await Promise.all([
-      window.TrackerLensGraphEngine?.buildGraph?.() || Promise.resolve(null),
-      window.TrackerLensOfflineFirst?.status?.() || Promise.resolve(null),
-      safeList(window.TrackerLensPackageSystem?.listPackages),
-      safeList(window.TrackerLensTimeTravelStore?.list),
-      safeList(window.TrackerLensBoxPerformanceMonitor?.list),
-    ]);
+    const graph = await safeValue(() => window.TrackerLensGraphEngine?.buildGraph?.(), null);
+    const offline = await safeValue(() => window.TrackerLensOfflineFirst?.status?.(), null);
+    const packages = await safeList(window.TrackerLensPackageSystem?.listPackages);
+    const snapshots = await safeList(window.TrackerLensTimeTravelStore?.list);
+    const performance = await safeList(window.TrackerLensBoxPerformanceMonitor?.list);
 
     return {
       schemaVersion: SCHEMA_VERSION,

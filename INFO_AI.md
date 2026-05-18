@@ -3658,7 +3658,9 @@ Fatto:
 - Punto 15 DevTools:
   - aggiunto `core/runtime/devtools-runtime.js`;
   - `database.html` carica i moduli runtime core;
-  - API: `TrackerLensDevToolsRuntime.load()`.
+  - API: `TrackerLensDevToolsRuntime.load()`;
+  - aggiunta pagina dedicata `devtools.html` con `js/devtoolsView.js` e `css/devtools.css`;
+  - tab iniziali: Overview, Graph, Offline, Packages, Time Travel e Performance.
 - Punto 16 Time Travel Data:
   - aggiunto `core/runtime/time-travel-store.js`;
   - aggiunto store `tl_time_travel_snapshots`;
@@ -3666,7 +3668,8 @@ Fatto:
 - Punto 19 Box Graph Engine:
   - aggiunto `core/runtime/graph-engine.js`;
   - `flowMap.html` carica la facade graph engine;
-  - API: `buildGraph()` e `inspectNode()`.
+  - API: `buildGraph()` e `inspectNode()`;
+  - `js/flowMapView.js` usa `TrackerLensGraphEngine.buildGraph({ includeConnections: true })` come loader primario, con fallback allo snapshot store.
 
 Documentazione aggiunta:
 
@@ -3680,9 +3683,9 @@ Cosa manca / prossimi passi:
 
 - UI offline indicator e sync queue reale.
 - Resolver semver e install package.
-- `devtools.html` dedicato.
+- Tab Events/Channels/AI e deep link per DevTools.
 - Timeline/restore Time Travel.
-- Rendere `TrackerLensGraphEngine` sorgente primaria di Flow Map.
+- Validazione graph e query path/impact nel Graph Engine.
 
 ## Aggiornamento 2026-05-18 - Workspace Export Format punto 4
 
