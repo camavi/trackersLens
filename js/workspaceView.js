@@ -21,11 +21,54 @@ const workspaceViewState = {
 const icon = (name, size = "md") => _.Icon({ name, size });
 const btn = (props, ...children) => _.Btn({ type: "button", ...props }, ...children);
 const debugParams = new URLSearchParams(window.location.search);
+const runtimeDebugTrace = [];
 const runtimeDebugEnabled = () => debugParams.get("debugRuntime") === "1" || localStorage.getItem("tl_debug_runtime") === "1";
 const runtimeDebug = (label, payload = {}) => {
-  if (!runtimeDebugEnabled()) return;
-  console.debug(`[TL Runtime Debug] ${label}`, payload);
+  const entry = {
+    at: new Date().toISOString(),
+    label,
+    payload,
+  };
+  runtimeDebugTrace.push(entry);
+  if (runtimeDebugTrace.length > 300) runtimeDebugTrace.shift();
+  if (runtimeDebugEnabled()) console.debug(`[TL Runtime Debug] ${label}`, payload);
 };
+
+window.TLRuntimeDebug = {
+  enable() {
+    localStorage.setItem("tl_debug_runtime", "1");
+    console.info("[TL Runtime Debug] enabled. Reload the workspace page.");
+  },
+  disable() {
+    localStorage.removeItem("tl_debug_runtime");
+    console.info("[TL Runtime Debug] disabled. Reload the workspace page.");
+  },
+  dump() {
+    return [...runtimeDebugTrace];
+  },
+  state() {
+    return {
+      enabled: runtimeDebugEnabled(),
+      workspace: workspaceViewState.workspace,
+      boxes: workspaceViewState.boxes.map((box) => ({
+        id: box.id,
+        name: box.name,
+        type: box.type,
+        detectedTracker: isBoxTracker(box),
+        source: box.source || box.trackerType || box.runtime?.source || box.runtime?.trackerType || box.runtime?.runtime?.source || "",
+      })),
+      connections: workspaceViewState.connections,
+      runtimes: Array.from(workspaceViewState.runtimes.keys()),
+      trackerTimers: Array.from(workspaceViewState.trackerTimers.keys()),
+      trackerStats: Array.from(workspaceViewState.trackerStats.entries()),
+    };
+  },
+};
+
+runtimeDebug("debug-bootstrap", {
+  enabled: runtimeDebugEnabled(),
+  href: window.location.href,
+});
 
 const runtimeEventStore = () => window.TrackerLensEventLogStore;
 const runtimePerformanceMonitor = () => window.TrackerLensBoxPerformanceMonitor;
