@@ -347,4 +347,5 @@ Runtime Notes:
 - 2026-05-17: Flow Map nodes received Blueprint-style visual polish: gradient header with icon/title ellipsis, always-visible output labels, hollow unconnected ports, filled connected ports and compact footer info.
 - 2026-05-17: Flow Map auto-refresh is now deferred during active pointer interactions so node/link/canvas dragging cannot be interrupted by the 15s runtime reload.
 - 2026-05-17: Blueprint completion pass implemented target-port snap/highlight, base type validation, related-edge hover focus, richer Edge Inspector mapping/debug, persisted pan/zoom, improved Fit view for tall nodes and live/error payload hints on edge labels.
+- 2026-05-18: Flow Map node drag bounds were expanded and the canvas edge layer now uses an oversized virtual surface so lines are not clipped when nodes move beyond the visible viewport.
 - Remaining: expose retention/cleanup policy in Settings and replace inline MVP config with richer dedicated editors/wizards for Processor, Action and AI Agent.
