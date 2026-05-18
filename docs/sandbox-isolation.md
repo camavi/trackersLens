@@ -22,9 +22,10 @@ Current behavior:
 - normalizes limits for timeout, memory and payload size
 - scans boxLens JavaScript for blocked APIs before preview/workspace mount
 - blocks preview/workspace mount when a violation is detected
-- mounts boxLens preview inside an iframe with `sandbox="allow-scripts"`
+- mounts boxLens preview inside the manifest-declared sandbox page `sandboxRunner.html`
 - mounts workspace boxLens runtime inside the iframe sandbox runner
 - uses a real iframe page (`sandboxRunner.html`) with external scripts instead of `srcdoc`, so it can satisfy extension CSP rules
+- does not add a second HTML `sandbox` attribute to that iframe, because `sandboxRunner.html` is already isolated by the MV3 `manifest.sandbox` page policy
 - runs sandbox JavaScript through a one-way iframe runtime and reports ready/error/timeout to the host
 - delivers workspace events to the iframe through `postMessage`
 - supports sandbox-to-parent `context.emit(channel, payload)`

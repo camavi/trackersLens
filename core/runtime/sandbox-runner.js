@@ -59,8 +59,7 @@ window.TrackerLensSandboxRunner = (() => {
     const frame = document.createElement("iframe");
     frame.className = "tl-sandbox-frame";
     frame.title = `${box.name || box.id || "boxLens"} sandbox`;
-    frame.setAttribute("sandbox", "allow-scripts");
-    frame.src = "sandboxRunner.html";
+    frame.src = window.chrome?.runtime?.getURL ? chrome.runtime.getURL("sandboxRunner.html") : "sandboxRunner.html";
     host.replaceChildren(frame);
     const sockets = new Map();
 

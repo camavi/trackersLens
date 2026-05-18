@@ -3941,6 +3941,12 @@ Fatto:
 - Il frame carica solo script esterni, quindi non viola CSP inline.
 - `workspaceView.js` resta sul mount DOM legacy per il workspace finche la preview CSP-compatible e stabile.
 
+Nota correttiva 2026-05-18:
+
+- `core/runtime/sandbox-runner.js` non applica piu `iframe sandbox="allow-scripts"` quando carica `sandboxRunner.html`.
+- Motivo: `sandboxRunner.html` e gia dichiarata in `manifest.json` sotto `sandbox.pages`; aggiungere un secondo sandbox HTML produce origin opaco e Chrome puo bloccare il caricamento `chrome-extension://.../sandboxRunner.html` con errore "Domains, protocols and ports must match".
+- Il runner usa `chrome.runtime.getURL("sandboxRunner.html")` quando disponibile, con fallback relativo per sviluppo locale.
+
 Verifiche eseguite:
 
 - `node --check core/runtime/sandbox-runner.js`
