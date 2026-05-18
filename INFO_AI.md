@@ -3581,6 +3581,174 @@ Verifiche eseguite:
 - `curl -I http://127.0.0.1:3031/js/flowMapView.js`
 - `curl -I http://127.0.0.1:3031/core/runtime/runtime-graph-model.js`
 
+## Aggiornamento 2026-05-18 - Inizio punto 3 Sandbox Isolation
+
+Obiettivo della sessione: aprire il punto 3 con un gate centrale di policy prima di costruire il runner iframe sandboxato.
+
+Fatto:
+
+- Aggiunto `core/runtime/sandbox-policy.js`.
+- Il modulo:
+  - legge manifest permissions/limits;
+  - normalizza permessi `network`, `websocket`, `storage`, `media`, `clipboard`, `filesystem`;
+  - normalizza limiti `timeoutMs`, `memoryMb`, `maxPayloadKb`;
+  - blocca pattern JS rischiosi prima del mount.
+- `workspace.html` e `editorBoxLens.html` caricano la policy.
+- `js/workspaceView.js` valida il boxLens prima del mount runtime e mostra errore sandbox se bloccato.
+- `js/boxLensEditor.js` valida il boxLens prima della preview e mostra errore sandbox se bloccato.
+- Aggiunti stili blocco sandbox in `css/workspaceView.css` e `css/boxLensEditor.css`.
+- Aggiunto `docs/sandbox-isolation.md`.
+- Aggiornati `docs/runtime.md` e `docs/new_vision_progress.md`.
+
+Prossimo passo:
+
+- Iframe sandbox runner con capability bridge.
+- Timeout/payload enforcement reale.
+- Log violazioni in `tl_flow_logs` e visibilita in Flow Map.
+
+## Aggiornamento 2026-05-18 - Sandbox iframe runner preview
+
+Obiettivo della sessione: aggiungere il primo runner iframe sandboxato e usarlo nella preview boxLens.
+
+Fatto:
+
+- Aggiunto `core/runtime/sandbox-runner.js`.
+- `editorBoxLens.html` e `workspace.html` caricano il runner.
+- Il runner crea iframe con `sandbox="allow-scripts"`, `srcdoc`, timeout host e messaggi `ready/error`.
+- `js/boxLensEditor.js` monta la preview boxLens nel runner iframe quando la policy passa.
+- Aggiunti stili `.tl-sandbox-frame` in `css/boxLensEditor.css` e `css/workspaceView.css`.
+- Aggiornati `docs/sandbox-isolation.md`, `docs/runtime.md` e `docs/new_vision_progress.md`.
+
+Limite attuale:
+
+- Il workspace valida la policy, ma l'esecuzione completa boxLens workspace resta ancora nel mount DOM legacy per mantenere listener/eventi stabili. Il prossimo step e portare anche quello nel runner iframe con capability bridge.
+
+## Aggiornamento 2026-05-18 - Sandbox workspace runner e event bridge
+
+Obiettivo della sessione: completare i quattro passi richiesti per il punto 3: workspace iframe runner, capability bridge, delivery eventi verso sandbox e log errori.
+
+Fatto:
+
+- `core/runtime/sandbox-runner.js`:
+  - supporta update con `channel` e `meta`;
+  - risolve listener specifici `listener[channel]`, `listener.default` e `listener["*"]`;
+  - espone `context.emit(channel, payload)` verso il parent;
+  - applica limite payload `maxPayloadKb`;
+  - mantiene timeout host e messaggi ready/error.
+- `js/workspaceView.js`:
+  - monta i boxLens workspace nel runner iframe quando disponibile;
+  - consegna eventi runtime al sandbox tramite il listener compatibile;
+  - riceve emit dal sandbox e lo inoltra all'Event Bus centrale;
+  - registra errori/violazioni sandbox in `tl_events` e `tl_flow_logs`.
+- `docs/sandbox-isolation.md` e `docs/new_vision_progress.md`:
+  - aggiornati con runner workspace, bridge update/emit e log runtime.
+
+Prossimo passo:
+
+- Estendere capability bridge a fetch/websocket controllati e mostrare stato sandbox in Flow Map.
+
+## Aggiornamento 2026-05-18 - Sandbox runner CSP-compatible
+
+Problema rilevato: `srcdoc` con script inline viene bloccato dalla CSP dell'estensione in `workspace.html`.
+
+Fatto:
+
+- Aggiunto `sandboxRunner.html`.
+- Aggiunto `core/runtime/sandbox-frame.js`.
+- Aggiunto `css/sandboxRunner.css`.
+- `core/runtime/sandbox-runner.js` non usa piu `srcdoc`;
+  - ora crea iframe con `src="sandboxRunner.html"`;
+  - aspetta `tl:sandbox:frame-ready`;
+  - invia `html`, `css`, `js`, `data` e `policy` via `postMessage`.
+- Il frame carica solo script esterni, quindi non viola CSP inline.
+- `workspaceView.js` resta sul mount DOM legacy per il workspace finche la preview CSP-compatible e stabile.
+
+Verifiche eseguite:
+
+- `node --check core/runtime/sandbox-runner.js`
+- `node --check core/runtime/sandbox-frame.js`
+- `node --check js/boxLensEditor.js`
+- `git diff --check`
+- `curl -I http://127.0.0.1:3031/sandboxRunner.html`
+- `curl -I http://127.0.0.1:3031/core/runtime/sandbox-frame.js`
+- `curl -I http://127.0.0.1:3031/css/sandboxRunner.css`
+
+## Aggiornamento 2026-05-18 - Sandbox capability bridge fetch
+
+Obiettivo della sessione: estendere il bridge oltre `emit`, aggiungendo una fetch controllata dal parent.
+
+Fatto:
+
+- `core/runtime/sandbox-frame.js`:
+  - espone `context.fetch(url, options)` al boxLens;
+  - invia richiesta capability al parent con id correlato;
+  - risolve o rigetta la Promise quando torna il risultato.
+- `core/runtime/sandbox-runner.js`:
+  - riceve `tl:sandbox:capability`;
+  - consente `fetch` solo se `policy.permissions.network` e attivo;
+  - esegue la fetch nel parent e restituisce `ok`, `status`, `statusText`, `headers`, `text`.
+- `docs/sandbox-isolation.md` e `docs/new_vision_progress.md`:
+  - documentato bridge `update/emit/fetch`.
+
+Uso previsto:
+
+```js
+export default function boxLens(boxLen, context) {
+  context.fetch("https://example.com/data.json").then((response) => {
+    console.log(response.status, response.text);
+  });
+}
+```
+
+## Aggiornamento 2026-05-18 - Sandbox status in Flow Map
+
+Obiettivo della sessione: rendere visibili gli errori e lo stato sandbox nella Flow Map.
+
+Fatto:
+
+- `js/flowMapView.js`:
+  - aggiunto `nodeSandboxReport()`;
+  - i nodi `boxLens` mostrano badge `Policy`;
+  - i nodi con eventi/log sandbox mostrano badge `Sandbox` rosso;
+  - Node Inspector tab `Details` mostra sezione `Sandbox`;
+  - Node Inspector tab `Stats` mostra `Sandbox` e `Sandbox errors`.
+- `docs/sandbox-isolation.md` e `docs/new_vision_progress.md`:
+  - aggiornato stato del punto 3.
+
+Prossimo passo:
+
+- Persistire sandbox policy/status sui record `tl_runtime_nodes`, non solo dedurli da eventi/log.
+
+## Aggiornamento 2026-05-18 - Chiusura operativa Sandbox Isolation base
+
+Obiettivo della sessione: completare i quattro punti rimasti della fondazione sandbox.
+
+Fatto:
+
+- `core/runtime/sandbox-frame.js`:
+  - aggiunto `context.websocket(url, protocols)`;
+  - aggiunto `context.clipboard.writeText(text)`;
+  - il bridge WebSocket espone `onopen`, `onmessage`, `onerror`, `onclose`, `send()` e `close()`.
+- `core/runtime/sandbox-runner.js`:
+  - gestisce capability `websocket-open`, `websocket-send`, `websocket-close`;
+  - gestisce capability `clipboard-write`;
+  - controlla `permissions.websocket` e `permissions.clipboard`.
+- `js/workspaceView.js`:
+  - prova a montare i boxLens workspace nel runner iframe;
+  - se runner fallisce o va in timeout, torna automaticamente al mount legacy;
+  - persiste `metadata.sandbox.status` su `tl_runtime_nodes`;
+  - status possibili: `sandboxed`, `legacy`, `blocked`.
+- `js/flowMapView.js`:
+  - legge anche `metadata.sandbox.status` per mostrare lo stato sandbox.
+- `docs/sandbox-isolation.md` e `docs/new_vision_progress.md`:
+  - aggiornati bridge e stato punto 3.
+
+Prossimi hardening:
+
+- Allowlist domain/origin per capability network.
+- UI permessi nel boxLens editor.
+- Browser test automatici per fallback runner e bridge.
+
 ## Aggiornamento 2026-05-18 - Channel Inspector, rename e delete validation
 
 Obiettivo della sessione: completare i tre passi operativi del Data Channel System: inspector dedicato, rename validato e delete validato.

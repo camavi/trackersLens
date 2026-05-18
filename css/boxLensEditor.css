@@ -205,6 +205,19 @@ body {
   border-color: rgba(248, 113, 113, 0.35);
 }
 
+.tl-preview-error {
+  height: 100%;
+  display: grid;
+  place-items: center;
+  padding: 14px;
+  color: #fca5a5;
+  border: 1px solid rgba(248, 113, 113, 0.28);
+  border-radius: var(--tl-radius-sm);
+  background: rgba(248, 113, 113, 0.08);
+  font-size: 12px;
+  text-align: center;
+}
+
 .tl-local-asset-card.cms-card {
   border: 1px solid var(--tl-border-soft);
   border-radius: var(--tl-radius-sm);
@@ -515,6 +528,14 @@ body {
   overflow: hidden;
   transform: scale(var(--tl-preview-zoom, 1));
   transform-origin: top left;
+}
+
+.tl-preview-runtime .tl-sandbox-frame {
+  width: 100%;
+  height: 100%;
+  display: block;
+  border: 0;
+  background: transparent;
 }
 
 .tl-live-widget {

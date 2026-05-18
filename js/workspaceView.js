@@ -129,6 +129,7 @@ const getRuntimeCode = (box) => {
     css: code.css || code.CSS || "",
     html: code.html || code.HTML || "",
     js: code.js || code.JS || "",
+    manifest: code.manifest || code.Manifest || "",
   };
 };
 
@@ -1111,15 +1112,59 @@ const emitTrackerEvent = (fromBoxId, channel = "default", payload = {}, payloadT
   });
 };
 
-const mountRuntimeBox = (box) => {
-  const host = document.querySelector(`[data-runtime-box-id="${safeCssQueryId(box.id)}"]`);
-  const mount = host?.querySelector("[data-runtime-mount]");
-  if (!host || !mount) return;
+const recordSandboxIssue = ({ box, error, level = "error", message = "" } = {}) => {
+  const text = message || error?.message || String(error || "Sandbox issue");
+  persistRuntimeEvent({
+    workspaceId: workspaceViewState.workspace.id || "global",
+    channel: box?.channels?.[0] || "sandbox",
+    eventType: "sandbox_error",
+    sourceNodeId: box?.id || "",
+    payload: { error: text },
+    status: "error",
+  });
+  persistRuntimeFlowLog({
+    workspaceId: workspaceViewState.workspace.id || "global",
+    flowId: `flow_${workspaceViewState.workspace.id || "global"}`,
+    nodeId: box?.id || "",
+    level,
+    message: text,
+    context: {
+      action: "sandbox-runtime",
+      boxId: box?.id || "",
+      boxType: box?.type || "",
+    },
+  });
+};
 
-  const code = getRuntimeCode(box);
-  const html = interpolateTemplate(code.html, runtimePreviewData());
+const persistSandboxStatus = async (box, status = "unknown", details = {}) => {
+  if (!box?.id || !window.TrackerLensRuntimeGraphStore?.upsertRuntimeNode) return;
+  try {
+    await window.TrackerLensRuntimeGraphStore.upsertRuntimeNode({
+      node: {
+        id: box.id,
+        workspaceId: workspaceViewState.workspace.id || "workspace_global",
+        type: box.type || "boxLens",
+        label: box.name || box.label || box.id,
+        sourceRef: box.sourceId || box.assetId || box.id,
+        assetId: box.assetId || box.sourceId || "",
+        channels: Array.isArray(box.channels) ? box.channels : [],
+        metadata: {
+          ...(box.metadata || {}),
+          sandbox: {
+            status,
+            updatedAt: new Date().toISOString(),
+            ...details,
+          },
+        },
+      },
+    });
+  } catch (error) {
+    console.warn("Sandbox status non persistito:", error);
+  }
+};
+
+const mountRuntimeBoxLegacy = (box, mount, code, html) => {
   mount.innerHTML = html;
-
   const runtime = executeBoxLensJs(mount, code.js, {
     mode: "workspace",
     box,
@@ -1128,6 +1173,58 @@ const mountRuntimeBox = (box) => {
     emit: (channel, payload) => emitTrackerEvent(box.id, channel, payload),
   });
   workspaceViewState.runtimes.set(box.id, runtime);
+  persistSandboxStatus(box, "legacy");
+};
+
+const mountRuntimeBox = (box) => {
+  const host = document.querySelector(`[data-runtime-box-id="${safeCssQueryId(box.id)}"]`);
+  const mount = host?.querySelector("[data-runtime-mount]");
+  if (!host || !mount) return;
+
+  const code = getRuntimeCode(box);
+  const sandbox = window.TrackerLensSandboxPolicy?.validateBox?.({ box, code });
+  host.dataset.sandboxStatus = sandbox?.ok === false ? "blocked" : "allowed";
+  if (sandbox?.ok === false) {
+    mount.innerHTML = `<div class="tl-runtime-error">Sandbox blocked: ${sandbox.violations.join(", ")}</div>`;
+    recordSandboxIssue({ box, message: `Sandbox blocked: ${sandbox.violations.join(", ")}` });
+    persistSandboxStatus(box, "blocked", { violations: sandbox.violations });
+    return;
+  }
+  const html = interpolateTemplate(code.html, runtimePreviewData());
+
+  if (window.TrackerLensSandboxRunner?.mount) {
+    let settled = false;
+    const fallback = (error = null) => {
+      if (settled) return;
+      settled = true;
+      host.dataset.sandboxStatus = "legacy";
+      if (error) recordSandboxIssue({ box, error, message: `Sandbox fallback legacy: ${error.message}` });
+      mountRuntimeBoxLegacy(box, mount, code, html);
+    };
+    const runtime = window.TrackerLensSandboxRunner.mount({
+      host: mount,
+      box,
+      code: {
+        html,
+        css: scopeBoxLensCss(code.css, "#tl-sandbox-root"),
+        js: code.js,
+      },
+      data: runtimePreviewData(),
+      mode: "workspace",
+      policy: sandbox.policy,
+      onEmit: (channel, payload) => emitTrackerEvent(box.id, channel, payload),
+      onReady: () => {
+        settled = true;
+        host.dataset.sandboxStatus = "sandboxed";
+        persistSandboxStatus(box, "sandboxed");
+      },
+      onError: fallback,
+    });
+    workspaceViewState.runtimes.set(box.id, runtime);
+    return;
+  }
+
+  mountRuntimeBoxLegacy(box, mount, code, html);
 };
 
 const mountRuntimeBoxes = () => {

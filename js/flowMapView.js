@@ -1079,6 +1079,31 @@ const selectedFlowLogs = (node = selectedNode()) => {
     .slice(0, 8);
 };
 
+const nodeSandboxReport = (node = {}) => {
+  if (!node?.id) return { status: "unknown", errors: 0, logs: 0, last: null };
+  const persisted = node.metadata?.sandbox || {};
+  const sandboxEvents = (state.runtime.events || [])
+    .filter((event) =>
+      event.eventType === "sandbox_error" &&
+      (event.sourceNodeId === node.id || event.targetNodeId === node.id));
+  const sandboxLogs = (state.runtime.flowLogs || [])
+    .filter((log) =>
+      log.context?.action === "sandbox-runtime" &&
+      (log.nodeId === node.id || log.context?.boxId === node.id));
+  const errors = sandboxEvents.length + sandboxLogs.filter((log) => (log.level || "info") === "error").length;
+  const last = [...sandboxEvents, ...sandboxLogs]
+    .sort((a, b) => Date.parse(b.createdAt || 0) - Date.parse(a.createdAt || 0))[0] || null;
+  const status = errors ? "error" : persisted.status || (sandboxLogs.length || sandboxEvents.length ? "logged" : node.type === "boxLens" ? "policy" : "n/a");
+  return {
+    status,
+    errors,
+    logs: sandboxLogs.length,
+    events: sandboxEvents.length,
+    last,
+    persisted,
+  };
+};
+
 const selectedEdgeFlowLogs = (edge = selectedEdge()) => {
   if (!edge) return [];
   return (state.runtime.flowLogs || [])
@@ -1723,6 +1748,7 @@ const isInlineConfigNode = (node = {}) =>
 
 const nodeBadges = (node = {}, live = null) => {
   const badges = [];
+  const sandbox = nodeSandboxReport(node);
   if (node.metadata?.library) {
     badges.push({ label: "Library", tone: "blue" });
   } else if (isDraftNode(node)) {
@@ -1733,10 +1759,12 @@ const nodeBadges = (node = {}, live = null) => {
     badges.push({ label: node.status || "Active", tone: "green" });
   }
 
+  if (sandbox.status === "error") badges.push({ label: "Sandbox", tone: "red" });
+  else if (sandbox.status === "policy") badges.push({ label: "Policy", tone: "gold" });
   if (live?.status === "error") badges.push({ label: "Error", tone: "red" });
   else if (live) badges.push({ label: "Live", tone: "green" });
 
-  return badges.slice(0, 2);
+  return badges.slice(0, 3);
 };
 
 const runtimeOverviewStats = () => {
@@ -2948,6 +2976,7 @@ const renderCanvas = () => {
 
 const renderInspectorDetails = (node, channels, dependencies) => {
   const summary = dependencySummary(node, dependencies);
+  const sandbox = nodeSandboxReport(node);
   return _.div(
     _.section(
       { class: "tl-flow-detail-list" },
@@ -2975,6 +3004,17 @@ const renderInspectorDetails = (node, channels, dependencies) => {
         _.strong(value)
       ))
     ) : null,
+    _.section(
+      { class: "tl-flow-detail-list" },
+      _.h3("Sandbox"),
+      ...[
+        ["Status", sandbox.status],
+        ["Errors", sandbox.errors],
+        ["Events", sandbox.events || 0],
+        ["Logs", sandbox.logs || 0],
+        ["Last", sandbox.last?.createdAt ? formatShortDate(sandbox.last.createdAt) : "N/D"],
+      ].map(([label, value]) => _.div(_.span(label), _.strong(String(value))))
+    ),
     _.section(
       { class: "tl-flow-detail-list" },
       _.h3("Channels"),
@@ -3094,6 +3134,7 @@ const renderInspectorStats = (node, dependencies, events, channelRecords, flowLo
   const outgoing = dependencies.filter((dependency) => dependency.sourceNodeId === node.id).length;
   const incoming = dependencies.filter((dependency) => dependency.targetNodeId === node.id).length;
   const errorEvents = events.filter((event) => event.status === "error" || event.eventType === "error").length;
+  const sandbox = nodeSandboxReport(node);
   return _.section(
     { class: "tl-flow-detail-list" },
     _.h3("Stats"),
@@ -3104,6 +3145,8 @@ const renderInspectorStats = (node, dependencies, events, channelRecords, flowLo
       ["Recent events", events.length],
       ["Flow logs", flowLogs.length],
       ["Errors", errorEvents],
+      ["Sandbox", sandbox.status],
+      ["Sandbox errors", sandbox.errors],
       ["Status", node.status || "active"],
       ["Configured", node.metadata?.configured ? "yes" : isDraftNode(node) ? "draft" : "N/D"],
     ].map(([label, value]) => _.div(_.span(label), _.strong(String(value))))

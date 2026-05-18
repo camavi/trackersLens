@@ -107,6 +107,8 @@ Implemented first-pass modules:
 
 - `core/runtime/event-bus.js`
 - `core/runtime/dependency-manager.js`
+- `core/runtime/sandbox-policy.js`
+- `core/runtime/sandbox-runner.js`
 - `core/runtime/channel-registry.js`
 - `core/runtime/event-log-store.js`
 - `core/runtime/runtime-graph-store.js`

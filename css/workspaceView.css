@@ -250,6 +250,27 @@ body {
   border-color: rgba(248, 113, 113, 0.35);
 }
 
+.tl-runtime-error {
+  height: 100%;
+  display: grid;
+  place-items: center;
+  padding: 12px;
+  color: #fca5a5;
+  border: 1px solid rgba(248, 113, 113, 0.28);
+  border-radius: 8px;
+  background: rgba(248, 113, 113, 0.08);
+  font-size: 12px;
+  text-align: center;
+}
+
+.tl-view-box-runtime .tl-sandbox-frame {
+  width: 100%;
+  height: 100%;
+  display: block;
+  border: 0;
+  background: transparent;
+}
+
 .tl-tracker-monitor-panel {
   width: min(1180px, calc(100vw - 44px));
   color: var(--tl-text);

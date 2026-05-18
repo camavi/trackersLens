@@ -763,7 +763,41 @@ const mountPreviewFrame = () => {
 
   const values = getPreviewData();
   const scopeSelector = `[data-box-lens-instance="preview-${safeRuntimeId(boxLensState.box.id)}"]`;
+  const sandbox = window.TrackerLensSandboxPolicy?.validateBox?.({
+    box: boxLensState.box,
+    code: {
+      manifest: boxLensState.code.Manifest,
+      css: boxLensState.code.CSS,
+      html: boxLensState.code.HTML,
+      js: boxLensState.code.JS,
+    },
+  });
+  if (sandbox?.ok === false) {
+    style.textContent = "";
+    runtime.innerHTML = `<div class="tl-preview-error">Sandbox blocked: ${sandbox.violations.join(", ")}</div>`;
+    return;
+  }
   const html = interpolateTemplate(boxLensState.code.HTML, values);
+
+  if (window.TrackerLensSandboxRunner?.mount) {
+    style.textContent = `${scopeSelector}{box-sizing:border-box;padding:12px;} ${scopeSelector} *{box-sizing:border-box;}`;
+    window.TrackerLensSandboxRunner.mount({
+      host: runtime,
+      box: boxLensState.box,
+      code: {
+        html,
+        css: scopeBoxLensCss(boxLensState.code.CSS, "#tl-sandbox-root"),
+        js: boxLensState.code.JS,
+      },
+      data: values,
+      mode: "preview",
+      policy: sandbox.policy,
+      onError: (error) => {
+        runtime.innerHTML = `<div class="tl-preview-error">Sandbox error: ${error.message}</div>`;
+      },
+    });
+    return;
+  }
 
   style.textContent = `${scopeSelector}{box-sizing:border-box;padding:12px;} ${scopeSelector} *{box-sizing:border-box;}${scopeBoxLensCss(boxLensState.code.CSS, scopeSelector)}`;
   runtime.innerHTML = html;
