@@ -1,5 +1,45 @@
 # Active Tasks
 
+## [TASK-010]
+
+Title: Box Performance Monitor
+
+Priority: High
+
+Status: Active
+
+Files:
+
+- `core/runtime/box-performance-monitor.js`
+- `workspace.html`
+- `js/workspaceView.js`
+- `analytics.html`
+- `js/analyticsView.js`
+- `css/workspaceView.css`
+- `docs/box-performance-monitor.md`
+
+Dependencies:
+
+- `tl_events`
+- `tl_flow_logs`
+- `tl_box_performance`
+- `core/runtime/event-log-store.js`
+
+Regression Risk:
+
+Medium
+
+Description:
+
+Persist and display per-box runtime performance metrics: events/sec, latency, network estimate, error rate and estimated memory.
+
+Runtime Notes:
+
+- 2026-05-18: added `tl_box_performance` store and performance summary API.
+- 2026-05-18: workspace Monitor boxTracker shows events/sec, network/min and estimated memory.
+- 2026-05-18: Analytics reads persisted performance records when available.
+- Remaining: CPU sampling, boxLens sandbox metrics, thresholds and Flow Map performance overlay.
+
 ## [TASK-009]
 
 Title: Marketplace Verified Trust Layer

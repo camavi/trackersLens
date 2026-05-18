@@ -206,6 +206,22 @@ The scanner records creator profile, stable payload digest, declared signature, 
 
 `library.html` loads the verifier, shows trust badges on cards and exposes a `Verify` action to scan the local library.
 
+## Box Performance Monitor
+
+`core/runtime/box-performance-monitor.js` persists runtime performance summaries in `tl_box_performance`.
+
+Tracked fields include:
+
+- `eventsPerSec`
+- `avgLatencyMs`
+- `lastLatencyMs`
+- `errorRate`
+- `networkBytesPerMin`
+- `lastPayloadBytes`
+- `estimatedMemoryBytes`
+
+`workspace.html` records samples when boxTracker payloads/errors are emitted. `analytics.html` reads the same store and uses it for runtime cards and the tracker performance table.
+
 Current limitations:
 
 - Event persistence is non-blocking and best-effort.

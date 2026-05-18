@@ -22,6 +22,7 @@ const icon = (name, size = "md") => _.Icon({ name, size });
 const btn = (props, ...children) => _.Btn({ type: "button", ...props }, ...children);
 
 const runtimeEventStore = () => window.TrackerLensEventLogStore;
+const runtimePerformanceMonitor = () => window.TrackerLensBoxPerformanceMonitor;
 const runtimeChannelRegistry = () => window.TrackerLensChannelRegistry;
 const runtimeEventBus = () => {
   if (!window.TrackerLensEventBus?.get) return null;
@@ -475,9 +476,52 @@ const trackerStat = (box) => {
     lastLatencyMs: current.lastLatencyMs || 0,
     channel: current.channel || trackerChannel(box),
     lastPayload: current.lastPayload || trackerPayload(box),
+    lastPayloadBytes: Number(current.lastPayloadBytes) || 0,
+    eventsPerSec: Number(current.eventsPerSec) || 0,
+    avgLatencyMs: Number(current.avgLatencyMs) || Number(current.lastLatencyMs) || 0,
+    errorRate: Number(current.errorRate) || 0,
+    networkBytesPerMin: Number(current.networkBytesPerMin) || 0,
+    estimatedMemoryBytes: Number(current.estimatedMemoryBytes) || 0,
     lastError: current.lastError || "",
     startedAt: current.startedAt || "",
   };
+};
+
+const formatMonitorBytes = (bytes = 0) => {
+  const value = Number(bytes) || 0;
+  if (value >= 1024 * 1024) return `${(value / 1024 / 1024).toFixed(1)} MB`;
+  if (value >= 1024) return `${(value / 1024).toFixed(1)} KB`;
+  return `${Math.max(0, Math.round(value))} B`;
+};
+
+const trackerPerformancePatch = (stat, payload = {}, payloadText = "") => {
+  const lastPayloadBytes = new Blob([payloadText || JSON.stringify(payload || {})]).size;
+  const eventCount = Number(stat.eventCount) || 0;
+  const errorCount = Number(stat.errorCount) || 0;
+  const startedAt = Date.parse(stat.startedAt || "") || Date.now();
+  const elapsedSec = Math.max(1, (Date.now() - startedAt) / 1000);
+  const lastLatency = Number(stat.lastLatencyMs) || 0;
+  const previousAvg = Number(stat.avgLatencyMs) || lastLatency;
+  return {
+    lastPayloadBytes,
+    eventsPerSec: eventCount / elapsedSec,
+    avgLatencyMs: eventCount > 1 ? Math.round(((previousAvg * (eventCount - 1)) + lastLatency) / eventCount) : lastLatency,
+    errorRate: eventCount ? (errorCount / eventCount) * 100 : 0,
+    networkBytesPerMin: Math.round((Number(stat.networkBytesPerMin) || 0) * 0.72 + lastPayloadBytes * 0.28),
+    estimatedMemoryBytes: Math.max(1024, eventCount * 360 + errorCount * 540 + lastPayloadBytes * 2),
+  };
+};
+
+const persistTrackerPerformance = (boxId, stat, payload = {}, payloadText = "") => {
+  const monitor = runtimePerformanceMonitor();
+  if (!monitor?.recordSample) return;
+  monitor.recordSample({
+    workspaceId: workspaceViewState.workspace.id || "global",
+    boxId,
+    stat,
+    payload,
+    payloadText,
+  }).catch((error) => console.warn("Performance box non persistita:", error));
 };
 
 const updateTrackerStat = (boxId, patch = {}) => {
@@ -523,7 +567,10 @@ const recordTrackerEvent = (boxId, channel, payload, payloadText = "") => {
     lastPayload: payloadSnapshot,
     lastError: "",
   };
-  workspaceViewState.trackerStats.set(boxId, { ...previous, ...next });
+  const performancePatch = trackerPerformancePatch({ ...previous, ...next }, payloadSnapshot, payloadText);
+  const nextStat = { ...previous, ...next, ...performancePatch };
+  workspaceViewState.trackerStats.set(boxId, nextStat);
+  persistTrackerPerformance(boxId, nextStat, payloadSnapshot, payloadText);
   refreshTrackerRow(boxId);
   refreshTrackerActionsDialog(boxId);
   appendTrackerLogEntry(pushTrackerLog({ type: "event", trackerId: boxId, trackerName: box.name || boxId, channel, payload: payloadSnapshot, payloadText }));
@@ -534,13 +581,16 @@ const recordTrackerError = (boxId, error) => {
   if (!box || box.type !== "boxTracker") return;
   const previous = trackerStat(box);
   const message = error?.message || String(error || "Errore tracker");
-  workspaceViewState.trackerStats.set(boxId, {
+  const errorStat = {
     ...previous,
     status: "error",
     errorCount: previous.errorCount + 1,
     lastAt: new Date().toISOString(),
     lastError: message,
-  });
+  };
+  const nextStat = { ...errorStat, ...trackerPerformancePatch(errorStat, { error: message }) };
+  workspaceViewState.trackerStats.set(boxId, nextStat);
+  persistTrackerPerformance(boxId, nextStat, { error: message });
   refreshTrackerRow(boxId);
   refreshTrackerActionsDialog(boxId);
   appendTrackerLogEntry(pushTrackerLog({ type: "error", trackerId: boxId, trackerName: box.name || boxId, channel: previous.channel, error: message }));
@@ -666,7 +716,9 @@ const renderTrackerActionsContentNodes = (box) => {
       renderMonitorMetric("Stato", monitorStatusLabel(currentStat.status)),
       renderMonitorMetric("Eventi", currentStat.eventCount),
       renderMonitorMetric("Errori", currentStat.errorCount, currentStat.errorCount ? "danger" : ""),
-      renderMonitorMetric("Latenza", currentStat.lastLatencyMs ? `${currentStat.lastLatencyMs} ms` : "--")
+      renderMonitorMetric("Latenza", currentStat.lastLatencyMs ? `${currentStat.lastLatencyMs} ms` : "--"),
+      renderMonitorMetric("Events/sec", currentStat.eventsPerSec.toFixed(2)),
+      renderMonitorMetric("Memoria", formatMonitorBytes(currentStat.estimatedMemoryBytes))
     ),
     _.Card(
       { class: "tl-monitor-json-card" },
@@ -724,7 +776,11 @@ const renderTrackerMonitorDetailNodes = (box, stat, connections, names) => [
     _.div(_.span("ID istanza"), _.strong(box.id)),
     _.div(_.span("Asset sorgente"), _.strong(shortValue(box.sourceId || box.assetId))),
     _.div(_.span("Endpoint"), _.strong(endpointLabel(box) || "sample/manual")),
-    _.div(_.span("Collegamenti"), _.strong(String(connections.length)))
+    _.div(_.span("Collegamenti"), _.strong(String(connections.length))),
+    _.div(_.span("Events/sec"), _.strong(stat.eventsPerSec.toFixed(2))),
+    _.div(_.span("Error rate"), _.strong(`${stat.errorRate.toFixed(1)}%`)),
+    _.div(_.span("Network/min"), _.strong(formatMonitorBytes(stat.networkBytesPerMin))),
+    _.div(_.span("Memoria stimata"), _.strong(formatMonitorBytes(stat.estimatedMemoryBytes)))
   ),
   _.div(
     { class: "tl-monitor-lens-list" },
@@ -779,11 +835,13 @@ const renderTrackerMonitorCard = (box) => {
       ),
       renderTrackerPulse(stat),
       _.Grid(
-        { class: "tl-monitor-row-metrics", cols: 4, gap: 6 },
+        { class: "tl-monitor-row-metrics", cols: 6, gap: 6 },
         _.div(_.span("Eventi"), _.strong({ "data-tracker-row-events": box.id }, String(stat.eventCount))),
         _.div(_.span("Errori"), _.strong({ "data-tracker-row-errors": box.id }, String(stat.errorCount))),
         _.div(_.span("Latenza"), _.strong({ "data-tracker-row-latency": box.id }, stat.lastLatencyMs ? `${stat.lastLatencyMs} ms` : "--")),
-        _.div(_.span("Ultimo"), _.strong({ "data-tracker-row-last": box.id }, formatMonitorTime(stat.lastAt)))
+        _.div(_.span("Ev/s"), _.strong({ "data-tracker-row-eps": box.id }, stat.eventsPerSec.toFixed(2))),
+        _.div(_.span("Net/min"), _.strong({ "data-tracker-row-net": box.id }, formatMonitorBytes(stat.networkBytesPerMin))),
+        _.div(_.span("Mem"), _.strong({ "data-tracker-row-mem": box.id }, formatMonitorBytes(stat.estimatedMemoryBytes)))
       ),
       _.Toolbar(
         { class: "tl-monitor-row-actions", align: "center", gap: 6 },
@@ -824,6 +882,9 @@ const refreshTrackerRow = (boxId) => {
   setTrackerRowText(`[data-tracker-row-events="${safeCssQueryId(boxId)}"]`, String(stat.eventCount));
   setTrackerRowText(`[data-tracker-row-errors="${safeCssQueryId(boxId)}"]`, String(stat.errorCount));
   setTrackerRowText(`[data-tracker-row-latency="${safeCssQueryId(boxId)}"]`, stat.lastLatencyMs ? `${stat.lastLatencyMs} ms` : "--");
+  setTrackerRowText(`[data-tracker-row-eps="${safeCssQueryId(boxId)}"]`, stat.eventsPerSec.toFixed(2));
+  setTrackerRowText(`[data-tracker-row-net="${safeCssQueryId(boxId)}"]`, formatMonitorBytes(stat.networkBytesPerMin));
+  setTrackerRowText(`[data-tracker-row-mem="${safeCssQueryId(boxId)}"]`, formatMonitorBytes(stat.estimatedMemoryBytes));
   setTrackerRowText(`[data-tracker-row-last="${safeCssQueryId(boxId)}"]`, formatMonitorTime(stat.lastAt));
 
   const details = row.querySelector(`[data-tracker-row-details="${safeCssQueryId(boxId)}"]`);
@@ -938,6 +999,8 @@ const renderTrackerMonitorContent = () => {
   const liveCount = stats.filter((stat) => stat.status === "live" || stat.status === "starting").length;
   const errorCount = stats.reduce((count, stat) => count + stat.errorCount, 0);
   const eventCount = stats.reduce((count, stat) => count + stat.eventCount, 0);
+  const eventsPerSec = stats.reduce((sum, stat) => sum + stat.eventsPerSec, 0);
+  const memoryBytes = stats.reduce((sum, stat) => sum + stat.estimatedMemoryBytes, 0);
 
   if (!trackers.length) {
     return _.div(
@@ -959,6 +1022,8 @@ const renderTrackerMonitorContent = () => {
       renderMonitorSummaryPill("Runtime attivi", liveCount, liveCount ? "green" : ""),
       renderMonitorSummaryPill("Eventi totali", eventCount),
       renderMonitorSummaryPill("Errori", errorCount, errorCount ? "danger" : ""),
+      renderMonitorSummaryPill("Events/sec", eventsPerSec.toFixed(2)),
+      renderMonitorSummaryPill("Memoria", formatMonitorBytes(memoryBytes)),
       btn({ class: "tl-monitor-open-log", onclick: () => openTrackerLogDialog() }, icon("article", "sm"), "Log completo")
     ),
     _.Grid(

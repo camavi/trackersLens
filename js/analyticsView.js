@@ -202,6 +202,12 @@ const buildAnalyticsData = async () => {
     window.TrackerLensConnectionsStore?.list?.() || [],
     getStorageEstimate(),
   ]);
+  const performanceRecords = window.TrackerLensBoxPerformanceMonitor?.list
+    ? await window.TrackerLensBoxPerformanceMonitor.list().catch((error) => {
+      console.warn("Performance records non disponibili:", error);
+      return [];
+    })
+    : [];
 
   const widgets = widgetRecords.map(normalizeWidgetRecord);
   const pages = pageRecords.map(normalizeWorkspaceRecord);
@@ -218,11 +224,16 @@ const buildAnalyticsData = async () => {
     }))
   );
   const trackers = [...widgets.filter((item) => item.type === "boxTracker"), ...workspaceTrackers];
+  const performanceByBox = new Map((performanceRecords || []).map((record) => [record.boxId, record]));
   const activeConnections = connections.filter((item) => !["inactive", "error", "timeout"].includes(String(item.status).toLowerCase()));
   const errorConnections = connections.filter((item) => ["error", "timeout"].includes(String(item.status).toLowerCase()));
-  const requestEstimate = activeConnections.length * 24 + trackers.filter((item) => item.active).length * 11 + pages.length * 3;
-  const successRate = connections.length ? (activeConnections.length / connections.length) * 100 : trackers.length ? 98 : 0;
-  const errorRate = connections.length ? (errorConnections.length / connections.length) * 100 : 0;
+  const perfEventRate = performanceRecords.reduce((sum, item) => sum + (Number(item.eventsPerSec) || 0), 0);
+  const perfErrors = performanceRecords.reduce((sum, item) => sum + (Number(item.errorCount) || 0), 0);
+  const perfEvents = performanceRecords.reduce((sum, item) => sum + (Number(item.eventCount) || 0), 0);
+  const perfMemory = performanceRecords.reduce((sum, item) => sum + (Number(item.estimatedMemoryBytes) || 0), 0);
+  const requestEstimate = perfEventRate ? Math.round(perfEventRate * 60) : activeConnections.length * 24 + trackers.filter((item) => item.active).length * 11 + pages.length * 3;
+  const successRate = perfEvents ? Math.max(0, 100 - ((perfErrors / perfEvents) * 100)) : connections.length ? (activeConnections.length / connections.length) * 100 : trackers.length ? 98 : 0;
+  const errorRate = perfEvents ? (perfErrors / perfEvents) * 100 : connections.length ? (errorConnections.length / connections.length) * 100 : 0;
   const aiItems = [...widgets, ...connections].filter((item) => /ai/i.test(`${item.name || ""} ${item.type || ""} ${item.category || ""}`));
   const usage = storage?.usage || JSON.stringify({ widgetRecords, pageRecords, connections }).length;
   const quota = storage?.quota || 5 * 1024 * 1024 * 1024;
@@ -255,11 +266,15 @@ const buildAnalyticsData = async () => {
   ].sort((a, b) => new Date(b.at || 0) - new Date(a.at || 0));
 
   const realTrackerRows = trackers.slice(0, 8).map((tracker, index) => {
+    const perf = performanceByBox.get(tracker.id) || {};
     const hasError = errorConnections.some((connection) => connection.fromBoxId === tracker.id || connection.name?.includes(tracker.name));
     const freq = tracker.intervalMs ? `${Math.max(1, Math.round(tracker.intervalMs / 1000))} sec` : "On event";
-    const latency = hasError ? "Timeout" : `${90 + ((index * 47) % 260)} ms`;
-    const success = hasError ? "87.2%" : `${(98 + ((index * 7) % 19) / 10).toFixed(1)}%`;
-    return [tracker.name, hasError ? "Errore" : tracker.active ? "Online" : "Inactive", timeLabel(tracker.updatedAt), freq, latency, String(hasError ? 1 : 0), success, hasError ? "error" : tracker.active ? "online" : "warn"];
+    const latency = perf.avgLatencyMs ? `${Math.round(perf.avgLatencyMs)} ms` : hasError ? "Timeout" : `${90 + ((index * 47) % 260)} ms`;
+    const successValue = perf.eventCount ? Math.max(0, 100 - (Number(perf.errorRate) || 0)) : hasError ? 87.2 : 98 + ((index * 7) % 19) / 10;
+    const success = `${successValue.toFixed(1)}%`;
+    const eventsPerSec = perf.eventsPerSec ? Number(perf.eventsPerSec).toFixed(2) : "0.00";
+    const network = perf.networkBytesPerMin ? formatBytes(perf.networkBytesPerMin) : "0 B";
+    return [tracker.name, hasError || perf.status === "error" ? "Errore" : tracker.active ? "Online" : "Inactive", timeLabel(perf.updatedAt || tracker.updatedAt), freq, latency, String(perf.errorCount ?? (hasError ? 1 : 0)), success, hasError || perf.status === "error" ? "error" : tracker.active ? "online" : "warn", eventsPerSec, network];
   });
 
   const workspaceMax = Math.max(1, ...pages.map((page) => page.boxes.length + page.connections.length));
@@ -284,9 +299,11 @@ const buildAnalyticsData = async () => {
       { label: "Tracker Attivi", value: formatNumber(trackers.filter((item) => item.active).length), delta: `${trackers.length} totali`, tone: "purple", icon: "my_location" },
       { label: "Connessioni Live", value: formatNumber(activeConnections.length), delta: `${connections.length} totali`, tone: "green", icon: "hub" },
       { label: "Richieste/min", value: formatNumber(requestEstimate), delta: "stima runtime", tone: "blue", icon: "lan" },
+      { label: "Events/sec", value: perfEventRate.toFixed(2), delta: performanceRecords.length ? "runtime reale" : "in attesa", tone: "blue", icon: "speed" },
       { label: "AI Jobs Attivi", value: formatNumber(aiItems.length), delta: `${aiItems.length ? "+ real" : "0"}`, tone: "violet", icon: "psychology" },
       { label: "Success Rate", value: `${successRate.toFixed(1)}%`, delta: `${activeConnections.length} ok`, tone: "green", icon: "donut_large" },
       { label: "Error Rate", value: `${errorRate.toFixed(1)}%`, delta: `${errorConnections.length} errori`, tone: "red", icon: "error_outline" },
+      { label: "Memoria Box", value: formatBytes(perfMemory), delta: performanceRecords.length ? "stimata" : "idle", tone: "gold", icon: "memory" },
       { label: "Memoria Usata", value: formatBytes(usage), delta: `${storagePercent}%`, tone: "gold", icon: "inventory_2" },
     ],
     liveEvents: (lastItems.length ? lastItems : fallbackLiveEvents.map(([time, title, desc, status, iconName]) => ({ time, title, desc, status, icon: iconName }))).slice(0, 8).map((item) => [item.time || timeLabel(item.at), item.title || "Evento", item.desc || "Aggiornato", item.status === "active" ? "online" : item.status, item.icon || "hub"]),
@@ -303,7 +320,7 @@ const buildAnalyticsData = async () => {
     chart: {
       requests: `${formatNumber(requestEstimate)} req/min`,
       latency: avgLatency ? `${avgLatency} ms` : "idle",
-      errors: `${formatNumber(errorConnections.length)} errori`,
+      errors: `${formatNumber(perfErrors || errorConnections.length)} errori`,
       health: String(healthScore),
     },
     distribution,
@@ -392,7 +409,7 @@ const renderHeader = () =>
         btn({ class: "tl-analytics-icon-btn", "aria-label": "Aggiorna" }, icon("refresh", "sm"))
       )
     ),
-    _.Grid({ class: "tl-analytics-metrics-grid", cols: "repeat(7, minmax(0, 1fr))", gap: 10 }, ...analyticsState.metrics.map(renderMetricCard))
+    _.Grid({ class: "tl-analytics-metrics-grid", cols: "repeat(auto-fit, minmax(160px, 1fr))", gap: 10 }, ...analyticsState.metrics.map(renderMetricCard))
   );
 
 const renderLiveStream = () =>
@@ -466,9 +483,9 @@ const renderTrackerTable = () =>
       { class: "tl-analytics-table-wrap" },
       _.table(
         { class: "tl-analytics-table" },
-        _.thead(_.tr(_.th("Tracker"), _.th("Stato"), _.th("Ultimo Run"), _.th("Frequenza"), _.th("Latency"), _.th("Errori"), _.th("Success Rate"), _.th("Azioni"))),
+        _.thead(_.tr(_.th("Tracker"), _.th("Stato"), _.th("Ultimo Run"), _.th("Frequenza"), _.th("Latency"), _.th("Ev/s"), _.th("Net/min"), _.th("Errori"), _.th("Success Rate"), _.th("Azioni"))),
         _.tbody(
-          ...analyticsState.trackers.map(([name, state, run, freq, latency, errors, success, status]) =>
+          ...analyticsState.trackers.map(([name, state, run, freq, latency, errors, success, status, eventsPerSec = "0.00", network = "0 B"]) =>
             _.tr(
               { class: `is-${status}` },
               _.td(_.strong(name)),
@@ -476,6 +493,8 @@ const renderTrackerTable = () =>
               _.td(run),
               _.td(freq),
               _.td(_.span({ class: `is-${status}` }, latency)),
+              _.td(eventsPerSec),
+              _.td(network),
               _.td(errors),
               _.td(_.span({ class: "tl-analytics-rate" }, _.strong(success), _.span({ class: "tl-analytics-bar", style: { "--w": success } }))),
               _.td(_.div({ class: "tl-analytics-row-actions" }, btn({ "aria-label": "Start" }, icon("play_arrow", "sm")), btn({ "aria-label": "Restart" }, icon(status === "error" ? "refresh" : "stop", "sm")), btn({ "aria-label": "Menu" }, icon("more_vert", "sm"))))

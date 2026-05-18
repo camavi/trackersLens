@@ -295,6 +295,7 @@ body {
 .tl-monitor-summary {
   min-width: 0;
   padding: 8px;
+  flex-wrap: wrap;
   align-items: stretch;
   justify-content: flex-start;
   border: 1px solid rgba(148, 163, 184, 0.12);
@@ -342,7 +343,7 @@ body {
 }
 
 .tl-monitor-summary-pill {
-  min-width: 128px;
+  min-width: 118px;
   height: 42px;
   padding: 0 12px;
   display: flex;
@@ -522,8 +523,8 @@ body {
 }
 
 .tl-monitor-row-metrics {
-  width: min(420px, 38vw);
-  min-width: 300px;
+  width: min(560px, 44vw);
+  min-width: 420px;
 }
 
 .tl-monitor-row-metrics>div {

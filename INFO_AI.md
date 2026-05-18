@@ -3612,6 +3612,35 @@ Cosa manca / prossimi passi:
 - Blocco import per asset unsafe.
 - Review remota e allowlist network/domain.
 
+## Aggiornamento 2026-05-18 - Box Performance Monitor punto 10
+
+Obiettivo della sessione: rendere il monitor performance dei box una base persistente e riusabile da Workspace e Analytics.
+
+Fatto:
+
+- `core/runtime/box-performance-monitor.js`:
+  - aggiunto store IndexedDB `tl_box_performance`;
+  - aggiunte API `recordSample()`, `list()`, `refreshFromEvents()` e `summarizeWindow()`;
+  - metriche supportate: `eventsPerSec`, `avgLatencyMs`, `lastLatencyMs`, `errorRate`, `networkBytesPerMin`, `lastPayloadBytes`, `estimatedMemoryBytes`.
+- `workspace.html`:
+  - carica il modulo performance dopo `event-log-store.js`.
+- `js/workspaceView.js`:
+  - registra sample performance quando un boxTracker emette payload o errore;
+  - mostra nel Monitor boxTracker events/sec, network/min, memoria stimata ed error rate;
+  - aggiunge riepilogo memoria totale stimata.
+- `analytics.html` e `js/analyticsView.js`:
+  - leggono `tl_box_performance`;
+  - usano le metriche persistite per richieste/min, events/sec, error rate, memoria box e tabella tracker.
+- `docs/box-performance-monitor.md`:
+  - documentato contratto iniziale del Performance Monitor.
+
+Cosa manca / prossimi passi:
+
+- CPU reale per box.
+- Metriche boxLens sandboxed.
+- Soglie warning/error.
+- Overlay performance in Flow Map.
+
 ## Aggiornamento 2026-05-18 - Workspace Export Format punto 4
 
 Obiettivo della sessione: implementare il formato portabile `.tlworkspace` / `.tlbox` e agganciarlo a Library e Workspace.
