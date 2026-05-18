@@ -16,6 +16,11 @@ API:
 TrackerLensGraphEngine.loadRuntime(options)
 TrackerLensGraphEngine.buildGraph({ filters, includeConnections })
 TrackerLensGraphEngine.inspectNode(nodeId, filters)
+TrackerLensGraphEngine.validateGraph(graph, runtime)
+TrackerLensGraphEngine.validateConnection({ source, target, channel, dependencies })
+TrackerLensGraphEngine.impactAnalysis({ graph, runtime, nodeId, connectionId })
+TrackerLensGraphEngine.upstream({ graph, nodeId })
+TrackerLensGraphEngine.downstream({ graph, nodeId })
 ```
 
 ## Ruolo
@@ -30,8 +35,22 @@ Il Graph Engine non sostituisce `runtime-graph-store.js` o `runtime-graph-model.
 
 `js/flowMapView.js` usa ora `TrackerLensGraphEngine.buildGraph({ includeConnections: true })` come primo loader runtime e mantiene il fallback a `TrackerLensRuntimeSnapshotStore.load()` per compatibilita.
 
+## Validazione e impact
+
+Il Graph Engine ora produce `validation` dentro `buildGraph()`. La validazione segnala:
+
+- endpoint mancanti;
+- link duplicati;
+- self-link;
+- direzione non valida per source/consumer;
+- warning cross-workspace.
+
+`impactAnalysis()` calcola upstream, downstream, dipendenze dirette, eventi diretti, channel coinvolti e livello di rischio del nodo/collegamento selezionato. Le API `upstream()` e `downstream()` espongono la traversata del grafo per Flow Map, Time Travel, Analytics e workspace generati.
+
+`flowMapView.js` usa `validateConnection()` quando crea nuovi link, mentre `devtools.html` espone Graph Validation e Impact Analysis nel tab Graph.
+
 ## Prossimi step
 
-- Aggiungere validazione graph.
-- Aggiungere query per path, ancestors, descendants e dependency impact.
+- Aggiungere visual impact overlay in Flow Map.
+- Aggiungere azioni repair/cleanup per issue comuni.
 - Aggiungere overlay performance e time travel.

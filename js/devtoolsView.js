@@ -34,6 +34,7 @@ const formatDate = (value) => {
 const number = (value) => Number(value || 0).toLocaleString("it-IT");
 const runtime = () => state.data?.graph?.runtime || {};
 const graph = () => state.data?.graph?.graph || {};
+const validation = () => state.data?.graph?.validation || { issues: [], errors: [], warnings: [] };
 const jsonPreview = (value) => {
   try {
     return JSON.stringify(value ?? {}, null, 2);
@@ -100,6 +101,9 @@ const table = (headers, rows) => {
 const actionCell = (label, onclick) =>
   _.td(btn({ class: "tl-devtools-row-action", onclick }, icon("open_in_new", "sm"), label));
 
+const badge = (label, tone = "") =>
+  _.span({ class: `tl-devtools-badge${tone ? ` is-${tone}` : ""}` }, label);
+
 const renderOverview = () => {
   const data = state.data || {};
   const graph = data.graph || {};
@@ -118,6 +122,7 @@ const renderOverview = () => {
           _.tr(_.td("Dependencies"), _.td(number(data.stats?.graphDependencies))),
           _.tr(_.td("Channels"), _.td(number(runtime.channels?.length))),
           _.tr(_.td("Events"), _.td(number(runtime.events?.length))),
+          _.tr(_.td("Graph errors"), _.td(number(graph.validation?.errors?.length))),
         ])
       ),
       _.div(
@@ -138,30 +143,58 @@ const renderOverview = () => {
 const renderGraph = () => {
   const nodes = graph().nodes || [];
   const dependencies = graph().dependencies || [];
+  const graphValidation = validation();
   return _.section(
     { class: "tl-devtools-panel" },
     _.div(
       { class: "tl-devtools-section" },
-      _.h2("Nodes"),
-      table(["Node", "Type", "Workspace", "Status", ""], nodes.map((node) =>
+      _.h2("Graph Validation"),
+      _.p("Controlli centrali su endpoints, duplicati, direzione e coerenza runtime."),
+      _.div(
+        { class: "tl-devtools-validation-summary" },
+        badge(graphValidation.ok ? "valid graph" : "issues found", graphValidation.ok ? "green" : "red"),
+        badge(`${number(graphValidation.errors?.length)} errors`, graphValidation.errors?.length ? "red" : ""),
+        badge(`${number(graphValidation.warnings?.length)} warnings`, graphValidation.warnings?.length ? "gold" : "")
+      ),
+      table(["Level", "Type", "Message", "Source", "Target", "Channel"], (graphValidation.issues || []).map((issue) =>
         _.tr(
-          _.td(node.label || node.name || node.id || "N/D"),
-          _.td(node.type || "N/D"),
-          _.td(node.workspaceId || "N/D"),
-          _.td(node.status || "N/D"),
-          actionCell("Inspect", () => selectDetail("node", node.id))
+          _.td(badge(issue.level || "info", issue.level === "error" ? "red" : "gold")),
+          _.td(issue.type || "graph"),
+          _.td(issue.message || "N/D"),
+          _.td(issue.sourceNodeId || "N/D"),
+          _.td(issue.targetNodeId || "N/D"),
+          _.td(issue.channel || "N/D")
         )
       ))
     ),
     _.div(
       { class: "tl-devtools-section" },
+      _.h2("Nodes"),
+      table(["Node", "Type", "Workspace", "Status", "Impact", ""], nodes.map((node) => {
+        const impact = window.TrackerLensGraphEngine?.impactAnalysis
+          ? window.TrackerLensGraphEngine.impactAnalysis({ graph: graph(), runtime: runtime(), nodeId: node.id })
+          : null;
+        return _.tr(
+          _.td(node.label || node.name || node.id || "N/D"),
+          _.td(node.type || "N/D"),
+          _.td(node.workspaceId || "N/D"),
+          _.td(node.status || "N/D"),
+          _.td(`${number(impact?.upstream?.length)} in · ${number(impact?.downstream?.length)} out`),
+          actionCell("Inspect", () => selectDetail("node", node.id))
+        );
+      }))
+    ),
+    _.div(
+      { class: "tl-devtools-section" },
       _.h2("Dependencies"),
-      table(["Source", "Target", "Channel", "Status"], dependencies.map((dependency) =>
+      table(["Source", "Target", "Channel", "Status", "Connection", ""], dependencies.map((dependency) =>
         _.tr(
           _.td(dependency.sourceNodeId || "N/D"),
           _.td(dependency.targetNodeId || "N/D"),
           _.td(dependency.channel || "runtime"),
-          _.td(dependency.status || "N/D")
+          _.td(dependency.status || "N/D"),
+          _.td(dependency.connectionId || "N/D"),
+          actionCell("Inspect", () => selectDetail("dependency", dependency.id || dependency.connectionId))
         )
       ))
     )
@@ -314,7 +347,7 @@ const selectedRecord = () => {
   if (type === "event") return (runtime().events || []).find((event) => event.id === id);
   if (type === "flowLog") return (runtime().flowLogs || []).find((log) => log.id === id);
   if (type === "channel") return (runtime().channels || []).find((channel) => channel.name === id || channel.id === id);
-  if (type === "dependency") return (graph().dependencies || []).find((dependency) => dependency.id === id);
+  if (type === "dependency") return (graph().dependencies || []).find((dependency) => dependency.id === id || dependency.connectionId === id);
   return null;
 };
 
@@ -328,6 +361,14 @@ const renderInspector = () => {
   const events = state.selected.type === "node"
     ? (runtime().events || []).filter((event) => event.sourceNodeId === record.id || event.targetNodeId === record.id)
     : [];
+  const impact = window.TrackerLensGraphEngine?.impactAnalysis
+    ? window.TrackerLensGraphEngine.impactAnalysis({
+      graph: graph(),
+      runtime: runtime(),
+      nodeId: state.selected.type === "node" ? record.id : "",
+      connectionId: state.selected.type === "dependency" ? (record.connectionId || record.id) : "",
+    })
+    : null;
   return _.aside(
     { class: "tl-devtools-inspector" },
     _.div(
@@ -340,6 +381,21 @@ const renderInspector = () => {
         { class: "tl-devtools-inspector-stats" },
         _.span(`${number(dependencies.length)} dependencies`),
         _.span(`${number(events.length)} events`)
+      )
+      : null,
+    impact
+      ? _.div(
+        { class: "tl-devtools-impact" },
+        _.h3("Impact Analysis"),
+        _.div(
+          { class: "tl-devtools-impact-grid" },
+          _.span("Upstream"), _.strong(number(impact.upstream?.length)),
+          _.span("Downstream"), _.strong(number(impact.downstream?.length)),
+          _.span("Direct links"), _.strong(number(impact.directDependencies?.length)),
+          _.span("Events"), _.strong(number(impact.directEvents?.length)),
+          _.span("Channels"), _.strong((impact.channels || []).join(", ") || "N/D"),
+          _.span("Risk"), _.strong(impact.risk || "N/D")
+        )
       )
       : null,
     _.pre({ class: "tl-devtools-json" }, jsonPreview(record))
@@ -370,10 +426,10 @@ const renderContent = () => {
       { class: "tl-devtools-metrics", "aria-label": "Runtime metrics" },
       metric("Nodes", state.data?.stats?.graphNodes, "hub", "cyan"),
       metric("Dependencies", state.data?.stats?.graphDependencies, "lan", "violet"),
+      metric("Graph Issues", state.data?.graph?.validation?.issues?.length, "report", state.data?.graph?.validation?.ok ? "green" : "red"),
       metric("Offline Queue", state.data?.stats?.queuedOffline, "cloud_off", "gold"),
       metric("Packages", state.data?.stats?.packages, "deployed_code", "green"),
-      metric("Snapshots", state.data?.stats?.snapshots, "history", "blue"),
-      metric("Perf Records", state.data?.stats?.performanceRecords, "speed", "red")
+      metric("Snapshots", state.data?.stats?.snapshots, "history", "blue")
     ),
     _.div(
       { class: "tl-devtools-tabs", role: "tablist" },

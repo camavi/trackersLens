@@ -2230,6 +2230,15 @@ const connectionValidation = (source, target, sourcePortName = "all", targetPort
     dependency.targetNodeId === target.id &&
     (dependency.channel || "runtime") === channel);
   if (duplicate) return { ok: false, reason: "duplicate link" };
+  const engineValidation = window.TrackerLensGraphEngine?.validateConnection?.({
+    source,
+    target,
+    channel,
+    dependencies: state.runtime.dependencies || [],
+  });
+  if (engineValidation && !engineValidation.ok) {
+    return { ok: false, reason: engineValidation.errors[0] || "invalid graph link" };
+  }
   return { ok: true, reason: "", channel, sourcePort, targetPort };
 };
 

@@ -171,7 +171,8 @@ Runtime Notes:
 
 - 2026-05-18: added `TrackerLensGraphEngine.buildGraph()` and `inspectNode()`.
 - 2026-05-18: Flow Map now uses `TrackerLensGraphEngine.buildGraph()` as the primary runtime loader with snapshot fallback.
-- Remaining: graph validation, path queries, ancestors, descendants and impact analysis.
+- 2026-05-18: added graph validation, shared connection validation, upstream/downstream traversal and impact analysis; DevTools Graph tab now exposes validation issues and impact inspector.
+- Remaining: richer path queries, visual impact overlay in Flow Map and graph repair actions.
 
 ## [TASK-010]
 
