@@ -15,6 +15,32 @@ window.TrackerLensAiRuntimeStore = (() => {
     workspace: 500,
     global: 1000,
   };
+  const LOCAL_PROVIDER_DEFS = [
+    {
+      id: "local_ollama",
+      name: "Ollama",
+      provider: "ollama",
+      model: "llama3.1",
+      endpoint: "http://127.0.0.1:11434",
+      healthPath: "/api/tags",
+      local: true,
+      priority: 10,
+      status: "idle",
+      icon: "memory",
+    },
+    {
+      id: "local_lm_studio",
+      name: "LM Studio",
+      provider: "lm-studio",
+      model: "local-model",
+      endpoint: "http://127.0.0.1:1234/v1",
+      healthPath: "/models",
+      local: true,
+      priority: 20,
+      status: "idle",
+      icon: "dns",
+    },
+  ];
   const STORE_INDEXES = {
     [STORES.providers]: ["status", "updatedAt"],
     [STORES.agents]: ["status", "updatedAt", "workspaceId"],
@@ -33,6 +59,7 @@ window.TrackerLensAiRuntimeStore = (() => {
     record?.content && typeof record.content === "object" ? record.content : record || {};
 
   const safeId = (value = "") => normalizeText(value, "memory").replace(/[^A-Za-z0-9_-]/g, "_");
+  const providerKey = (provider = {}) => normalizeText(provider.id || provider.provider || provider.name).toLowerCase();
 
   const createIndexes = (store, indexes = []) => {
     indexes.forEach((indexName) => {
@@ -141,13 +168,19 @@ window.TrackerLensAiRuntimeStore = (() => {
 
   const normalizeProvider = (record, index) => {
     const content = contentOf(record);
+    const local = Boolean(content.local || content.localFirst || /^local_/.test(record?.id || content.id || ""));
     return {
       id: normalizeText(record?.id || content.id, `provider_${index}`),
       name: normalizeText(content.name || content.provider, "Provider AI"),
+      provider: normalizeText(content.provider || content.name, "custom"),
       model: normalizeText(content.model || content.defaultModel || content.runtime?.model, "modello non configurato"),
+      endpoint: normalizeText(content.endpoint || content.baseUrl || content.runtime?.endpoint),
+      healthPath: normalizeText(content.healthPath || content.runtime?.healthPath),
       status: normalizeText(content.status || content.state, "idle"),
       latencyMs: Number(content.latencyMs || content.latency || 0),
-      icon: normalizeText(content.icon, "psychology"),
+      local,
+      priority: Number(content.priority || (local ? 50 : 100)),
+      icon: normalizeText(content.icon, local ? "memory" : "psychology"),
       updatedAt: normalizeText(content.updatedAt || record?.updatedAt || content.createdAt || record?.createdAt),
       raw: record,
     };
@@ -406,6 +439,71 @@ window.TrackerLensAiRuntimeStore = (() => {
 
   const forgetMemory = (id) => deleteRecord(STORES.memory, id);
 
+  const localProviderDefaults = () => LOCAL_PROVIDER_DEFS.map((provider) => ({ ...provider }));
+
+  const seedLocalProviders = async () => {
+    const db = await ensureStores();
+    try {
+      const existing = (await readAllFromDb(db, STORES.providers)).map(normalizeProvider);
+      const existingKeys = new Set(existing.map(providerKey));
+      const missing = LOCAL_PROVIDER_DEFS.filter((provider) => !existingKeys.has(providerKey(provider)));
+      await Promise.all(missing.map((provider) => write(STORES.providers, {
+        ...provider,
+        status: "idle",
+        localFirst: true,
+      })));
+      return { created: missing.length, existing: existing.length };
+    } finally {
+      db.close();
+    }
+  };
+
+  const providerHealthUrl = (provider = {}) => {
+    const endpoint = normalizeText(provider.endpoint || provider.baseUrl).replace(/\/+$/g, "");
+    const path = normalizeText(provider.healthPath, provider.provider === "ollama" ? "/api/tags" : "/models");
+    return `${endpoint}${path.startsWith("/") ? path : `/${path}`}`;
+  };
+
+  const probeProvider = async (provider = {}, { timeoutMs = 1400 } = {}) => {
+    const started = performance.now();
+    const controller = new AbortController();
+    const timer = window.setTimeout(() => controller.abort(), timeoutMs);
+    try {
+      const response = await fetch(providerHealthUrl(provider), {
+        method: "GET",
+        signal: controller.signal,
+      });
+      const latencyMs = Math.max(1, Math.round(performance.now() - started));
+      const status = response.ok ? "online" : "offline";
+      const next = await write(STORES.providers, {
+        ...provider,
+        status,
+        latencyMs,
+        lastProbeAt: new Date().toISOString(),
+      });
+      return normalizeProvider(next, 0);
+    } catch (error) {
+      const latencyMs = Math.max(1, Math.round(performance.now() - started));
+      const next = await write(STORES.providers, {
+        ...provider,
+        status: "offline",
+        latencyMs,
+        lastError: error?.message || "Provider probe failed",
+        lastProbeAt: new Date().toISOString(),
+      });
+      return normalizeProvider(next, 0);
+    } finally {
+      window.clearTimeout(timer);
+    }
+  };
+
+  const probeLocalProviders = async () => {
+    await seedLocalProviders();
+    const providers = await list().then((data) => data.providers);
+    const localProviders = providers.filter((provider) => provider.local);
+    return Promise.all(localProviders.map((provider) => probeProvider(provider)));
+  };
+
   const list = async () => {
     const db = await ensureStores();
     try {
@@ -429,8 +527,15 @@ window.TrackerLensAiRuntimeStore = (() => {
       ];
       const memoryRecordsNormalized = memoryRecords.map(normalizeMemory);
 
+      const normalizedProviders = providerRecords.map(normalizeProvider);
+      const seededLocalProviders = localProviderDefaults()
+        .filter((provider) => !normalizedProviders.some((item) => providerKey(item) === providerKey(provider)))
+        .map(normalizeProvider);
+      const providers = [...normalizedProviders, ...seededLocalProviders]
+        .sort((a, b) => (Number(a.priority) || 100) - (Number(b.priority) || 100));
+
       return {
-        providers: providerRecords.map(normalizeProvider),
+        providers,
         agents,
         jobs: jobRecords.map(normalizeJob),
         logs: logRecords.map(normalizeLog),
@@ -454,12 +559,17 @@ window.TrackerLensAiRuntimeStore = (() => {
     STORES,
     MEMORY_SCOPES,
     MEMORY_LIMITS,
+    LOCAL_PROVIDER_DEFS,
     buildMemoryContext,
     cleanupShortMemory,
     forgetMemory,
     list,
     listMemory,
+    localProviderDefaults,
+    probeLocalProviders,
+    probeProvider,
     remember,
+    seedLocalProviders,
     upsertProvider: (record) => write(STORES.providers, record),
     upsertAgent: (record) => write(STORES.agents, record),
     upsertJob: (record) => write(STORES.jobs, record),

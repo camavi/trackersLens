@@ -178,6 +178,19 @@ Public APIs include `remember()`, `listMemory()`, `buildMemoryContext()`, `clean
 
 `ai.html` reads these records through `TrackerLensAiRuntimeStore.list()` and shows scope labels in the AI Memory panel.
 
+## Local AI First
+
+`js/tl-ai-runtime-store.js` now treats local providers as first-class and higher priority than cloud providers.
+
+Default local providers:
+
+- Ollama at `http://127.0.0.1:11434`
+- LM Studio at `http://127.0.0.1:1234/v1`
+
+Public APIs include `localProviderDefaults()`, `seedLocalProviders()`, `probeProvider()` and `probeLocalProviders()`.
+
+`settings.html` defaults to Ollama with `localFirst: true`, and `ai.html` exposes a `Probe Local` provider action.
+
 Current limitations:
 
 - Event persistence is non-blocking and best-effort.

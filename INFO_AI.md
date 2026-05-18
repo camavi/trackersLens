@@ -3723,6 +3723,34 @@ Prossimi passi:
 - Summarization locale per comprimere memoria short in workspace/global.
 - Memory inspector dedicato.
 
+## Aggiornamento 2026-05-18 - Local AI First punto 8
+
+Obiettivo della sessione: rendere Ollama e LM Studio provider locali prioritari, prima dei provider cloud.
+
+Fatto:
+
+- Aggiornato `js/tl-ai-runtime-store.js`.
+- Aggiunto `docs/local-ai-first.md`.
+- Provider locali default:
+  - `local_ollama` (`http://127.0.0.1:11434`, `/api/tags`);
+  - `local_lm_studio` (`http://127.0.0.1:1234/v1`, `/models`).
+- Aggiunte API:
+  - `localProviderDefaults()`;
+  - `seedLocalProviders()`;
+  - `probeProvider(provider)`;
+  - `probeLocalProviders()`.
+- `list()` include sempre i provider locali default e li ordina prima dei provider cloud.
+- `settings.html` usa Ollama come default, modello `llama3.1`, e include toggle `Local AI first`.
+- `ai.html` / `js/aiRuntimeCenter.js` espone azione `Probe Local`.
+- Aggiornati `docs/runtime.md` e `docs/new_vision_progress.md`.
+
+Prossimi passi:
+
+- Router locale chat/completions.
+- Lettura lista modelli da Ollama/LM Studio.
+- Fallback cloud esplicito e controllato.
+- Gestione CORS per endpoint locali.
+
 ## Aggiornamento 2026-05-18 - Inizio punto 3 Sandbox Isolation
 
 Obiettivo della sessione: aprire il punto 3 con un gate centrale di policy prima di costruire il runner iframe sandboxato.

@@ -35,10 +35,11 @@ const defaultSettings = {
     autoStart: true,
   },
   ai: {
-    provider: "OpenAI",
-    model: "gpt-4.1-mini",
+    provider: "Ollama",
+    model: "llama3.1",
     temperature: 0.72,
     maxTokens: 2048,
+    localFirst: true,
   },
   connections: {
     timeout: 30,
@@ -405,6 +406,7 @@ const renderAiProvider = () =>
       ...settingsState.providers.map((provider) => option(provider.name)),
     ]),
     renderField("Modello predefinito", renderSettingInput("ai.model")),
+    renderToggleRow("Local AI first", Boolean(settingsState.settings.ai.localFirst), (checked) => mutateSetting("ai.localFirst", Boolean(checked), { rerender: true, persist: true })),
     renderSettingRange("Temperatura", "ai.temperature", 0, 2, 0.01),
     renderSettingRange("Token massimi", "ai.maxTokens", 256, 8192, 1),
     btn({ class: "tl-settings-primary", onclick: testAiConnection }, icon("radar", "sm"), "Testa Connessione")

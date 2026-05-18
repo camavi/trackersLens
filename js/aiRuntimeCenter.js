@@ -297,7 +297,7 @@ const renderFlowGraph = () =>
 const renderProviders = () =>
   _.aside(
     { class: "tl-ai-providers" },
-    _.Row({ justify: "space-between", align: "center" }, _.h3("AI Models & Providers"), btn({ class: "tl-ai-ghost-btn" }, icon("add", "sm"), "Aggiungi")),
+    _.Row({ justify: "space-between", align: "center" }, _.h3("AI Models & Providers"), btn({ class: "tl-ai-ghost-btn", onclick: probeLocalAiProviders }, icon("radar", "sm"), "Probe Local")),
     _.div(
       { class: "tl-ai-provider-list" },
       ...providers.map(([name, model, state, latency, status, iconName]) =>
@@ -461,6 +461,26 @@ const refreshAiRuntime = async () => {
     };
   }
   mountAiRuntime();
+};
+
+const probeLocalAiProviders = async () => {
+  aiRuntimeMeta = {
+    ...aiRuntimeMeta,
+    loading: true,
+    error: "",
+    indexedDb: "Probing local AI",
+  };
+  mountAiRuntime();
+  try {
+    await window.TrackerLensAiRuntimeStore?.probeLocalProviders?.();
+  } catch (error) {
+    aiRuntimeMeta = {
+      ...aiRuntimeMeta,
+      error: error?.message || "Errore probe provider locali",
+      indexedDb: "Probe error",
+    };
+  }
+  await refreshAiRuntime();
 };
 
 const mountAiRuntime = () => {
