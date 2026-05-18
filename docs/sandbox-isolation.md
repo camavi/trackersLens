@@ -27,12 +27,13 @@ Current behavior:
 - uses a real iframe page (`sandboxRunner.html`) with external scripts instead of `srcdoc`, so it can satisfy extension CSP rules
 - does not add a second HTML `sandbox` attribute to that iframe, because `sandboxRunner.html` is already isolated by the MV3 `manifest.sandbox` page policy
 - runs sandbox JavaScript through a one-way iframe runtime and reports ready/error/timeout to the host
-- executes the boxLens `export default function boxLens(boxLen, context)` inside the sandbox frame and registers returned listeners
+- avoids `eval` / `new Function` in the sandbox frame so MV3 CSP cannot force a legacy fallback
+- maps declared listener channel names to a CSP-safe default DOM listener for preview/workspace rendering
 - delivers workspace events to the iframe through `postMessage`
-- supports sandbox-to-parent `context.emit(channel, payload)`
-- supports controlled `context.fetch(url, options)` through the parent capability bridge when `permissions.network` is enabled
-- supports controlled `context.websocket(url, protocols)` through the parent capability bridge when `permissions.websocket` is enabled
-- supports controlled `context.clipboard.writeText(text)` through the parent capability bridge when `permissions.clipboard` is enabled
+- supports sandbox-to-parent `context.emit(channel, payload)` at the bridge level, but arbitrary boxLens JS execution is disabled under MV3 CSP
+- supports controlled `context.fetch(url, options)` at the bridge level when `permissions.network` is enabled
+- supports controlled `context.websocket(url, protocols)` at the bridge level when `permissions.websocket` is enabled
+- supports controlled `context.clipboard.writeText(text)` at the bridge level when `permissions.clipboard` is enabled
 - records sandbox errors in runtime events and flow logs from the workspace host
 - Flow Map shows sandbox status, sandbox errors and recent sandbox logs in the node inspector
 - workspace mount attempts the iframe runner and falls back to legacy DOM mount if the runner errors or times out

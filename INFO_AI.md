@@ -4029,9 +4029,10 @@ Fatto:
 
 Nota correttiva 2026-05-18:
 
-- `core/runtime/sandbox-frame.js` ora esegue davvero il JS del boxLens ricevuto dal parent.
-- Il frame supporta `export default function boxLens(boxLen, context)` e registra i listener restituiti dal boxLens.
-- Prima il frame montava solo HTML/CSS e inviava `ready`, quindi `context.websocket(...)` non poteva partire.
+- `core/runtime/sandbox-frame.js` non usa piu `new Function` per eseguire il JS del boxLens.
+- Motivo: nel contesto reale MV3 Chrome puo applicare CSP `script-src 'self'` senza `unsafe-eval`, causando fallback legacy con log "Evaluating a string as JavaScript violates...".
+- Il frame ora registra listener CSP-safe dai nomi canale dichiarati nel sorgente e usa il listener DOM default per aggiornare `.value`, `.change`, `.title`, `.source` e `[data-tl-bind]`.
+- Il WebSocket runtime deve partire dal `boxTracker` nel parent runtime; il boxLens sandbox deve restare consumer visuale degli eventi.
 - `core/runtime/sandbox-policy.js` valida anche `context.fetch(...)` e `context.websocket(...)`; per WebSocket serve `permissions.websocket: true` nel manifest del boxLens.
 
 Prossimi hardening:

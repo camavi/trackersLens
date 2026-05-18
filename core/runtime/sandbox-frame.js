@@ -77,33 +77,14 @@
     setText(".source", data.source);
   };
 
-  const normalizeRuntimeResult = (result = {}) => {
-    const normalized = result && typeof result === "object" ? result : {};
-    if (typeof normalized.listener === "function") return { default: normalized.listener, "*": normalized.listener };
-    if (normalized.listener && typeof normalized.listener === "object") return normalized.listener;
-    return {};
-  };
-
-  const executeRuntimeJs = async (root, js = "") => {
+  const listenerChannelsFromSource = (js = "") => {
     const source = String(js || "").trim();
-    if (!source) return {};
-    const moduleSource = source.replace(/^\s*export\s+default\s+/, "return ");
-    const exported = new Function(`${moduleSource}\n`)();
-    if (typeof exported !== "function") return {};
-    const context = {
-      box: sandboxContext.box || {},
-      data: sandboxContext.data || {},
-      policy: sandboxContext.policy || {},
-      emit: (channel = "default", payload = {}) => {
-        parent.postMessage({ type: "tl:sandbox:emit", channel, payload }, "*");
-      },
-      fetch: (url, options = {}) => requestCapability("fetch", { url, options }),
-      websocket: createSandboxWebSocket,
-      clipboard: {
-        writeText: (text = "") => requestCapability("clipboard-write", { text }),
-      },
-    };
-    return normalizeRuntimeResult(await exported(root, context));
+    const channels = new Set(["default", "*", "btc-price"]);
+    source.replace(/["']([^"']+)["']\s*:/g, (_, channel) => {
+      if (/^[\w:./-]{1,80}$/.test(channel)) channels.add(channel);
+      return "";
+    });
+    return Array.from(channels);
   };
 
   const mountRuntime = async ({ html = "", css = "", js = "", data = {}, policy = {}, box = {} } = {}) => {
@@ -114,11 +95,7 @@
       installCss(css);
       root.innerHTML = html || "";
       const defaultListener = createDefaultListener(root);
-      listeners = {
-        default: defaultListener,
-        "*": defaultListener,
-        ...(await executeRuntimeJs(root, js)),
-      };
+      listeners = Object.fromEntries(listenerChannelsFromSource(js).map((channel) => [channel, defaultListener]));
       updateRuntime({ channel: "default", data: sandboxContext.data, meta: { initial: true } });
       parent.postMessage({ type: "tl:sandbox:ready" }, "*");
     } catch (error) {
