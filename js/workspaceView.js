@@ -22,6 +22,7 @@ const icon = (name, size = "md") => _.Icon({ name, size });
 const btn = (props, ...children) => _.Btn({ type: "button", ...props }, ...children);
 const debugParams = new URLSearchParams(window.location.search);
 const runtimeDebugTrace = [];
+const trackerLaunchLog = [];
 const runtimeDebugEnabled = () => debugParams.get("debugRuntime") === "1" || localStorage.getItem("tl_debug_runtime") === "1";
 const runtimeDebug = (label, payload = {}) => {
   const entry = {
@@ -32,6 +33,18 @@ const runtimeDebug = (label, payload = {}) => {
   runtimeDebugTrace.push(entry);
   if (runtimeDebugTrace.length > 300) runtimeDebugTrace.shift();
   if (runtimeDebugEnabled()) console.debug(`[TL Runtime Debug] ${label}`, payload);
+};
+const trackerLaunch = (label, payload = {}, level = "info") => {
+  const entry = {
+    at: new Date().toISOString(),
+    label,
+    payload,
+  };
+  trackerLaunchLog.push(entry);
+  if (trackerLaunchLog.length > 300) trackerLaunchLog.shift();
+  const method = level === "warn" ? "warn" : level === "error" ? "error" : "info";
+  console[method](`[TL Tracker Launch] ${label}`, payload);
+  runtimeDebug(label, payload);
 };
 
 window.TLRuntimeDebug = {
@@ -45,6 +58,9 @@ window.TLRuntimeDebug = {
   },
   dump() {
     return [...runtimeDebugTrace];
+  },
+  launchLog() {
+    return [...trackerLaunchLog];
   },
   state() {
     return {
@@ -68,6 +84,10 @@ window.TLRuntimeDebug = {
 runtimeDebug("debug-bootstrap", {
   enabled: runtimeDebugEnabled(),
   href: window.location.href,
+});
+trackerLaunch("workspace-script-loaded", {
+  href: window.location.href,
+  debugRuntime: runtimeDebugEnabled(),
 });
 
 const runtimeEventStore = () => window.TrackerLensEventLogStore;
@@ -1627,6 +1647,7 @@ const startWebSocketTrackerRuntime = (box, tracker, emit) => {
     try {
       socket = new WebSocket(tracker.endpoint);
     } catch (error) {
+      trackerLaunch("websocket-constructor-error", { boxId: box.id, endpoint: tracker.endpoint, message: error?.message || String(error) }, "error");
       runtimeDebug("websocket-constructor-error", { boxId: box.id, message: error?.message || String(error) });
       recordTrackerError(box.id, error);
       return;
@@ -1634,11 +1655,17 @@ const startWebSocketTrackerRuntime = (box, tracker, emit) => {
     socket.onopen = () => {
       const query = String(tracker.query || "").trim();
       if (query) socket.send(query);
+      trackerLaunch("websocket-open", { boxId: box.id, endpoint: tracker.endpoint, sentQuery: Boolean(query) });
       runtimeDebug("websocket-open", { boxId: box.id, endpoint: tracker.endpoint, sentQuery: Boolean(query) });
       updateTrackerStat(box.id, { status: "live", channel: tracker.outputChannel || trackerChannel(box), lastError: "" });
     };
     socket.onmessage = (event) => {
       const payload = applyTransformRules(parseWebSocketMessage(event.data), tracker.transformText, tracker);
+      trackerLaunch("websocket-message", {
+        boxId: box.id,
+        channel: tracker.outputChannel || trackerChannel(box),
+        rawLength: String(event.data || "").length,
+      });
       runtimeDebug("websocket-message", {
         boxId: box.id,
         channel: tracker.outputChannel || trackerChannel(box),
@@ -1648,11 +1675,13 @@ const startWebSocketTrackerRuntime = (box, tracker, emit) => {
       emit(payload, event.data);
     };
     socket.onerror = () => {
+      trackerLaunch("websocket-error", { boxId: box.id, endpoint: tracker.endpoint }, "error");
       runtimeDebug("websocket-error", { boxId: box.id, endpoint: tracker.endpoint });
       recordTrackerError(box.id, new Error("Errore connessione WebSocket."));
       socket?.close();
     };
     socket.onclose = () => {
+      trackerLaunch("websocket-close", { boxId: box.id, reconnect: tracker.reconnect, disposed }, tracker.reconnect && !disposed ? "warn" : "info");
       runtimeDebug("websocket-close", { boxId: box.id, reconnect: tracker.reconnect, disposed });
       if (!disposed && tracker.reconnect) {
         reconnectTimer = setTimeout(connect, Math.max(1, Number(tracker.reconnectInterval) || 5) * 1000);
@@ -1670,6 +1699,12 @@ const startWebSocketTrackerRuntime = (box, tracker, emit) => {
 };
 
 const startTrackerRuntime = (box) => {
+  trackerLaunch("tracker-start-request", {
+    boxId: box.id,
+    name: box.name || "",
+    type: box.type || "",
+    detectedTracker: isBoxTracker(box),
+  });
   runtimeDebug("tracker-start-request", {
     boxId: box.id,
     type: box.type,
@@ -1677,12 +1712,22 @@ const startTrackerRuntime = (box) => {
     source: box.source || box.trackerType || box.runtime?.source || box.runtime?.trackerType || box.runtime?.runtime?.source || "",
   });
   if (workspaceViewState.pausedTrackers.has(box.id)) {
+    trackerLaunch("tracker-paused", { boxId: box.id }, "warn");
     runtimeDebug("tracker-paused", { boxId: box.id });
     updateTrackerStat(box.id, { status: "paused" });
     return;
   }
 
   const tracker = trackerRuntimeConfig(box);
+  trackerLaunch("tracker-config", {
+    boxId: box.id,
+    source: tracker.source,
+    trackerType: tracker.trackerType,
+    endpoint: tracker.endpoint,
+    outputChannel: tracker.outputChannel,
+    active: tracker.active,
+    autoStart: tracker.autoStart,
+  });
   runtimeDebug("tracker-config", {
     boxId: box.id,
     source: tracker.source,
@@ -1694,6 +1739,7 @@ const startTrackerRuntime = (box) => {
     intervalMs: tracker.intervalMs,
   });
   if (tracker.active === false || tracker.autoStart === false) {
+    trackerLaunch("tracker-stopped-by-config", { boxId: box.id, active: tracker.active, autoStart: tracker.autoStart }, "warn");
     runtimeDebug("tracker-stopped-by-config", { boxId: box.id, active: tracker.active, autoStart: tracker.autoStart });
     updateTrackerStat(box.id, { status: "stopped", channel: tracker.outputChannel || trackerChannel(box) });
     return;
@@ -1704,6 +1750,7 @@ const startTrackerRuntime = (box) => {
   updateTrackerStat(box.id, { status: "starting", channel, startedAt: new Date().toISOString() });
 
   if ((tracker.source || tracker.trackerType) === "websocket") {
+    trackerLaunch("tracker-launch-websocket", { boxId: box.id, endpoint: tracker.endpoint, channel });
     const dispose = startWebSocketTrackerRuntime(box, tracker, emit);
     if (dispose) workspaceViewState.trackerTimers.set(box.id, dispose);
     return;
@@ -1711,8 +1758,10 @@ const startTrackerRuntime = (box) => {
 
   const run = async () => {
     try {
+      trackerLaunch("tracker-run-once", { boxId: box.id, source: tracker.source || tracker.trackerType, channel });
       emit(await executeTrackerRuntime(tracker));
     } catch (error) {
+      trackerLaunch("tracker-run-error", { boxId: box.id, message: error?.message || String(error) }, "error");
       console.error(`Errore runtime boxTracker ${box.id}:`, error);
       recordTrackerError(box.id, error);
       emit(tracker.sampleOutput || trackerPayload(box));
@@ -1729,6 +1778,11 @@ const startTrackerRuntime = (box) => {
 const startTrackerRuntimes = () => {
   cleanupTrackerRuntimes();
   const trackers = workspaceViewState.boxes.filter(isBoxTracker);
+  trackerLaunch("tracker-start-all", {
+    workspaceId: workspaceViewState.workspace.id || "global",
+    boxes: workspaceViewState.boxes.length,
+    trackers: trackers.map((box) => ({ id: box.id, type: box.type, name: box.name })),
+  });
   runtimeDebug("tracker-start-all", {
     workspaceId: workspaceViewState.workspace.id || "global",
     boxes: workspaceViewState.boxes.length,
