@@ -2324,7 +2324,11 @@ const createRuntimeLink = async (source, target, options = {}) => {
   };
 
   try {
-    await window.TrackerLensConnectionsStore?.upsert?.(connection);
+    if (window.TrackerLensConnectionsStore?.upsertAndSyncWorkspace) {
+      await window.TrackerLensConnectionsStore.upsertAndSyncWorkspace(connection);
+    } else {
+      await window.TrackerLensConnectionsStore?.upsert?.(connection);
+    }
     await window.TrackerLensRuntimeGraphStore?.upsertDependency?.({ dependency });
     await recordFlowAction({
       workspaceId,
@@ -2366,6 +2370,9 @@ const performEdgeDelete = async (edge, closeDialog = null) => {
   const deletedConnection = state.connections.find((connection) => connection.id === edge.connectionId) || null;
 
   await window.TrackerLensConnectionsStore?.remove?.(edge.connectionId);
+  await window.TrackerLensConnectionsStore?.removeWorkspaceContentConnection?.(edge.connectionId, {
+    workspaceId: edge.workspaceId || deletedConnection?.workspaceId || "",
+  });
   await window.TrackerLensRuntimeGraphStore?.cleanupConnectionReferences?.({ connectionId: edge.connectionId });
   if (window.TrackerLensEventLogStore?.cleanupConnectionReferences) {
     await window.TrackerLensEventLogStore.cleanupConnectionReferences({ connectionId: edge.connectionId });

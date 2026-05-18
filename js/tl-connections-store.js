@@ -56,6 +56,22 @@ window.TrackerLensConnectionsStore = (() => {
     }
   };
 
+  const readRecord = async (storeName, id) => {
+    if (!id) return null;
+    const db = await ensureStore();
+    try {
+      if (!db.objectStoreNames.contains(storeName)) return null;
+
+      return await new Promise((resolve, reject) => {
+        const request = db.transaction(storeName, "readonly").objectStore(storeName).get(id);
+        request.onsuccess = (event) => resolve(event.target.result || null);
+        request.onerror = (event) => reject(event.target.error || new Error(`Errore lettura ${storeName}`));
+      });
+    } finally {
+      db.close();
+    }
+  };
+
   const write = async (storeName, record) => {
     const db = await ensureStore();
     try {
@@ -97,6 +113,83 @@ window.TrackerLensConnectionsStore = (() => {
     } finally {
       db.close();
     }
+  };
+
+  const workspaceConnectionKey = (connection = {}) => {
+    if (connection.id) return `id:${connection.id}`;
+    return [
+      "edge",
+      connection.fromBoxId || connection.sourceNodeId || "",
+      connection.toBoxId || connection.targetNodeId || "",
+      connection.channel || "default",
+    ].join(":");
+  };
+
+  const workspaceConnectionPayload = (connection = {}) => ({
+    id: normalizeText(connection.id, `connection_${Date.now()}`),
+    fromBoxId: normalizeText(connection.fromBoxId || connection.sourceNodeId),
+    toBoxId: normalizeText(connection.toBoxId || connection.targetNodeId),
+    channel: normalizeText(connection.channel || connection.frequency, "default"),
+    mapping: connection.mapping && typeof connection.mapping === "object" ? { ...connection.mapping } : {},
+  });
+
+  const upsertWorkspaceContentConnection = async (connection = {}) => {
+    const normalized = normalizeConnection(connection);
+    const workspaceId = normalizeText(normalized.workspaceId);
+    const payload = workspaceConnectionPayload(normalized);
+    if (!workspaceId || !payload.fromBoxId || !payload.toBoxId) return null;
+
+    const record = await readRecord(PAGE_STORE, workspaceId);
+    const content = contentOf(record);
+    if (!content || !Array.isArray(content.boxes)) return null;
+
+    const validBoxIds = new Set(content.boxes.map((box) => box.id).filter(Boolean));
+    if (!validBoxIds.has(payload.fromBoxId) || !validBoxIds.has(payload.toBoxId)) return null;
+
+    const connections = Array.isArray(content.connections) ? content.connections : [];
+    const merged = new Map(connections.map((item) => [workspaceConnectionKey(item), { ...item, mapping: { ...(item.mapping || {}) } }]));
+    merged.set(workspaceConnectionKey(payload), payload);
+
+    const nextRecord = {
+      ...(record || {}),
+      id: workspaceId,
+      content: {
+        ...content,
+        id: content.id || workspaceId,
+        updatedAt: new Date().toISOString(),
+        connections: Array.from(merged.values()),
+      },
+    };
+    await write(PAGE_STORE, nextRecord);
+    return payload;
+  };
+
+  const removeWorkspaceContentConnection = async (connectionId, { workspaceId = "" } = {}) => {
+    if (!connectionId) return null;
+    const candidateWorkspaceIds = workspaceId ? [workspaceId] : (await readAll(PAGE_STORE)).map((record) => record.id || record.content?.id).filter(Boolean);
+    const updated = [];
+
+    for (const pageId of candidateWorkspaceIds) {
+      const record = await readRecord(PAGE_STORE, pageId);
+      const content = contentOf(record);
+      const connections = Array.isArray(content.connections) ? content.connections : [];
+      const nextConnections = connections.filter((connection) => connection.id !== connectionId);
+      if (nextConnections.length === connections.length) continue;
+
+      await write(PAGE_STORE, {
+        ...(record || {}),
+        id: pageId,
+        content: {
+          ...content,
+          id: content.id || pageId,
+          updatedAt: new Date().toISOString(),
+          connections: nextConnections,
+        },
+      });
+      updated.push(pageId);
+    }
+
+    return updated;
   };
 
   const contentOf = (record) =>
@@ -223,6 +316,12 @@ window.TrackerLensConnectionsStore = (() => {
 
   const upsert = async (connection) => write(CONNECTION_STORE, normalizeConnection(connection));
 
+  const upsertAndSyncWorkspace = async (connection) => {
+    const record = await upsert(connection);
+    await upsertWorkspaceContentConnection(record);
+    return record;
+  };
+
   const duplicate = async (connection) => {
     const now = new Date().toISOString();
     return upsert({
@@ -289,6 +388,9 @@ window.TrackerLensConnectionsStore = (() => {
     normalizeConnection,
     remove,
     removeMany,
+    removeWorkspaceContentConnection,
+    upsertAndSyncWorkspace,
+    upsertWorkspaceContentConnection,
     syncWorkspaceConnections,
     upsert,
   };

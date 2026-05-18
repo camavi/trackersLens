@@ -217,6 +217,51 @@ const persistWorkspaceSilently = async () => {
   }
 };
 
+const connectionKey = (connection = {}) => {
+  if (connection.id) return `id:${connection.id}`;
+  return [
+    "edge",
+    connection.fromBoxId || "",
+    connection.toBoxId || "",
+    connection.channel || "default",
+  ].join(":");
+};
+
+const normalizeWorkspaceConnection = (connection = {}) => ({
+  ...connection,
+  fromBoxId: connection.fromBoxId || connection.sourceNodeId || "",
+  toBoxId: connection.toBoxId || connection.targetNodeId || "",
+  channel: connection.channel || "default",
+  mapping: connection.mapping && typeof connection.mapping === "object" ? { ...connection.mapping } : {},
+});
+
+const loadWorkspaceConnectionsFromStore = async (workspaceId = "", contentConnections = []) => {
+  const baseConnections = contentConnections.map(normalizeWorkspaceConnection);
+  if (!window.TrackerLensConnectionsStore?.list) return baseConnections;
+
+  try {
+    const boxIds = new Set(workspaceState.boxes.map((box) => box.id).filter(Boolean));
+    const storeConnections = (await window.TrackerLensConnectionsStore.list())
+      .map(normalizeWorkspaceConnection)
+      .filter((connection) => !workspaceId || !connection.workspaceId || connection.workspaceId === workspaceId)
+      .filter((connection) => boxIds.has(connection.fromBoxId) && boxIds.has(connection.toBoxId));
+    const merged = new Map();
+    [...baseConnections, ...storeConnections].forEach((connection) => merged.set(connectionKey(connection), connection));
+
+    await Promise.all(storeConnections.map((connection) =>
+      window.TrackerLensConnectionsStore.upsertWorkspaceContentConnection?.({
+        ...connection,
+        workspaceId: connection.workspaceId || workspaceId,
+      })
+    ));
+
+    return Array.from(merged.values());
+  } catch (error) {
+    console.warn("Connessioni Flow Map non importate nel workspace:", error);
+    return baseConnections;
+  }
+};
+
 const loadWorkspaceFromQuery = async () => {
   const workspaceId = new URLSearchParams(window.location.search).get("workspaceId");
   if (!workspaceId) return;
@@ -233,7 +278,10 @@ const loadWorkspaceFromQuery = async () => {
       id: record.id || content.id || workspaceId,
     };
     workspaceState.boxes = Array.isArray(content.boxes) ? content.boxes.map((box) => ({ ...box })) : [];
-    workspaceState.connections = Array.isArray(content.connections) ? content.connections.map((connection) => ({ ...connection, mapping: { ...connection.mapping } })) : [];
+    workspaceState.connections = await loadWorkspaceConnectionsFromStore(
+      workspaceState.workspace.id || workspaceId,
+      Array.isArray(content.connections) ? content.connections : []
+    );
     workspaceState.savedLabel = content.updatedAt ? "Caricato da IndexedDB" : workspaceState.savedLabel;
   } catch (error) {
     console.error("Errore caricamento workspace:", error);
@@ -257,6 +305,13 @@ const saveWorkspace = async () => {
   try {
     await waitForWorkspaceStore();
     await db.updateData(tlConfig.TABLES.TL_PAGES, workspacePayload());
+    if (window.TrackerLensConnectionsStore?.syncWorkspaceConnections) {
+      await window.TrackerLensConnectionsStore.syncWorkspaceConnections({
+        workspace: workspaceState.workspace,
+        boxes: workspaceState.boxes,
+        connections: workspaceState.connections,
+      });
+    }
 
     workspaceState.savedLabel = "Salvato localmente";
     setNotice("Workspace salvato in IndexedDB");
