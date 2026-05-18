@@ -3581,6 +3581,45 @@ Verifiche eseguite:
 - `curl -I http://127.0.0.1:3031/js/flowMapView.js`
 - `curl -I http://127.0.0.1:3031/core/runtime/runtime-graph-model.js`
 
+## Aggiornamento 2026-05-18 - Workspace Export Format punto 4
+
+Obiettivo della sessione: implementare il formato portabile `.tlworkspace` / `.tlbox` e agganciarlo a Library e Workspace.
+
+Fatto:
+
+- Aggiunto `core/runtime/workspace-portable.js`.
+- Aggiunto `docs/workspace-export-format.md`.
+- Formati:
+  - `.tlbox`: metadata formato + `tl_widgets.content`;
+  - `.tlworkspace`: metadata formato + `tl_pages.content` + asset embedded da `tl_widgets`.
+- `library.html` carica il modulo portable.
+- `js/library.js`:
+  - aggiunto import file `.tlworkspace` / `.tlbox`;
+  - aggiunto export dalle card Library;
+  - import scrive box in `tl_widgets` e workspace in `tl_pages`.
+- `editorWorkspace.html` carica il modulo portable.
+- `js/workspace.js`:
+  - aggiunto export del workspace corrente con asset embedded.
+- Export workspace include anche snapshot runtime graph del workspace:
+  - `tl_channels`;
+  - `tl_runtime_nodes`;
+  - `tl_runtime_dependencies`;
+  - `tl_flows`.
+- Import supporta conflict strategy API:
+  - `overwrite`;
+  - `duplicate`;
+  - `skip`.
+- Aggiunta API `validateBundle()`.
+- `workspace.html` carica il modulo portable per uso runtime futuro.
+- Aggiornati `docs/runtime.md` e `docs/new_vision_progress.md`.
+
+Prossimi passi:
+
+- UI conflict strategy import: overwrite, duplicate, skip.
+- Validation report prima dell'import.
+- Snapshot runtime graph opzionale.
+- Version migrations sopra `formatVersion`.
+
 ## Aggiornamento 2026-05-18 - Inizio punto 3 Sandbox Isolation
 
 Obiettivo della sessione: aprire il punto 3 con un gate centrale di policy prima di costruire il runner iframe sandboxato.

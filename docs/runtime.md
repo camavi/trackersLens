@@ -112,6 +112,7 @@ Implemented first-pass modules:
 - `core/runtime/channel-registry.js`
 - `core/runtime/event-log-store.js`
 - `core/runtime/runtime-graph-store.js`
+- `core/runtime/workspace-portable.js`
 
 Current write points:
 

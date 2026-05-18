@@ -49,6 +49,39 @@ const openWorkspaceView = (workspaceId) => {
   openChromePage(`workspace.html?workspaceId=${encodeURIComponent(workspaceId)}`);
 };
 
+const exportLibraryItem = async (item, event = null) => {
+  event?.stopPropagation?.();
+  try {
+    if (item.type === "workspace") {
+      await window.TrackerLensPortableRuntime.exportWorkspaceFile(item.id, { includeAssets: true });
+    } else {
+      await window.TrackerLensPortableRuntime.exportBoxFile(item.id);
+    }
+  } catch (error) {
+    libraryState.error = error?.message || "Export non riuscito.";
+    mountLibrary();
+  }
+};
+
+const importPortableFile = () => {
+  const input = document.createElement("input");
+  input.type = "file";
+  input.accept = ".tlworkspace,.tlbox,application/json";
+  input.onchange = async () => {
+    const file = input.files?.[0];
+    if (!file) return;
+    try {
+      const result = await window.TrackerLensPortableRuntime.importFile(file);
+      libraryState.type = result.kind === "workspace" ? "workspace" : "all";
+      await loadLibrary();
+    } catch (error) {
+      libraryState.error = error?.message || "Import non riuscito.";
+      mountLibrary();
+    }
+  };
+  input.click();
+};
+
 const normalizeText = (value, fallback = "") => {
   if (value === null || value === undefined) return fallback;
   return String(value).trim() || fallback;
@@ -172,6 +205,7 @@ const renderTopbar = () =>
     }),
     _.Toolbar(
       { class: "tl-library-actions", align: "center", gap: 16 },
+      btn({ class: "tl-library-menu", onclick: importPortableFile }, icon("upload_file", "sm"), "Import"),
       btn({ class: "tl-library-create", onclick: openCreateBox }, icon("edit", "sm"), "Crea nuovo box"),
       btn({ class: "tl-library-menu", "aria-label": "Menu libreria" }, icon("more_vert"))
     )
@@ -318,6 +352,8 @@ const renderBoxCard = (box) =>
           "Apri"
         )
         : btn({ class: "tl-card-more", "aria-label": `Azioni ${box.name}`, onclick: (event) => event.stopPropagation() }, icon("more_horiz", "sm"))
+      ,
+      btn({ class: "tl-card-more", "aria-label": `Export ${box.name}`, onclick: (event) => exportLibraryItem(box, event) }, icon("download", "sm"))
     )
   );
 

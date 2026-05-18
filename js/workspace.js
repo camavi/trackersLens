@@ -269,6 +269,18 @@ const saveWorkspace = async () => {
   mountWorkspace();
 };
 
+const exportCurrentWorkspace = async () => {
+  try {
+    await persistWorkspaceSilently();
+    await window.TrackerLensPortableRuntime.exportWorkspaceFile(workspaceState.workspace.id, { includeAssets: true });
+    setNotice("Workspace esportato in formato .tlworkspace.");
+  } catch (error) {
+    console.error("Errore export workspace:", error);
+    setNotice(error?.message || "Export workspace non riuscito.");
+  }
+  mountWorkspace();
+};
+
 const renderHeader = () =>
   _.header(
     { class: "tl-workspace-header" },
@@ -292,6 +304,7 @@ const renderHeader = () =>
       btn({ class: `tl-top-icon${workspaceState.previewMode ? " is-active" : ""}`, "aria-label": "Anteprima desktop", onclick: togglePreview }, icon("desktop_windows")),
       btn({ class: `tl-top-icon${workspaceState.workspace.showGrid ? " is-active" : ""}`, "aria-label": "Vista griglia", onclick: () => updateWorkspaceConfig("showGrid", !workspaceState.workspace.showGrid, "Vista griglia aggiornata") }, icon("dashboard")),
       btn({ class: "tl-save-btn", onclick: saveWorkspace }, icon("cloud_upload", "sm"), "Salva"),
+      btn({ class: "tl-top-icon", "aria-label": "Export workspace", onclick: exportCurrentWorkspace }, icon("download")),
       btn({ class: "tl-publish-btn", onclick: publishWorkspace }, icon("language", "sm"), "Pubblica"),
       btn({ class: `tl-top-icon${workspaceState.actionMenuOpen ? " is-active" : ""}`, "aria-label": "Altre azioni", onclick: toggleActionMenu }, icon("more_vert")),
       btn({ class: "tl-top-icon", "aria-label": "Chiudi", onclick: () => openChromePage("popup.html") }, icon("close"))
