@@ -142,6 +142,119 @@ window.TrackerLensChannelRegistry = (() => {
   const trackerOutputChannel = (tracker) =>
     safeChannelName(tracker.outputChannel || tracker.runtime?.output || tracker.channel || tracker.channels?.[0] || "default");
 
+  const nodeChannelSet = (node = {}) =>
+    new Set([
+      ...(Array.isArray(node.channels) ? node.channels : []),
+      ...(Array.isArray(node.inputs) ? node.inputs : []),
+      ...(Array.isArray(node.outputs) ? node.outputs : []),
+    ].filter(Boolean).map(safeChannelName));
+
+  const connectionChannel = (connection = {}) =>
+    safeChannelName(connection.channel || connection.frequency || connection.mapping?.channel || "default");
+
+  const replaceChannelValue = (value, from, to) =>
+    safeChannelName(value) === from ? to : value;
+
+  const replaceChannelList = (values = [], from, to = "") => {
+    if (!Array.isArray(values)) return [];
+    const next = values
+      .map((value) => replaceChannelValue(value, from, to))
+      .filter((value) => to || safeChannelName(value) !== from);
+    return [...new Set(next.filter(Boolean).map(safeChannelName))];
+  };
+
+  const renameConnectionChannel = (connection = {}, from, to) => ({
+    ...connection,
+    channel: replaceChannelValue(connection.channel || "default", from, to),
+    frequency: safeChannelName(connection.frequency || "") === from ? to : connection.frequency,
+    mapping: connection.mapping && typeof connection.mapping === "object"
+      ? {
+        ...connection.mapping,
+        channel: safeChannelName(connection.mapping.channel || "") === from ? to : connection.mapping.channel,
+      }
+      : connection.mapping,
+    updatedAt: new Date().toISOString(),
+  });
+
+  const renameNodeChannel = (node = {}, from, to = "") => ({
+    ...node,
+    channels: replaceChannelList(node.channels, from, to),
+    inputs: replaceChannelList(node.inputs, from, to),
+    outputs: replaceChannelList(node.outputs, from, to),
+    updatedAt: new Date().toISOString(),
+  });
+
+  const renamePageChannel = (pageRecord = {}, from, to = "") => {
+    const content = contentOf(pageRecord);
+    const boxes = Array.isArray(content.boxes)
+      ? content.boxes.map((box) => renameNodeChannel(box, from, to))
+      : content.boxes;
+    const connections = Array.isArray(content.connections)
+      ? content.connections
+        .filter((connection) => to || connectionChannel(connection) !== from)
+        .map((connection) => renameConnectionChannel(connection, from, to))
+      : content.connections;
+    const nextContent = {
+      ...content,
+      boxes,
+      connections,
+      updatedAt: new Date().toISOString(),
+    };
+    return pageRecord?.content
+      ? { ...pageRecord, content: nextContent, updatedAt: nextContent.updatedAt }
+      : nextContent;
+  };
+
+  const workspaceSnapshot = async ({ workspaceId = "global" } = {}) => {
+    const [channels, nodes, dependencies, connections, pages] = await Promise.all([
+      readAll(STORES.channels),
+      readAll(STORES.runtimeNodes),
+      readAll(STORES.runtimeDependencies),
+      readAll(STORES.connections),
+      readAll(STORES.pages),
+    ]);
+    const workspaceMatches = (record = {}) => workspaceId === "all" || (record.workspaceId || "global") === workspaceId;
+    const pageMatches = (page = {}) => workspaceId === "all" || page.id === workspaceId || page.workspaceId === workspaceId;
+    return {
+      workspaceId,
+      createdAt: new Date().toISOString(),
+      channels: channels.filter(workspaceMatches),
+      nodes: nodes.filter(workspaceMatches),
+      dependencies: dependencies.filter(workspaceMatches),
+      connections: connections.filter(workspaceMatches),
+      pages: pages.filter(pageMatches),
+    };
+  };
+
+  const restoreWorkspaceSnapshot = async (snapshot = {}) => {
+    const workspaceId = snapshot.workspaceId || "global";
+    const [channels, nodes, dependencies, connections, pages] = await Promise.all([
+      readAll(STORES.channels),
+      readAll(STORES.runtimeNodes),
+      readAll(STORES.runtimeDependencies),
+      readAll(STORES.connections),
+      readAll(STORES.pages),
+    ]);
+    const workspaceMatches = (record = {}) => workspaceId === "all" || (record.workspaceId || "global") === workspaceId;
+    const pageMatches = (page = {}) => workspaceId === "all" || page.id === workspaceId || page.workspaceId === workspaceId;
+
+    await Promise.all([
+      deleteRecords(STORES.channels, channels.filter(workspaceMatches).map((record) => record.id)),
+      deleteRecords(STORES.runtimeNodes, nodes.filter(workspaceMatches).map((record) => record.id)),
+      deleteRecords(STORES.runtimeDependencies, dependencies.filter(workspaceMatches).map((record) => record.id)),
+      deleteRecords(STORES.connections, connections.filter(workspaceMatches).map((record) => record.id)),
+      deleteRecords(STORES.pages, pages.filter(pageMatches).map((record) => record.id)),
+    ]);
+    await Promise.all([
+      putRecords(STORES.channels, snapshot.channels || []),
+      putRecords(STORES.runtimeNodes, snapshot.nodes || []),
+      putRecords(STORES.runtimeDependencies, snapshot.dependencies || []),
+      putRecords(STORES.connections, snapshot.connections || []),
+      putRecords(STORES.pages, snapshot.pages || []),
+    ]);
+    return snapshot;
+  };
+
   const inferChannelType = (tracker) => {
     const sample = tracker.sampleOutput;
     if (sample && typeof sample === "object") return "object";
@@ -401,14 +514,268 @@ window.TrackerLensChannelRegistry = (() => {
     return record;
   };
 
+  const inspectChannel = async ({ workspaceId = "global", channel = "default" } = {}) => {
+    const name = safeChannelName(channel);
+    const [channels, nodes, dependencies, connections, pages] = await Promise.all([
+      readAll(STORES.channels),
+      readAll(STORES.runtimeNodes),
+      readAll(STORES.runtimeDependencies),
+      readAll(STORES.connections),
+      readAll(STORES.pages),
+    ]);
+
+    const workspaceMatches = (record = {}) => !workspaceId || workspaceId === "all" || (record.workspaceId || "global") === workspaceId;
+    const record = channels.find((item) => workspaceMatches(item) && safeChannelName(item.name || item.id) === name) || null;
+    const nodeMatches = (node = {}) => workspaceMatches(node) && (
+      nodeChannelSet(node).has(name) ||
+      node.id === record?.producerNodeId ||
+      node.id === record?.producerBoxId ||
+      (Array.isArray(record?.subscribers) && record.subscribers.includes(node.id))
+    );
+    const matchedNodes = nodes.filter(nodeMatches);
+    const producers = matchedNodes.filter((node) =>
+      node.id === record?.producerNodeId ||
+      node.id === record?.producerBoxId ||
+      (Array.isArray(node.outputs) && node.outputs.map(safeChannelName).includes(name)));
+    const subscribers = matchedNodes.filter((node) =>
+      (Array.isArray(record?.subscribers) && record.subscribers.includes(node.id)) ||
+      (Array.isArray(node.inputs) && node.inputs.map(safeChannelName).includes(name)));
+    const channelDependencies = dependencies.filter((dependency) =>
+      workspaceMatches(dependency) && safeChannelName(dependency.channel || "default") === name);
+    const channelConnections = connections.filter((connection) =>
+      workspaceMatches(connection) && connectionChannel(connection) === name);
+    const workspacePages = pages.filter((page) => !workspaceId || workspaceId === "all" || page.id === workspaceId || page.workspaceId === workspaceId);
+    const pageReferences = workspacePages.filter((page) => {
+      const content = contentOf(page);
+      const boxes = Array.isArray(content.boxes) ? content.boxes : [];
+      const links = Array.isArray(content.connections) ? content.connections : [];
+      return boxes.some((box) => nodeChannelSet(box).has(name)) ||
+        links.some((connection) => connectionChannel(connection) === name);
+    });
+
+    return {
+      workspaceId,
+      channel: name,
+      record,
+      producers,
+      subscribers,
+      nodes: matchedNodes,
+      dependencies: channelDependencies,
+      connections: channelConnections,
+      pageReferences,
+      lastValue: record?.lastValue ?? null,
+      lastEmittedAt: record?.lastEmittedAt || "",
+      hasDependencies: Boolean(
+        producers.length ||
+        subscribers.length ||
+        channelDependencies.length ||
+        channelConnections.length ||
+        pageReferences.length
+      ),
+      counts: {
+        producers: producers.length,
+        subscribers: subscribers.length,
+        nodes: matchedNodes.length,
+        dependencies: channelDependencies.length,
+        connections: channelConnections.length,
+        pageReferences: pageReferences.length,
+      },
+    };
+  };
+
+  const canRenameChannel = async ({ workspaceId = "global", from = "", to = "" } = {}) => {
+    const hasSource = Boolean(normalizeText(from, ""));
+    const hasTarget = Boolean(normalizeText(to, ""));
+    const source = safeChannelName(from);
+    const target = safeChannelName(to);
+    const channels = await readAll(STORES.channels);
+    const report = await inspectChannel({ workspaceId, channel: source });
+    const conflict = channels.find((channel) =>
+      (workspaceId === "all" || (channel.workspaceId || "global") === workspaceId) &&
+      safeChannelName(channel.name || channel.id) === target &&
+      safeChannelName(channel.name || channel.id) !== source);
+    const errors = [];
+    if (!hasSource) errors.push("source channel mancante");
+    if (!hasTarget) errors.push("target channel mancante");
+    if (source === target) errors.push("target uguale al source");
+    if (conflict) errors.push("channel target gia esistente nel workspace");
+    if (report.hasDependencies) errors.push("channel usato da producer, subscriber, connection o workspace");
+    return {
+      ok: errors.length === 0,
+      from: source,
+      to: target,
+      conflict: conflict || null,
+      report,
+      errors,
+    };
+  };
+
+  const canDeleteChannel = async ({ workspaceId = "global", channel = "" } = {}) => {
+    const report = await inspectChannel({ workspaceId, channel });
+    const errors = [];
+    if (!report.record) errors.push("channel non registrato");
+    if (report.hasDependencies) errors.push("channel usato da producer, subscriber, connection o workspace");
+    return {
+      ok: errors.length === 0,
+      channel: report.channel,
+      report,
+      errors,
+    };
+  };
+
+  const renameChannel = async ({ workspaceId = "global", from = "", to = "", force = false } = {}) => {
+    const validation = await canRenameChannel({ workspaceId, from, to });
+    if (validation.conflict) {
+      throw Object.assign(new Error("Channel target gia esistente nel workspace"), { validation });
+    }
+    if ((!validation.from || !validation.to || validation.from === validation.to) || (!force && validation.errors.length)) {
+      throw Object.assign(new Error(validation.errors[0] || "Rename channel non valido"), { validation });
+    }
+
+    const now = new Date().toISOString();
+    const snapshot = await workspaceSnapshot({ workspaceId });
+    const source = validation.from;
+    const target = validation.to;
+    const [channels, nodes, dependencies, connections, pages] = await Promise.all([
+      readAll(STORES.channels),
+      readAll(STORES.runtimeNodes),
+      readAll(STORES.runtimeDependencies),
+      readAll(STORES.connections),
+      readAll(STORES.pages),
+    ]);
+    const workspaceMatches = (record = {}) => workspaceId === "all" || (record.workspaceId || "global") === workspaceId;
+
+    const channelUpdates = channels
+      .filter((channel) => workspaceMatches(channel) && safeChannelName(channel.name || channel.id) === source)
+      .map((channel) => ({
+        ...channel,
+        id: channelId({ workspaceId: channel.workspaceId || workspaceId || "global", name: target }),
+        name: target,
+        label: channel.label === channel.name || safeChannelName(channel.label || "") === source ? target : channel.label,
+        producerOutput: safeChannelName(channel.producerOutput || "") === source ? target : channel.producerOutput,
+        updatedAt: now,
+      }));
+    const channelDeleteIds = channels
+      .filter((channel) => workspaceMatches(channel) && safeChannelName(channel.name || channel.id) === source)
+      .map((channel) => channel.id)
+      .filter((id) => !channelUpdates.some((channel) => channel.id === id));
+    const nodeUpdates = nodes
+      .filter((node) => workspaceMatches(node) && nodeChannelSet(node).has(source))
+      .map((node) => renameNodeChannel(node, source, target));
+    const dependencyUpdates = dependencies
+      .filter((dependency) => workspaceMatches(dependency) && safeChannelName(dependency.channel || "default") === source)
+      .map((dependency) => ({ ...dependency, channel: target, updatedAt: now }));
+    const connectionUpdates = connections
+      .filter((connection) => workspaceMatches(connection) && connectionChannel(connection) === source)
+      .map((connection) => renameConnectionChannel(connection, source, target));
+    const pageUpdates = pages
+      .filter((page) => workspaceId === "all" || page.id === workspaceId || page.workspaceId === workspaceId)
+      .filter((page) => {
+        const content = contentOf(page);
+        const boxes = Array.isArray(content.boxes) ? content.boxes : [];
+        const links = Array.isArray(content.connections) ? content.connections : [];
+        return boxes.some((box) => nodeChannelSet(box).has(source)) || links.some((connection) => connectionChannel(connection) === source);
+      })
+      .map((page) => renamePageChannel(page, source, target));
+
+    await Promise.all([
+      deleteRecords(STORES.channels, channelDeleteIds),
+      putRecords(STORES.channels, channelUpdates),
+      putRecords(STORES.runtimeNodes, nodeUpdates),
+      putRecords(STORES.runtimeDependencies, dependencyUpdates),
+      putRecords(STORES.connections, connectionUpdates),
+      putRecords(STORES.pages, pageUpdates),
+    ]);
+
+    return {
+      from: source,
+      to: target,
+      force: Boolean(force),
+      snapshot,
+      updated: {
+        channels: channelUpdates.length,
+        nodes: nodeUpdates.length,
+        dependencies: dependencyUpdates.length,
+        connections: connectionUpdates.length,
+        pages: pageUpdates.length,
+      },
+    };
+  };
+
+  const deleteChannel = async ({ workspaceId = "global", channel = "", force = false } = {}) => {
+    const validation = await canDeleteChannel({ workspaceId, channel });
+    if (!force && validation.errors.length) {
+      throw Object.assign(new Error(validation.errors[0] || "Delete channel non valido"), { validation });
+    }
+
+    const name = validation.channel;
+    const snapshot = await workspaceSnapshot({ workspaceId });
+    const [channels, nodes, dependencies, connections, pages] = await Promise.all([
+      readAll(STORES.channels),
+      readAll(STORES.runtimeNodes),
+      readAll(STORES.runtimeDependencies),
+      readAll(STORES.connections),
+      readAll(STORES.pages),
+    ]);
+    const workspaceMatches = (record = {}) => workspaceId === "all" || (record.workspaceId || "global") === workspaceId;
+    const channelDeleteIds = channels
+      .filter((record) => workspaceMatches(record) && safeChannelName(record.name || record.id) === name)
+      .map((record) => record.id);
+    const dependencyDeleteIds = dependencies
+      .filter((dependency) => workspaceMatches(dependency) && safeChannelName(dependency.channel || "default") === name)
+      .map((dependency) => dependency.id);
+    const connectionDeleteIds = connections
+      .filter((connection) => workspaceMatches(connection) && connectionChannel(connection) === name)
+      .map((connection) => connection.id);
+    const nodeUpdates = nodes
+      .filter((node) => workspaceMatches(node) && nodeChannelSet(node).has(name))
+      .map((node) => renameNodeChannel(node, name, ""));
+    const pageUpdates = pages
+      .filter((page) => workspaceId === "all" || page.id === workspaceId || page.workspaceId === workspaceId)
+      .filter((page) => {
+        const content = contentOf(page);
+        const boxes = Array.isArray(content.boxes) ? content.boxes : [];
+        const links = Array.isArray(content.connections) ? content.connections : [];
+        return boxes.some((box) => nodeChannelSet(box).has(name)) || links.some((connection) => connectionChannel(connection) === name);
+      })
+      .map((page) => renamePageChannel(page, name, ""));
+
+    await Promise.all([
+      deleteRecords(STORES.channels, channelDeleteIds),
+      deleteRecords(STORES.runtimeDependencies, dependencyDeleteIds),
+      deleteRecords(STORES.connections, connectionDeleteIds),
+      putRecords(STORES.runtimeNodes, nodeUpdates),
+      putRecords(STORES.pages, pageUpdates),
+    ]);
+
+    return {
+      channel: name,
+      force: Boolean(force),
+      snapshot,
+      deleted: {
+        channels: channelDeleteIds.length,
+        dependencies: dependencyDeleteIds.length,
+        connections: connectionDeleteIds.length,
+        nodesUpdated: nodeUpdates.length,
+        pagesUpdated: pageUpdates.length,
+      },
+    };
+  };
+
   const list = async () => readAll(STORES.channels);
 
   return {
     STORES,
+    canDeleteChannel,
+    canRenameChannel,
+    deleteChannel,
     deleteRecords,
     cleanupNodeReferences,
     ensureStores,
+    inspectChannel,
     list,
+    renameChannel,
+    restoreChannelSnapshot: restoreWorkspaceSnapshot,
     safeChannelName,
     recordEmission,
     restoreChannelRecords,

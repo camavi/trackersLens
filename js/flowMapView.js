@@ -69,6 +69,7 @@ const state = {
   edgeAnimation: 0,
   lastDeletedConnection: null,
   lastDeletedNode: null,
+  lastChannelAction: null,
   linkingSourceId: "",
   linkHoverTargetId: "",
   linkingPort: "",
@@ -1100,6 +1101,399 @@ const selectedChannelRecords = (node = selectedNode()) => {
     (Array.isArray(channel.subscribers) && channel.subscribers.includes(node.id)));
 };
 
+const connectionChannel = (connection = {}) =>
+  normalizePortChannel(connection.channel || connection.frequency || connection.mapping?.channel || "default");
+
+const channelDependencyReport = (channel = {}, fallbackName = "") => {
+  const name = normalizePortChannel(channel.name || fallbackName || "default");
+  const workspaceId = channel.workspaceId || state.filters.workspaceId || "global";
+  const workspaceMatches = (record = {}) =>
+    workspaceId === "all" || state.filters.workspaceId === "all" || (record.workspaceId || workspaceId || "global") === workspaceId;
+  const nodes = state.runtime.nodes.filter((node) => {
+    const channels = new Set(nodeChannels(node).map(normalizePortChannel));
+    const inputs = new Set((node.inputs || []).map(normalizePortChannel));
+    const outputs = new Set((node.outputs || []).map(normalizePortChannel));
+    return workspaceMatches(node) && (
+      channels.has(name) ||
+      inputs.has(name) ||
+      outputs.has(name) ||
+      node.id === channel.producerNodeId ||
+      node.id === channel.producerBoxId ||
+      (Array.isArray(channel.subscribers) && channel.subscribers.includes(node.id))
+    );
+  });
+  const producers = nodes.filter((node) =>
+    node.id === channel.producerNodeId ||
+    node.id === channel.producerBoxId ||
+    (node.outputs || []).map(normalizePortChannel).includes(name));
+  const subscribers = nodes.filter((node) =>
+    (Array.isArray(channel.subscribers) && channel.subscribers.includes(node.id)) ||
+    (node.inputs || []).map(normalizePortChannel).includes(name));
+  const dependencies = state.runtime.dependencies.filter((dependency) =>
+    workspaceMatches(dependency) && normalizePortChannel(dependency.channel || "default") === name);
+  const connections = state.connections.filter((connection) =>
+    workspaceMatches(connection) && connectionChannel(connection) === name);
+  const events = state.runtime.events.filter((event) =>
+    (workspaceId === "all" || !event.workspaceId || event.workspaceId === workspaceId) &&
+    normalizePortChannel(event.channel || "default") === name)
+    .sort((a, b) => Date.parse(b.createdAt || 0) - Date.parse(a.createdAt || 0));
+  const lastAt = channel.lastEmittedAt || events[0]?.createdAt || "";
+  const ageMs = lastAt ? Date.now() - Date.parse(lastAt) : Infinity;
+  const hasError = events.some((event) => event.status === "error" || String(event.eventType || "").includes("error"));
+  const status = hasError ? "error" : !lastAt ? "idle" : ageMs > 120000 ? "stale" : "live";
+  return {
+    name,
+    workspaceId,
+    producers,
+    subscribers,
+    nodes,
+    dependencies,
+    connections,
+    events,
+    health: {
+      live: status === "live",
+      status,
+      ageMs: Number.isFinite(ageMs) ? ageMs : null,
+      lastEmittedAt: lastAt,
+      recentEvents: events.length,
+      errors: events.filter((event) => event.status === "error" || String(event.eventType || "").includes("error")).length,
+      totalLinks: dependencies.length + connections.length,
+    },
+  };
+};
+
+const channelRecordFor = (channelName = "", workspaceId = "") => {
+  const name = normalizePortChannel(channelName || "default");
+  return state.runtime.channels.find((channel) =>
+    normalizePortChannel(channel.name || channel.id || "default") === name &&
+    (!workspaceId || workspaceId === "all" || (channel.workspaceId || "global") === workspaceId)) || {
+      id: name,
+      name,
+      workspaceId: workspaceId || state.filters.workspaceId || "global",
+      subscribers: [],
+    };
+};
+
+const selectChannel = (channelName = "", workspaceId = "") => {
+  const channel = normalizePortChannel(channelName || "default");
+  state.focus.channel = channel;
+  if (workspaceId) state.filters.workspaceId = workspaceId;
+  state.filters.channel = channel;
+  state.activeStatusPanel = "channels";
+  mount();
+};
+
+const channelReportStat = (label, value) =>
+  _.div(_.span(label), _.strong(String(value)));
+
+const formatDuration = (ms) => {
+  if (!Number.isFinite(ms) || ms < 0) return "N/D";
+  if (ms < 60000) return `${Math.max(1, Math.round(ms / 1000))}s`;
+  if (ms < 3600000) return `${Math.round(ms / 60000)}m`;
+  return `${Math.round(ms / 3600000)}h`;
+};
+
+const renderChannelReportBlocks = (channel, report) =>
+  _.div(
+    { class: "tl-flow-channel-inspector-report" },
+    _.section(
+      _.h3("General"),
+      channelReportStat("Channel", report.name),
+      channelReportStat("Workspace", channel.workspaceId || report.workspaceId || "global"),
+      channelReportStat("Status", channel.status || "N/D"),
+      channelReportStat("Type", channel.type || "unknown"),
+      channelReportStat("Health", report.health.status),
+      channelReportStat("Age", formatDuration(report.health.ageMs)),
+      channelReportStat("Last emit", report.health.lastEmittedAt ? formatShortDate(report.health.lastEmittedAt) : "N/D")
+    ),
+    _.section(
+      _.h3("Dependencies"),
+      channelReportStat("Producers", report.producers.length),
+      channelReportStat("Subscribers", report.subscribers.length),
+      channelReportStat("Runtime deps", report.dependencies.length),
+      channelReportStat("Connections", report.connections.length),
+      channelReportStat("Events", report.events.length),
+      channelReportStat("Errors", report.health.errors)
+    ),
+    _.section(
+      _.h3("Producer Nodes"),
+      ...(report.producers.length ? report.producers.slice(0, 6).map((node) =>
+        _.div(_.span(node.label || node.id), _.strong(node.type || "node"))
+      ) : [_.p({ class: "tl-flow-muted" }, "Nessun producer.")])
+    ),
+    _.section(
+      _.h3("Subscriber Nodes"),
+      ...(report.subscribers.length ? report.subscribers.slice(0, 6).map((node) =>
+        _.div(_.span(node.label || node.id), _.strong(node.type || "node"))
+      ) : [_.p({ class: "tl-flow-muted" }, "Nessun subscriber.")])
+    ),
+    _.section(
+      _.h3("Last Value"),
+      _.code({ class: "tl-flow-channel-inspector-value" }, channelLastValuePreview(channel))
+    )
+  );
+
+const openChannelInspector = (channelName = "", workspaceId = "") => {
+  const channel = channelRecordFor(channelName, workspaceId);
+  const report = channelDependencyReport(channel, channelName);
+  const dialog = _.Dialog({
+    class: "tl-flow-channel-dialog",
+    panelClass: "tl-flow-channel-panel",
+    size: "lg",
+    title: "Channel Inspector",
+    subtitle: `${report.name} · ${channel.workspaceId || report.workspaceId || "global"}`,
+    icon: "hub",
+    closeButton: true,
+    content: () => renderChannelReportBlocks(channel, report),
+    actions: ({ close }) => _.Toolbar(
+      { align: "end", gap: 8 },
+      btn({ onclick: () => { selectChannel(report.name, channel.workspaceId); close(); } }, icon("filter_alt", "sm"), "Filter"),
+      btn({ onclick: () => requestChannelRename(channel, close) }, icon("edit", "sm"), "Rename"),
+      btn({ class: "is-danger", onclick: () => requestChannelDelete(channel, close) }, icon("delete", "sm"), "Delete"),
+      btn({ onclick: close }, "Close")
+    ),
+  });
+  dialog.open();
+};
+
+const channelValidationCounts = (report = {}) => report.counts || {
+  producers: report.producers?.length || 0,
+  subscribers: report.subscribers?.length || 0,
+  dependencies: report.dependencies?.length || 0,
+  connections: report.connections?.length || 0,
+  pageReferences: report.pageReferences?.length || 0,
+};
+
+const renderChannelValidationBody = ({ title = "", message = "", validation = null, channel = {}, target = "" } = {}) => {
+  const report = validation?.report || channelDependencyReport(channel);
+  const counts = channelValidationCounts(report);
+  return _.div(
+    { class: "tl-flow-edge-delete-body" },
+    message ? _.p(message) : null,
+    title ? _.div(_.span("Action"), _.strong(title)) : null,
+    _.div(_.span("Channel"), _.strong(report.channel || report.name || channel.name || "default")),
+    target ? _.div(_.span("Target"), _.strong(target)) : null,
+    validation?.errors?.length ? _.div(_.span("Validation"), _.strong(validation.errors.join(", "))) : null,
+    _.div(
+      { class: "tl-flow-delete-dependencies" },
+      _.h3("Dependency report"),
+      _.div(_.span("Producers"), _.strong(String(counts.producers))),
+      _.div(_.span("Subscribers"), _.strong(String(counts.subscribers))),
+      _.div(_.span("Runtime deps"), _.strong(String(counts.dependencies))),
+      _.div(_.span("Connections"), _.strong(String(counts.connections))),
+      _.div(_.span("Workspace refs"), _.strong(String(counts.pageReferences || 0)))
+    )
+  );
+};
+
+const performChannelRename = async ({ channel, target = "", form = null, close = null, closeParent = null, force = false } = {}) => {
+  const to = target || readConfigField(form, "channelName", "");
+  const workspaceId = channel.workspaceId || state.filters.workspaceId || "global";
+  const from = channel.name || channel.id || state.focus.channel || "default";
+  try {
+    const validation = await window.TrackerLensChannelRegistry?.canRenameChannel?.({ workspaceId, from, to });
+    if (!force && validation && !validation.ok) {
+      requestChannelRenameWarning({ channel, target: to, validation, closeParent });
+      return;
+    }
+    const result = await window.TrackerLensChannelRegistry?.renameChannel?.({ workspaceId, from, to, force });
+    state.lastChannelAction = {
+      type: "rename",
+      label: `${from} -> ${normalizePortChannel(to)}`,
+      workspaceId,
+      snapshot: result?.snapshot || null,
+      createdAt: new Date().toISOString(),
+    };
+    await recordFlowAction({
+      workspaceId,
+      level: force ? "warning" : "info",
+      message: `Channel renamed: ${from} -> ${to}`,
+      context: {
+        action: "channel-renamed",
+        from,
+        to,
+        force: Boolean(force),
+        updated: result?.updated || {},
+      },
+    });
+    state.filters.channel = normalizePortChannel(to);
+    state.focus.channel = normalizePortChannel(to);
+    close?.();
+    closeParent?.();
+    await loadRuntime();
+  } catch (error) {
+    console.error("Errore rename channel:", error);
+    state.error = error?.message || "Errore rename channel";
+    mount();
+  }
+};
+
+const requestChannelRenameWarning = ({ channel, target, validation, closeParent = null } = {}) => {
+  const conflict = Boolean(validation?.conflict);
+  const dialog = _.Dialog({
+    class: "tl-flow-channel-dialog",
+    panelClass: "tl-flow-edge-delete-panel",
+    size: "md",
+    title: conflict ? "Rename bloccato" : "Channel con dipendenze",
+    subtitle: channel.name || channel.id,
+    icon: conflict ? "block" : "warning_amber",
+    closeButton: true,
+    content: () => renderChannelValidationBody({
+      title: conflict ? "Rename non disponibile" : "Force Rename",
+      message: conflict
+        ? "Esiste gia un channel con questo nome nel workspace."
+        : "Questo channel ha dipendenze attive. Il rename aggiornera registry, nodi, dependencies, connections e workspace references.",
+      validation,
+      channel,
+      target,
+    }),
+    actions: ({ close }) => _.Toolbar(
+      { align: "end", gap: 8 },
+      btn({ onclick: close }, "Cancel"),
+      conflict ? null : btn({
+        class: "is-danger",
+        onclick: () => performChannelRename({ channel, target, close, closeParent, force: true }),
+      }, icon("warning_amber", "sm"), "Force Rename")
+    ),
+  });
+  dialog.open();
+};
+
+const requestChannelRename = (channel, closeParent = null) => {
+  const formId = `tl-flow-channel-rename-${String(channel.id || channel.name || "default").replace(/[^A-Za-z0-9_-]/g, "_")}`;
+  let formRef = null;
+  const current = channel.name || channel.id || "default";
+  const dialog = _.Dialog({
+    class: "tl-flow-channel-dialog",
+    panelClass: "tl-flow-config-panel",
+    size: "md",
+    title: "Rename Channel",
+    subtitle: current,
+    icon: "edit",
+    closeButton: true,
+    content: () => _.form(
+      {
+        id: formId,
+        class: "tl-flow-config-form",
+        onsubmit: (event) => {
+          event.preventDefault();
+          performChannelRename({ channel, form: formRef || event.currentTarget, close: () => dialog.close(), closeParent });
+        },
+      },
+      _.p("Il nome viene normalizzato in lowercase dot notation prima della validazione."),
+      _.label(
+        { class: "tl-flow-config-field" },
+        _.span("New channel name"),
+        _.input({ name: "channelName", value: current, autocomplete: "off", placeholder: "btc.price" })
+      )
+    ),
+    actions: ({ close }) => _.Toolbar(
+      { align: "end", gap: 8 },
+      btn({ onclick: close }, "Cancel"),
+      btn({ class: "is-primary", onclick: () => performChannelRename({ channel, form: formRef || document.getElementById(formId), close, closeParent }) }, icon("save", "sm"), "Validate Rename")
+    ),
+  });
+  dialog.open();
+  formRef = document.getElementById(formId);
+};
+
+const performChannelDelete = async ({ channel, close = null, closeParent = null, force = false } = {}) => {
+  const workspaceId = channel.workspaceId || state.filters.workspaceId || "global";
+  const name = channel.name || channel.id || state.focus.channel || "default";
+  try {
+    const result = await window.TrackerLensChannelRegistry?.deleteChannel?.({ workspaceId, channel: name, force });
+    state.lastChannelAction = {
+      type: "delete",
+      label: name,
+      workspaceId,
+      snapshot: result?.snapshot || null,
+      createdAt: new Date().toISOString(),
+    };
+    await recordFlowAction({
+      workspaceId,
+      level: force ? "warning" : "info",
+      message: `Channel deleted: ${name}`,
+      context: {
+        action: "channel-deleted",
+        channel: name,
+        force: Boolean(force),
+        deleted: result?.deleted || {},
+      },
+    });
+    if (state.filters.channel === normalizePortChannel(name)) state.filters.channel = "all";
+    if (state.focus.channel === normalizePortChannel(name)) state.focus.channel = "";
+    close?.();
+    closeParent?.();
+    await loadRuntime();
+  } catch (error) {
+    console.error("Errore delete channel:", error);
+    state.error = error?.message || "Errore delete channel";
+    mount();
+  }
+};
+
+const requestChannelDelete = async (channel, closeParent = null) => {
+  const workspaceId = channel.workspaceId || state.filters.workspaceId || "global";
+  const name = channel.name || channel.id || state.focus.channel || "default";
+  let validation = null;
+  try {
+    validation = await window.TrackerLensChannelRegistry?.canDeleteChannel?.({ workspaceId, channel: name });
+  } catch (error) {
+    console.error("Errore validazione delete channel:", error);
+  }
+  const blocked = validation && !validation.ok;
+  const dialog = _.Dialog({
+    class: "tl-flow-channel-dialog",
+    panelClass: "tl-flow-edge-delete-panel",
+    size: "md",
+    title: blocked ? "Delete channel bloccato" : "Delete channel",
+    subtitle: name,
+    icon: blocked ? "warning_amber" : "delete",
+    closeButton: true,
+    content: () => renderChannelValidationBody({
+      title: blocked ? "Force Delete richiesto" : "Delete sicuro",
+      message: blocked
+        ? "Questo channel ha riferimenti attivi. Force Delete rimuovera channel, dependencies, connections e riferimenti nei nodi/workspace."
+        : "Nessuna dipendenza attiva trovata per questo channel.",
+      validation,
+      channel,
+    }),
+    actions: ({ close }) => _.Toolbar(
+      { align: "end", gap: 8 },
+      btn({ onclick: close }, "Cancel"),
+      btn({
+        class: blocked ? "is-danger" : "is-primary",
+        onclick: () => performChannelDelete({ channel, close, closeParent, force: blocked }),
+      }, icon(blocked ? "delete_forever" : "delete", "sm"), blocked ? "Force Delete" : "Delete")
+    ),
+  });
+  dialog.open();
+};
+
+const restoreLastChannelAction = async () => {
+  const action = state.lastChannelAction;
+  if (!action?.snapshot || !window.TrackerLensChannelRegistry?.restoreChannelSnapshot) return;
+  try {
+    await window.TrackerLensChannelRegistry.restoreChannelSnapshot(action.snapshot);
+    await recordFlowAction({
+      workspaceId: action.workspaceId || "global",
+      level: "warning",
+      message: `Channel action undone: ${action.label || action.type}`,
+      context: {
+        action: "channel-action-undone",
+        channelAction: action.type,
+        label: action.label || "",
+      },
+    });
+    state.lastChannelAction = null;
+    await loadRuntime();
+  } catch (error) {
+    console.error("Errore undo channel:", error);
+    state.error = error?.message || "Errore undo channel";
+    mount();
+  }
+};
+
 const channelRoleForNode = (channel = {}, node = {}) => {
   const roles = [];
   if (channel.producerNodeId === node.id || channel.producerBoxId === node.id) roles.push("producer");
@@ -1243,6 +1637,9 @@ const renderHeader = () =>
         : null,
       state.lastDeletedNode
         ? btn({ onclick: restoreLastDeletedNode }, icon("undo", "sm"), "Undo Node")
+        : null,
+      state.lastChannelAction
+        ? btn({ onclick: restoreLastChannelAction }, icon("undo", "sm"), "Undo Channel")
         : null,
       btn({ onclick: loadRuntime }, icon("sync", "sm"), "Refresh"),
       btn({ class: "is-primary", onclick: () => window.location.assign("connections.html") }, icon("link", "sm"), "Connections")
@@ -2620,14 +3017,39 @@ const renderInspectorOutputs = (node, channels, channelRecords) => {
     _.section(
       { class: "tl-flow-detail-list" },
       _.h3("Channel Registry"),
-      ...(channelRecords.length ? channelRecords.map((channel) => _.div(
-        { class: "tl-flow-channel-row" },
-        _.span(channel.name || channel.id),
-        _.strong(
-          _.span({ class: "tl-flow-channel-role" }, channelRoleForNode(channel, node)),
-          _.span({ class: "tl-flow-channel-count" }, `${channel.subscribers?.length || 0} subs`)
-        )
-      )) : [_.p({ class: "tl-flow-muted" }, "Nessun record channel registrato.")])
+      ...(channelRecords.length ? channelRecords.map((channel) => {
+        const report = channelDependencyReport(channel);
+        return _.button(
+          {
+            type: "button",
+            class: "tl-flow-channel-row",
+            onclick: () => openChannelInspector(channel.name || channel.id, channel.workspaceId),
+          },
+          _.span(channel.name || channel.id),
+          _.strong(
+            _.span({ class: "tl-flow-channel-role" }, channelRoleForNode(channel, node)),
+            _.span({ class: "tl-flow-channel-count" }, `${report.subscribers.length} subs`),
+            _.span({ class: "tl-flow-channel-count" }, `${report.dependencies.length} deps`)
+          )
+        );
+      }) : [_.p({ class: "tl-flow-muted" }, "Nessun record channel registrato.")])
+    ),
+    _.section(
+      { class: "tl-flow-detail-list" },
+      _.h3("Channel Dependencies"),
+      ...(channelRecords.length ? channelRecords.map((channel) => {
+        const report = channelDependencyReport(channel);
+        return _.div(
+          { class: "tl-flow-channel-health-row" },
+          _.span(channel.name || channel.id),
+          _.strong(
+            _.span(`${report.producers.length} prod`),
+            _.span(`${report.subscribers.length} sub`),
+            _.span(`${report.dependencies.length + report.connections.length} links`),
+            _.span(report.health.status)
+          )
+        );
+      }) : [_.p({ class: "tl-flow-muted" }, "Nessun report channel disponibile.")])
     ),
     _.section(
       { class: "tl-flow-detail-list" },
@@ -2961,16 +3383,30 @@ const statusItems = () => {
 const renderStatusChannelsPanel = () => {
   const channels = recentChannelRecords();
   return _.table(
-    _.thead(_.tr(_.th("Channel"), _.th("Workspace"), _.th("Last"), _.th("Value"))),
+    _.thead(_.tr(_.th("Channel"), _.th("Workspace"), _.th("Health"), _.th("Deps"), _.th("Last"), _.th("Value"))),
     _.tbody(
-      ...(channels.length ? channels.map((channel) =>
+      ...(channels.length ? channels.map((channel) => {
+        const report = channelDependencyReport(channel);
+        return (
         _.tr(
-          _.td(channel.name || channel.id || "default"),
+          _.td(
+            _.button(
+              {
+                type: "button",
+                class: "tl-flow-channel-link",
+                onclick: () => openChannelInspector(channel.name || channel.id, channel.workspaceId),
+              },
+              channel.name || channel.id || "default"
+            )
+          ),
           _.td(channel.workspaceId || "global"),
+          _.td(report.health.status),
+          _.td(`${report.producers.length}/${report.subscribers.length}/${report.dependencies.length}`),
           _.td(channel.lastEmittedAt ? formatShortDate(channel.lastEmittedAt) : "N/D"),
           _.td(_.code({ class: "tl-flow-channel-value-code" }, channelLastValuePreview(channel)))
         )
-      ) : [_.tr(_.td({ colspan: 4 }, "Nessun channel runtime registrato."))])
+        );
+      }) : [_.tr(_.td({ colspan: 6 }, "Nessun channel runtime registrato."))])
     )
   );
 };

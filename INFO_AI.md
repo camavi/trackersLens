@@ -3581,6 +3581,91 @@ Verifiche eseguite:
 - `curl -I http://127.0.0.1:3031/js/flowMapView.js`
 - `curl -I http://127.0.0.1:3031/core/runtime/runtime-graph-model.js`
 
+## Aggiornamento 2026-05-18 - Channel Inspector, rename e delete validation
+
+Obiettivo della sessione: completare i tre passi operativi del Data Channel System: inspector dedicato, rename validato e delete validato.
+
+Fatto:
+
+- `core/runtime/channel-registry.js`:
+  - aggiunto `renameChannel({ workspaceId, from, to, force })`;
+  - aggiunto `deleteChannel({ workspaceId, channel, force })`;
+  - il rename aggiorna channel records, runtime nodes, runtime dependencies, connections e workspace/page references;
+  - il delete normale resta bloccato se il channel ha dipendenze;
+  - il force delete rimuove channel, dependencies, connections e riferimenti channel da nodi/workspace.
+- `js/flowMapView.js`:
+  - clic su un channel apre ora `Channel Inspector`;
+  - l'inspector mostra general, dependency counts, producer nodes, subscriber nodes e last value;
+  - aggiunte azioni `Filter`, `Rename`, `Delete`;
+  - `Rename` mostra validazione e richiede `Force Rename` quando ci sono dipendenze;
+  - `Delete` mostra validazione e richiede `Force Delete` quando ci sono riferimenti attivi.
+- `css/flowMap.css`:
+  - aggiunti layout e stati del Channel Inspector.
+- `docs/channels.md` e `docs/new_vision_progress.md`:
+  - aggiornato lo stato del punto 2.
+
+Verifiche eseguite:
+
+- `node --check core/runtime/channel-registry.js`
+- `node --check js/flowMapView.js`
+- `git diff --check`
+- `curl -I http://127.0.0.1:3031/flowMap.html`
+- `curl -I http://127.0.0.1:3031/core/runtime/channel-registry.js`
+- `curl -I http://127.0.0.1:3031/js/flowMapView.js`
+- `curl -I http://127.0.0.1:3031/css/flowMap.css`
+
+## Aggiornamento 2026-05-18 - Chiusura Data Channel System punto 2
+
+Obiettivo della sessione: chiudere il punto 2 prima del commit, aggiungendo undo operativo e health metrics base.
+
+Fatto:
+
+- `core/runtime/channel-registry.js`:
+  - aggiunto snapshot workspace per operazioni channel;
+  - `renameChannel()` e `deleteChannel()` restituiscono snapshot degli store coinvolti;
+  - aggiunto `restoreChannelSnapshot()` per undo immediato.
+- `js/flowMapView.js`:
+  - aggiunto `Undo Channel` nella topbar dopo rename/delete;
+  - Channel Inspector e pannello Channels mostrano health `live`, `idle`, `stale` o `error`;
+  - health calcola eta ultimo evento, eventi recenti ed errori del channel.
+- `docs/channels.md` e `docs/new_vision_progress.md`:
+  - aggiornato il punto 2 con undo snapshot e health status.
+
+Verifiche eseguite:
+
+- `node --check core/runtime/channel-registry.js`
+- `node --check js/flowMapView.js`
+
+## Aggiornamento 2026-05-18 - Data Channel System: inspect e validation base
+
+Obiettivo della sessione: iniziare il punto 2 della nuova visione dopo il commit dell'Event Bus, rendendo i channel runtime ispezionabili e validabili prima di introdurre azioni rename/delete.
+
+Fatto:
+
+- `core/runtime/channel-registry.js`:
+  - aggiunto `inspectChannel({ workspaceId, channel })`;
+  - il report include record channel, producer, subscriber, nodi collegati, runtime dependencies, connections e workspace/page references;
+  - aggiunte validazioni non distruttive `canRenameChannel()` e `canDeleteChannel()`;
+  - rename/delete non modificano ancora dati: espongono solo `ok`, `errors` e report dipendenze.
+- `js/flowMapView.js`:
+  - aggiunto report locale per channel dependency counts nella Flow Map;
+  - la tab `Outputs` del Node Inspector mostra ora anche producer/subscriber/link/live per ogni channel collegato;
+  - il pannello status `Channels` mostra una colonna dependency `prod/sub/deps`;
+  - click su un channel nel pannello o nel Node Inspector applica il focus/filtro channel.
+- `css/flowMap.css`:
+  - aggiunti stati compatti per righe channel cliccabili, health chips e link channel nella statusbar.
+- `docs/channels.md` e `docs/new_vision_progress.md`:
+  - aggiornato lo stato del Data Channel System.
+
+Verifiche eseguite:
+
+- `node --check core/runtime/channel-registry.js`
+- `node --check js/flowMapView.js`
+- `git diff --check`
+- `curl -I http://127.0.0.1:3031/core/runtime/channel-registry.js`
+- `curl -I http://127.0.0.1:3031/js/flowMapView.js`
+- `curl -I http://127.0.0.1:3031/css/flowMap.css`
+
 ## Aggiornamento 2026-05-18 - Mappa avanzamento nuova visione
 
 Obiettivo della sessione: trasformare i 20 punti di `docs/new_vision.md` in una mappa operativa consultabile nelle prossime sessioni.

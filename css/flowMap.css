@@ -1187,6 +1187,7 @@ body.is-flow-palette-dragging .tl-flow-canvas {
 }
 
 .tl-flow-detail-list div,
+.tl-flow-detail-list button.tl-flow-channel-row,
 .tl-flow-overview div {
   display: flex;
   justify-content: space-between;
@@ -1252,6 +1253,16 @@ body.is-flow-palette-dragging .tl-flow-canvas {
 
 .tl-flow-channel-row {
   align-items: center;
+  width: 100%;
+  color: inherit;
+  border: 0;
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+}
+
+.tl-flow-channel-row:hover {
+  color: #fff;
 }
 
 .tl-flow-channel-row>span {
@@ -1333,6 +1344,117 @@ body.is-flow-palette-dragging .tl-flow-canvas {
   background: rgba(34, 197, 94, 0.05);
   font-size: 10px;
   white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+.tl-flow-channel-health-row {
+  align-items: start;
+}
+
+.tl-flow-channel-health-row strong {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 5px;
+}
+
+.tl-flow-channel-health-row strong span {
+  height: 18px;
+  display: inline-flex;
+  align-items: center;
+  padding: 0 7px;
+  color: rgba(226, 232, 240, 0.88);
+  border: 1px solid rgba(148, 163, 184, 0.18);
+  border-radius: 999px;
+  background: rgba(148, 163, 184, 0.06);
+  font-size: 9px;
+  font-weight: 800;
+  line-height: 1;
+  text-transform: uppercase;
+}
+
+.tl-flow-channel-link {
+  max-width: 180px;
+  padding: 0;
+  color: #e2e8f0;
+  border: 0;
+  background: transparent;
+  font: inherit;
+  font-weight: 800;
+  text-align: left;
+  cursor: pointer;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tl-flow-channel-link:hover {
+  color: #facc15;
+}
+
+.tl-flow-channel-dialog .is-danger.cms-btn {
+  color: rgb(248, 113, 113);
+  border-color: rgba(248, 113, 113, 0.34);
+  background: rgba(248, 113, 113, 0.1);
+}
+
+.tl-flow-channel-inspector-report {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.tl-flow-channel-inspector-report section {
+  display: grid;
+  align-content: start;
+  gap: 8px;
+  min-width: 0;
+  padding: 10px;
+  border: 1px solid rgba(214, 226, 235, 0.08);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.025);
+}
+
+.tl-flow-channel-inspector-report h3 {
+  margin: 0 0 2px;
+  color: #facc15;
+  font-size: 10px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.tl-flow-channel-inspector-report section>div {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  min-width: 0;
+  font-size: 11px;
+}
+
+.tl-flow-channel-inspector-report span {
+  color: var(--tl-text-muted);
+}
+
+.tl-flow-channel-inspector-report strong {
+  min-width: 0;
+  overflow: hidden;
+  color: #e2e8f0;
+  text-align: right;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tl-flow-channel-inspector-value {
+  display: block;
+  max-height: 160px;
+  overflow: auto;
+  padding: 8px;
+  border: 1px solid rgba(34, 197, 94, 0.16);
+  border-radius: 7px;
+  background: rgba(34, 197, 94, 0.05);
+  color: rgba(226, 232, 240, 0.92);
+  font-size: 11px;
+  white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
 

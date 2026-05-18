@@ -35,7 +35,7 @@ Priorita successive:
 | # | Punto | Stato | Cosa esiste oggi | Prossimo passo |
 |---|---|---|---|---|
 | 1 | Event Bus Visivo | Parziale avanzato | `core/runtime/event-bus.js`, `docs/event-bus.md`, `flowMap.html`, `js/flowMapView.js`, graph runtime visuale, nodi, edge, filtri, attivita recente da eventi. `workspaceView.js` pubblica ora gli eventi tracker sul bus centrale, la Flow Map li riceve live via BroadcastChannel con indicatore UI, e il test manuale del boxTracker emette eventi sul bus. | Estendere il bus a DevTools unificati e altri editor runtime. |
-| 2 | Data Channel System | Parziale | `core/runtime/channel-registry.js`, store `tl_channels`, sync canali da tracker/workspace, subscriber base. | Aggiungere rename/delete validation, inspector channel dedicato, last value e health metrics reali. |
+| 2 | Data Channel System | Parziale avanzato | `core/runtime/channel-registry.js`, store `tl_channels`, sync canali da tracker/workspace, subscriber base, `inspectChannel()`, validazioni `canRenameChannel()` / `canDeleteChannel()`, azioni `renameChannel()` / `deleteChannel()`, undo snapshot, health status e Channel Inspector in Flow Map. | Aggiungere replay eventi per channel e retention policy lunga. |
 | 3 | Sandbox Isolation | Non iniziato | Runtime boxLens inline CSP-compatible, ma non isolato. | Definire manifest permessi box, runner sandboxato, timeout, network policy e cleanup. |
 | 4 | Workspace Export Format | Non iniziato | Workspace salvati in IndexedDB `tl_pages`; box in `tl_widgets`. | Specificare schema `.tlworkspace` e `.tlbox`, poi implementare export/import. |
 | 5 | Versioning Boxes | Non iniziato | Metadati asset base, nessun version contract completo. | Aggiungere `version`, `changelog`, `compatibility`, `runtimeVersion`, migration policy. |
@@ -66,13 +66,14 @@ Obiettivo: ogni workspace deve avere un runtime graph ispezionabile, stabile e p
 - Aggiornare `tl_events` da ogni emit/receive/error. Stato: emit e receive passano dal bus/workspace runtime; errori tracker restano persistiti da `workspaceView.js`.
 - Far aggiornare `tl_channels.lastValue` e `lastEmittedAt`. Stato: aggiunto `TrackerLensChannelRegistry.recordEmission()`.
 - Rendere Flow Map la vista primaria di nodi, edge, canali e attivita. Stato: la Flow Map si iscrive al bus live e continua a fare refresh IndexedDB periodico.
+- Rendere i channel ispezionabili come oggetti runtime. Stato: aggiunto `TrackerLensChannelRegistry.inspectChannel()` con report producer/subscriber/dependency/connection/workspace reference e primi indicatori in Flow Map.
 
 ### Milestone B - Dependency Safety
 
 Obiettivo: nessun elemento runtime deve essere eliminato o rinominato senza report dipendenze.
 
 - Estendere `TrackerLensDependencyManager.inspectNode()` oltre `boxTracker`.
-- Coprire `boxLens`, `channel`, `connection`, `workspace`.
+- Coprire `boxLens`, `channel`, `connection`, `workspace`. Stato channel: primi report e validazioni non distruttive in `TrackerLensChannelRegistry`.
 - Sostituire tutte le delete critiche con dialog CMSwift runtime-aware.
 - Salvare log di lifecycle in `tl_flow_logs`.
 

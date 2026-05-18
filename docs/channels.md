@@ -89,10 +89,14 @@ Current behavior:
 - `saveTracker()` registers or updates a global channel for the tracker output.
 - `persistWorkspaceSilently()` syncs workspace channels and subscribers from box connections.
 - Runtime dependency records are written for workspace connections.
+- `TrackerLensChannelRegistry.inspectChannel()` returns producer, subscriber, dependency, connection and workspace reference counts for a channel.
+- `TrackerLensChannelRegistry.canRenameChannel()` and `canDeleteChannel()` expose non-destructive validation reports.
+- `TrackerLensChannelRegistry.renameChannel()` updates channel records, runtime nodes, runtime dependencies, connections and workspace references after validation.
+- `TrackerLensChannelRegistry.deleteChannel()` blocks normal delete when dependencies exist and supports explicit force delete for channel records, dependencies, connections and node/workspace references.
+- Channel rename/delete return workspace snapshots, and `restoreChannelSnapshot()` restores the affected channel workspace stores for immediate undo.
+- Flow Map exposes a dedicated Channel Inspector with dependency report, last value, health status, filter action, rename validation, delete validation and `Undo Channel`.
 
 Pending behavior:
 
-- channel rename validation
-- channel delete validation
-- dedicated channel inspector UI
-- retention and health metrics
+- event replay by channel
+- long-term retention policy
