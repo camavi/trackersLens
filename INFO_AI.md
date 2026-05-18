@@ -3581,6 +3581,248 @@ Verifiche eseguite:
 - `curl -I http://127.0.0.1:3031/js/flowMapView.js`
 - `curl -I http://127.0.0.1:3031/core/runtime/runtime-graph-model.js`
 
+## Aggiornamento 2026-05-18 - Mappa avanzamento nuova visione
+
+Obiettivo della sessione: trasformare i 20 punti di `docs/new_vision.md` in una mappa operativa consultabile nelle prossime sessioni.
+
+Fatto:
+
+- Aggiunto `docs/new_vision_progress.md`.
+- Il nuovo documento classifica ogni punto come `Fatto`, `Parziale`, `Fondazione`, `Prototipo` o `Non iniziato`.
+- La mappa chiarisce cosa esiste oggi nel codice e quale sia il prossimo passo per ciascun punto.
+- La priorita consigliata e:
+  - Event Bus reale;
+  - Data Channel System;
+  - Flow Map/runtime graph;
+  - dependency validation estesa;
+  - export/import `.tlworkspace` e `.tlbox`;
+  - DevTools unificati;
+  - AI locale.
+
+Nota: `docs/new_vision.md` resta il documento di visione originale. `docs/new_vision_progress.md` diventa il documento operativo di avanzamento.
+
+## Aggiornamento 2026-05-18 - Event Bus centrale runtime
+
+Obiettivo della sessione: iniziare il punto 1 della nuova visione, introducendo un Event Bus centrale reale senza rompere il runtime workspace esistente.
+
+Fatto:
+
+- Aggiunto `core/runtime/event-bus.js` con `TrackerLensEventBus`.
+- Il bus supporta:
+  - istanze per workspace;
+  - `on(channel, callback)`;
+  - `emit(channel, payload, meta)`;
+  - wildcard `*`;
+  - ultimo valore per canale;
+  - log locale in memoria;
+  - persistenza best-effort su `tl_events`;
+  - aggiornamento best-effort di `tl_channels.lastValue` e `lastEmittedAt`.
+- `workspace.html` carica ora `channel-registry.js` e `event-bus.js`.
+- `flowMap.html` carica ora `event-bus.js` come base per live subscriptions future.
+- `core/runtime/channel-registry.js` espone `recordEmission()` per aggiornare i metadati live dei canali.
+- `js/workspaceView.js` usa il bus per il flusso `boxTracker -> boxLens`:
+  - il tracker registra metriche monitor locali;
+  - poi pubblica sul bus;
+  - le connessioni del workspace vengono registrate come subscriber;
+  - i boxLens ricevono eventi tramite subscription;
+  - ogni consegna riuscita viene registrata come evento `received`;
+  - resta una fallback legacy se il bus non e disponibile.
+- Aggiornati `docs/runtime.md` e `docs/new_vision_progress.md`.
+
+Verifiche eseguite:
+
+- `node --check core/runtime/event-bus.js`
+- `node --check core/runtime/channel-registry.js`
+- `node --check js/workspaceView.js`
+- `node -e "... event-bus-ok"` per verificare emit, subscriber specifico, wildcard e `getLast()`.
+
+## Aggiornamento 2026-05-18 - Flow Map live su Event Bus
+
+Obiettivo della sessione: completare il passo successivo dell'Event Bus, rendendo visibile in Flow Map l'attivita live emessa dal workspace senza aspettare solo il refresh IndexedDB.
+
+Fatto:
+
+- `core/runtime/event-bus.js`:
+  - aggiunto supporto `BroadcastChannel` con canale `trackers-lens-event-bus`;
+  - ogni istanza ha `instanceId` per evitare echo dei propri eventi;
+  - `emit()` persiste/aggiorna channel, consegna ai subscriber locali e poi broadcasta l'evento alle altre pagine Trackers Lens;
+  - le istanze remote ricevono l'evento, aggiornano `getLast()`/log locale e notificano i subscriber senza ripersistire.
+- `core/runtime/event-log-store.js`:
+  - `recordEvent()` accetta ora un `id` opzionale, cosi gli eventi del bus possono mantenere lo stesso id anche quando vengono riletti da IndexedDB.
+- `js/flowMapView.js`:
+  - aggiunta subscription live wildcard al bus;
+  - gli eventi live vengono inseriti in `state.runtime.events`;
+  - i canali in memoria aggiornano `lastValue` e `lastEmittedAt`;
+  - il render e throttled via `requestAnimationFrame`;
+  - il polling IndexedDB resta attivo come fallback e riallineamento.
+- Aggiornati `docs/runtime.md` e `docs/new_vision_progress.md`.
+
+Verifiche eseguite:
+
+- `node --check core/runtime/event-bus.js`
+- `node --check core/runtime/event-log-store.js`
+- `node --check js/flowMapView.js`
+- `node --check js/workspaceView.js`
+- `node -e "... event-bus-ok"` per emit locale, wildcard e `getLast()`.
+- `node -e "... event-bus-broadcast-ok"` per emissione cross-instance via BroadcastChannel.
+
+## Aggiornamento 2026-05-18 - Indicatore Live Bus Flow Map
+
+Obiettivo della sessione: rendere esplicito nella UI della Flow Map quando il bus live e disponibile, connesso e quando sta ricevendo eventi realtime.
+
+Fatto:
+
+- `js/flowMapView.js`:
+  - aggiunto stato `liveBus` con `available`, `connected`, `count`, `lastAt`, `lastChannel`;
+  - la topbar mostra un pill `Bus: connected` / `Bus: N live`;
+  - la statusbar include un pannello `Live Bus`;
+  - il pannello mostra disponibilita, connessione, eventi live, ultimo canale, ultimo evento e trasporto;
+  - il footer statusbar passa da `Updated` a `Live` quando arriva un evento live.
+- `css/flowMap.css`:
+  - aggiunti stati visuali per bus connected/receiving/offline;
+  - aggiunto supporto `is-green` nella statusbar.
+
+Verifiche eseguite:
+
+- `node --check js/flowMapView.js`
+- `git diff --check -- js/flowMapView.js css/flowMap.css`
+
+## Aggiornamento 2026-05-18 - Fix flicker linee Flow Map su eventi live
+
+Problema rilevato: con il Live Bus connesso, ogni evento realtime causava un `mount({ preserveScroll: true })` completo della Flow Map. Questo ricreava il canvas delle linee e produceva un micro-stacco visivo sui collegamenti, percepibile ogni pochi secondi quando arrivavano eventi.
+
+Fatto:
+
+- `js/flowMapView.js`:
+  - `scheduleLiveRender()` non rimonta piu tutta la shell;
+  - aggiunto `refreshLiveGraphState()` per aggiornare solo graph activity e ridisegnare il canvas esistente;
+  - aggiunto `refreshLiveBusDom()` per aggiornare pill Live Bus, statusbar e timestamp in modo mirato;
+  - aggiunto `updateLiveClasses()` per aggiornare classi `is-live` / `is-error` su nodi ed edge label senza ricreare il DOM;
+  - dopo la connessione al bus viene aggiornato solo il DOM del Live Bus.
+
+Verifiche eseguite:
+
+- `node --check js/flowMapView.js`
+- `git diff --check -- js/flowMapView.js css/flowMap.css`
+
+## Aggiornamento 2026-05-18 - Test manuale boxTracker su Event Bus
+
+Obiettivo della sessione: far passare anche il test manuale dell'editor boxTracker dal bus centrale, cosi Flow Map e DevTools possono vedere attivita runtime anche senza aprire `workspace.html`.
+
+Fatto:
+
+- `editorBoxTracker.html`:
+  - carica ora `core/runtime/event-log-store.js`;
+  - carica ora `core/runtime/event-bus.js`.
+- `js/boxTrackerEditor.js`:
+  - aggiunti helper `runtimeEventStore()` e `runtimeEventBus()`;
+  - aggiunto `emitTrackerTestEvent()`;
+  - dopo un test manuale riuscito viene emesso evento `tracker_test`;
+  - dopo un test fallito viene emesso evento `tracker_test_error`;
+  - l'evento usa `workspaceId` della query quando presente, altrimenti `global`;
+  - se l'editor arriva da un draft node non ancora salvato, `sourceNodeId` usa il draft id per far illuminare il nodo corretto in Flow Map.
+- Aggiornati `docs/runtime.md` e `docs/new_vision_progress.md`.
+
+Verifiche eseguite:
+
+- `node --check js/boxTrackerEditor.js`
+- `node --check core/runtime/event-bus.js`
+- `node --check core/runtime/event-log-store.js`
+- `node --check core/runtime/channel-registry.js`
+
+## Aggiornamento 2026-05-18 - Chip tipo evento in Flow Map
+
+Obiettivo della sessione: rendere leggibile il tipo di evento nel Runtime/Event Inspector, distinguendo test manuali, emissioni, ricezioni e errori.
+
+Fatto:
+
+- `js/flowMapView.js`:
+  - aggiunti `eventTypeTone()`, `eventTypeLabel()` e `eventTypeChip()`;
+  - `tracker_test` viene mostrato come chip `test`;
+  - `tracker_test_error` viene mostrato come chip `test error`;
+  - `emitted` viene mostrato come chip `emit`;
+  - `received` viene mostrato come chip `recv`;
+  - `delivery_error` e gli eventi con status error vengono mostrati come chip error;
+  - applicato ai runtime events del Node Inspector;
+  - applicato ai recent events dell'Edge Inspector;
+  - applicato all'Event Inspector globale;
+  - applicato alla tabella Events della statusbar.
+- `css/flowMap.css`:
+  - aggiunto stile `.tl-flow-event-type`;
+  - aggiunti toni `is-emitted`, `is-received`, `is-test`, `is-error`, `is-event`.
+
+Verifiche eseguite:
+
+- `node --check js/flowMapView.js`
+
+## Aggiornamento 2026-05-18 - Filtro Event Type Flow Map
+
+Obiettivo della sessione: aggiungere un filtro operativo per isolare rapidamente traffico `emit`, `recv`, `test`, `errors` e altri eventi runtime.
+
+Fatto:
+
+- `js/flowMapView.js`:
+  - aggiunto filtro URL/state `eventType`;
+  - aggiunte opzioni `All events`, `Emit`, `Recv`, `Test`, `Errors`, `Other`;
+  - aggiunti helper `eventTypeGroup()`, `eventMatchesTypeFilter()` e `filteredRuntimeEvents()`;
+  - il filtro viene applicato a:
+    - activity/pulse del graph;
+    - linee live;
+    - node inspector events;
+    - edge inspector events;
+    - Event Inspector globale;
+    - statusbar Events panel;
+  - la statusbar mostra conteggio filtrato tipo `3/24 events` quando il filtro e attivo.
+
+Verifiche eseguite:
+
+- `node --check js/flowMapView.js`
+
+## Aggiornamento 2026-05-18 - Last Value Channels in Flow Map
+
+Obiettivo della sessione: rendere visibile l'ultimo payload attivo per ogni channel, sfruttando `tl_channels.lastValue` aggiornato dall'Event Bus.
+
+Fatto:
+
+- `js/flowMapView.js`:
+  - aggiunto `compactPayloadPreview()`;
+  - aggiunto `channelLastValuePreview()`;
+  - aggiunto `recentChannelRecords()`;
+  - nel Node Inspector, tab `Outputs`, aggiunta sezione `Last Value` per i channel collegati al nodo;
+  - nella statusbar aggiunto pannello `Channels`;
+  - il pannello Channels mostra channel, workspace, ultimo timestamp e preview dell'ultimo valore.
+- `css/flowMap.css`:
+  - aggiunti stili per `.tl-flow-channel-value-row`;
+  - aggiunti stili per `.tl-flow-channel-value`, `.tl-flow-channel-time` e `.tl-flow-channel-value-code`.
+
+Verifiche eseguite:
+
+- `node --check js/flowMapView.js`
+
+## Aggiornamento 2026-05-18 - Documento tecnico Event Bus
+
+Obiettivo della sessione: consolidare il punto 1 della nuova visione documentando il contratto reale dell'Event Bus prima di passare al Data Channel System.
+
+Fatto:
+
+- Aggiunto `docs/event-bus.md`.
+- Il documento descrive:
+  - scopo dell'Event Bus;
+  - API `get()`, `create()`, `emit()`, `on()`, `getLast()`, `localLogs()`;
+  - forma normalizzata degli event record;
+  - event types correnti;
+  - BroadcastChannel cross-page;
+  - persistenza in `tl_events`;
+  - aggiornamento `tl_channels.lastValue` / `lastEmittedAt`;
+  - integrazioni attuali con `workspace.html`, `flowMap.html` e `editorBoxTracker.html`;
+  - regole operative;
+  - limiti attuali;
+  - prossimi passi.
+- Aggiornati riferimenti in:
+  - `docs/runtime.md`;
+  - `docs/channels.md`;
+  - `docs/new_vision_progress.md`.
+
 ## Aggiornamento 2026-05-17 - Flow Map port anchoring e auto-height nodi
 
 Obiettivo della sessione: correggere il comportamento Blueprint quando un nodo espone molti output, evitando porte schiacciate e linee che entrano nel box in punti casuali.
@@ -3696,6 +3938,24 @@ Verifiche eseguite:
 - `git diff --check -- js/flowMapView.js css/flowMap.css`
 - `curl -I http://127.0.0.1:3031/js/flowMapView.js`
 - `curl -I http://127.0.0.1:3031/css/flowMap.css`
+
+## Aggiornamento 2026-05-18 - Flow Map drag bounds e canvas linee esteso
+
+Problema rilevato: dopo aver rimosso il clamp stretto del drag, i nodi potevano muoversi oltre la viewport, ma il canvas delle linee restava grande solo quanto l'area visibile. Le curve venivano quindi tagliate a destra/basso.
+
+Fatto:
+
+- `js/flowMapView.js`:
+  - sostituito il clamp `90% / 88%` con `flowCoordinate()` su range ampio `-120% -> 220%`;
+  - aggiunto `edgeCanvasBounds()` per usare una superficie linee virtuale piu grande della viewport;
+  - aggiunto offset interno per disegnare e hit-testare le linee senza clipping;
+  - preview drag-link ed edge hit-testing usano lo stesso sistema di coordinate esteso.
+
+Verifiche eseguite:
+
+- `node --check js/flowMapView.js`
+- `git diff --check -- js/flowMapView.js`
+- `curl -I http://127.0.0.1:3031/js/flowMapView.js`
 
 ## Aggiornamento 2026-05-16 - Badge stato runtime Flow Map
 

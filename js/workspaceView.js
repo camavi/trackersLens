@@ -15,12 +15,21 @@ const workspaceViewState = {
   trackerLogPending: 0,
   expandedTrackers: new Set(),
   pausedTrackers: new Set(),
+  busUnsubscribers: [],
 };
 
 const icon = (name, size = "md") => _.Icon({ name, size });
 const btn = (props, ...children) => _.Btn({ type: "button", ...props }, ...children);
 
 const runtimeEventStore = () => window.TrackerLensEventLogStore;
+const runtimeChannelRegistry = () => window.TrackerLensChannelRegistry;
+const runtimeEventBus = () => {
+  if (!window.TrackerLensEventBus?.get) return null;
+  return window.TrackerLensEventBus.get(workspaceViewState.workspace.id || "global", {
+    eventStore: runtimeEventStore(),
+    channelRegistry: runtimeChannelRegistry(),
+  });
+};
 
 const persistRuntimeEvent = (payload) => {
   const store = runtimeEventStore();
@@ -318,6 +327,7 @@ const readWorkspaceRecord = async (workspaceId) => {
 };
 
 const cleanupRuntimeBoxes = () => {
+  cleanupEventBusSubscriptions();
   workspaceViewState.runtimes.forEach((runtime) => {
     try {
       if (typeof runtime?.destroy === "function") runtime.destroy();
@@ -326,6 +336,17 @@ const cleanupRuntimeBoxes = () => {
     }
   });
   workspaceViewState.runtimes.clear();
+};
+
+const cleanupEventBusSubscriptions = () => {
+  workspaceViewState.busUnsubscribers.forEach((unsubscribe) => {
+    try {
+      unsubscribe();
+    } catch (error) {
+      console.error("Errore cleanup Event Bus:", error);
+    }
+  });
+  workspaceViewState.busUnsubscribers = [];
 };
 
 const cleanupTrackerRuntimes = () => {
@@ -505,16 +526,6 @@ const recordTrackerEvent = (boxId, channel, payload, payloadText = "") => {
   refreshTrackerRow(boxId);
   refreshTrackerActionsDialog(boxId);
   appendTrackerLogEntry(pushTrackerLog({ type: "event", trackerId: boxId, trackerName: box.name || boxId, channel, payload: payloadSnapshot, payloadText }));
-  persistRuntimeEvent({
-    workspaceId: workspaceViewState.workspace.id || "global",
-    channel,
-    eventType: "emitted",
-    sourceNodeId: boxId,
-    payload: payloadSnapshot,
-    payloadText,
-    status: "ok",
-    latencyMs: latency,
-  });
 };
 
 const recordTrackerError = (boxId, error) => {
@@ -988,9 +999,7 @@ const openTrackerMonitorDialog = () => {
   dialog.open();
 };
 
-const emitTrackerEvent = (fromBoxId, channel = "default", payload = {}, payloadText = "") => {
-  recordTrackerEvent(fromBoxId, channel, payload, payloadText);
-
+const deliverTrackerEventLegacy = (fromBoxId, channel = "default", payload = {}) => {
   workspaceViewState.connections
     .filter((connection) =>
       connection.fromBoxId === fromBoxId &&
@@ -1024,6 +1033,84 @@ const emitTrackerEvent = (fromBoxId, channel = "default", payload = {}, payloadT
     });
 };
 
+const registerEventBusSubscriptions = () => {
+  cleanupEventBusSubscriptions();
+  const bus = runtimeEventBus();
+  if (!bus?.on) return;
+
+  workspaceViewState.connections.forEach((connection) => {
+    const subscriptionChannel = connection.channel && connection.channel !== "default" ? connection.channel : "*";
+    const unsubscribe = bus.on(subscriptionChannel, (payload, event) => {
+      if (event.sourceNodeId !== connection.fromBoxId) return;
+      const runtime = workspaceViewState.runtimes.get(connection.toBoxId);
+      const handler = runtimeListener(runtime, event.channel);
+      if (typeof handler !== "function") return;
+
+      handler(mapConnectionPayload(payload, connection.mapping), {
+        channel: event.channel,
+        event,
+        connection,
+        fromBox: boxById(connection.fromBoxId),
+        toBox: boxById(connection.toBoxId),
+        workspace: workspaceViewState.workspace,
+      });
+
+      persistRuntimeEvent({
+        workspaceId: workspaceViewState.workspace.id || "global",
+        channel: event.channel,
+        eventType: "received",
+        sourceNodeId: connection.fromBoxId,
+        targetNodeId: connection.toBoxId,
+        connectionId: connection.id || "",
+        payload: mapConnectionPayload(payload, connection.mapping),
+        status: "ok",
+        latencyMs: event.latencyMs || 0,
+      });
+    }, {
+      id: `connection_${connection.id || connection.fromBoxId}_${connection.toBoxId}`,
+      sourceNodeId: connection.fromBoxId,
+      targetNodeId: connection.toBoxId,
+      connectionId: connection.id || "",
+      metadata: {
+        workspaceId: workspaceViewState.workspace.id || "global",
+        mapping: connection.mapping || {},
+      },
+    });
+    workspaceViewState.busUnsubscribers.push(unsubscribe);
+  });
+};
+
+const emitTrackerEvent = (fromBoxId, channel = "default", payload = {}, payloadText = "") => {
+  recordTrackerEvent(fromBoxId, channel, payload, payloadText);
+
+  const bus = runtimeEventBus();
+  if (!bus?.emit) {
+    persistRuntimeEvent({
+      workspaceId: workspaceViewState.workspace.id || "global",
+      channel,
+      eventType: "emitted",
+      sourceNodeId: fromBoxId,
+      payload,
+      payloadText,
+      status: "ok",
+      latencyMs: payload?._trackerRuntime?.latencyMs || payload?._trackerTest?.latencyMs || 0,
+    });
+    deliverTrackerEventLegacy(fromBoxId, channel, payload);
+    return;
+  }
+
+  bus.emit(channel, payload, {
+    workspaceId: workspaceViewState.workspace.id || "global",
+    eventType: "emitted",
+    sourceNodeId: fromBoxId,
+    payloadText,
+    latencyMs: payload?._trackerRuntime?.latencyMs || payload?._trackerTest?.latencyMs || 0,
+  }).catch((error) => {
+    console.error("Errore Event Bus:", error);
+    recordTrackerError(fromBoxId, error);
+  });
+};
+
 const mountRuntimeBox = (box) => {
   const host = document.querySelector(`[data-runtime-box-id="${safeCssQueryId(box.id)}"]`);
   const mount = host?.querySelector("[data-runtime-mount]");
@@ -1046,6 +1133,7 @@ const mountRuntimeBox = (box) => {
 const mountRuntimeBoxes = () => {
   cleanupRuntimeBoxes();
   workspaceViewState.boxes.filter(hasRuntimeView).forEach(mountRuntimeBox);
+  registerEventBusSubscriptions();
 };
 
 const trackerChannel = (box) =>

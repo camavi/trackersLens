@@ -54,6 +54,7 @@ const state = {
     type: params.get("type") || "all",
     origin: params.get("origin") || "all",
     state: params.get("state") || "all",
+    eventType: params.get("eventType") || "all",
     logLevel: params.get("logLevel") || "all",
   },
   viewport: { zoom: 1, panX: 0, panY: 0 },
@@ -76,6 +77,15 @@ const state = {
   hoverPortKey: "",
   linkValidation: null,
   pendingRuntimeRefresh: false,
+  liveBusUnsubscribe: null,
+  liveRenderFrame: 0,
+  liveBus: {
+    available: false,
+    connected: false,
+    count: 0,
+    lastAt: "",
+    lastChannel: "",
+  },
   lastInteractionAt: 0,
   updatedAt: new Date(),
   activeStatusPanel: "",
@@ -308,6 +318,136 @@ const loadRuntime = async (options = {}) => {
   }
 };
 
+const runtimeEventBus = () => {
+  if (!window.TrackerLensEventBus?.get) return null;
+  return window.TrackerLensEventBus.get("flow-map", {
+    eventStore: null,
+    channelRegistry: null,
+  });
+};
+
+const eventMatchesFilters = (event = {}) => {
+  if (state.filters.workspaceId !== "all" && event.workspaceId !== state.filters.workspaceId) return false;
+  if (state.filters.channel !== "all" && event.channel !== state.filters.channel) return false;
+  return true;
+};
+
+const eventTypeGroup = (event = {}) => {
+  const type = String(event.eventType || "event");
+  if (event.status === "error" || type.includes("error")) return "errors";
+  if (type === "tracker_test") return "test";
+  if (type === "received") return "received";
+  if (type === "emitted") return "emitted";
+  return "other";
+};
+
+const eventMatchesTypeFilter = (event = {}, filter = state.filters.eventType || "all") =>
+  filter === "all" || eventTypeGroup(event) === filter;
+
+const filteredRuntimeEvents = () =>
+  state.runtime.events.filter((event) => eventMatchesTypeFilter(event));
+
+const mergeRuntimeEvent = (event = {}) => {
+  if (!event.id) return false;
+  if (state.runtime.events.some((item) => item.id === event.id)) return false;
+  state.runtime.events = [event, ...state.runtime.events].slice(0, 500);
+  state.runtime.channels = state.runtime.channels.map((channel) =>
+    channel.workspaceId === event.workspaceId && channel.name === event.channel
+      ? { ...channel, lastValue: event.payload, lastEmittedAt: event.createdAt, updatedAt: event.createdAt }
+      : channel
+  );
+  return true;
+};
+
+const scheduleLiveRender = () => {
+  if (state.liveRenderFrame) return;
+  state.liveRenderFrame = requestAnimationFrame(() => {
+    state.liveRenderFrame = 0;
+    if (state.interaction) {
+      state.pendingRuntimeRefresh = true;
+      return;
+    }
+    refreshLiveGraphState();
+  });
+};
+
+const refreshLiveBusDom = () => {
+  const pill = document.querySelector("[data-live-bus-pill]");
+  if (pill) {
+    pill.className = `tl-flow-live is-bus${state.liveBus.connected ? " is-connected" : ""}${state.liveBus.lastAt ? " is-receiving" : ""}${!state.liveBus.available ? " is-offline" : ""}`;
+    pill.title = liveBusTitle();
+  }
+  const dotNode = pill?.querySelector(".tl-flow-dot");
+  if (dotNode) {
+    dotNode.className = `tl-flow-dot ${state.liveBus.connected ? "is-connected" : !state.liveBus.available ? "is-offline" : "is-standby"}`;
+  }
+  const label = document.querySelector("[data-live-bus-label]");
+  if (label) label.textContent = liveBusLabel();
+  const updated = document.querySelector("[data-flow-status-updated]");
+  if (updated) updated.textContent = state.liveBus.lastAt ? `Live ${formatShortDate(state.liveBus.lastAt)}` : `Updated ${formatShortDate(state.updatedAt)}`;
+  const statusButton = document.querySelector("[data-status-item='bus']");
+  if (statusButton) {
+    statusButton.classList.toggle("is-green", state.liveBus.connected);
+    statusButton.classList.toggle("is-gold", !state.liveBus.connected);
+    const statusLabel = statusButton.querySelector("span");
+    if (statusLabel) statusLabel.textContent = state.liveBus.connected ? `${state.liveBus.count} live bus` : "bus offline";
+  }
+};
+
+const updateLiveClasses = (graph, activity) => {
+  (graph.nodes || []).forEach((node) => {
+    const element = document.querySelector(`[data-flow-node-id="${escapeSelectorValue(node.id)}"]`);
+    const live = activity.nodeActivity?.get(node.id);
+    if (!element) return;
+    element.classList.toggle("is-live", Boolean(live));
+    element.classList.toggle("is-error", live?.status === "error");
+  });
+
+  (graph.dependencies || []).forEach((dependency) => {
+    const element = document.querySelector(`.tl-flow-edge-label[data-edge-id="${escapeSelectorValue(dependency.id)}"]`);
+    const live = activity.edgeActivity?.get(dependency.id);
+    if (!element) return;
+    element.classList.toggle("is-live", Boolean(live));
+    element.classList.toggle("is-error", live?.status === "error");
+  });
+};
+
+const refreshLiveGraphState = () => {
+  const baseGraph = graphModel();
+  const activity = recentActivity(baseGraph);
+  const graph = filterByActivity(baseGraph, activity);
+  state.edgeRender = { graph, activity };
+  refreshLiveBusDom();
+  updateLiveClasses(graph, activity);
+  renderFlowEdges();
+};
+
+const connectLiveEventBus = () => {
+  state.liveBus.available = Boolean(window.TrackerLensEventBus?.get);
+  if (state.liveBusUnsubscribe) return;
+  const bus = runtimeEventBus();
+  if (!bus?.on) {
+    state.liveBus.connected = false;
+    return;
+  }
+  state.liveBusUnsubscribe = bus.on("*", (payload, event) => {
+    state.liveBus.connected = true;
+    state.liveBus.count += 1;
+    state.liveBus.lastAt = event.createdAt || new Date().toISOString();
+    state.liveBus.lastChannel = event.channel || "default";
+    if (!eventMatchesFilters(event)) return;
+    if (!mergeRuntimeEvent(event)) return;
+    state.updatedAt = new Date();
+    scheduleLiveRender();
+  }, {
+    id: "flow-map-live-inspector",
+    targetNodeId: "flow-map",
+    metadata: { source: "flow-map" },
+  });
+  state.liveBus.connected = true;
+  requestAnimationFrame(refreshLiveBusDom);
+};
+
 const normalize = (value) => String(value || "").toLowerCase();
 const graphModelApi = () => window.TrackerLensRuntimeGraphModel;
 const nodeChannels = (node) => graphModelApi().nodeChannels(node);
@@ -359,13 +499,22 @@ const typeOptions = () => {
   return [{ value: "all", label: "Tutti i tipi" }, ...Array.from(values).sort().map((type) => ({ value: type, label: type }))];
 };
 
+const eventTypeOptions = () => [
+  { value: "all", label: "All events" },
+  { value: "emitted", label: "Emit" },
+  { value: "received", label: "Recv" },
+  { value: "test", label: "Test" },
+  { value: "errors", label: "Errors" },
+  { value: "other", label: "Other" },
+];
+
 const graphModel = () => graphModelApi().build({ runtime: state.runtime, filters: state.filters });
 
 const nodePosition = (node, index) => {
   return graphModelApi().nodePosition({ node, index, overrides: state.nodePositions });
 };
 
-const recentActivity = (graph) => graphModelApi().recentActivity({ graph, events: state.runtime.events });
+const recentActivity = (graph) => graphModelApi().recentActivity({ graph, events: filteredRuntimeEvents() });
 
 const filterByActivity = (graph, activity) => graphModelApi().filterByActivity({ graph, activity, filter: state.filters.activity });
 
@@ -912,7 +1061,7 @@ const dependencyRow = (node, dependency) => {
 const selectedEvents = (node = selectedNode()) => {
   if (!node) return [];
   const channels = new Set(nodeChannels(node));
-  return state.runtime.events
+  return filteredRuntimeEvents()
     .filter((event) => event.sourceNodeId === node.id || event.targetNodeId === node.id || channels.has(event.channel))
     .sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt))
     .slice(0, 8);
@@ -958,6 +1107,25 @@ const channelRoleForNode = (channel = {}, node = {}) => {
   return roles.length ? roles.join(" + ") : "mapped";
 };
 
+const compactPayloadPreview = (payload, max = 160) => {
+  if (payload === null || payload === undefined) return "N/D";
+  try {
+    const text = typeof payload === "string" ? payload : JSON.stringify(payload);
+    return text.length > max ? `${text.slice(0, max)}...` : text;
+  } catch {
+    return String(payload);
+  }
+};
+
+const channelLastValuePreview = (channel = {}) =>
+  compactPayloadPreview(channel.lastValue, 160);
+
+const recentChannelRecords = (limit = 8) =>
+  state.runtime.channels
+    .slice()
+    .sort((a, b) => Date.parse(b.lastEmittedAt || b.updatedAt || b.createdAt || 0) - Date.parse(a.lastEmittedAt || a.updatedAt || a.createdAt || 0))
+    .slice(0, limit);
+
 const flowIdForWorkspace = (workspaceId = "") =>
   state.runtime.flows.find((flow) => flow.workspaceId === workspaceId)?.id || "";
 
@@ -985,6 +1153,28 @@ const recordFlowAction = async ({ workspaceId = "global", nodeId = "", connectio
 const logLevelChip = (level = "info") =>
   _.span({ class: `tl-flow-log-level is-${String(level || "info").toLowerCase()}` }, level || "info");
 
+const eventTypeTone = (event = {}) => {
+  const type = String(event.eventType || "event");
+  if (event.status === "error" || type.includes("error")) return "error";
+  if (type === "tracker_test") return "test";
+  if (type === "received") return "received";
+  if (type === "emitted") return "emitted";
+  if (type === "delivery_error") return "error";
+  return "event";
+};
+
+const eventTypeLabel = (event = {}) => ({
+  tracker_test: "test",
+  tracker_test_error: "test error",
+  emitted: "emit",
+  received: "recv",
+  delivery_error: "delivery",
+  error: "error",
+})[event.eventType] || event.eventType || "event";
+
+const eventTypeChip = (event = {}) =>
+  _.span({ class: `tl-flow-event-type is-${eventTypeTone(event)}` }, eventTypeLabel(event));
+
 const setInspectorTab = (tab) => {
   state.inspectorTab = tab;
   mount();
@@ -995,6 +1185,32 @@ const formatShortDate = (value) => {
   if (Number.isNaN(date.getTime())) return "N/D";
   return date.toLocaleTimeString("it-IT", { hour: "2-digit", minute: "2-digit", second: "2-digit" });
 };
+
+const liveBusLabel = () => {
+  if (!state.liveBus.available) return "Bus: offline";
+  if (!state.liveBus.connected) return "Bus: standby";
+  if (!state.liveBus.lastAt) return "Bus: connected";
+  return `Bus: ${state.liveBus.count} live · ${formatShortDate(state.liveBus.lastAt)}`;
+};
+
+const liveBusTitle = () => {
+  if (!state.liveBus.available) return "TrackerLensEventBus non disponibile in questa pagina.";
+  if (!state.liveBus.connected) return "Event Bus disponibile, subscription live non ancora attiva.";
+  return state.liveBus.lastChannel
+    ? `Ultimo evento live su ${state.liveBus.lastChannel}`
+    : "Event Bus live connesso.";
+};
+
+const renderLiveBusPill = () =>
+  _.span(
+    {
+      class: `tl-flow-live is-bus${state.liveBus.connected ? " is-connected" : ""}${state.liveBus.lastAt ? " is-receiving" : ""}${!state.liveBus.available ? " is-offline" : ""}`,
+      title: liveBusTitle(),
+      "data-live-bus-pill": "true",
+    },
+    dot(state.liveBus.connected ? "is-connected" : !state.liveBus.available ? "is-offline" : "is-standby"),
+    _.span({ "data-live-bus-label": "true" }, liveBusLabel())
+  );
 
 const renderSelect = (className, value, options, onChange) =>
   _.Select({
@@ -1021,6 +1237,7 @@ const renderHeader = () =>
     _.div(
       { class: "tl-flow-top-actions" },
       _.span({ class: "tl-flow-live" }, dot(), "Runtime: Active"),
+      renderLiveBusPill(),
       state.lastDeletedConnection
         ? btn({ onclick: restoreLastDeletedConnection }, icon("undo", "sm"), "Undo Link")
         : null,
@@ -1807,6 +2024,7 @@ const renderFilterbar = () =>
       { value: "live", label: "Live only" },
       { value: "errors", label: "Errors only" },
     ], (value) => setFilter("activity", value)),
+    renderSelect("tl-flow-select is-small", state.filters.eventType, eventTypeOptions(), (value) => setFilter("eventType", value)),
     hasActiveFilters() ? btn({ class: "is-ghost is-filter-reset", onclick: resetFilters }, icon("filter_alt_off", "sm"), "Reset") : null
   );
 
@@ -1846,7 +2064,7 @@ const isAllEdge = (dependency = {}) =>
   dependencySourcePort(dependency) === "all";
 
 const edgeRecentEvent = (dependency = {}) =>
-  state.runtime.events
+  filteredRuntimeEvents()
     .filter((event) =>
       event.channel === dependency.channel ||
       event.sourceNodeId === dependency.sourceNodeId ||
@@ -2410,6 +2628,18 @@ const renderInspectorOutputs = (node, channels, channelRecords) => {
           _.span({ class: "tl-flow-channel-count" }, `${channel.subscribers?.length || 0} subs`)
         )
       )) : [_.p({ class: "tl-flow-muted" }, "Nessun record channel registrato.")])
+    ),
+    _.section(
+      { class: "tl-flow-detail-list" },
+      _.h3("Last Value"),
+      ...(channelRecords.length ? channelRecords.map((channel) => _.div(
+        { class: "tl-flow-channel-value-row" },
+        _.span(channel.name || channel.id),
+        _.strong(
+          _.span({ class: "tl-flow-channel-value" }, channelLastValuePreview(channel)),
+          _.span({ class: "tl-flow-channel-time" }, channel.lastEmittedAt ? formatShortDate(channel.lastEmittedAt) : "N/D")
+        )
+      )) : [_.p({ class: "tl-flow-muted" }, "Nessun last value disponibile.")])
     )
   );
 };
@@ -2421,7 +2651,7 @@ const renderInspectorLogs = (events = [], flowLogs = []) =>
       _.h3("Runtime Events"),
       ...(events.length ? events.map((event) =>
         _.div(
-          _.span(`${event.eventType || "event"} · ${event.channel || "default"}`),
+          _.span(eventTypeChip(event), ` ${event.channel || "default"}`),
           _.strong(`${event.status || "ok"} · ${formatShortDate(event.createdAt)}`)
         )
       ) : [_.p({ class: "tl-flow-muted" }, "Nessun evento recente.")])
@@ -2462,7 +2692,7 @@ const renderEdgeInspector = (edge) => {
   const source = nodeById(edge.sourceNodeId);
   const target = nodeById(edge.targetNodeId);
   const flowLogs = selectedEdgeFlowLogs(edge);
-  const events = state.runtime.events
+  const events = filteredRuntimeEvents()
     .filter((event) =>
       event.channel === edge.channel ||
       event.sourceNodeId === edge.sourceNodeId ||
@@ -2522,7 +2752,7 @@ const renderEdgeInspector = (edge) => {
       _.h3("Recent Events"),
       ...(events.length ? events.map((event) =>
         _.div(
-          _.span(`${event.eventType || "event"} · ${event.channel || "default"}`),
+          _.span(eventTypeChip(event), ` ${event.channel || "default"}`),
           _.strong(`${event.status || "ok"} · ${formatShortDate(event.createdAt)}`)
         )
       ) : [_.p({ class: "tl-flow-muted" }, "Nessun evento recente per questo collegamento.")])
@@ -2599,7 +2829,7 @@ const renderInspector = () => {
 };
 
 const renderEvents = () => {
-  const events = state.runtime.events
+  const events = filteredRuntimeEvents()
     .slice()
     .sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt))
     .slice(0, 7);
@@ -2612,18 +2842,24 @@ const renderEvents = () => {
 
   return _.section(
     { class: "tl-flow-events" },
-    _.div({ class: "tl-flow-events-head" }, _.h2("Event Inspector"), _.span("Live")),
+    _.div(
+      { class: "tl-flow-events-head" },
+      _.h2("Event Inspector"),
+      renderSelect("tl-flow-select is-tiny", state.filters.eventType || "all", eventTypeOptions(), (value) => setFilter("eventType", value)),
+      state.filters.eventType !== "all" ? btn({ class: "is-ghost is-compact", onclick: () => setFilter("eventType", "all") }, "Clear") : null,
+      _.span(`${events.length} live`)
+    ),
     _.table(
       _.thead(_.tr(_.th("Time"), _.th("Channel"), _.th("Event"), _.th("Source"), _.th("Payload"), _.th("Size"))),
       _.tbody(
-        ...(events.length ? events.map((event) =>
-          _.tr(
-            _.td(formatShortDate(event.createdAt)),
-            _.td(event.channel || "default"),
-            _.td(event.eventType || "event"),
-            _.td(event.sourceLabel || event.sourceNodeId || "runtime"),
-            _.td(event.payloadPreview || "{...}"),
-            _.td(`${event.sizeBytes || 0} B`)
+      ...(events.length ? events.map((event) =>
+        _.tr(
+          _.td(formatShortDate(event.createdAt)),
+          _.td(event.channel || "default"),
+          _.td(eventTypeChip(event)),
+          _.td(event.sourceLabel || event.sourceNodeId || "runtime"),
+          _.td(event.payloadPreview || "{...}"),
+          _.td(`${event.sizeBytes || 0} B`)
           )
         ) : [_.tr(_.td({ colspan: 6 }, "Nessun evento runtime registrato."))])
       )
@@ -2693,7 +2929,7 @@ const renderOverview = () => {
 };
 
 const recentEvents = (limit = 8) =>
-  state.runtime.events
+  filteredRuntimeEvents()
     .slice()
     .sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt))
     .slice(0, limit);
@@ -2707,14 +2943,50 @@ const recentFlowLogs = (level = "all", limit = 8) =>
 
 const statusItems = () => {
   const stats = runtimeOverviewStats();
+  const filteredEventCount = filteredRuntimeEvents().length;
+  const eventLabel = state.filters.eventType === "all"
+    ? `${state.runtime.events.length} events`
+    : `${filteredEventCount}/${state.runtime.events.length} events`;
   return [
     { id: "runtime", icon: "account_tree", label: `${state.runtime.nodes.length} nodes`, title: "Runtime" },
-    { id: "events", icon: "bolt", label: `${state.runtime.events.length} events`, title: "Events" },
+    { id: "channels", icon: "hub", label: `${state.runtime.channels.length} channels`, title: "Channels" },
+    { id: "bus", icon: "settings_input_antenna", label: state.liveBus.connected ? `${state.liveBus.count} live bus` : "bus offline", title: "Live Bus", tone: state.liveBus.connected ? "green" : "gold" },
+    { id: "events", icon: "bolt", label: eventLabel, title: "Events" },
     { id: "logs", icon: "subject", label: `${state.runtime.flowLogs?.length || 0} logs`, title: "Flow logs" },
     { id: "warning", icon: "warning", label: `${stats.warningLogs} warning`, title: "Warnings", tone: "gold" },
     { id: "error", icon: "error", label: `${stats.errorLogs} error`, title: "Errors", tone: "red" },
   ];
 };
+
+const renderStatusChannelsPanel = () => {
+  const channels = recentChannelRecords();
+  return _.table(
+    _.thead(_.tr(_.th("Channel"), _.th("Workspace"), _.th("Last"), _.th("Value"))),
+    _.tbody(
+      ...(channels.length ? channels.map((channel) =>
+        _.tr(
+          _.td(channel.name || channel.id || "default"),
+          _.td(channel.workspaceId || "global"),
+          _.td(channel.lastEmittedAt ? formatShortDate(channel.lastEmittedAt) : "N/D"),
+          _.td(_.code({ class: "tl-flow-channel-value-code" }, channelLastValuePreview(channel)))
+        )
+      ) : [_.tr(_.td({ colspan: 4 }, "Nessun channel runtime registrato."))])
+    )
+  );
+};
+
+const renderStatusBusPanel = () =>
+  _.div(
+    { class: "tl-flow-status-grid" },
+    ...[
+      ["Available", state.liveBus.available ? "yes" : "no"],
+      ["Connected", state.liveBus.connected ? "yes" : "no"],
+      ["Live events", state.liveBus.count],
+      ["Last channel", state.liveBus.lastChannel || "N/D"],
+      ["Last event", state.liveBus.lastAt ? formatShortDate(state.liveBus.lastAt) : "N/D"],
+      ["Transport", typeof BroadcastChannel === "undefined" ? "local only" : "BroadcastChannel"],
+    ].map(([label, value]) => _.div(_.span(label), _.strong(String(value))))
+  );
 
 const renderStatusRuntimePanel = () => {
   const stats = runtimeOverviewStats();
@@ -2744,7 +3016,7 @@ const renderStatusEventsPanel = () => {
         _.tr(
           _.td(formatShortDate(event.createdAt)),
           _.td(event.channel || "default"),
-          _.td(event.eventType || "event"),
+          _.td(eventTypeChip(event)),
           _.td(event.sourceLabel || event.sourceNodeId || "runtime"),
           _.td(`${event.sizeBytes || 0} B`)
         )
@@ -2783,6 +3055,8 @@ const renderStatusPopover = () => {
       _.button({ type: "button", "aria-label": "Close", onclick: () => toggleStatusPanel(active.id) }, icon("close", "sm"))
     ),
     active.id === "runtime" ? renderStatusRuntimePanel()
+      : active.id === "channels" ? renderStatusChannelsPanel()
+      : active.id === "bus" ? renderStatusBusPanel()
       : active.id === "events" ? renderStatusEventsPanel()
       : renderStatusLogsPanel(level)
   );
@@ -2800,6 +3074,7 @@ const renderStatusBar = () =>
             type: "button",
             class: `tl-flow-statusbar-btn${item.tone ? ` is-${item.tone}` : ""}${state.activeStatusPanel === item.id ? " is-active" : ""}`,
             title: item.title,
+            "data-status-item": item.id,
             onclick: () => toggleStatusPanel(item.id),
           },
           icon(item.icon, "sm"),
@@ -2807,7 +3082,7 @@ const renderStatusBar = () =>
         )
       )
     ),
-    _.span({ class: "tl-flow-statusbar-updated" }, `Updated ${formatShortDate(state.updatedAt)}`)
+    _.span({ class: "tl-flow-statusbar-updated", "data-flow-status-updated": "true" }, state.liveBus.lastAt ? `Live ${formatShortDate(state.liveBus.lastAt)}` : `Updated ${formatShortDate(state.updatedAt)}`)
   );
 
 const renderShell = () =>
@@ -2855,6 +3130,7 @@ const mount = (options = {}) => {
 
 mount();
 loadRuntime();
+connectLiveEventBus();
 window.setInterval(() => {
   if (state.loading) return;
   if (state.interaction || Date.now() - state.lastInteractionAt < 750) {

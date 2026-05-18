@@ -2,6 +2,12 @@
 
 Channels are the backbone of the Trackers Lens runtime.
 
+Runtime event publication and delivery are defined in:
+
+```txt
+docs/event-bus.md
+```
+
 A channel is a named data stream that decouples producers from consumers.
 
 Example:

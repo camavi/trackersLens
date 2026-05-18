@@ -198,6 +198,14 @@ const putTrackerRecord = async (payload) => {
 
 const dependencyManager = () => window.TrackerLensDependencyManager;
 const channelRegistry = () => window.TrackerLensChannelRegistry;
+const runtimeEventStore = () => window.TrackerLensEventLogStore;
+const runtimeEventBus = () => {
+  if (!window.TrackerLensEventBus?.get) return null;
+  return window.TrackerLensEventBus.get(runtimeWorkspaceId(), {
+    eventStore: runtimeEventStore(),
+    channelRegistry: channelRegistry(),
+  });
+};
 
 const trackerTypeOptions = trackerData.trackerTypes.map((item) => ({
   value: item.id,
@@ -844,6 +852,30 @@ const testStateClass = () => {
   return "tl-state-ok";
 };
 
+const emitTrackerTestEvent = async ({ payload = {}, latency = 0, status = "ok", error = "" } = {}) => {
+  const bus = runtimeEventBus();
+  if (!bus?.emit) return null;
+  const channel = trackerState.tracker.outputChannel || "default";
+  const sourceNodeId = requestedDraftNodeId && !trackerState.editingExisting ? requestedDraftNodeId : trackerState.tracker.id;
+  const eventPayload = status === "error"
+    ? { error, _trackerTest: { receivedAt: new Date().toISOString(), latencyMs: Number(latency) || 0, source: trackerState.tracker.source, endpoint: trackerState.tracker.endpoint } }
+    : payload;
+
+  return bus.emit(channel, eventPayload, {
+    workspaceId: runtimeWorkspaceId(),
+    eventType: status === "error" ? "tracker_test_error" : "tracker_test",
+    sourceNodeId,
+    status,
+    latencyMs: Number(latency) || payload?._trackerTest?.latencyMs || 0,
+    meta: {
+      source: "box-tracker-editor",
+      trackerId: trackerState.tracker.id,
+      trackerName: trackerState.tracker.name,
+      draftNodeId: requestedDraftNodeId,
+    },
+  });
+};
+
 const runManualTest = async () => {
   if (trackerState.testRunning) return;
 
@@ -862,13 +894,16 @@ const runManualTest = async () => {
     trackerState.testLatency = `${latency} ms`;
     trackerState.lastRun = new Date().toLocaleTimeString();
     trackerState.notice = "Test manuale eseguito";
+    await emitTrackerTestEvent({ payload, latency, status: "ok" });
     notify("success", trackerState.notice);
   } catch (error) {
     console.error(error);
+    const latency = Math.max(1, Math.round(performance.now() - started));
     trackerState.testStatus = "Errore";
     trackerState.testLatency = "—";
     trackerState.lastRun = new Date().toLocaleTimeString();
     trackerState.notice = error.message || "Test manuale non riuscito.";
+    await emitTrackerTestEvent({ latency, status: "error", error: trackerState.notice });
     notify("error", trackerState.notice);
   } finally {
     trackerState.testRunning = false;

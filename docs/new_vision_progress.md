@@ -1,0 +1,120 @@
+# Trackers Lens - Avanzamento nuova visione
+
+Aggiornato il 2026-05-18.
+
+Questo documento traduce `docs/new_vision.md` in una mappa operativa. La visione resta: Trackers Lens non deve essere un dashboard builder, ma un AI Runtime Operating Environment locale, event-driven, channel-based e ispezionabile.
+
+## Scala stato
+
+- `Fatto`: esiste una implementazione utilizzabile.
+- `Parziale`: esiste una base reale, ma mancano parti importanti.
+- `Fondazione`: esistono store, modelli o UI preparatorie.
+- `Prototipo`: esiste una UI/mock o una simulazione.
+- `Non iniziato`: non esiste ancora una parte concreta nel codice.
+
+## Sintesi priorita
+
+Priorita immediata:
+
+1. Consolidare Event Bus reale e Data Channel System.
+2. Stabilizzare Flow Map come interfaccia principale del runtime graph.
+3. Estendere dependency validation a boxLens, channel, connection e workspace.
+4. Definire formato export/import `.tlworkspace` e `.tlbox`.
+5. Preparare DevTools unificati sopra eventi, canali, performance, log e graph.
+
+Priorita successive:
+
+1. Sandbox isolation.
+2. Versioning boxes e dependency package.
+3. AI memory locale e Local AI provider.
+4. Workspace templates e AI generated workspaces.
+5. Marketplace verified e cloud sync opzionale.
+
+## Avanzamento dei 20 punti
+
+| # | Punto | Stato | Cosa esiste oggi | Prossimo passo |
+|---|---|---|---|---|
+| 1 | Event Bus Visivo | Parziale avanzato | `core/runtime/event-bus.js`, `docs/event-bus.md`, `flowMap.html`, `js/flowMapView.js`, graph runtime visuale, nodi, edge, filtri, attivita recente da eventi. `workspaceView.js` pubblica ora gli eventi tracker sul bus centrale, la Flow Map li riceve live via BroadcastChannel con indicatore UI, e il test manuale del boxTracker emette eventi sul bus. | Estendere il bus a DevTools unificati e altri editor runtime. |
+| 2 | Data Channel System | Parziale | `core/runtime/channel-registry.js`, store `tl_channels`, sync canali da tracker/workspace, subscriber base. | Aggiungere rename/delete validation, inspector channel dedicato, last value e health metrics reali. |
+| 3 | Sandbox Isolation | Non iniziato | Runtime boxLens inline CSP-compatible, ma non isolato. | Definire manifest permessi box, runner sandboxato, timeout, network policy e cleanup. |
+| 4 | Workspace Export Format | Non iniziato | Workspace salvati in IndexedDB `tl_pages`; box in `tl_widgets`. | Specificare schema `.tlworkspace` e `.tlbox`, poi implementare export/import. |
+| 5 | Versioning Boxes | Non iniziato | Metadati asset base, nessun version contract completo. | Aggiungere `version`, `changelog`, `compatibility`, `runtimeVersion`, migration policy. |
+| 6 | Box Dependency System | Parziale | `core/runtime/dependency-manager.js`, report dipendenze e force delete per `boxTracker`. | Estendere scan e delete safe a boxLens, connection, channel, workspace, agent e processor. |
+| 7 | AI Memory System | Prototipo | `ai.html` e `js/aiRuntimeCenter.js` mostrano memory UI demo. | Creare store reali per memory scope: short, workspace, global. |
+| 8 | Local AI First | Fondazione | Filosofia documentata e AI center visuale, nessun provider locale reale collegato. | Integrare Ollama/LM Studio come provider locali prioritari. |
+| 9 | Marketplace Verified | Non iniziato | Nessun sistema verified/trusted/safe runtime. | Disegnare schema trust: creator, signature, permissions, scan, review status. |
+| 10 | Box Performance Monitor | Parziale | Monitor tracker in `workspace.html`, analytics locali, log eventi e flow logs. | Aggiungere metriche runtime vere: events/sec, latency, network, error rate, memory stimata. |
+| 11 | Workspace Templates | Non iniziato | Nessun catalogo template strutturato. | Definire schema template e primi template locali: crypto, news, AI research. |
+| 12 | AI Generated Workspaces | Non iniziato | Nessun generatore workspace. | Usare template + schema `.tlworkspace` per generazione guidata da prompt. |
+| 13 | Offline-first Mode | Parziale | IndexedDB locale, runtime e library funzionano localmente. | Formalizzare modalita offline, cache policy, indicatori rete e sync queue futura. |
+| 14 | Internal Package System | Non iniziato | Nessun package system interno. | Definire naming `@trackers/*`, manifest package, dependency resolver locale. |
+| 15 | DevTools | Parziale | Database, Connections, Analytics, AI Center, Monitor e Flow Map sono basi DevTools. | Unificare in Runtime DevTools con tab Events, Channels, Graph, Logs, Performance, AI. |
+| 16 | Time Travel Data | Fondazione | `core/runtime/runtime-snapshot-store.js` carica snapshot runtime; event retention esiste. | Aggiungere snapshot persistenti versionati, replay eventi e rewind workspace. |
+| 17 | Local-first Cloud-sync | Non iniziato | Local-first reale via IndexedDB; cloud sync assente. | Definire sync opzionale, conflitti, encryption e remote backup. |
+| 18 | Chrome Fork | Visione | Solo direzione strategica. | Rimandare fino a runtime/plugin stabile. |
+| 19 | Box Graph Engine | Parziale | `runtime-graph-store.js`, `runtime-graph-model.js`, `tl_runtime_nodes`, `tl_runtime_dependencies`, `tl_flows`. | Rendere il graph engine sorgente unica per Flow Map, workspace runtime e DevTools. |
+| 20 | Runtime locale intelligente | In corso | La direzione e gia nel codice: local-first, runtime graph, channel registry, event logs, Flow Map. | Continuare a costruire il prodotto come runtime operating environment, non come dashboard. |
+
+## Milestone consigliate
+
+### Milestone A - Runtime Graph Core
+
+Obiettivo: ogni workspace deve avere un runtime graph ispezionabile, stabile e persistente.
+
+- Implementare `TLEventBus` centrale. Stato: prima implementazione in `core/runtime/event-bus.js`.
+- Collegare `workspaceView.js` al bus invece di usare solo dispatch locale. Stato: fatto per emissioni `boxTracker -> boxLens`, con fallback legacy.
+- Aggiornare `tl_events` da ogni emit/receive/error. Stato: emit e receive passano dal bus/workspace runtime; errori tracker restano persistiti da `workspaceView.js`.
+- Far aggiornare `tl_channels.lastValue` e `lastEmittedAt`. Stato: aggiunto `TrackerLensChannelRegistry.recordEmission()`.
+- Rendere Flow Map la vista primaria di nodi, edge, canali e attivita. Stato: la Flow Map si iscrive al bus live e continua a fare refresh IndexedDB periodico.
+
+### Milestone B - Dependency Safety
+
+Obiettivo: nessun elemento runtime deve essere eliminato o rinominato senza report dipendenze.
+
+- Estendere `TrackerLensDependencyManager.inspectNode()` oltre `boxTracker`.
+- Coprire `boxLens`, `channel`, `connection`, `workspace`.
+- Sostituire tutte le delete critiche con dialog CMSwift runtime-aware.
+- Salvare log di lifecycle in `tl_flow_logs`.
+
+### Milestone C - Portable Runtime
+
+Obiettivo: rendere workspace e box esportabili, versionabili e condivisibili.
+
+- Definire schema `.tlbox`.
+- Definire schema `.tlworkspace`.
+- Aggiungere export/import locale.
+- Introdurre `version`, `dependencies`, `permissions` nei manifest.
+
+### Milestone D - DevTools
+
+Obiettivo: dare visibilita completa al runtime.
+
+- Runtime DevTools unificato.
+- Inspector per events, channels, performance, logs, graph, AI jobs.
+- Filtri per workspace, node, channel, stato e timeframe.
+- Base per time travel e replay.
+
+### Milestone E - Local AI Runtime
+
+Obiettivo: introdurre AI locale reale prima del cloud.
+
+- Store provider AI locali.
+- Ollama/LM Studio connector.
+- AI memory scopes.
+- AI agent nodes nel graph.
+- AI generated workspace basato su template e manifest.
+
+## Decisione architetturale
+
+La sequenza corretta resta:
+
+1. Plugin/runtime locale.
+2. Event bus + channels + graph engine.
+3. DevTools e dependency safety.
+4. Export/versioning/package.
+5. AI locale e generazione workspace.
+6. Marketplace.
+7. Cloud sync opzionale.
+8. Chrome fork / AI Operating Browser.
+
+Il sito e il marketplace non devono diventare il runtime principale. Il runtime principale resta locale: prima plugin Chrome, poi eventuale browser dedicato.

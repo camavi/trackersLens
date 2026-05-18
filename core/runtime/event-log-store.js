@@ -167,6 +167,7 @@ window.TrackerLensEventLogStore = (() => {
   };
 
   const recordEvent = async ({
+    id = "",
     workspaceId = "global",
     flowId = "",
     channel = "default",
@@ -181,7 +182,7 @@ window.TrackerLensEventLogStore = (() => {
   } = {}) => {
     const createdAt = new Date().toISOString();
     const event = {
-      id: `event_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+      id: id || `event_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
       workspaceId,
       flowId,
       channel,

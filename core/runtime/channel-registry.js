@@ -369,6 +369,38 @@ window.TrackerLensChannelRegistry = (() => {
     return channelRecords;
   };
 
+  const recordEmission = async ({ workspaceId = "global", channel = "default", sourceNodeId = "", payload = {}, emittedAt = new Date().toISOString() } = {}) => {
+    const name = safeChannelName(channel);
+    const id = channelId({ workspaceId, name });
+    const existing = (await readAll(STORES.channels)).find((record) => record.id === id);
+    const record = {
+      ...(existing || {
+        id,
+        workspaceId,
+        name,
+        label: name,
+        type: payload && typeof payload === "object" ? "object" : typeof payload,
+        producerNodeId: sourceNodeId,
+        producerBoxId: sourceNodeId,
+        producerOutput: name,
+        sourceType: sourceNodeId ? "boxTracker" : "runtime",
+        status: "active",
+        subscribers: [],
+        createdAt: emittedAt,
+        metadata: {},
+      }),
+      workspaceId,
+      name,
+      producerNodeId: existing?.producerNodeId || sourceNodeId,
+      producerBoxId: existing?.producerBoxId || sourceNodeId,
+      lastValue: payload,
+      lastEmittedAt: emittedAt,
+      updatedAt: emittedAt,
+    };
+    await putRecords(STORES.channels, [record]);
+    return record;
+  };
+
   const list = async () => readAll(STORES.channels);
 
   return {
@@ -378,6 +410,7 @@ window.TrackerLensChannelRegistry = (() => {
     ensureStores,
     list,
     safeChannelName,
+    recordEmission,
     restoreChannelRecords,
     syncWorkspaceChannels,
     trackerOutputChannel,

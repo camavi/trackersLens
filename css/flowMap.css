@@ -116,12 +116,44 @@ body {
   font-size: 12px;
 }
 
+.tl-flow-live.is-bus {
+  max-width: 220px;
+  color: var(--tl-text-muted);
+  white-space: nowrap;
+}
+
+.tl-flow-live.is-connected {
+  color: var(--tl-text);
+  border-color: rgba(34, 197, 94, 0.22);
+  background: rgba(11, 23, 18, 0.88);
+}
+
+.tl-flow-live.is-receiving {
+  border-color: rgba(34, 211, 238, 0.28);
+  box-shadow: 0 0 0 1px rgba(34, 211, 238, 0.06);
+}
+
+.tl-flow-live.is-offline {
+  color: rgba(248, 113, 113, 0.88);
+  border-color: rgba(248, 113, 113, 0.22);
+}
+
 .tl-flow-dot {
   width: 7px;
   height: 7px;
   border-radius: 999px;
   background: var(--tl-success);
   box-shadow: 0 0 12px rgba(34, 197, 94, 0.78);
+}
+
+.tl-flow-dot.is-standby {
+  background: var(--tl-warning, #facc15);
+  box-shadow: 0 0 12px rgba(250, 204, 21, 0.55);
+}
+
+.tl-flow-dot.is-offline {
+  background: var(--tl-danger);
+  box-shadow: 0 0 12px rgba(248, 113, 113, 0.58);
 }
 
 .tl-flow-grid {
@@ -1260,6 +1292,50 @@ body.is-flow-palette-dragging .tl-flow-canvas {
   background: rgba(168, 85, 247, 0.08);
 }
 
+.tl-flow-channel-value-row {
+  align-items: start;
+}
+
+.tl-flow-channel-value-row strong {
+  min-width: 0;
+  display: grid;
+  justify-items: end;
+  gap: 4px;
+}
+
+.tl-flow-channel-value {
+  max-width: 180px;
+  padding: 5px 7px;
+  color: rgba(226, 232, 240, 0.9);
+  border: 1px solid rgba(34, 197, 94, 0.18);
+  border-radius: 6px;
+  background: rgba(34, 197, 94, 0.055);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+  font-size: 10px;
+  line-height: 1.35;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+.tl-flow-channel-time {
+  color: var(--tl-text-muted);
+  font-size: 9px;
+  font-weight: 700;
+}
+
+.tl-flow-channel-value-code {
+  max-width: 340px;
+  display: inline-block;
+  padding: 4px 6px;
+  color: rgba(226, 232, 240, 0.9);
+  border: 1px solid rgba(34, 197, 94, 0.16);
+  border-radius: 5px;
+  background: rgba(34, 197, 94, 0.05);
+  font-size: 10px;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
 .tl-flow-detail-list strong,
 .tl-flow-overview strong {
   overflow: hidden;
@@ -1438,6 +1514,44 @@ button.tl-flow-mini-chip {
   --log-rgb: 248, 113, 113;
 }
 
+.tl-flow-event-type {
+  min-width: 46px;
+  height: 18px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 7px;
+  border: 1px solid rgba(var(--event-rgb, 56, 189, 248), 0.22);
+  border-radius: 999px;
+  background: rgba(var(--event-rgb, 56, 189, 248), 0.08);
+  color: rgb(var(--event-rgb, 56, 189, 248));
+  font-size: 9px;
+  font-weight: 700;
+  line-height: 1;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.tl-flow-event-type.is-emitted {
+  --event-rgb: 34, 211, 238;
+}
+
+.tl-flow-event-type.is-received {
+  --event-rgb: 34, 197, 94;
+}
+
+.tl-flow-event-type.is-test {
+  --event-rgb: 250, 204, 21;
+}
+
+.tl-flow-event-type.is-error {
+  --event-rgb: 248, 113, 113;
+}
+
+.tl-flow-event-type.is-event {
+  --event-rgb: 168, 85, 247;
+}
+
 .tl-flow-overview {
   display: grid;
   gap: 10px;
@@ -1502,6 +1616,11 @@ button.tl-flow-mini-chip {
   color: #fde68a;
 }
 
+.tl-flow-statusbar-btn.is-green {
+  --status-rgb: 34, 197, 94;
+  color: #bbf7d0;
+}
+
 .tl-flow-statusbar-btn.is-red {
   --status-rgb: 248, 113, 113;
   color: #fecaca;
@@ -1511,6 +1630,12 @@ button.tl-flow-mini-chip {
 .tl-flow-statusbar-btn.is-gold:hover {
   border-color: rgba(250, 204, 21, 0.38);
   background: rgba(250, 204, 21, 0.14);
+}
+
+.tl-flow-statusbar-btn.is-green.is-active,
+.tl-flow-statusbar-btn.is-green:hover {
+  border-color: rgba(34, 197, 94, 0.38);
+  background: rgba(34, 197, 94, 0.14);
 }
 
 .tl-flow-statusbar-btn.is-red.is-active,
