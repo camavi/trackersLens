@@ -130,7 +130,9 @@ window.TrackerLensConnectionsStore = (() => {
     fromBoxId: normalizeText(connection.fromBoxId || connection.sourceNodeId),
     toBoxId: normalizeText(connection.toBoxId || connection.targetNodeId),
     channel: normalizeText(connection.channel || connection.frequency, "default"),
-    mapping: connection.mapping && typeof connection.mapping === "object" ? { ...connection.mapping } : {},
+    mapping: connection.mapping && typeof connection.mapping === "object"
+      ? Object.fromEntries(Object.entries(connection.mapping).filter(([key]) => !["sourcePort", "targetPort", "channel"].includes(key)))
+      : {},
   });
 
   const trackerChannel = (asset = {}) =>

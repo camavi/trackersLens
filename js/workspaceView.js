@@ -507,7 +507,9 @@ const cleanupWorkspaceRuntime = () => {
 };
 
 const mapConnectionPayload = (payload, mapping = {}) => {
-  const entries = Object.entries(mapping || {}).filter(([, targetKey]) => targetKey);
+  const routeOnlyKeys = new Set(["sourcePort", "targetPort", "channel"]);
+  const entries = Object.entries(mapping || {})
+    .filter(([sourceKey, targetKey]) => targetKey && !routeOnlyKeys.has(sourceKey));
   if (!entries.length || !payload || typeof payload !== "object") return payload;
 
   return entries.reduce((mapped, [sourceKey, targetKey]) => {
