@@ -25,22 +25,35 @@ const BOX_LENS_STORES = [
 
 const makeLensId = () => requestedLensId || `lens_${Date.now()}`;
 
-const buildManifest = (box) =>
-  JSON.stringify(
-    {
+const boxVersioning = () => window.TrackerLensBoxVersioning;
+const normalizeBoxVersion = (box) => boxVersioning()?.normalizeBox ? boxVersioning().normalizeBox(box) : {
+  ...box,
+  version: box.version || "0.1.0",
+  runtimeVersion: box.runtimeVersion || ">=0.1.0",
+};
+
+const buildManifest = (box) => {
+  const manifest = boxVersioning()?.buildManifest
+    ? boxVersioning().buildManifest({ ...box, type: "boxLens" }, {
+      defaultSize: {
+        width: box.width,
+        height: box.height,
+      },
+    })
+    : {
       name: box.name,
       type: "boxLens",
-      version: "0.1.0",
+      version: box.version || "0.1.0",
+      runtimeVersion: box.runtimeVersion || ">=0.1.0",
       category: box.category,
       channels: box.channels?.map((channel) => channel.id) || ["btc-price"],
       defaultSize: {
         width: box.width,
         height: box.height,
       },
-    },
-    null,
-    2
-  );
+    };
+  return JSON.stringify(manifest, null, 2);
+};
 
 const defaultChannels = [
   {
@@ -53,6 +66,8 @@ const defaultBox = {
   ...boxLensData.box,
   id: makeLensId(),
   name: requestedRuntimeLabel || boxLensData.box.name,
+  version: boxLensData.box.version || "0.1.0",
+  runtimeVersion: boxLensData.box.runtimeVersion || ">=0.1.0",
   status: boxLensData.box.status !== false,
   visibility: boxLensData.box.visibility || "private",
   boxType: "empty",
@@ -295,9 +310,28 @@ const redo = () => {
 
 const mutateBox = (patch, shouldRemount = false) => {
   pushHistory();
-  boxLensState.box = { ...boxLensState.box, ...patch };
+  boxLensState.box = normalizeBoxVersion({ ...boxLensState.box, ...patch });
   syncGeneratedCode();
   if (shouldRemount) mountBoxLensEditor();
+};
+
+const mutateBoxVersioning = (patch, shouldRemount = false) => {
+  const current = normalizeBoxVersion(boxLensState.box);
+  mutateBox({
+    versioning: {
+      ...current.versioning,
+      ...patch,
+      compatibility: {
+        ...(current.versioning?.compatibility || {}),
+        ...(patch.compatibility || {}),
+      },
+      migration: {
+        ...(current.versioning?.migration || {}),
+        ...(patch.migration || {}),
+      },
+      changelog: Array.isArray(patch.changelog) ? patch.changelog : current.versioning?.changelog || [],
+    },
+  }, shouldRemount);
 };
 
 const syncGeneratedCode = () => {
@@ -315,7 +349,7 @@ const syncGeneratedCode = () => {
 const normalizeStoredWidget = (record) => {
   const content = record?.content || {};
   const storedCode = content.code || {};
-  const box = {
+  const box = normalizeBoxVersion({
     ...defaultBox,
     ...content,
     id: record?.id || content.id || requestedLensId || defaultBox.id,
@@ -323,7 +357,7 @@ const normalizeStoredWidget = (record) => {
     visibility: content.visibility || "private",
     boxType: content.boxType || "empty",
     channels: Array.isArray(content.channels) && content.channels.length ? content.channels : defaultChannels,
-  };
+  });
 
   return {
     box,
@@ -841,6 +875,53 @@ const selectArrowSlot = {
   arrow: () => icon("keyboard_arrow_down", "sm"),
 };
 
+const migrationOptions = [
+  { value: "none", label: "None" },
+  { value: "manual", label: "Manual" },
+  { value: "automatic", label: "Automatic" },
+];
+
+const renderVersioningPanel = () => {
+  const versioning = normalizeBoxVersion(boxLensState.box).versioning || {};
+  const migration = versioning.migration || {};
+  return _.div(
+    { class: "tl-version-panel" },
+    _.div({ class: "tl-dimension-label" }, "Versioning"),
+    _.Input({
+      label: "Version",
+      value: versioning.version || boxLensState.box.version || "0.1.0",
+      onInput: (event) => mutateBoxVersioning({ version: event.target.value }),
+    }),
+    _.Input({
+      label: "Runtime",
+      value: versioning.runtimeVersion || boxLensState.box.runtimeVersion || ">=0.1.0",
+      onInput: (event) => mutateBoxVersioning({ runtimeVersion: event.target.value }),
+    }),
+    _.Select({
+      label: "Migration",
+      value: migration.policy || "none",
+      options: migrationOptions,
+      slots: selectArrowSlot,
+      onChange: (value) => mutateBoxVersioning({ migration: { policy: value } }, true),
+    }),
+    _.label(
+      { class: "tl-field" },
+      _.span("Changelog"),
+      _.textarea({
+        value: versioning.changelog?.[0]?.notes || "",
+        placeholder: "Note della versione corrente",
+        onInput: (event) => mutateBoxVersioning({
+          changelog: [{
+            version: versioning.version || boxLensState.box.version || "0.1.0",
+            date: new Date().toISOString().slice(0, 10),
+            notes: event.target.value,
+          }],
+        }),
+      })
+    )
+  );
+};
+
 const renderProperties = () =>
   _.aside(
     { class: "tl-properties" },
@@ -883,6 +964,7 @@ const renderProperties = () =>
       btn({ class: "tl-add-channel", onclick: addChannel }, icon("add", "sm"), t("addChannel")),
       ...boxLensState.box.channels.map(renderChannel)
     ),
+    renderVersioningPanel(),
     _.div({ class: "tl-status-row" }, _.span(t("status")), _.Toggle({ checked: boxLensState.box.status, color: "primary", onChange: (checked) => mutateBox({ status: Boolean(checked) }, true) })),
     _.label(
       { class: "tl-field" },
@@ -1046,7 +1128,7 @@ const saveBoxLens = async () => {
   const payload = {
     id: boxLensState.box.id,
     content: {
-      ...boxLensState.box,
+      ...normalizeBoxVersion(boxLensState.box),
       type: "boxLens",
       code: {
         manifest: boxLensState.code.Manifest,

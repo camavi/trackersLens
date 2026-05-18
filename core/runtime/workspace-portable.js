@@ -14,6 +14,7 @@ window.TrackerLensPortableRuntime = (() => {
   const normalizeText = (value, fallback = "") => value === null || value === undefined ? fallback : String(value).trim() || fallback;
   const contentOf = (record) => record?.content && typeof record.content === "object" ? record.content : record || {};
   const clone = (value) => JSON.parse(JSON.stringify(value ?? null));
+  const normalizeBox = (box) => window.TrackerLensBoxVersioning?.normalizeBox ? window.TrackerLensBoxVersioning.normalizeBox(box) : box;
   const safeName = (value = "trackers-lens") =>
     normalizeText(value, "trackers-lens").toLowerCase().replace(/[^a-z0-9._-]+/g, "-").replace(/^-|-$/g, "") || "trackers-lens";
 
@@ -111,7 +112,8 @@ window.TrackerLensPortableRuntime = (() => {
     return {
       ...packageMeta("box", content.name || content.title || id, id),
       kind: "box",
-      box: clone(content),
+      box: clone(normalizeBox(content)),
+      versioning: clone(normalizeBox(content).versioning || null),
     };
   };
 
@@ -138,7 +140,7 @@ window.TrackerLensPortableRuntime = (() => {
     const assets = includeAssets
       ? (await Promise.all(workspaceAssetIds(workspace).map((assetId) => read(WIDGET_STORE, assetId))))
         .filter(Boolean)
-        .map((asset) => clone(contentOf(asset)))
+        .map((asset) => clone(normalizeBox(contentOf(asset))))
       : [];
     const runtimeGraph = includeRuntimeGraph ? await runtimeGraphForWorkspace(id) : null;
     return {
@@ -186,6 +188,12 @@ window.TrackerLensPortableRuntime = (() => {
     }
     if ((bundle.kind === "box" || bundle.format === "tlbox") && !bundle.box) errors.push("box mancante");
     if ((bundle.kind === "workspace" || bundle.format === "tlworkspace") && !bundle.workspace) errors.push("workspace mancante");
+    const boxes = bundle.kind === "workspace" || bundle.format === "tlworkspace" ? bundle.assets || [] : [bundle.box].filter(Boolean);
+    boxes.forEach((box) => {
+      const validation = window.TrackerLensBoxVersioning?.validateBox ? window.TrackerLensBoxVersioning.validateBox(box) : { ok: true, warnings: [] };
+      if (!validation.ok) errors.push(...validation.errors.map((error) => `${box?.id || "box"}: ${error}`));
+      warnings.push(...(validation.warnings || []).map((warning) => `${box?.id || "box"}: ${warning}`));
+    });
     return {
       ok: errors.length === 0,
       errors,
@@ -211,7 +219,7 @@ window.TrackerLensPortableRuntime = (() => {
       const requestedId = normalizeText(box.id || bundle.id, `box_${Date.now()}`);
       const id = await existingIdFor(WIDGET_STORE, requestedId, onConflict);
       if (onConflict === "skip" && await read(WIDGET_STORE, requestedId)) return { kind: "box", id: requestedId, skipped: true };
-      await write(WIDGET_STORE, { id, content: { ...box, id, updatedAt: now() } });
+      await write(WIDGET_STORE, { id, content: normalizeBox({ ...box, id, updatedAt: now() }) });
       return { kind: "box", id };
     }
     if (bundle.kind === "workspace" || bundle.format === "tlworkspace") {
@@ -221,7 +229,7 @@ window.TrackerLensPortableRuntime = (() => {
       if (onConflict === "skip" && await read(PAGE_STORE, requestedId)) return { kind: "workspace", id: requestedId, skipped: true };
       await Promise.all((bundle.assets || []).map((asset) => {
         const assetId = normalizeText(asset.id, "");
-        return assetId ? write(WIDGET_STORE, { id: assetId, content: { ...asset, updatedAt: now() } }) : null;
+        return assetId ? write(WIDGET_STORE, { id: assetId, content: normalizeBox({ ...asset, updatedAt: now() }) }) : null;
       }).filter(Boolean));
       await write(PAGE_STORE, { id, content: { ...workspace, id, updatedAt: now() } });
       const graph = bundle.runtime?.graph;

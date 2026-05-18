@@ -261,6 +261,8 @@ body {
 .tl-editor-main {
   min-width: 0;
   padding: 18px;
+  display: grid;
+  grid-template-rows: 44px minmax(0, 1fr);
   overflow: hidden;
 }
 
@@ -311,6 +313,7 @@ body {
 }
 
 .tl-editor-grid {
+  min-height: 0;
   display: grid;
   grid-template-columns: minmax(360px, 1.1fr) minmax(360px, 0.9fr);
   gap: 16px;
@@ -324,6 +327,11 @@ body {
   border-radius: var(--tl-radius-sm);
   background: rgba(10, 17, 24, 0.72);
   overflow: hidden;
+}
+
+.tl-code-panel {
+  display: grid;
+  grid-template-rows: 44px minmax(0, 1fr) 42px;
 }
 
 .tl-tabs {
@@ -355,9 +363,13 @@ body {
 
 .tl-code-body {
   position: relative;
-  height: calc(100% - 86px);
+  min-height: 0;
   overflow: hidden;
   background: linear-gradient(90deg, rgba(255, 255, 255, 0.035) 0 44px, transparent 44px);
+}
+
+.tl-code-body .tl-cm6-host {
+  min-height: 0;
 }
 
 .tl-code-lines {
@@ -693,6 +705,15 @@ body {
   min-height: 82px;
   padding: 10px;
   resize: vertical;
+}
+
+.tl-version-panel {
+  display: grid;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid var(--tl-border-soft);
+  border-radius: var(--tl-radius-sm);
+  background: rgba(5, 10, 16, 0.52);
 }
 
 .tl-select-row,

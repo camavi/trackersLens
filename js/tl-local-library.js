@@ -13,6 +13,9 @@ window.TrackerLensLocalLibrary = (() => {
     return raw === "boxTracker" ? "boxTracker" : "boxLens";
   };
 
+  const normalizeVersionedContent = (content) =>
+    window.TrackerLensBoxVersioning?.normalizeBox ? window.TrackerLensBoxVersioning.normalizeBox(content) : content;
+
   const openDb = () =>
     new Promise((resolve, reject) => {
       if (!window.indexedDB) {
@@ -52,7 +55,7 @@ window.TrackerLensLocalLibrary = (() => {
   };
 
   const normalizeWidgetAsset = (record, index) => {
-    const content = record?.content && typeof record.content === "object" ? record.content : record || {};
+    const content = normalizeVersionedContent(record?.content && typeof record.content === "object" ? record.content : record || {});
     const type = normalizeType(content);
     const name = normalizeText(content.name || content.title, type === "boxTracker" ? "Box Tracker" : "Box Lens");
 
@@ -67,6 +70,8 @@ window.TrackerLensLocalLibrary = (() => {
       icon: normalizeText(content.icon, type === "boxTracker" ? "cloud_queue" : "dashboard"),
       color: normalizeText(content.color, type === "boxTracker" ? "#35c979" : "#9b5cf5"),
       version: normalizeText(content.version, "0.1.0"),
+      runtimeVersion: normalizeText(content.runtimeVersion || content.versioning?.runtimeVersion, ">=0.1.0"),
+      versioning: content.versioning && typeof content.versioning === "object" ? { ...content.versioning } : null,
       code: content.code && typeof content.code === "object" ? { ...content.code } : {},
       runtime: content.runtime && typeof content.runtime === "object" ? { ...content.runtime } : {},
       sampleOutput: content.sampleOutput && typeof content.sampleOutput === "object" ? { ...content.sampleOutput } : null,

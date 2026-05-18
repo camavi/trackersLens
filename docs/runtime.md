@@ -113,6 +113,7 @@ Implemented first-pass modules:
 - `core/runtime/event-log-store.js`
 - `core/runtime/runtime-graph-store.js`
 - `core/runtime/workspace-portable.js`
+- `core/runtime/box-versioning.js`
 
 Current write points:
 
@@ -128,6 +129,23 @@ Current write points:
 - `js/workspaceView.js` persists emitted events and runtime errors while the viewer is running.
 - `js/connectionsView.js` reads runtime stores and exposes the first Runtime Inspector in `connections.html`.
 - `js/connectionsView.js` graph view renders a first Flow Map and highlights recent activity from `tl_events`.
+- `js/boxLensEditor.js` and `js/boxTrackerEditor.js` normalize box version metadata on save.
+- `core/runtime/workspace-portable.js` normalizes box version metadata during `.tlbox` / `.tlworkspace` export and import.
+
+## Box Versioning
+
+`core/runtime/box-versioning.js` defines the central box version contract used by boxLens, boxTracker, library export and workspace export.
+
+Persisted boxes now include:
+
+- `version`
+- `runtimeVersion`
+- `compatibility`
+- `changelog`
+- `migration`
+- `versioning.contractVersion`
+
+Legacy boxes with only `version` are normalized on editor save, library read, portable export and portable import.
 
 Current limitations:
 

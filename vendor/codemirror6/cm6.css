@@ -1,12 +1,12 @@
 .tl-cm6-host {
   height: 100%;
-  min-height: 100%;
+  min-height: 0;
   background: #071018;
 }
 
 .tl-cm6-host .cm-editor {
   height: 100%;
-  min-height: 100%;
+  min-height: 0;
   border-radius: 0;
 }
 

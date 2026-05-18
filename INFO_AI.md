@@ -3620,6 +3620,39 @@ Prossimi passi:
 - Snapshot runtime graph opzionale.
 - Version migrations sopra `formatVersion`.
 
+## Aggiornamento 2026-05-18 - Versioning Boxes punto 5
+
+Obiettivo della sessione: rendere i box locali versionabili con un contratto unico condiviso tra editor, libreria e formato export.
+
+Fatto:
+
+- Aggiunto `core/runtime/box-versioning.js`.
+- Aggiunto `docs/box-versioning.md`.
+- Contratto box:
+  - `version`;
+  - `runtimeVersion`;
+  - `compatibility`;
+  - `changelog`;
+  - `migration`;
+  - `versioning.contractVersion`.
+- `editorBoxLens.html` e `editorBoxTracker.html` caricano il modulo versioning.
+- `js/boxLensEditor.js`:
+  - normalizza versioning su load/save;
+  - rigenera `manifest.json` dal contratto centrale;
+  - aggiunge UI versioning nelle proprietà.
+- `js/boxTrackerEditor.js`:
+  - normalizza versioning su load/save;
+  - aggiunge UI versioning nella tab `Avanzate`.
+- `js/tl-local-library.js` espone `runtimeVersion` e `versioning` nelle card normalizzate.
+- `core/runtime/workspace-portable.js` normalizza versioning in export/import `.tlbox` e `.tlworkspace`.
+- Aggiornati `docs/runtime.md` e `docs/new_vision_progress.md`.
+
+Prossimi passi:
+
+- Enforcement runtime della compatibility.
+- Migrazioni automatiche reali tra versioni box.
+- History multi-entry del changelog.
+
 ## Aggiornamento 2026-05-18 - Inizio punto 3 Sandbox Isolation
 
 Obiettivo della sessione: aprire il punto 3 con un gate centrale di policy prima di costruire il runner iframe sandboxato.

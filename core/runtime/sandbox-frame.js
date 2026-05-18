@@ -51,48 +51,26 @@
     style.textContent = css || "";
   };
 
-  const mountRuntime = async ({ html = "", css = "", js = "", data = {}, policy = {} } = {}) => {
+  const readPath = (source = {}, path = "") =>
+    String(path || "").split(".").filter(Boolean).reduce((value, key) => value?.[key], source);
+
+  const applyDataBindings = (root, data = {}) => {
+    if (!root) return;
+    root.querySelectorAll("[data-tl-bind]").forEach((element) => {
+      const key = element.getAttribute("data-tl-bind");
+      const value = readPath(data, key);
+      if (value !== undefined && value !== null) element.textContent = String(value);
+    });
+  };
+
+  const mountRuntime = async ({ html = "", css = "", data = {}, policy = {} } = {}) => {
     try {
       const root = document.getElementById("tl-sandbox-root");
       sandboxContext = { data: data || {}, policy: policy || {} };
       listeners = {};
       installCss(css);
       root.innerHTML = html || "";
-
-      const source = String(js || "").includes("export default")
-        ? String(js || "")
-        : `${String(js || "")}\nexport default (window.boxLens || null);`;
-      const blob = new Blob([source], { type: "text/javascript" });
-      const url = URL.createObjectURL(blob);
-      const mod = await import(url);
-      URL.revokeObjectURL(url);
-      const candidate = mod.default;
-
-      if (typeof candidate === "function") {
-        const runtime = candidate(root, {
-          data: sandboxContext.data,
-          policy: sandboxContext.policy,
-          fetch: (url, options = {}) => requestCapability("fetch", { url, options }),
-          websocket: createSandboxWebSocket,
-          clipboard: {
-            writeText: (text = "") => requestCapability("clipboard-write", { text }),
-          },
-          emit: (channel, payload) => {
-            parent.postMessage({
-              type: "tl:sandbox:emit",
-              channel: channel || "default",
-              payload: payload || {},
-            }, "*");
-          },
-        });
-        if (typeof runtime === "function") listeners = { default: runtime, "*": runtime };
-        else if (runtime?.listener) listeners = runtime.listener;
-      }
-
-      const initialListener = listeners.default || listeners["*"];
-      if (typeof initialListener === "function") {
-        initialListener(sandboxContext.data, { channel: "default", initial: true });
-      }
+      applyDataBindings(root, sandboxContext.data);
       parent.postMessage({ type: "tl:sandbox:ready" }, "*");
     } catch (error) {
       reportError(error);
@@ -101,6 +79,7 @@
 
   const updateRuntime = ({ channel = "default", data = {}, meta = {} } = {}) => {
     sandboxContext.data = data || {};
+    applyDataBindings(document.getElementById("tl-sandbox-root"), sandboxContext.data);
     const listener = listeners[channel] || listeners.default || listeners["*"];
     if (typeof listener !== "function") return;
     try {

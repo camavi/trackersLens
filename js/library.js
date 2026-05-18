@@ -337,7 +337,7 @@ const renderBoxCard = (box) =>
       { class: "tl-card-foot", align: "center", justify: "space-between", gap: 12 },
       _.div(
         _.div({ class: `tl-card-category${box.type === "boxTracker" ? " is-tracker" : ""}${box.type === "workspace" ? " is-workspace" : ""}` }, box.category),
-        _.div({ class: "tl-card-meta" }, `${box.author} · v${box.version}`)
+        _.div({ class: "tl-card-meta" }, `${box.author} · v${box.version}${box.runtimeVersion ? ` · ${box.runtimeVersion}` : ""}`)
       ),
       box.type === "workspace"
         ? btn(

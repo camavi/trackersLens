@@ -15,12 +15,20 @@ const TRACKER_STORES = [
 ];
 
 const makeTrackerId = () => requestedTrackerId || `tracker_${Date.now()}`;
+const boxVersioning = () => window.TrackerLensBoxVersioning;
+const normalizeBoxVersion = (box) => boxVersioning()?.normalizeBox ? boxVersioning().normalizeBox(box) : {
+  ...box,
+  version: box.version || "0.1.0",
+  runtimeVersion: box.runtimeVersion || ">=0.1.0",
+};
 
 const defaultTracker = {
   ...trackerData.tracker,
   id: makeTrackerId(),
   name: requestedRuntimeLabel || trackerData.tracker.name,
   type: "boxTracker",
+  version: trackerData.tracker.version || "0.1.0",
+  runtimeVersion: trackerData.tracker.runtimeVersion || ">=0.1.0",
   trackerType: requestedSource || trackerData.tracker.trackerType || "websocket",
   runtimeMode: requestedRuntimeMode || trackerData.tracker.runtimeMode || "real-time",
   source: requestedSource || trackerData.tracker.source || "websocket",
@@ -262,9 +270,28 @@ const redo = () => {
 
 const mutateTracker = (patch, shouldRemount = false) => {
   pushHistory();
-  trackerState.tracker = { ...trackerState.tracker, ...patch };
+  trackerState.tracker = normalizeBoxVersion({ ...trackerState.tracker, ...patch });
   trackerState.savedLabel = "Modifiche non salvate";
   if (shouldRemount) mountTrackerEditor();
+};
+
+const mutateTrackerVersioning = (patch, shouldRemount = false) => {
+  const current = normalizeBoxVersion(trackerState.tracker);
+  mutateTracker({
+    versioning: {
+      ...current.versioning,
+      ...patch,
+      compatibility: {
+        ...(current.versioning?.compatibility || {}),
+        ...(patch.compatibility || {}),
+      },
+      migration: {
+        ...(current.versioning?.migration || {}),
+        ...(patch.migration || {}),
+      },
+      changelog: Array.isArray(patch.changelog) ? patch.changelog : current.versioning?.changelog || [],
+    },
+  }, shouldRemount);
 };
 
 const mutateSampleOutput = (patch, shouldRemount = false) => {
@@ -286,7 +313,7 @@ const normalizeStoredTracker = (record) => {
   const runtime = content.runtime || {};
 
   return {
-    tracker: {
+    tracker: normalizeBoxVersion({
       ...defaultTracker,
       ...content,
       id: record?.id || content.id || requestedTrackerId || defaultTracker.id,
@@ -300,7 +327,7 @@ const normalizeStoredTracker = (record) => {
       autoStart: content.autoStart !== false,
       visibility: content.visibility || defaultTracker.visibility,
       tags: Array.isArray(content.tags) ? content.tags : defaultTracker.tags,
-    },
+    }),
     sampleOutput: content.sampleOutput && typeof content.sampleOutput === "object" ? content.sampleOutput : { ...trackerData.sampleJson },
   };
 };
@@ -346,7 +373,7 @@ const loadTrackerForEdit = async () => {
 const trackerPayload = () => ({
   id: trackerState.tracker.id,
   content: {
-    ...trackerState.tracker,
+    ...normalizeBoxVersion(trackerState.tracker),
     type: "boxTracker",
     runtime: {
       mode: trackerState.tracker.runtimeMode,
@@ -1159,9 +1186,45 @@ const renderAdvancedPanel = () =>
   _.Card(
     { class: "tl-panel" },
     _.h3({ class: "tl-panel-title" }, "Avanzate"),
+    renderVersioningPanel(),
     _.Select({ label: "Livello log", value: trackerState.tracker.logLevel, options: logLevelOptions, slots: selectArrowSlot, onChange: (value) => mutateTracker({ logLevel: value }, true) }),
     _.label({ class: "tl-field" }, _.span("Note"), _.textarea({ value: trackerState.tracker.note, onInput: (event) => mutateTracker({ note: String(readInputValue(event)) }) }))
   );
+
+const migrationOptions = [
+  { value: "none", label: "None" },
+  { value: "manual", label: "Manual" },
+  { value: "automatic", label: "Automatic" },
+];
+
+const renderVersioningPanel = () => {
+  const versioning = normalizeBoxVersion(trackerState.tracker).versioning || {};
+  const migration = versioning.migration || {};
+  return _.div(
+    { class: "tl-version-panel" },
+    _.Grid(
+      { cols: "1fr 1fr 140px", gap: 12 },
+      _.label({ class: "tl-field" }, _.span("Version"), _.Input({ value: versioning.version || trackerState.tracker.version || "0.1.0", onInput: (event) => mutateTrackerVersioning({ version: String(readInputValue(event)) }) })),
+      _.label({ class: "tl-field" }, _.span("Runtime"), _.Input({ value: versioning.runtimeVersion || trackerState.tracker.runtimeVersion || ">=0.1.0", onInput: (event) => mutateTrackerVersioning({ runtimeVersion: String(readInputValue(event)) }) })),
+      _.Select({ label: "Migration", value: migration.policy || "none", options: migrationOptions, slots: selectArrowSlot, onChange: (value) => mutateTrackerVersioning({ migration: { policy: value } }, true) })
+    ),
+    _.label(
+      { class: "tl-field" },
+      _.span("Changelog"),
+      _.textarea({
+        value: versioning.changelog?.[0]?.notes || "",
+        placeholder: "Note della versione corrente",
+        onInput: (event) => mutateTrackerVersioning({
+          changelog: [{
+            version: versioning.version || trackerState.tracker.version || "0.1.0",
+            date: new Date().toISOString().slice(0, 10),
+            notes: String(readInputValue(event)),
+          }],
+        }),
+      })
+    )
+  );
+};
 
 const renderPreview = () =>
   _.section(

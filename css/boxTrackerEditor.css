@@ -311,6 +311,16 @@ body {
   resize: vertical;
 }
 
+.tl-version-panel {
+  display: grid;
+  gap: 12px;
+  margin: 0 0 14px;
+  padding: 12px;
+  border: 1px solid var(--tl-border-soft);
+  border-radius: var(--tl-radius-sm);
+  background: rgba(5, 10, 16, 0.52);
+}
+
 .tl-select-row,
 .tl-color-row,
 .tl-setting-row,
