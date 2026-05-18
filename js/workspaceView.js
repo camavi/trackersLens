@@ -43,7 +43,9 @@ const trackerLaunch = (label, payload = {}, level = "info") => {
   trackerLaunchLog.push(entry);
   if (trackerLaunchLog.length > 300) trackerLaunchLog.shift();
   const method = level === "warn" ? "warn" : level === "error" ? "error" : "info";
-  console[method](`[TL Tracker Launch] ${label}`, payload);
+  if (runtimeDebugEnabled() || method !== "info") {
+    console[method](`[TL Tracker Launch] ${label}`, payload);
+  }
   runtimeDebug(label, payload);
 };
 
