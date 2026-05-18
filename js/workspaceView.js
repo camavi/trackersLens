@@ -64,8 +64,15 @@ const openEditor = () => {
 const boxById = (boxId) =>
   workspaceViewState.boxes.find((box) => box.id === boxId) || null;
 
+const isBoxTracker = (box = {}) => {
+  const type = String(box.type || box.runtime?.type || "").toLowerCase();
+  if (type === "boxtracker" || type === "box-tracker") return true;
+  const source = box.source || box.trackerType || box.runtime?.source || box.runtime?.trackerType || box.runtime?.runtime?.source || box.runtime?.runtime?.trackerType;
+  return Boolean(source && !getRuntimeCode(box).html && !getRuntimeCode(box).css);
+};
+
 const trackerBoxes = () =>
-  workspaceViewState.boxes.filter((box) => box.type === "boxTracker");
+  workspaceViewState.boxes.filter(isBoxTracker);
 
 const renderBrand = () =>
   _.Row(
@@ -231,7 +238,7 @@ const scopedRuntimeCss = (box) => {
 
 const hasRuntimeView = (box) => {
   const code = getRuntimeCode(box);
-  return box.type !== "boxTracker" && Boolean(code.html || code.css || code.js);
+  return !isBoxTracker(box) && Boolean(code.html || code.css || code.js);
 };
 
 const renderRuntimeBox = (box) =>
@@ -254,15 +261,15 @@ const renderWorkspaceBox = (box) =>
   hasRuntimeView(box) ? renderRuntimeBox(box) :
     _.article(
       {
-        class: `tl-view-box${box.type === "boxTracker" ? " is-tracker" : ""}`,
+        class: `tl-view-box${isBoxTracker(box) ? " is-tracker" : ""}`,
         style: {
           gridColumn: `${box.x || 1} / span ${box.width || 6}`,
           gridRow: `${box.y || 1} / span ${box.height || 4}`,
-          "--asset-color": box.color || (box.type === "boxTracker" ? "#35c979" : "#9b5cf5"),
+          "--asset-color": box.color || (isBoxTracker(box) ? "#35c979" : "#9b5cf5"),
           zIndex: box.zIndex || 1,
         },
       },
-      _.span({ class: "tl-view-box-icon" }, icon(box.icon || (box.type === "boxTracker" ? "cloud_queue" : "dashboard"), "sm")),
+      _.span({ class: "tl-view-box-icon" }, icon(box.icon || (isBoxTracker(box) ? "cloud_queue" : "dashboard"), "sm")),
       _.div(
         { class: "tl-view-box-copy" },
         _.h2(box.name || "Box"),
@@ -554,7 +561,7 @@ const pushTrackerLog = (entry) => {
 
 const recordTrackerEvent = (boxId, channel, payload, payloadText = "") => {
   const box = boxById(boxId);
-  if (!box || box.type !== "boxTracker") return;
+  if (!box || !isBoxTracker(box)) return;
   const previous = trackerStat(box);
   const payloadSnapshot = clonePayloadSnapshot(payload);
   const latency = payload?._trackerRuntime?.latencyMs || payload?._trackerTest?.latencyMs || 0;
@@ -578,7 +585,7 @@ const recordTrackerEvent = (boxId, channel, payload, payloadText = "") => {
 
 const recordTrackerError = (boxId, error) => {
   const box = boxById(boxId);
-  if (!box || box.type !== "boxTracker") return;
+  if (!box || !isBoxTracker(box)) return;
   const previous = trackerStat(box);
   const message = error?.message || String(error || "Errore tracker");
   const errorStat = {
@@ -1440,8 +1447,8 @@ const trackerRuntimeConfig = (box) => {
     ...runtime,
     ...asset,
     ...box,
-    source: box.source || asset.source || runtime.source || box.trackerType || asset.trackerType || "manual",
-    trackerType: box.trackerType || asset.trackerType || runtime.source || "manual",
+    source: box.source || asset.source || runtime.source || box.trackerType || asset.trackerType || runtime.trackerType || "manual",
+    trackerType: box.trackerType || asset.trackerType || runtime.trackerType || runtime.source || "manual",
     runtimeMode: box.runtimeMode || asset.runtimeMode || runtime.mode || "manual",
     endpoint: box.endpoint || asset.endpoint || runtime.endpoint || "",
     method: box.method || asset.method || runtime.method || "GET",
@@ -1504,10 +1511,16 @@ const startWebSocketTrackerRuntime = (box, tracker, emit) => {
 
   const connect = () => {
     if (disposed) return;
-    socket = new WebSocket(tracker.endpoint);
+    try {
+      socket = new WebSocket(tracker.endpoint);
+    } catch (error) {
+      recordTrackerError(box.id, error);
+      return;
+    }
     socket.onopen = () => {
       const query = String(tracker.query || "").trim();
       if (query) socket.send(query);
+      updateTrackerStat(box.id, { status: "live", channel: tracker.outputChannel || trackerChannel(box), lastError: "" });
     };
     socket.onmessage = (event) => {
       const payload = applyTransformRules(parseWebSocketMessage(event.data), tracker.transformText, tracker);
@@ -1574,7 +1587,7 @@ const startTrackerRuntime = (box) => {
 
 const startTrackerRuntimes = () => {
   cleanupTrackerRuntimes();
-  workspaceViewState.boxes.filter((box) => box.type === "boxTracker").forEach(startTrackerRuntime);
+  workspaceViewState.boxes.filter(isBoxTracker).forEach(startTrackerRuntime);
 };
 
 const mountWorkspaceView = () => {
