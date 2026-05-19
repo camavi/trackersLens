@@ -9,6 +9,7 @@ const workspaceViewState = {
   runtimes: new Map(),
   trackerTimers: new Map(),
   trackerStats: new Map(),
+  boxPerformanceStats: new Map(),
   trackerLog: [],
   trackerLogSeq: 0,
   trackerLogPaused: false,
@@ -89,6 +90,7 @@ window.TLRuntimeDebug = {
       runtimes: Array.from(workspaceViewState.runtimes.keys()),
       trackerTimers: Array.from(workspaceViewState.trackerTimers.keys()),
       trackerStats: Array.from(workspaceViewState.trackerStats.entries()),
+      boxPerformanceStats: Array.from(workspaceViewState.boxPerformanceStats.entries()),
     };
   },
 };
@@ -665,6 +667,39 @@ const persistTrackerPerformance = (boxId, stat, payload = {}, payloadText = "") 
     payload,
     payloadText,
   }).catch((error) => console.warn("Performance box non persistita:", error));
+};
+
+const recordBoxPerformanceSample = ({ boxId = "", status = "live", payload = {}, payloadText = "", latencyMs = 0, error = "" } = {}) => {
+  const box = boxById(boxId);
+  if (!box) return;
+  const previous = workspaceViewState.boxPerformanceStats.get(boxId) || {
+    eventCount: 0,
+    errorCount: 0,
+    startedAt: new Date().toISOString(),
+    status: "idle",
+  };
+  const next = {
+    ...previous,
+    status: error ? "error" : status,
+    eventCount: previous.eventCount + (error ? 0 : 1),
+    errorCount: previous.errorCount + (error ? 1 : 0),
+    lastAt: new Date().toISOString(),
+    lastLatencyMs: Number(latencyMs) || previous.lastLatencyMs || 0,
+    lastError: error || "",
+  };
+  const performancePatch = trackerPerformancePatch(next, error ? { error } : payload, payloadText);
+  const stat = { ...next, ...performancePatch };
+  workspaceViewState.boxPerformanceStats.set(boxId, stat);
+  const monitor = runtimePerformanceMonitor();
+  if (!monitor?.recordSample) return;
+  monitor.recordSample({
+    workspaceId: workspaceViewState.workspace.id || "global",
+    boxId,
+    stat,
+    payload: error ? { error } : payload,
+    payloadText,
+    status: stat.status,
+  }).catch((monitorError) => console.warn("Performance boxLens non persistita:", monitorError));
 };
 
 const updateTrackerStat = (boxId, patch = {}) => {
@@ -1283,36 +1318,68 @@ const registerEventBusSubscriptions = () => {
         return;
       }
 
-      handler(mapConnectionPayload(payload, connection.mapping), {
-        channel: event.channel,
-        event: {
-          id: event.id || "",
-          workspaceId: event.workspaceId || workspaceViewState.workspace.id || "global",
+      const mappedPayload = mapConnectionPayload(payload, connection.mapping);
+      const deliveryStarted = performance.now();
+      try {
+        handler(mappedPayload, {
           channel: event.channel,
-          eventType: event.eventType || "emitted",
-          sourceNodeId: event.sourceNodeId || "",
-          targetNodeId: event.targetNodeId || "",
-          connectionId: event.connectionId || "",
-          status: event.status || "ok",
-          latencyMs: event.latencyMs || 0,
-          createdAt: event.createdAt || new Date().toISOString(),
-        },
-        connection: {
-          id: connection.id || "",
-          fromBoxId: connection.fromBoxId || "",
-          toBoxId: connection.toBoxId || "",
-          channel: connection.channel || event.channel || "default",
-          mapping: connection.mapping || {},
-        },
-        fromBox: { id: connection.fromBoxId || "", name: boxById(connection.fromBoxId)?.name || "" },
-        toBox: { id: connection.toBoxId || "", name: boxById(connection.toBoxId)?.name || "" },
-        workspace: { id: workspaceViewState.workspace.id || "global", name: workspaceViewState.workspace.name || "" },
+          event: {
+            id: event.id || "",
+            workspaceId: event.workspaceId || workspaceViewState.workspace.id || "global",
+            channel: event.channel,
+            eventType: event.eventType || "emitted",
+            sourceNodeId: event.sourceNodeId || "",
+            targetNodeId: event.targetNodeId || "",
+            connectionId: event.connectionId || "",
+            status: event.status || "ok",
+            latencyMs: event.latencyMs || 0,
+            createdAt: event.createdAt || new Date().toISOString(),
+          },
+          connection: {
+            id: connection.id || "",
+            fromBoxId: connection.fromBoxId || "",
+            toBoxId: connection.toBoxId || "",
+            channel: connection.channel || event.channel || "default",
+            mapping: connection.mapping || {},
+          },
+          fromBox: { id: connection.fromBoxId || "", name: boxById(connection.fromBoxId)?.name || "" },
+          toBox: { id: connection.toBoxId || "", name: boxById(connection.toBoxId)?.name || "" },
+          workspace: { id: workspaceViewState.workspace.id || "global", name: workspaceViewState.workspace.name || "" },
+        });
+      } catch (error) {
+        recordBoxPerformanceSample({
+          boxId: connection.toBoxId,
+          status: "error",
+          payload: mappedPayload,
+          latencyMs: Math.max(1, Math.round(performance.now() - deliveryStarted)),
+          error: error?.message || String(error),
+        });
+        persistRuntimeEvent({
+          workspaceId: workspaceViewState.workspace.id || "global",
+          channel: event.channel,
+          eventType: "delivery_error",
+          sourceNodeId: connection.fromBoxId,
+          targetNodeId: connection.toBoxId,
+          connectionId: connection.id || "",
+          payload: { error: error?.message || String(error) },
+          status: "error",
+          latencyMs: Math.max(1, Math.round(performance.now() - deliveryStarted)),
+        });
+        throw error;
+      }
+      const deliveryLatencyMs = Math.max(1, Math.round(performance.now() - deliveryStarted));
+      recordBoxPerformanceSample({
+        boxId: connection.toBoxId,
+        status: "live",
+        payload: mappedPayload,
+        latencyMs: deliveryLatencyMs,
       });
       runtimeDebug("delivery-dispatched", {
         connectionId: connection.id || "",
         fromBoxId: connection.fromBoxId || "",
         toBoxId: connection.toBoxId || "",
         channel: event.channel,
+        deliveryLatencyMs,
       });
 
       persistRuntimeEvent({
@@ -1322,9 +1389,9 @@ const registerEventBusSubscriptions = () => {
         sourceNodeId: connection.fromBoxId,
         targetNodeId: connection.toBoxId,
         connectionId: connection.id || "",
-        payload: mapConnectionPayload(payload, connection.mapping),
+        payload: mappedPayload,
         status: "ok",
-        latencyMs: event.latencyMs || 0,
+        latencyMs: deliveryLatencyMs,
       });
     }, {
       id: `connection_${connection.id || connection.fromBoxId}_${connection.toBoxId}`,

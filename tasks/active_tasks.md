@@ -181,7 +181,7 @@ Title: Box Performance Monitor
 
 Priority: High
 
-Status: Active
+Status: Complete
 
 Files:
 
@@ -213,7 +213,9 @@ Runtime Notes:
 - 2026-05-18: added `tl_box_performance` store and performance summary API.
 - 2026-05-18: workspace Monitor boxTracker shows events/sec, network/min and estimated memory.
 - 2026-05-18: Analytics reads persisted performance records when available.
-- Remaining: CPU sampling, boxLens sandbox metrics, thresholds and Flow Map performance overlay.
+- 2026-05-19: boxLens delivery now records performance samples with latency/error health, and Flow Map displays performance badges from `tl_box_performance`.
+- 2026-05-19: added local health thresholds with override support via `tl_perf_thresholds`.
+- Remaining: optional visual threshold editor and worker runtime for metrics while workspace is closed.
 
 ## [TASK-009]
 

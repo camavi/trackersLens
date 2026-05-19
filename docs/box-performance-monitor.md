@@ -54,6 +54,14 @@ TrackerLensBoxPerformanceMonitor.summarizeWindow({ events, boxId, workspaceId, s
 - riceve errore;
 - aggiorna il monitor live.
 
+Aggiorna anche le metriche dei `boxLens` quando ricevono payload dal bus runtime:
+
+- delivery latency;
+- eventi ricevuti;
+- errori listener;
+- payload size;
+- health `healthy`, `warning`, `error`, `idle`.
+
 Il dialog `Monitor boxTracker` mostra ora:
 
 - events/sec;
@@ -74,17 +82,37 @@ Il dialog `Monitor boxTracker` mostra ora:
 - memoria box;
 - tabella monitoraggio tracker con `Ev/s` e `Net/min`.
 
+## Integrazione Flow Map
+
+`flowMap.html` carica `box-performance-monitor.js` e `js/flowMapView.js` legge `tl_box_performance` per mostrare badge performance direttamente sui nodi runtime:
+
+- events/sec;
+- latency media;
+- health status;
+- error/warning tramite tono badge.
+
+## Soglie
+
+Le soglie runtime hanno default locali:
+
+```js
+{
+  warningErrorRate: 5,
+  errorErrorRate: 20,
+  warningLatencyMs: 500
+}
+```
+
+Possono essere sovrascritte nel contesto runtime con `localStorage.tl_perf_thresholds`.
+
 ## Limiti attuali
 
 - La memoria e stimata, perche il browser non espone memoria per singolo box.
-- CPU per box non e ancora misurabile direttamente.
+- CPU per box non e misurabile direttamente in modo affidabile dal browser, quindi resta fuori dalla metrica persistita.
 - Le metriche sono raccolte quando il workspace runtime e aperto.
 - Il calcolo network/min usa payload persistiti e non ancora i byte di protocollo reali.
 
 ## Prossimi step
 
-1. Aggiungere campionamento periodico anche per boxLens sandboxed.
-2. Aggiungere soglie warning/error configurabili.
-3. Collegare Performance Monitor a Flow Map e DevTools.
-4. Aggiungere retention policy dedicata per `tl_box_performance`.
-5. Valutare un worker runtime per metriche anche a workspace chiuso.
+1. Aggiungere editor visuale delle soglie in Settings/DevTools.
+2. Valutare un worker runtime per metriche anche a workspace chiuso.

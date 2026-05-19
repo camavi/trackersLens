@@ -3,6 +3,11 @@ window.TrackerLensBoxPerformanceMonitor = (() => {
   const STORE = "tl_box_performance";
   const SCHEMA_VERSION = "1.0.0";
   const WINDOW_MS = 60 * 1000;
+  const DEFAULT_THRESHOLDS = {
+    warningErrorRate: 5,
+    errorErrorRate: 20,
+    warningLatencyMs: 500,
+  };
 
   const now = () => new Date().toISOString();
   const normalizeText = (value, fallback = "") => value === null || value === undefined ? fallback : String(value).trim() || fallback;
@@ -13,6 +18,20 @@ window.TrackerLensBoxPerformanceMonitor = (() => {
   };
   const estimateMemoryBytes = ({ eventCount = 0, lastPayloadBytes = 0, errorCount = 0 } = {}) =>
     Math.max(1024, eventCount * 360 + errorCount * 540 + lastPayloadBytes * 2);
+  const thresholds = () => {
+    try {
+      return { ...DEFAULT_THRESHOLDS, ...(JSON.parse(localStorage.getItem("tl_perf_thresholds") || "{}") || {}) };
+    } catch (_) {
+      return { ...DEFAULT_THRESHOLDS };
+    }
+  };
+  const healthStatus = ({ status = "", errorRate = 0, avgLatencyMs = 0, eventCount = 0 } = {}) => {
+    const limits = thresholds();
+    if (status === "error" || errorRate >= limits.errorErrorRate) return "error";
+    if (errorRate >= limits.warningErrorRate || avgLatencyMs >= limits.warningLatencyMs || (!eventCount && status === "live")) return "warning";
+    if (status === "stopped" || status === "paused") return status;
+    return eventCount ? "healthy" : "idle";
+  };
 
   const createStores = (db) => {
     if (db.objectStoreNames.contains(STORE)) return;
@@ -87,7 +106,7 @@ window.TrackerLensBoxPerformanceMonitor = (() => {
     const errorCount = safeNumber(stat.errorCount, errors.length);
     const lastPayloadBytes = safeNumber(sample.lastPayloadBytes || stat.lastPayloadBytes, 0);
 
-    return {
+    const summary = {
       schemaVersion: SCHEMA_VERSION,
       id: `perf_${workspaceId || "global"}_${boxId || "box"}`,
       workspaceId,
@@ -104,6 +123,10 @@ window.TrackerLensBoxPerformanceMonitor = (() => {
       estimatedMemoryBytes: estimateMemoryBytes({ eventCount, errorCount, lastPayloadBytes }),
       windowMs: WINDOW_MS,
       updatedAt: now(),
+    };
+    return {
+      ...summary,
+      health: healthStatus(summary),
     };
   };
 
@@ -138,11 +161,13 @@ window.TrackerLensBoxPerformanceMonitor = (() => {
 
   return {
     SCHEMA_VERSION,
+    DEFAULT_THRESHOLDS,
     STORE,
     ensureDb,
     list,
     recordSample,
     refreshFromEvents,
+    healthStatus,
     summarizeWindow,
   };
 })();

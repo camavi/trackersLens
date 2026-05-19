@@ -38,6 +38,7 @@ const state = {
     nodes: [],
     dependencies: [],
   },
+  performance: [],
   libraryItems: [],
   focus: {
     mode: params.get("runtime") || "",
@@ -279,7 +280,7 @@ const loadRuntime = async (options = {}) => {
     const snapshot = engineResult?.runtime || (window.TrackerLensRuntimeSnapshotStore?.load
       ? await window.TrackerLensRuntimeSnapshotStore.load({ includeConnections: true })
       : null);
-    const [channels, flows, events, flowLogs, runtimeNodes, dependencies, connections, libraryItems] = snapshot
+    const [channels, flows, events, flowLogs, runtimeNodes, dependencies, connections, libraryItems, performanceRecords] = snapshot
       ? await Promise.all([
         Promise.resolve(snapshot.channels),
         Promise.resolve(snapshot.flows),
@@ -289,6 +290,7 @@ const loadRuntime = async (options = {}) => {
         Promise.resolve(snapshot.runtimeDependencies),
         Promise.resolve(snapshot.connections),
         loadLibraryItems(),
+        window.TrackerLensBoxPerformanceMonitor?.list ? window.TrackerLensBoxPerformanceMonitor.list() : Promise.resolve([]),
       ])
       : await Promise.all([
         window.TrackerLensChannelRegistry?.list ? window.TrackerLensChannelRegistry.list() : readRuntimeStore(runtimeStoreName("TL_CHANNELS", "tl_channels")),
@@ -299,6 +301,7 @@ const loadRuntime = async (options = {}) => {
         readRuntimeStore(runtimeStoreName("TL_RUNTIME_DEPENDENCIES", "tl_runtime_dependencies")),
         window.TrackerLensConnectionsStore?.list ? window.TrackerLensConnectionsStore.list() : Promise.resolve([]),
         loadLibraryItems(),
+        window.TrackerLensBoxPerformanceMonitor?.list ? window.TrackerLensBoxPerformanceMonitor.list() : Promise.resolve([]),
       ]);
 
     if (state.interaction && !force) {
@@ -312,6 +315,7 @@ const loadRuntime = async (options = {}) => {
     state.graphEngine = engineResult;
     state.libraryItems = libraryItems;
     state.connections = connections;
+    state.performance = performanceRecords || [];
     if (state.inspectorOpen && !state.focus.nodeId && nodes[0]?.id) state.focus.nodeId = nodes[0].id;
     state.updatedAt = new Date();
   } catch (error) {
@@ -512,6 +516,27 @@ const eventTypeOptions = () => [
   { value: "errors", label: "Errors" },
   { value: "other", label: "Other" },
 ];
+
+const performanceByBox = () => new Map((state.performance || []).map((record) => [record.boxId, record]));
+const nodePerformance = (node = {}) => {
+  const records = performanceByBox();
+  return records.get(node.id) || records.get(node.sourceRef) || records.get(node.assetId) || null;
+};
+const performanceTone = (perf = {}) => {
+  if (!perf) return "";
+  if (perf.health === "error" || perf.status === "error") return "red";
+  if (perf.health === "warning" || Number(perf.errorRate) >= 5 || Number(perf.avgLatencyMs) >= 500) return "gold";
+  if (perf.health === "healthy" || Number(perf.eventCount) > 0) return "green";
+  return "blue";
+};
+const performanceLabel = (perf = {}) => {
+  if (!perf) return "";
+  const eps = Number(perf.eventsPerSec) || 0;
+  const latency = Number(perf.avgLatencyMs) || Number(perf.lastLatencyMs) || 0;
+  if (eps > 0) return `${eps.toFixed(2)} ev/s`;
+  if (latency > 0) return `${Math.round(latency)} ms`;
+  return perf.health || perf.status || "";
+};
 
 const graphModel = () => graphModelApi().build({ runtime: state.runtime, filters: state.filters });
 
@@ -1820,6 +1845,7 @@ const isInlineConfigNode = (node = {}) =>
 const nodeBadges = (node = {}, live = null) => {
   const badges = [];
   const sandbox = nodeSandboxReport(node);
+  const perf = nodePerformance(node);
   if (node.metadata?.library) {
     badges.push({ label: "Library", tone: "blue" });
   } else if (isDraftNode(node)) {
@@ -1834,6 +1860,7 @@ const nodeBadges = (node = {}, live = null) => {
   else if (sandbox.status === "policy") badges.push({ label: "Policy", tone: "gold" });
   if (live?.status === "error") badges.push({ label: "Error", tone: "red" });
   else if (live) badges.push({ label: "Live", tone: "green" });
+  if (perf) badges.push({ label: performanceLabel(perf), tone: performanceTone(perf) });
 
   return badges.slice(0, 3);
 };
@@ -3065,7 +3092,10 @@ const renderCanvas = () => {
           const portCount = Math.max(inputPorts.length, outputPorts.length);
           const fieldCount = sampleOutputFields(node).length;
           const live = activity.nodeActivity.get(node.id);
-          const footerInfo = live ? `${live.count} events · ${formatShortDate(live.lastAt)}` : fieldCount ? `${fieldCount} outputs` : node.metadata?.library ? "library" : node.status || "idle";
+          const perf = nodePerformance(node);
+          const footerInfo = perf
+            ? `${performanceLabel(perf)} · ${perf.health || perf.status || "perf"}`
+            : live ? `${live.count} events · ${formatShortDate(live.lastAt)}` : fieldCount ? `${fieldCount} outputs` : node.metadata?.library ? "library" : node.status || "idle";
           const isLinkSource = state.linkingSourceId === node.id;
           const linkSource = nodeById(state.linkingSourceId);
           const isLinkTarget = Boolean(linkSource && canConnectNodes(linkSource, node));
