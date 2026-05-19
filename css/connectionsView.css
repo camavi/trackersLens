@@ -17,9 +17,9 @@ body {
   grid-template-rows: 70px minmax(0, 1fr);
   overflow: hidden;
   background:
-    radial-gradient(circle at 16% 0%, rgba(163, 90, 240, 0.13), transparent 30%),
+    radial-gradient(circle at 16% 0%, rgba(255, 199, 44, 0.13), transparent 30%),
     radial-gradient(circle at 78% 4%, rgba(53, 201, 121, 0.09), transparent 27%),
-    radial-gradient(circle at 54% 102%, rgba(240, 184, 75, 0.08), transparent 28%),
+    radial-gradient(circle at 54% 102%, rgba(255, 199, 44, 0.08), transparent 28%),
     linear-gradient(180deg, #071016 0%, #03080d 100%);
 }
 
@@ -106,7 +106,7 @@ body {
 .tl-link-edit.cms-btn {
   min-width: 104px;
   color: #fff;
-  border-color: rgba(163, 90, 240, 0.58);
+  border-color: rgba(255, 199, 44, 0.58);
   border-radius: 8px;
   background: linear-gradient(180deg, #6840ad, #56338f);
   box-shadow: 0 10px 28px rgba(86, 51, 143, 0.25);
@@ -160,7 +160,7 @@ body {
   border-radius: 8px;
   background:
     linear-gradient(180deg, rgba(13, 22, 31, 0.78), rgba(5, 10, 16, 0.82)),
-    radial-gradient(circle at 18% 0%, rgba(163, 90, 240, 0.08), transparent 32%);
+    radial-gradient(circle at 18% 0%, rgba(255, 199, 44, 0.08), transparent 32%);
   backdrop-filter: blur(18px);
   box-shadow: 0 24px 70px rgba(0, 0, 0, 0.28), inset 0 1px 0 rgba(255, 255, 255, 0.035);
 }
@@ -218,7 +218,7 @@ body {
   color: #fff;
   border-radius: 8px;
   background: linear-gradient(180deg, rgba(119, 73, 200, 0.88), rgba(80, 46, 134, 0.88));
-  box-shadow: 0 0 24px rgba(163, 90, 240, 0.18);
+  box-shadow: 0 0 24px rgba(255, 199, 44, 0.18);
 }
 
 .tl-link-type-icon {
@@ -256,7 +256,7 @@ body {
 .is-gold,
 .tl-link-badge.is-gold,
 .tl-link-orb.is-gold {
-  --tone: 240, 184, 75;
+  --tone: 255, 199, 44;
 }
 
 .is-pink,
@@ -292,7 +292,7 @@ body {
 .is-indigo,
 .tl-link-badge.is-indigo,
 .tl-link-orb.is-indigo {
-  --tone: 163, 90, 240;
+  --tone: 255, 199, 44;
 }
 
 .is-slate,
@@ -361,7 +361,7 @@ body {
 }
 
 .tl-link-summary .is-warn {
-  color: #f0b84b;
+  color: #ffc72c;
 }
 
 .tl-link-summary .is-error {
@@ -417,8 +417,8 @@ body {
 }
 
 .tl-link-status.is-inactive .tl-link-dot {
-  background: #f0b84b;
-  box-shadow: 0 0 14px rgba(240, 184, 75, 0.75);
+  background: #ffc72c;
+  box-shadow: 0 0 14px rgba(255, 199, 44, 0.75);
 }
 
 .tl-link-status.is-error .tl-link-dot {
@@ -483,7 +483,7 @@ body {
 .tl-link-view-switch .is-active.cms-btn {
   color: #fff;
   background: linear-gradient(180deg, #6840ad, #56338f);
-  box-shadow: 0 0 20px rgba(163, 90, 240, 0.22);
+  box-shadow: 0 0 20px rgba(255, 199, 44, 0.22);
 }
 
 .tl-link-table-wrap,
@@ -552,7 +552,7 @@ body {
 .tl-link-table tbody tr:hover,
 .tl-link-table tbody tr.is-selected {
   background: linear-gradient(90deg, rgba(119, 73, 200, 0.2), rgba(53, 201, 121, 0.06), transparent);
-  box-shadow: inset 2px 0 0 #a35af0;
+  box-shadow: inset 2px 0 0 #ffc72c;
 }
 
 .tl-link-table strong,
@@ -598,7 +598,7 @@ body {
   width: 4px;
   min-height: 3px;
   border-radius: 999px;
-  background: linear-gradient(180deg, #c084fc, #35c979);
+  background: linear-gradient(180deg, #ffe08a, #35c979);
   opacity: 0.74;
 }
 
@@ -608,7 +608,7 @@ body {
 
 .tl-link-result.is-inactive,
 .tl-link-result.is-timeout {
-  color: #f0b84b;
+  color: #ffc72c;
 }
 
 .tl-link-result.is-error {
@@ -807,7 +807,7 @@ body {
 }
 
 .tl-link-json-line .is-key {
-  color: #c084fc;
+  color: #ffe08a;
 }
 
 .tl-link-json-line .is-string {
@@ -834,7 +834,7 @@ body {
 
 .tl-link-inspector-actions .tl-link-primary.cms-btn {
   color: #fff;
-  border-color: rgba(163, 90, 240, 0.5);
+  border-color: rgba(255, 199, 44, 0.5);
   background: linear-gradient(180deg, #6840ad, #56338f);
 }
 
@@ -879,9 +879,9 @@ body {
   grid-template-columns: minmax(0, 1fr) 30px;
   align-items: center;
   gap: 8px;
-  border: 1px solid rgba(240, 184, 75, 0.2);
+  border: 1px solid rgba(255, 199, 44, 0.2);
   border-radius: 8px;
-  background: rgba(240, 184, 75, 0.055);
+  background: rgba(255, 199, 44, 0.055);
 }
 
 .tl-runtime-focus strong,
@@ -910,9 +910,9 @@ body {
   height: 30px;
   padding: 0;
   color: #f8d77c;
-  border-color: rgba(240, 184, 75, 0.18);
+  border-color: rgba(255, 199, 44, 0.18);
   border-radius: 8px;
-  background: rgba(240, 184, 75, 0.08);
+  background: rgba(255, 199, 44, 0.08);
 }
 
 .tl-runtime-metric {
@@ -951,7 +951,7 @@ body {
 }
 
 .tl-runtime-metric.is-gold strong {
-  color: #f0b84b;
+  color: #ffc72c;
 }
 
 .tl-runtime-list {
@@ -1038,7 +1038,7 @@ body {
 
 .tl-link-chart-line.is-purple {
   top: 38%;
-  color: #a35af0;
+  color: #ffc72c;
   background: linear-gradient(90deg, transparent 0 6%, currentColor 6% 14%, transparent 14% 18%, currentColor 18% 35%, transparent 35% 38%, currentColor 38% 66%, transparent 66% 70%, currentColor 70% 100%);
   transform: skewY(-8deg);
 }
@@ -1072,7 +1072,7 @@ body {
 }
 
 .tl-link-chart-legend .is-purple {
-  background: #a35af0;
+  background: #ffc72c;
 }
 
 .tl-link-chart-legend .is-red {
@@ -1098,7 +1098,7 @@ body {
 }
 
 .tl-link-donut.is-multi {
-  background: conic-gradient(#7749c8 0 108deg, #368df8 108deg 183deg, #35c979 183deg 239deg, #f0b84b 239deg 306deg, #ec4899 306deg 360deg);
+  background: conic-gradient(#d99a00 0 108deg, #368df8 108deg 183deg, #35c979 183deg 239deg, #ffc72c 239deg 306deg, #ec4899 306deg 360deg);
 }
 
 .tl-link-donut strong,
@@ -1173,8 +1173,8 @@ body {
   width: var(--w);
   height: 100%;
   border-radius: inherit;
-  background: linear-gradient(90deg, #7749c8, #35c979);
-  box-shadow: 0 0 12px rgba(163, 90, 240, 0.26);
+  background: linear-gradient(90deg, #d99a00, #35c979);
+  box-shadow: 0 0 12px rgba(255, 199, 44, 0.26);
 }
 
 .tl-link-panel::-webkit-scrollbar,

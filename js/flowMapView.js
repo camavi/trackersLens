@@ -472,8 +472,8 @@ const graphIcon = (nodeOrType = "") => {
 const toneRgb = (tone = "cyan") => ({
   green: [34, 197, 94],
   blue: [56, 189, 248],
-  violet: [168, 85, 247],
-  purple: [192, 132, 252],
+  violet: [255, 199, 44],
+  purple: [255, 216, 102],
   gold: [250, 204, 21],
   orange: [249, 115, 22],
   red: [248, 113, 113],

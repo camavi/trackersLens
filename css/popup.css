@@ -215,7 +215,7 @@ body {
   width: 100%;
   height: 3px;
   border-radius: 999px;
-  background: #a35af0;
+  background: #ffc72c;
   transform: translateY(var(--y));
 }
 

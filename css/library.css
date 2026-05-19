@@ -109,7 +109,7 @@ body {
 .tl-library-create.cms-btn {
   min-width: 148px;
   color: #fff;
-  border-color: rgba(163, 90, 240, 0.58);
+  border-color: rgba(255, 199, 44, 0.58);
   border-radius: 8px;
   background: linear-gradient(180deg, #6840ad, #56338f);
   box-shadow: 0 10px 28px rgba(86, 51, 143, 0.25);
@@ -151,7 +151,7 @@ body {
   border-radius: 8px;
   background:
     linear-gradient(180deg, rgba(15, 24, 32, 0.92), rgba(7, 13, 19, 0.86)),
-    radial-gradient(circle at 16% 0%, rgba(163, 90, 240, 0.08), transparent 30%);
+    radial-gradient(circle at 16% 0%, rgba(255, 199, 44, 0.08), transparent 30%);
   backdrop-filter: blur(16px);
   box-shadow: 0 24px 80px rgba(0, 0, 0, 0.26);
   overflow: auto;
@@ -194,7 +194,7 @@ body {
 }
 
 .tl-library-tab.is-active.cms-btn {
-  color: #dac5ff;
+  color: #ffe6a3;
 }
 
 .tl-library-tab.is-active::after {
@@ -334,7 +334,7 @@ body {
 
 .tl-view-toggle.is-active.cms-btn {
   color: #fff;
-  border-color: rgba(163, 90, 240, 0.38);
+  border-color: rgba(255, 199, 44, 0.38);
   background: linear-gradient(180deg, rgba(119, 73, 200, 0.62), rgba(86, 51, 143, 0.46));
 }
 
@@ -350,7 +350,7 @@ body {
 }
 
 .tl-box-card.cms-card:hover {
-  border-color: rgba(163, 90, 240, 0.34);
+  border-color: rgba(255, 199, 44, 0.34);
   transform: translateY(-1px);
 }
 
@@ -571,7 +571,7 @@ body {
 .tl-empty-action.cms-btn {
   margin-top: 8px;
   color: #fff;
-  border-color: rgba(163, 90, 240, 0.58);
+  border-color: rgba(255, 199, 44, 0.58);
   border-radius: 8px;
   background: linear-gradient(180deg, #6840ad, #56338f);
   font-weight: 800;

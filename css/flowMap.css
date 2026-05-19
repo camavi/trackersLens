@@ -288,7 +288,7 @@ body {
 }
 
 .tl-flow-palette-item.is-violet {
-  --item-rgb: 168, 85, 247;
+  --item-rgb: 255, 199, 44;
 }
 
 .tl-flow-palette-item.is-blue {
@@ -568,8 +568,8 @@ body.is-flow-palette-dragging .tl-flow-canvas {
 }
 
 .tl-flow-edge-label.is-impact-downstream {
-  border-color: rgba(168, 85, 247, 0.68);
-  box-shadow: 0 0 20px rgba(168, 85, 247, 0.2);
+  border-color: rgba(255, 199, 44, 0.68);
+  box-shadow: 0 0 20px rgba(255, 199, 44, 0.2);
 }
 
 .tl-flow-edge-label.is-impact-dimmed {
@@ -678,8 +678,8 @@ body.is-flow-palette-dragging .tl-flow-canvas {
 
 .tl-flow-node-port.is-object,
 .tl-flow-node-port.is-array {
-  border-color: rgba(168, 85, 247, 0.72);
-  box-shadow: 0 0 16px rgba(168, 85, 247, 0.26);
+  border-color: rgba(255, 199, 44, 0.72);
+  box-shadow: 0 0 16px rgba(255, 199, 44, 0.26);
 }
 
 .tl-flow-node-port.is-bool {
@@ -760,8 +760,8 @@ body.is-flow-palette-dragging .tl-flow-canvas {
 }
 
 .tl-flow-node.is-impact-downstream {
-  border-color: rgba(168, 85, 247, 0.72);
-  box-shadow: 0 0 0 1px rgba(168, 85, 247, 0.18), 0 0 30px rgba(168, 85, 247, 0.12);
+  border-color: rgba(255, 199, 44, 0.72);
+  box-shadow: 0 0 0 1px rgba(255, 199, 44, 0.18), 0 0 30px rgba(255, 199, 44, 0.12);
 }
 
 .tl-flow-node.is-impact-dimmed {
@@ -883,7 +883,7 @@ body.is-flow-palette-dragging .tl-flow-canvas {
 }
 
 .tl-flow-node-badge.is-violet {
-  --badge-rgb: 168, 85, 247;
+  --badge-rgb: 255, 199, 44;
 }
 
 .tl-flow-node-badge.is-gold {
@@ -955,12 +955,12 @@ body.is-flow-palette-dragging .tl-flow-canvas {
 
 .tl-flow-node.is-violet,
 .tl-flow-node-icon.is-violet {
-  --node-rgb: 168, 85, 247;
+  --node-rgb: 255, 199, 44;
 }
 
 .tl-flow-node.is-purple,
 .tl-flow-node-icon.is-purple {
-  --node-rgb: 192, 132, 252;
+  --node-rgb: 255, 224, 138;
 }
 
 .tl-flow-node.is-gold,
@@ -1368,9 +1368,9 @@ body.is-flow-palette-dragging .tl-flow-canvas {
 }
 
 .tl-flow-channel-count {
-  color: rgb(168, 85, 247);
-  border: 1px solid rgba(168, 85, 247, 0.22);
-  background: rgba(168, 85, 247, 0.08);
+  color: rgb(255, 199, 44);
+  border: 1px solid rgba(255, 199, 44, 0.22);
+  background: rgba(255, 199, 44, 0.08);
 }
 
 .tl-flow-channel-value-row {
@@ -1570,7 +1570,7 @@ body.is-flow-palette-dragging .tl-flow-canvas {
 }
 
 .tl-flow-port-legend .is-object {
-  --legend-rgb: 168, 85, 247;
+  --legend-rgb: 255, 199, 44;
 }
 
 .tl-flow-port-legend .is-bool {
@@ -1614,7 +1614,7 @@ button.tl-flow-mini-chip {
 }
 
 .tl-flow-mini-chip.is-violet {
-  --chip-rgb: 168, 85, 247;
+  --chip-rgb: 255, 199, 44;
 }
 
 .tl-flow-mini-chip.is-gold {
@@ -1741,7 +1741,7 @@ button.tl-flow-mini-chip {
 }
 
 .tl-flow-event-type.is-event {
-  --event-rgb: 168, 85, 247;
+  --event-rgb: 255, 199, 44;
 }
 
 .tl-flow-overview {

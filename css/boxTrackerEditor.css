@@ -95,8 +95,8 @@ body {
 
 .tl-save-tracker.cms-btn {
   color: #fff;
-  background: rgba(155, 92, 245, 0.52);
-  border-color: rgba(155, 92, 245, 0.72);
+  background: rgba(255, 199, 44, 0.52);
+  border-color: rgba(255, 199, 44, 0.72);
 }
 
 .tl-cancel-btn.cms-btn {
@@ -187,8 +187,8 @@ body {
 }
 
 .tl-kind-icon.is-lens {
-  color: #d9c6ff;
-  background: rgba(155, 92, 245, 0.35);
+  color: #ffe6a3;
+  background: rgba(255, 199, 44, 0.35);
 }
 
 .tl-kind-title,

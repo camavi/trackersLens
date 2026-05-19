@@ -17,9 +17,9 @@ body {
   grid-template-rows: 70px minmax(0, 1fr);
   overflow: hidden;
   background:
-    radial-gradient(circle at 18% 0%, rgba(163, 90, 240, 0.14), transparent 30%),
+    radial-gradient(circle at 18% 0%, rgba(255, 199, 44, 0.14), transparent 30%),
     radial-gradient(circle at 78% 4%, rgba(53, 201, 121, 0.1), transparent 28%),
-    radial-gradient(circle at 58% 100%, rgba(240, 184, 75, 0.08), transparent 30%),
+    radial-gradient(circle at 58% 100%, rgba(255, 199, 44, 0.08), transparent 30%),
     linear-gradient(180deg, #071016 0%, #03080d 100%);
 }
 
@@ -124,7 +124,7 @@ body {
 .tl-analytics-edit.cms-btn,
 .tl-analytics-small-btn.cms-btn {
   color: #fff;
-  border-color: rgba(163, 90, 240, 0.48);
+  border-color: rgba(255, 199, 44, 0.48);
   border-radius: 8px;
   background: linear-gradient(180deg, #6840ad, #56338f);
   box-shadow: 0 10px 28px rgba(86, 51, 143, 0.25);
@@ -228,7 +228,7 @@ body {
   border-radius: 8px;
   color: #eadcff;
   background: linear-gradient(180deg, rgba(119, 73, 200, 0.88), rgba(80, 46, 134, 0.88));
-  box-shadow: 0 0 28px rgba(163, 90, 240, 0.22);
+  box-shadow: 0 0 28px rgba(255, 199, 44, 0.22);
 }
 
 .tl-analytics-orb {
@@ -274,7 +274,7 @@ body {
   border-radius: 8px;
   background:
     linear-gradient(180deg, rgba(13, 22, 31, 0.78), rgba(5, 10, 16, 0.82)),
-    radial-gradient(circle at 18% 0%, rgba(163, 90, 240, 0.08), transparent 32%);
+    radial-gradient(circle at 18% 0%, rgba(255, 199, 44, 0.08), transparent 32%);
   backdrop-filter: blur(18px);
   box-shadow: 0 20px 60px rgba(0, 0, 0, 0.28), inset 0 1px 0 rgba(255, 255, 255, 0.035);
 }
@@ -324,13 +324,13 @@ body {
   opacity: 0.78;
 }
 
-.is-purple { color: #a35af0; --tone: 163, 90, 240; }
-.is-violet { color: #c084fc; --tone: 192, 132, 252; }
+.is-purple { color: #ffc72c; --tone: 255, 199, 44; }
+.is-violet { color: #ffe08a; --tone: 255, 224, 138; }
 .is-green { color: #35c979; --tone: 53, 201, 121; }
 .is-blue { color: #368df8; --tone: 54, 141, 248; }
-.is-gold { color: #f0b84b; --tone: 240, 184, 75; }
+.is-gold { color: #ffc72c; --tone: 255, 199, 44; }
 .is-red, .is-error { color: #ff4d4d; --tone: 255, 77, 77; }
-.is-warn { color: #f0b84b; --tone: 240, 184, 75; }
+.is-warn { color: #ffc72c; --tone: 255, 199, 44; }
 .is-online { color: #35c979; --tone: 53, 201, 121; }
 
 .tl-analytics-metric[class*="is-"] .tl-analytics-metric-icon,
@@ -414,7 +414,7 @@ body {
 .tl-analytics-link-btn.cms-btn {
   width: 100%;
   height: 34px;
-  color: #dac5ff;
+  color: #ffe6a3;
   border-color: rgba(214, 226, 235, 0.11);
   border-radius: 8px;
   background: rgba(255, 255, 255, 0.035);
@@ -475,9 +475,9 @@ body {
 .tl-analytics-line-chart .three { top: 68%; transform: skewY(-4deg); opacity: 0.22; }
 .tl-analytics-line-chart .four { display: none; }
 
-.tl-analytics-line-chart.is-multi .one { color: #a35af0; opacity: 0.9; }
+.tl-analytics-line-chart.is-multi .one { color: #ffc72c; opacity: 0.9; }
 .tl-analytics-line-chart.is-multi .two { color: #35c979; opacity: 0.78; }
-.tl-analytics-line-chart.is-multi .three { color: #f0b84b; opacity: 0.72; }
+.tl-analytics-line-chart.is-multi .three { color: #ffc72c; opacity: 0.72; }
 .tl-analytics-line-chart.is-multi .four { display: block; top: 76%; color: #ff4d4d; opacity: 0.68; transform: skewY(4deg); }
 
 .tl-analytics-bars {
@@ -614,8 +614,8 @@ body {
   width: var(--w);
   height: 100%;
   border-radius: inherit;
-  background: linear-gradient(90deg, #7749c8, #35c979);
-  box-shadow: 0 0 12px rgba(163, 90, 240, 0.26);
+  background: linear-gradient(90deg, #d99a00, #35c979);
+  box-shadow: 0 0 12px rgba(255, 199, 44, 0.26);
 }
 
 .tl-analytics-tiny-select.cms-btn {
@@ -667,7 +667,7 @@ body {
 
 .tl-analytics-table tr:hover {
   background: linear-gradient(90deg, rgba(119, 73, 200, 0.18), rgba(53, 201, 121, 0.05), transparent);
-  box-shadow: inset 2px 0 0 #a35af0;
+  box-shadow: inset 2px 0 0 #ffc72c;
 }
 
 .tl-analytics-status {
@@ -681,7 +681,7 @@ body {
 }
 
 .tl-analytics-status.is-warn .tl-analytics-dot {
-  background: #f0b84b;
+  background: #ffc72c;
 }
 
 .tl-analytics-rate {
@@ -705,7 +705,7 @@ body {
   width: 30px;
   min-width: 30px;
   height: 30px;
-  color: #dac5ff;
+  color: #ffe6a3;
   border-color: rgba(214, 226, 235, 0.11);
   border-radius: 8px;
   background: rgba(255, 255, 255, 0.035);
@@ -742,11 +742,11 @@ body {
   display: grid;
   place-items: center;
   border-radius: 50%;
-  background: conic-gradient(#7749c8 0 120deg, #35c979 120deg 232deg, #368df8 232deg 304deg, #f0b84b 304deg 336deg, #8a95a3 336deg 360deg);
+  background: conic-gradient(#d99a00 0 120deg, #35c979 120deg 232deg, #368df8 232deg 304deg, #ffc72c 304deg 336deg, #8a95a3 336deg 360deg);
 }
 
 .tl-analytics-donut.is-storage {
-  background: conic-gradient(#7749c8 0 259deg, #368df8 259deg 320deg, #f0b84b 320deg 345deg, #8a95a3 345deg 360deg);
+  background: conic-gradient(#d99a00 0 259deg, #368df8 259deg 320deg, #ffc72c 320deg 345deg, #8a95a3 345deg 360deg);
 }
 
 .tl-analytics-donut::after {
@@ -788,11 +788,11 @@ body {
   height: 112px;
   display: grid;
   place-items: center;
-  border: 1px solid rgba(163, 90, 240, 0.28);
+  border: 1px solid rgba(255, 199, 44, 0.28);
   border-radius: 50%;
-  color: #c084fc;
-  background: radial-gradient(circle, rgba(163, 90, 240, 0.18), transparent 70%);
-  box-shadow: 0 0 38px rgba(163, 90, 240, 0.18);
+  color: #ffe08a;
+  background: radial-gradient(circle, rgba(255, 199, 44, 0.18), transparent 70%);
+  box-shadow: 0 0 38px rgba(255, 199, 44, 0.18);
 }
 
 .tl-analytics-ai-layout {

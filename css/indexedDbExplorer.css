@@ -17,7 +17,7 @@ body {
   grid-template-rows: 70px minmax(0, 1fr);
   overflow: hidden;
   background:
-    radial-gradient(circle at 18% 0%, rgba(163, 90, 240, 0.12), transparent 28%),
+    radial-gradient(circle at 18% 0%, rgba(255, 199, 44, 0.12), transparent 28%),
     radial-gradient(circle at 78% 6%, rgba(38, 201, 126, 0.09), transparent 26%),
     linear-gradient(180deg, #071016 0%, #03080d 100%);
 }
@@ -121,7 +121,7 @@ body {
 .tl-db-edit.cms-btn {
   min-width: 104px;
   color: #fff;
-  border-color: rgba(163, 90, 240, 0.58);
+  border-color: rgba(255, 199, 44, 0.58);
   border-radius: 8px;
   background: linear-gradient(180deg, #6840ad, #56338f);
   box-shadow: 0 10px 28px rgba(86, 51, 143, 0.25);
@@ -175,7 +175,7 @@ body {
   border-radius: 8px;
   background:
     linear-gradient(180deg, rgba(13, 22, 31, 0.78), rgba(5, 10, 16, 0.82)),
-    radial-gradient(circle at 18% 0%, rgba(163, 90, 240, 0.08), transparent 32%);
+    radial-gradient(circle at 18% 0%, rgba(255, 199, 44, 0.08), transparent 32%);
   backdrop-filter: blur(18px);
   box-shadow: 0 24px 70px rgba(0, 0, 0, 0.28), inset 0 1px 0 rgba(255, 255, 255, 0.035);
 }
@@ -239,7 +239,7 @@ body {
   border-radius: 8px;
   color: #f7f2ff;
   background: linear-gradient(180deg, rgba(119, 73, 200, 0.88), rgba(80, 46, 134, 0.88));
-  box-shadow: 0 0 28px rgba(163, 90, 240, 0.2);
+  box-shadow: 0 0 28px rgba(255, 199, 44, 0.2);
 }
 
 .tl-db-cylinder {
@@ -273,8 +273,8 @@ body {
 }
 
 .tl-db-status.is-offline .tl-db-dot {
-  background: #f0b84b;
-  box-shadow: 0 0 14px rgba(240, 184, 75, 0.72);
+  background: #ffc72c;
+  box-shadow: 0 0 14px rgba(255, 199, 44, 0.72);
 }
 
 .tl-db-store-list,
@@ -327,7 +327,7 @@ body {
 .tl-db-store-icon.is-gold {
   color: #fff5d1;
   background: linear-gradient(180deg, rgba(196, 143, 35, 0.88), rgba(111, 77, 18, 0.9));
-  box-shadow: 0 0 28px rgba(240, 184, 75, 0.16);
+  box-shadow: 0 0 28px rgba(255, 199, 44, 0.16);
 }
 
 .tl-db-store-icon.is-blue,
@@ -465,7 +465,7 @@ body {
 .tl-db-view-switch .is-active.cms-btn {
   color: #fff;
   background: linear-gradient(180deg, #6840ad, #56338f);
-  box-shadow: 0 0 20px rgba(163, 90, 240, 0.22);
+  box-shadow: 0 0 20px rgba(255, 199, 44, 0.22);
 }
 
 .tl-db-table-wrap,
@@ -519,7 +519,7 @@ body {
 .tl-db-table tbody tr:hover,
 .tl-db-table tbody tr.is-selected {
   background: linear-gradient(90deg, rgba(119, 73, 200, 0.2), rgba(53, 201, 121, 0.06), transparent);
-  box-shadow: inset 2px 0 0 #a35af0;
+  box-shadow: inset 2px 0 0 #ffc72c;
 }
 
 .tl-db-table strong,
@@ -550,8 +550,8 @@ body {
 
 .tl-db-type-badge.is-lens {
   color: #eadcff;
-  background: rgba(163, 90, 240, 0.22);
-  box-shadow: 0 0 20px rgba(163, 90, 240, 0.1);
+  background: rgba(255, 199, 44, 0.22);
+  box-shadow: 0 0 20px rgba(255, 199, 44, 0.1);
 }
 
 .tl-db-type-badge.is-tracker {
@@ -578,7 +578,7 @@ body {
   width: 5px;
   min-height: 3px;
   border-radius: 999px;
-  background: linear-gradient(180deg, #c084fc, #35c979);
+  background: linear-gradient(180deg, #ffe08a, #35c979);
   opacity: 0.74;
 }
 
@@ -775,7 +775,7 @@ body {
 }
 
 .tl-db-json-line .is-key {
-  color: #c084fc;
+  color: #ffe08a;
 }
 
 .tl-db-json-line .is-string {
@@ -797,7 +797,7 @@ body {
 
 .tl-db-inspector-actions .tl-db-primary.cms-btn {
   color: #fff;
-  border-color: rgba(163, 90, 240, 0.5);
+  border-color: rgba(255, 199, 44, 0.5);
   background: linear-gradient(180deg, #6840ad, #56338f);
 }
 

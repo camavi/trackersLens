@@ -111,10 +111,10 @@ body {
 .tl-profile-fill.cms-btn,
 .tl-profile-plan-btn.cms-btn {
   color: #fff;
-  border-color: rgba(161, 83, 255, 0.48);
+  border-color: rgba(255, 199, 44, 0.48);
   border-radius: 8px;
-  background: linear-gradient(180deg, #7446c3, #4e2b86);
-  box-shadow: 0 12px 30px rgba(96, 54, 157, 0.3);
+  background: linear-gradient(180deg, #d99a00, #7a5200);
+  box-shadow: 0 12px 30px rgba(122, 82, 0, 0.3);
   font-weight: 800;
 }
 
@@ -157,7 +157,7 @@ body {
 .tl-profile-main::-webkit-scrollbar-thumb,
 .tl-profile-events::-webkit-scrollbar-thumb {
   border-radius: 999px;
-  background: rgba(161, 83, 255, 0.36);
+  background: rgba(255, 199, 44, 0.36);
 }
 
 .tl-profile-grid-bg {
@@ -218,13 +218,13 @@ body {
   height: 118px;
   margin: 12px 0 0 0;
   border-radius: 50%;
-  border: 2px solid rgba(183, 104, 255, 0.84);
+  border: 2px solid rgba(255, 216, 102, 0.84);
   background:
     radial-gradient(circle at 50% 24%, #111722 0 12%, transparent 13%),
     radial-gradient(circle at 50% 35%, #f4c29d 0 18%, transparent 19%),
     radial-gradient(ellipse at 50% 74%, #181f2a 0 38%, transparent 39%),
     linear-gradient(160deg, #343b48, #101720);
-  box-shadow: 0 0 0 7px rgba(148, 76, 255, 0.12), 0 0 44px rgba(153, 77, 255, 0.82);
+  box-shadow: 0 0 0 7px rgba(255, 199, 44, 0.12), 0 0 44px rgba(255, 199, 44, 0.82);
 }
 
 .tl-profile-avatar-glow {
@@ -341,8 +341,8 @@ body {
 
 .is-purple .tl-profile-stat-icon,
 .is-purple.tl-profile-action > span:first-child {
-  color: #b06cff;
-  box-shadow: 0 0 24px rgba(168, 88, 255, 0.34);
+  color: #ffd866;
+  box-shadow: 0 0 24px rgba(255, 199, 44, 0.34);
 }
 
 .is-pink .tl-profile-stat-icon {
@@ -562,7 +562,7 @@ body {
   top: 12px;
   bottom: 20px;
   width: 1px;
-  background: linear-gradient(#9b5cff, #22cf82);
+  background: linear-gradient(#ffc72c, #22cf82);
   opacity: 0.58;
 }
 

@@ -29,8 +29,8 @@
 
 .tl-view-side-btn.is-active.cms-btn {
   color: #fff;
-  background: linear-gradient(180deg, #7749c8, #57318f);
-  box-shadow: 0 14px 28px rgba(87, 49, 143, 0.28);
+  background: linear-gradient(180deg, #d99a00, #7a5200);
+  box-shadow: 0 14px 28px rgba(255, 199, 44, 0.24);
 }
 
 .tl-view-sidebar-bottom {
@@ -54,20 +54,20 @@
 }
 
 .tl-view-profile.is-active.cms-btn {
-  border-color: rgba(155, 85, 255, 0.62);
-  box-shadow: 0 0 28px rgba(155, 85, 255, 0.28);
+  border-color: rgba(255, 199, 44, 0.62);
+  box-shadow: 0 0 28px rgba(255, 199, 44, 0.28);
 }
 
 .tl-view-profile-avatar {
   width: 42px;
   height: 42px;
-  border: 2px solid rgba(183, 104, 255, 0.84);
+  border: 2px solid rgba(255, 216, 102, 0.84);
   border-radius: 50%;
   background:
     radial-gradient(circle at 50% 27%, #f2bf9a 0 18%, transparent 19%),
     radial-gradient(circle at 50% 60%, #151b25 0 36%, transparent 37%),
     linear-gradient(160deg, #333a47, #111821);
-  box-shadow: 0 0 18px rgba(153, 77, 255, 0.72);
+  box-shadow: 0 0 18px rgba(255, 199, 44, 0.72);
 }
 
 .tl-profile-dot {

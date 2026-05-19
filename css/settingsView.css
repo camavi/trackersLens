@@ -17,9 +17,9 @@ body {
   grid-template-rows: 70px minmax(0, 1fr);
   overflow: hidden;
   background:
-    radial-gradient(circle at 16% 4%, rgba(163, 90, 240, 0.2), transparent 30%),
+    radial-gradient(circle at 16% 4%, rgba(255, 199, 44, 0.2), transparent 30%),
     radial-gradient(circle at 86% 8%, rgba(53, 201, 121, 0.12), transparent 26%),
-    radial-gradient(circle at 62% 100%, rgba(240, 184, 75, 0.08), transparent 32%),
+    radial-gradient(circle at 62% 100%, rgba(255, 199, 44, 0.08), transparent 32%),
     linear-gradient(180deg, #071016 0%, #03080d 100%);
 }
 
@@ -119,7 +119,7 @@ body {
 .tl-settings-save.cms-btn,
 .tl-settings-primary.cms-btn {
   color: #fff;
-  border-color: rgba(163, 90, 240, 0.52);
+  border-color: rgba(255, 199, 44, 0.52);
   border-radius: 8px;
   background: linear-gradient(180deg, #6840ad, #56338f);
   box-shadow: 0 10px 28px rgba(86, 51, 143, 0.28);
@@ -186,7 +186,7 @@ body {
 .tl-settings-system::-webkit-scrollbar-thumb,
 .tl-settings-key-list::-webkit-scrollbar-thumb {
   border-radius: 999px;
-  background: rgba(163, 90, 240, 0.34);
+  background: rgba(255, 199, 44, 0.34);
 }
 
 .tl-settings-main::-webkit-scrollbar-track,
@@ -285,9 +285,9 @@ body {
   width: 44px;
   height: 44px;
   color: #c99cff;
-  border: 1px solid rgba(163, 90, 240, 0.42);
+  border: 1px solid rgba(255, 199, 44, 0.42);
   background: rgba(91, 52, 152, 0.22);
-  box-shadow: 0 0 24px rgba(163, 90, 240, 0.22);
+  box-shadow: 0 0 24px rgba(255, 199, 44, 0.22);
 }
 
 .tl-settings-live-pill,
@@ -373,22 +373,22 @@ body {
 
 .tl-settings-category.cms-btn:hover,
 .tl-settings-action.cms-btn:hover {
-  border-color: rgba(163, 90, 240, 0.32);
+  border-color: rgba(255, 199, 44, 0.32);
   background: rgba(88, 51, 145, 0.18);
-  box-shadow: 0 0 24px rgba(163, 90, 240, 0.13);
+  box-shadow: 0 0 24px rgba(255, 199, 44, 0.13);
 }
 
 .tl-settings-category.is-active.cms-btn {
-  border-color: rgba(163, 90, 240, 0.38);
+  border-color: rgba(255, 199, 44, 0.38);
   background: linear-gradient(90deg, rgba(103, 62, 178, 0.32), rgba(30, 20, 56, 0.36));
-  box-shadow: inset 3px 0 0 rgba(177, 118, 255, 0.86), 0 0 28px rgba(163, 90, 240, 0.16);
+  box-shadow: inset 3px 0 0 rgba(255, 199, 44, 0.86), 0 0 28px rgba(255, 199, 44, 0.16);
 }
 
 .tl-settings-category-icon {
   width: 30px;
   height: 30px;
   color: #c99cff;
-  background: rgba(163, 90, 240, 0.12);
+  background: rgba(255, 199, 44, 0.12);
 }
 
 .tl-settings-category span:nth-child(2) {
@@ -639,7 +639,7 @@ body {
   border-radius: 50%;
 }
 
-.tl-settings-key.is-purple { background: #a35af0; }
+.tl-settings-key.is-purple { background: #ffc72c; }
 .tl-settings-key.is-blue { background: #2e9bff; }
 .tl-settings-key.is-gold { background: #ffc72c; }
 .tl-settings-key.is-green { background: #42d77d; }
@@ -800,7 +800,7 @@ body {
   height: 28px;
 }
 
-.tl-settings-api-orb.is-purple { color: #d8b8ff; background: rgba(163, 90, 240, 0.16); }
+.tl-settings-api-orb.is-purple { color: #ffe08a; background: rgba(255, 199, 44, 0.16); }
 .tl-settings-api-orb.is-gold { color: #ffd978; background: rgba(255, 199, 44, 0.14); }
 .tl-settings-api-orb.is-blue { color: #82c7ff; background: rgba(46, 155, 255, 0.14); }
 .tl-settings-api-orb.is-green { color: #87efa9; background: rgba(66, 215, 125, 0.14); }
@@ -852,14 +852,14 @@ body {
   height: 18px;
   flex: 1;
   opacity: 0.5;
-  background: repeating-linear-gradient(90deg, rgba(66, 215, 125, 0.0) 0 12px, rgba(66, 215, 125, 0.5) 12px 14px, rgba(163, 90, 240, 0.35) 14px 15px);
+  background: repeating-linear-gradient(90deg, rgba(66, 215, 125, 0.0) 0 12px, rgba(66, 215, 125, 0.5) 12px 14px, rgba(255, 199, 44, 0.35) 14px 15px);
   mask-image: linear-gradient(90deg, transparent, #000 18%, #000 82%, transparent);
   animation: tl-settings-flow 1.8s linear infinite;
 }
 
 .tl-settings-panel:hover {
-  border-color: rgba(163, 90, 240, 0.18);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04), 0 0 32px rgba(163, 90, 240, 0.08), 0 24px 70px rgba(0, 0, 0, 0.2);
+  border-color: rgba(255, 199, 44, 0.18);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04), 0 0 32px rgba(255, 199, 44, 0.08), 0 24px 70px rgba(0, 0, 0, 0.2);
 }
 
 @keyframes tl-settings-pulse {

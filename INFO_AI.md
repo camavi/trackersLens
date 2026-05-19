@@ -3655,6 +3655,38 @@ Verifiche eseguite:
 - `curl -I http://127.0.0.1:3031/analytics.html`
 - headless Chrome dump su `http://127.0.0.1:3031/devtools.html`
 
+## Aggiornamento 2026-05-19 - Coerenza visuale tema oro
+
+Obiettivo della sessione: ridurre la dominanza viola nelle schermate principali e riallineare la UI al logo Trackers Lens, dove l'accento primario e oro/giallo.
+
+Fatto:
+
+- Aggiornati i token/toni CSS principali:
+  - `--tl-purple` ora segue l'accent oro per compatibilita con classi esistenti;
+  - i vecchi gradienti viola sono stati convertiti in varianti oro/bruno;
+  - glow, bordi, stati attivi, donut/chart e progress bar usano oro come primary accent.
+- Schermate allineate:
+  - Workspace editor;
+  - Library;
+  - Connections;
+  - Database;
+  - DevTools;
+  - Analytics;
+  - AI Runtime Center;
+  - Settings;
+  - Profile;
+  - Flow Map;
+  - Editor boxLens / boxTracker.
+- `js/flowMapView.js` aggiorna anche i colori canvas per toni `purple` / `violet`, cosi le linee e gli edge runtime non restano viola.
+
+Verifiche eseguite:
+
+- `node --check js/flowMapView.js`
+- `node --check js/analyticsView.js`
+- `node --check js/profileView.js`
+- `git diff --check`
+- `curl -I` sulle pagine principali: `editorWorkspace.html`, `library.html`, `connections.html`, `database.html`, `devtools.html`, `analytics.html`, `ai.html`, `settings.html`.
+
 ## Aggiornamento 2026-05-18 - Marketplace Verified punto 9
 
 Obiettivo della sessione: introdurre la fondazione locale per asset marketplace verificabili prima di un marketplace remoto.

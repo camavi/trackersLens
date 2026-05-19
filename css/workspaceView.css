@@ -119,7 +119,7 @@ body {
 .tl-view-edit.cms-btn {
   min-width: 104px;
   color: #fff;
-  border-color: rgba(163, 90, 240, 0.58);
+  border-color: rgba(255, 199, 44, 0.58);
   border-radius: 8px;
   background: linear-gradient(180deg, #6840ad, #56338f);
   box-shadow: 0 10px 28px rgba(86, 51, 143, 0.25);
