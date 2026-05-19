@@ -1040,6 +1040,53 @@ const selectedEdge = () =>
   state.runtime.dependencies.find((dependency) => dependency.id === state.focus.edgeId) ||
   null;
 
+const graphEngineApi = () => window.TrackerLensGraphEngine;
+
+const currentVisibleGraph = () => state.edgeRender.graph || graphModel();
+
+const selectedImpact = (graph = currentVisibleGraph()) => {
+  const edge = selectedEdge();
+  const node = selectedNode();
+  if (!edge && !node) return null;
+  return graphEngineApi()?.impactAnalysis?.({
+    graph,
+    runtime: {
+      ...state.runtime,
+      runtimeDependencies: graph.dependencies || state.runtime.dependencies || [],
+    },
+    nodeId: node?.id || "",
+    connectionId: edge?.connectionId || edge?.id || "",
+  }) || null;
+};
+
+const impactNodeIds = (impact = selectedImpact()) => ({
+  upstream: new Set((impact?.upstream || []).map((item) => item.node?.id).filter(Boolean)),
+  downstream: new Set((impact?.downstream || []).map((item) => item.node?.id).filter(Boolean)),
+  direct: new Set((impact?.directDependencies || []).flatMap((dependency) => [dependency.sourceNodeId, dependency.targetNodeId]).filter(Boolean)),
+});
+
+const impactClassForNode = (node, impact = selectedImpact()) => {
+  if (!impact || !node?.id || (!selectedNode() && !selectedEdge())) return "";
+  const ids = impactNodeIds(impact);
+  if (selectedNode()?.id === node.id || selectedEdge()?.sourceNodeId === node.id || selectedEdge()?.targetNodeId === node.id) return " is-impact-focus";
+  if (ids.upstream.has(node.id)) return " is-impact-upstream";
+  if (ids.downstream.has(node.id)) return " is-impact-downstream";
+  if (ids.direct.has(node.id)) return " is-impact-direct";
+  return " is-impact-dimmed";
+};
+
+const impactClassForEdge = (dependency, impact = selectedImpact()) => {
+  if (!impact || !dependency?.id || (!selectedNode() && !selectedEdge())) return "";
+  const direct = (impact.directDependencies || []).some((item) => item.id === dependency.id || item.connectionId === dependency.connectionId);
+  if (selectedEdge()?.id === dependency.id) return " is-impact-focus";
+  if (direct) return " is-impact-direct";
+  const upstream = (impact.upstream || []).some((item) => item.dependency?.id === dependency.id);
+  if (upstream) return " is-impact-upstream";
+  const downstream = (impact.downstream || []).some((item) => item.dependency?.id === dependency.id);
+  if (downstream) return " is-impact-downstream";
+  return " is-impact-dimmed";
+};
+
 const nodeById = (id = "") =>
   state.runtime.nodes.find((node) => node.id === id || node.sourceRef === id || node.assetId === id) || null;
 
@@ -2427,6 +2474,55 @@ const restoreLastDeletedConnection = async () => {
   await loadRuntime();
 };
 
+const graphValidation = () =>
+  graphEngineApi()?.validateGraph?.(currentVisibleGraph(), {
+    ...state.runtime,
+    runtimeDependencies: currentVisibleGraph().dependencies || state.runtime.dependencies || [],
+  }) || state.graphEngine?.validation || { issues: [], errors: [], warnings: [], ok: true };
+
+const repairGraphIssues = async () => {
+  const validation = graphValidation();
+  const issues = validation.issues || [];
+  if (!issues.length) return;
+
+  const dependencyIds = new Set();
+  const connectionIds = new Set();
+  issues.forEach((issue) => {
+    if (issue.type === "dependency" && issue.id) dependencyIds.add(issue.id);
+    if (issue.type === "connection" && issue.id) connectionIds.add(issue.id);
+  });
+
+  if (dependencyIds.size && window.TrackerLensRuntimeGraphStore?.deleteRecords) {
+    await window.TrackerLensRuntimeGraphStore.deleteRecords(
+      window.TrackerLensRuntimeGraphStore.STORES.runtimeDependencies,
+      [...dependencyIds]
+    );
+  }
+
+  if (connectionIds.size) {
+    await window.TrackerLensConnectionsStore?.removeMany?.([...connectionIds]);
+    await Promise.all([...connectionIds].map((connectionId) =>
+      Promise.all([
+        window.TrackerLensRuntimeGraphStore?.cleanupConnectionReferences?.({ connectionId }),
+        window.TrackerLensEventLogStore?.cleanupConnectionReferences?.({ connectionId }),
+        window.TrackerLensConnectionsStore?.removeWorkspaceContentConnection?.(connectionId),
+      ])
+    ));
+  }
+
+  await recordFlowAction({
+    workspaceId: state.filters.workspaceId !== "all" ? state.filters.workspaceId : "global",
+    level: "warning",
+    message: `Graph repair cleanup: ${issues.length} issue`,
+    context: {
+      action: "graph-repair-cleanup",
+      dependencyIds: [...dependencyIds],
+      connectionIds: [...connectionIds],
+    },
+  });
+  await loadRuntime({ force: true });
+};
+
 const requestEdgeDelete = (edge) => {
   if (!edge?.connectionId) return;
   const source = nodeById(edge.sourceNodeId);
@@ -2900,6 +2996,8 @@ const renderCanvas = () => {
   const activity = recentActivity(baseGraph);
   const graph = filterByActivity(baseGraph, activity);
   state.edgeRender = { graph, activity };
+  const impact = selectedImpact(graph);
+  const validation = graphValidation();
   const liveCount = [...activity.nodeActivity.values()].filter((item) => item.status !== "error").length;
   const errorCount = [...activity.nodeActivity.values()].filter((item) => item.status === "error").length;
 
@@ -2911,6 +3009,12 @@ const renderCanvas = () => {
       _.span(`${graph.nodes.length} nodes · ${graph.dependencies.length} edges · ${state.libraryItems.length} library · ${liveCount} live · ${errorCount} errors`)
     ),
     renderFilterbar(),
+    (validation.issues || []).length ? _.div(
+      { class: "tl-flow-graph-health" },
+      icon(validation.ok ? "verified" : "report", "sm"),
+      _.span(validation.ok ? "Graph validation OK" : `${validation.errors?.length || 0} errori · ${validation.warnings?.length || 0} warning`),
+      btn({ class: "is-compact", onclick: repairGraphIssues }, icon("auto_fix_high", "sm"), "Repair")
+    ) : null,
     renderControls(),
     _.div(
       { class: "tl-flow-canvas", onPointerDown: beginPan, onDragOver: handleCanvasDragOver, onDrop: handleCanvasDrop },
@@ -2941,7 +3045,7 @@ const renderCanvas = () => {
           return _.button(
             {
               type: "button",
-              class: `tl-flow-edge-label${state.focus.edgeId === dependency.id ? " is-selected" : ""}${dependency.metadata?.virtual ? " is-virtual" : ""}${isAllEdge(dependency) ? " is-bus" : ""}${recentEvent ? " is-live" : ""}${recentEvent?.status === "error" ? " is-error" : ""}`,
+              class: `tl-flow-edge-label${state.focus.edgeId === dependency.id ? " is-selected" : ""}${impactClassForEdge(dependency, impact)}${dependency.metadata?.virtual ? " is-virtual" : ""}${isAllEdge(dependency) ? " is-bus" : ""}${recentEvent ? " is-live" : ""}${recentEvent?.status === "error" ? " is-error" : ""}`,
               "data-edge-id": dependency.id,
               title: edgeDebugTitle(dependency),
               style: { "--x": rect ? `${midpoint.x}px` : `${midpoint.x}%`, "--y": rect ? `${midpoint.y}px` : `${midpoint.y}%` },
@@ -2970,7 +3074,7 @@ const renderCanvas = () => {
             {
               role: "button",
               tabindex: 0,
-              class: `tl-flow-node is-${graphTone(node)}${state.focus.nodeId === node.id ? " is-selected" : ""}${live ? " is-live" : ""}${live?.status === "error" ? " is-error" : ""}${isLinkSource ? " is-link-source" : ""}${isLinkTarget ? " is-link-target" : ""}${isLinkHover ? " is-link-hover" : ""}`,
+              class: `tl-flow-node is-${graphTone(node)}${state.focus.nodeId === node.id ? " is-selected" : ""}${impactClassForNode(node, impact)}${live ? " is-live" : ""}${live?.status === "error" ? " is-error" : ""}${isLinkSource ? " is-link-source" : ""}${isLinkTarget ? " is-link-target" : ""}${isLinkHover ? " is-link-hover" : ""}`,
               style: { "--x": pos.x, "--y": pos.y, "--port-count": portCount, minHeight: `${nodeMinHeight(portCount)}px` },
               "data-flow-node-id": node.id,
               onPointerDown: (event) => beginNodeDrag(event, node, index),
@@ -3208,6 +3312,22 @@ const renderInspectorStats = (node, dependencies, events, channelRecords, flowLo
   );
 };
 
+const renderImpactSummary = (impact = selectedImpact()) => {
+  if (!impact) return null;
+  return _.section(
+    { class: "tl-flow-detail-list tl-flow-impact-summary" },
+    _.h3("Impact Analysis"),
+    ...[
+      ["Upstream", String(impact.upstream?.length || 0)],
+      ["Downstream", String(impact.downstream?.length || 0)],
+      ["Direct links", String(impact.directDependencies?.length || 0)],
+      ["Events", String(impact.directEvents?.length || 0)],
+      ["Channels", (impact.channels || []).join(", ") || "N/D"],
+      ["Risk", impact.risk || "N/D"],
+    ].map(([label, value]) => _.div(_.span(label), _.strong(value)))
+  );
+};
+
 const renderEdgeInspector = (edge) => {
   const source = nodeById(edge.sourceNodeId);
   const target = nodeById(edge.targetNodeId);
@@ -3267,6 +3387,7 @@ const renderEdgeInspector = (edge) => {
         ["Last value", lastEvent?.payloadPreview || edge.metadata?.lastPayloadPreview || "N/D"],
       ].map(([label, value]) => _.div(_.span(label), _.strong(value)))
     ),
+    renderImpactSummary(selectedImpact()),
     _.section(
       { class: "tl-flow-detail-list" },
       _.h3("Recent Events"),
@@ -3329,6 +3450,7 @@ const renderInspector = () => {
       icon("hub", "sm"),
       _.span(`Source: ${linkingSource.label || linkingSource.id}`)
     ) : null,
+    node ? renderImpactSummary(selectedImpact()) : null,
     node ? _.div(
       { class: "tl-flow-tabs" },
       ...[

@@ -207,6 +207,42 @@ window.TrackerLensGraphEngine = (() => {
   const downstream = ({ graph = {}, nodeId = "" } = {}) =>
     walk({ graph, nodeId, direction: "downstream" });
 
+  const findPaths = ({ graph = {}, fromNodeId = "", toNodeId = "", maxDepth = 8 } = {}) => {
+    if (!fromNodeId || !toNodeId) return [];
+    const dependencies = graph.dependencies || [];
+    const paths = [];
+    const queue = [{ nodeId: fromNodeId, nodes: [fromNodeId], dependencies: [] }];
+
+    while (queue.length) {
+      const current = queue.shift();
+      if (current.nodes.length > maxDepth) continue;
+      dependencies
+        .filter((dependency) => dependency.sourceNodeId === current.nodeId)
+        .forEach((dependency) => {
+          const nextId = dependency.targetNodeId;
+          if (!nextId || current.nodes.includes(nextId)) return;
+          const next = {
+            nodeId: nextId,
+            nodes: [...current.nodes, nextId],
+            dependencies: [...current.dependencies, dependency],
+          };
+          if (nextId === toNodeId) {
+            paths.push({
+              nodes: next.nodes,
+              dependencies: next.dependencies,
+              length: next.dependencies.length,
+            });
+            return;
+          }
+          queue.push(next);
+        });
+    }
+
+    return paths.sort((a, b) => a.length - b.length);
+  };
+
+  const shortestPath = (options = {}) => findPaths(options)[0] || null;
+
   const buildGraph = async ({ filters = {}, includeConnections = true } = {}) => {
     const runtime = await loadRuntime({ includeConnections });
     const graph = window.TrackerLensRuntimeGraphModel?.build
@@ -249,6 +285,8 @@ window.TrackerLensGraphEngine = (() => {
     loadRuntime,
     upstream,
     downstream,
+    findPaths,
+    shortestPath,
     validateConnection,
     validateGraph,
   };

@@ -141,7 +141,7 @@ Title: Box Graph Engine
 
 Priority: Critical
 
-Status: Active
+Status: Complete
 
 Files:
 
@@ -172,7 +172,8 @@ Runtime Notes:
 - 2026-05-18: added `TrackerLensGraphEngine.buildGraph()` and `inspectNode()`.
 - 2026-05-18: Flow Map now uses `TrackerLensGraphEngine.buildGraph()` as the primary runtime loader with snapshot fallback.
 - 2026-05-18: added graph validation, shared connection validation, upstream/downstream traversal and impact analysis; DevTools Graph tab now exposes validation issues and impact inspector.
-- Remaining: richer path queries, visual impact overlay in Flow Map and graph repair actions.
+- 2026-05-19: added path queries, visual impact overlay in Flow Map and repair cleanup for broken/duplicate graph records.
+- Remaining: performance and time-travel overlays move to TASK-010 and TASK-016.
 
 ## [TASK-010]
 

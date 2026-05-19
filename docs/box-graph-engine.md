@@ -21,6 +21,8 @@ TrackerLensGraphEngine.validateConnection({ source, target, channel, dependencie
 TrackerLensGraphEngine.impactAnalysis({ graph, runtime, nodeId, connectionId })
 TrackerLensGraphEngine.upstream({ graph, nodeId })
 TrackerLensGraphEngine.downstream({ graph, nodeId })
+TrackerLensGraphEngine.findPaths({ graph, fromNodeId, toNodeId, maxDepth })
+TrackerLensGraphEngine.shortestPath({ graph, fromNodeId, toNodeId, maxDepth })
 ```
 
 ## Ruolo
@@ -45,12 +47,19 @@ Il Graph Engine ora produce `validation` dentro `buildGraph()`. La validazione s
 - direzione non valida per source/consumer;
 - warning cross-workspace.
 
-`impactAnalysis()` calcola upstream, downstream, dipendenze dirette, eventi diretti, channel coinvolti e livello di rischio del nodo/collegamento selezionato. Le API `upstream()` e `downstream()` espongono la traversata del grafo per Flow Map, Time Travel, Analytics e workspace generati.
+`impactAnalysis()` calcola upstream, downstream, dipendenze dirette, eventi diretti, channel coinvolti e livello di rischio del nodo/collegamento selezionato. Le API `upstream()`, `downstream()`, `findPaths()` e `shortestPath()` espongono la traversata del grafo per Flow Map, Time Travel, Analytics e workspace generati.
 
 `flowMapView.js` usa `validateConnection()` quando crea nuovi link, mentre `devtools.html` espone Graph Validation e Impact Analysis nel tab Graph.
 
+## Flow Map
+
+Il Flow Map usa il Graph Engine anche come superficie operativa:
+
+- overlay visuale di impact direttamente nel canvas: focus, upstream, downstream, direct e dimmed;
+- pannello Impact Analysis nell'inspector di nodo e collegamento;
+- health strip con issue di validazione e azione `Repair`;
+- cleanup automatico per dipendenze/connessioni rotte o duplicate usando gli store runtime.
+
 ## Prossimi step
 
-- Aggiungere visual impact overlay in Flow Map.
-- Aggiungere azioni repair/cleanup per issue comuni.
 - Aggiungere overlay performance e time travel.
