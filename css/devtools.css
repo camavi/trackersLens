@@ -9,6 +9,10 @@
   display: flex;
 }
 
+.tl-devtools-shell > .tl-view-sidebar {
+  margin-top: 112px;
+}
+
 .tl-devtools-main {
   min-width: 0;
   flex: 1;
