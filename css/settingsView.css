@@ -126,6 +126,12 @@ body {
   font-weight: 800;
 }
 
+.tl-settings-edit.cms-btn *,
+.tl-settings-save.cms-btn *,
+.tl-settings-primary.cms-btn * {
+  color: #151008;
+}
+
 .tl-settings-menu.cms-btn,
 .tl-settings-row-btn.cms-btn {
   width: 42px;
