@@ -72,7 +72,7 @@ const defaultSettings = {
     lastBackupSize: 0,
   },
   apiKeys: [
-    { id: "openai", name: "OpenAI API Key", value: "", tone: "purple" },
+    { id: "openai", name: "OpenAI API Key", value: "", tone: "gold" },
     { id: "coingecko", name: "CoinGecko API Key", value: "", tone: "gold" },
     { id: "twitter", name: "Twitter API Key", value: "", tone: "blue" },
     { id: "binance", name: "Binance API Key", value: "", tone: "green" },
@@ -444,7 +444,7 @@ const renderStorage = () =>
       _.div(
         { class: "tl-settings-storage-lines" },
         ...[
-          ["IndexedDB", formatBytes(settingsState.storage.usage), "purple"],
+          ["IndexedDB", formatBytes(settingsState.storage.usage), "gold"],
           ["Cache", settingsState.stores.includes("tl_cache") ? "Store presente" : "N/D", "blue"],
           ["Logs", settingsState.stores.includes("tl_ai_logs") ? "tl_ai_logs" : "N/D", "gold"],
           ["Altri Dati", `${settingsState.stores.length} store`, "green"],
@@ -822,7 +822,7 @@ const addApiKey = async () => {
     id: `key_${Date.now()}`,
     name: name.trim(),
     value: value.trim(),
-    tone: "purple",
+    tone: "gold",
   });
   settingsState.notice = "Nuova chiave API aggiunta";
   await saveSettings(true);

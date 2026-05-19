@@ -118,11 +118,11 @@ body {
 .tl-settings-edit.cms-btn,
 .tl-settings-save.cms-btn,
 .tl-settings-primary.cms-btn {
-  color: #fff;
+  color: #151008;
   border-color: rgba(255, 199, 44, 0.52);
   border-radius: 8px;
-  background: linear-gradient(180deg, #6840ad, #56338f);
-  box-shadow: 0 10px 28px rgba(86, 51, 143, 0.28);
+  background: linear-gradient(180deg, #ffc72c, #d99a00);
+  box-shadow: 0 10px 28px rgba(255, 199, 44, 0.24);
   font-weight: 800;
 }
 
@@ -284,9 +284,9 @@ body {
 .tl-settings-orb {
   width: 44px;
   height: 44px;
-  color: #c99cff;
+  color: #ffd978;
   border: 1px solid rgba(255, 199, 44, 0.42);
-  background: rgba(91, 52, 152, 0.22);
+  background: rgba(255, 199, 44, 0.14);
   box-shadow: 0 0 24px rgba(255, 199, 44, 0.22);
 }
 
@@ -374,20 +374,20 @@ body {
 .tl-settings-category.cms-btn:hover,
 .tl-settings-action.cms-btn:hover {
   border-color: rgba(255, 199, 44, 0.32);
-  background: rgba(88, 51, 145, 0.18);
+  background: rgba(255, 199, 44, 0.1);
   box-shadow: 0 0 24px rgba(255, 199, 44, 0.13);
 }
 
 .tl-settings-category.is-active.cms-btn {
   border-color: rgba(255, 199, 44, 0.38);
-  background: linear-gradient(90deg, rgba(103, 62, 178, 0.32), rgba(30, 20, 56, 0.36));
+  background: linear-gradient(90deg, rgba(255, 199, 44, 0.2), rgba(86, 57, 0, 0.24));
   box-shadow: inset 3px 0 0 rgba(255, 199, 44, 0.86), 0 0 28px rgba(255, 199, 44, 0.16);
 }
 
 .tl-settings-category-icon {
   width: 30px;
   height: 30px;
-  color: #c99cff;
+  color: #ffd978;
   background: rgba(255, 199, 44, 0.12);
 }
 
