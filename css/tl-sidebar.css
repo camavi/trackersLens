@@ -43,9 +43,9 @@
 
 .tl-view-profile.cms-btn {
   position: relative;
-  width: 58px;
-  min-width: 58px;
-  height: 58px;
+  width: 48px;
+  min-width: 48px;
+  height: 48px;
   display: grid;
   place-items: center;
   color: var(--tl-text);
@@ -59,8 +59,8 @@
 }
 
 .tl-view-profile-avatar {
-  width: 42px;
-  height: 42px;
+  width: 34px;
+  height: 34px;
   border: 2px solid rgba(255, 216, 102, 0.84);
   border-radius: 50%;
   background:
@@ -72,8 +72,8 @@
 
 .tl-profile-dot {
   position: absolute;
-  right: 10px;
-  bottom: 11px;
+  right: 8px;
+  bottom: 8px;
   width: 7px;
   height: 7px;
   border-radius: 50%;
