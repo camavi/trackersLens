@@ -231,7 +231,7 @@ body {
   position: absolute;
   inset: 0;
   border-radius: 50%;
-  background: conic-gradient(from 140deg, rgba(146, 76, 255, 0), rgba(187, 90, 255, 0.75), rgba(47, 207, 137, 0.52), rgba(146, 76, 255, 0));
+  background: conic-gradient(from 140deg, rgba(255, 199, 44, 0), rgba(255, 199, 44, 0.72), rgba(47, 207, 137, 0.52), rgba(255, 199, 44, 0));
   filter: blur(18px);
   opacity: 0.45;
   z-index: -1;
@@ -684,7 +684,7 @@ body {
 }
 
 .tl-profile-workspace-kpis strong {
-  color: #a965ff;
+  color: #ffc72c;
   font-size: 21px;
 }
 
@@ -781,8 +781,8 @@ body {
   display: grid;
   place-items: center;
   border-radius: 50%;
-  color: #b77cff;
-  background: rgba(136, 75, 220, 0.16);
+  color: #ffc72c;
+  background: rgba(255, 199, 44, 0.14);
 }
 
 .tl-profile-security-row strong {
@@ -840,8 +840,8 @@ body {
   margin-top: 7px;
   padding: 4px 8px;
   border-radius: 6px;
-  color: #d7b3ff;
-  background: rgba(136, 75, 220, 0.24);
+  color: #ffe8ad;
+  background: rgba(255, 199, 44, 0.16);
 }
 
 .tl-profile-device-status {
