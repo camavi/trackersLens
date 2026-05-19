@@ -27,6 +27,21 @@ window.TrackerLensSandboxRunner = (() => {
     }
   };
 
+  const isAllowedUrl = (url = "", policy = {}) => {
+    const allowlist = Array.isArray(policy?.allowedOrigins) ? policy.allowedOrigins.filter(Boolean) : [];
+    if (!allowlist.length) return true;
+    try {
+      const parsed = new URL(url, window.location.href);
+      return allowlist.some((allowed) => {
+        if (allowed === "*") return true;
+        if (allowed.endsWith("/*")) return parsed.href.startsWith(allowed.slice(0, -1));
+        return parsed.origin === allowed || parsed.href.startsWith(allowed);
+      });
+    } catch (_) {
+      return false;
+    }
+  };
+
   const respondCapability = (frame, id, ok, resultOrError) => {
     frame.contentWindow?.postMessage({
       type: "tl:sandbox:capability-result",
@@ -43,6 +58,10 @@ window.TrackerLensSandboxRunner = (() => {
   const handleFetchCapability = async ({ frame, id, payload = {}, policy = null } = {}) => {
     if (!policy?.permissions?.network) {
       respondCapability(frame, id, false, new Error("Permission network richiesta"));
+      return;
+    }
+    if (!isAllowedUrl(payload?.url, policy)) {
+      respondCapability(frame, id, false, new Error("URL non presente nella sandbox allowlist"));
       return;
     }
     try {
@@ -122,6 +141,10 @@ window.TrackerLensSandboxRunner = (() => {
         } else if (message.capability === "websocket-open") {
           if (!policy?.permissions?.websocket) {
             respondCapability(frame, message.id, false, new Error("Permission websocket richiesta"));
+            return;
+          }
+          if (!isAllowedUrl(message.payload?.url, policy)) {
+            respondCapability(frame, message.id, false, new Error("WebSocket non presente nella sandbox allowlist"));
             return;
           }
           try {

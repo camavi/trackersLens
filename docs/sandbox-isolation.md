@@ -33,6 +33,7 @@ Current behavior:
 - supports sandbox-to-parent `context.emit(channel, payload)` at the bridge level, but arbitrary boxLens JS execution is disabled under MV3 CSP
 - supports controlled `context.fetch(url, options)` at the bridge level when `permissions.network` is enabled
 - supports controlled `context.websocket(url, protocols)` at the bridge level when `permissions.websocket` is enabled
+- enforces optional `allowedOrigins` / `networkAllowlist` / `originAllowlist` manifest entries for bridge fetch and websocket calls
 - supports controlled `context.clipboard.writeText(text)` at the bridge level when `permissions.clipboard` is enabled
 - records sandbox errors in runtime events and flow logs from the workspace host
 - Flow Map shows sandbox status, sandbox errors and recent sandbox logs in the node inspector
@@ -95,12 +96,15 @@ await context.clipboard.writeText("copied from Trackers Lens");
     "timeoutMs": 1000,
     "memoryMb": 16,
     "maxPayloadKb": 256
-  }
+  },
+  "allowedOrigins": [
+    "https://api.example.com",
+    "wss://stream.example.com"
+  ]
 }
 ```
 
 ## Next Steps
 
-- harden bridge request allowlists by origin/domain
 - add UI controls for declaring permissions from the editor
 - add automated browser tests for runner fallback and bridge APIs

@@ -1,5 +1,6 @@
 window.TrackerLensBoxVersioning = (() => {
   const CONTRACT_VERSION = "1.0.0";
+  const CURRENT_RUNTIME_VERSION = "0.1.0";
   const DEFAULT_BOX_VERSION = "0.1.0";
   const DEFAULT_RUNTIME_VERSION = ">=0.1.0";
   const MIGRATION_POLICIES = ["none", "manual", "automatic"];
@@ -15,6 +16,50 @@ window.TrackerLensBoxVersioning = (() => {
   };
 
   const normalizeRuntimeVersion = (value) => normalizeText(value, DEFAULT_RUNTIME_VERSION);
+
+  const parseVersionParts = (version = DEFAULT_BOX_VERSION) =>
+    normalizeVersion(version, DEFAULT_BOX_VERSION)
+      .split(/[+-]/)[0]
+      .split(".")
+      .map((value) => Number.parseInt(value, 10) || 0);
+
+  const compareVersions = (left = DEFAULT_BOX_VERSION, right = DEFAULT_BOX_VERSION) => {
+    const a = parseVersionParts(left);
+    const b = parseVersionParts(right);
+    for (let index = 0; index < 3; index += 1) {
+      if (a[index] > b[index]) return 1;
+      if (a[index] < b[index]) return -1;
+    }
+    return 0;
+  };
+
+  const satisfiesRuntimeVersion = (range = DEFAULT_RUNTIME_VERSION, runtimeVersion = CURRENT_RUNTIME_VERSION) => {
+    const text = normalizeRuntimeVersion(range);
+    if (!text || text === "*" || text.toLowerCase() === "any") return true;
+    const checks = text.split(/\s+/).filter(Boolean);
+    return checks.every((check) => {
+      const match = check.match(/^(>=|<=|>|<|=|~|\^)?\s*(\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?)$/);
+      if (!match) return true;
+      const operator = match[1] || "=";
+      const target = match[2];
+      const comparison = compareVersions(runtimeVersion, target);
+      if (operator === ">=") return comparison >= 0;
+      if (operator === "<=") return comparison <= 0;
+      if (operator === ">") return comparison > 0;
+      if (operator === "<") return comparison < 0;
+      if (operator === "~") {
+        const [runtimeMajor, runtimeMinor] = parseVersionParts(runtimeVersion);
+        const [targetMajor, targetMinor] = parseVersionParts(target);
+        return runtimeMajor === targetMajor && runtimeMinor === targetMinor && comparison >= 0;
+      }
+      if (operator === "^") {
+        const [runtimeMajor] = parseVersionParts(runtimeVersion);
+        const [targetMajor] = parseVersionParts(target);
+        return runtimeMajor === targetMajor && comparison >= 0;
+      }
+      return comparison === 0;
+    });
+  };
 
   const parseManifest = (manifest) => {
     if (!manifest) return {};
@@ -131,14 +176,19 @@ window.TrackerLensBoxVersioning = (() => {
     if (!normalized.runtimeVersion) warnings.push("runtimeVersion mancante");
     if (!normalized.versioning?.contractVersion) warnings.push("versioning contract mancante");
     if (!MIGRATION_POLICIES.includes(normalized.migration?.policy)) warnings.push("migration policy non riconosciuta");
+    if (!satisfiesRuntimeVersion(normalized.runtimeVersion, CURRENT_RUNTIME_VERSION)) {
+      errors.push(`runtimeVersion incompatibile: richiede ${normalized.runtimeVersion}, runtime corrente ${CURRENT_RUNTIME_VERSION}`);
+    }
     return { ok: errors.length === 0, errors, warnings, box: normalized };
   };
 
   return {
     CONTRACT_VERSION,
+    CURRENT_RUNTIME_VERSION,
     DEFAULT_BOX_VERSION,
     DEFAULT_RUNTIME_VERSION,
     MIGRATION_POLICIES,
+    compareVersions,
     normalizeVersion,
     normalizeRuntimeVersion,
     normalizeCompatibility,
@@ -146,6 +196,7 @@ window.TrackerLensBoxVersioning = (() => {
     normalizeBox,
     buildManifest,
     bumpVersion,
+    satisfiesRuntimeVersion,
     validateBox,
   };
 })();

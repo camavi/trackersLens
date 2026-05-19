@@ -15,6 +15,7 @@ window.TrackerLensSandboxPolicy = (() => {
       memoryMb: 16,
       maxPayloadKb: 256,
     },
+    allowedOrigins: [],
   };
 
   const FORBIDDEN_JS = [
@@ -63,6 +64,19 @@ window.TrackerLensSandboxPolicy = (() => {
     };
   };
 
+  const normalizeAllowedOrigins = (manifest = {}) => {
+    const network = manifest.network || manifest.runtime?.network || {};
+    const candidates = []
+      .concat(manifest.allowedOrigins || [])
+      .concat(manifest.originAllowlist || [])
+      .concat(manifest.networkAllowlist || [])
+      .concat(network.allowedOrigins || [])
+      .concat(network.allowlist || []);
+    return [...new Set(candidates
+      .map((value) => String(value || "").trim())
+      .filter(Boolean))];
+  };
+
   const inspectJs = (js = "", permissions = {}) => {
     const source = String(js || "");
     const violations = FORBIDDEN_JS
@@ -86,6 +100,7 @@ window.TrackerLensSandboxPolicy = (() => {
       ...DEFAULT_POLICY,
       permissions,
       limits: normalizeLimits(parsedManifest),
+      allowedOrigins: normalizeAllowedOrigins(parsedManifest),
       manifest: parsedManifest,
       violations: inspectJs(code.js || code.JS || "", permissions),
     };

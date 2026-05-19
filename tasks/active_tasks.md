@@ -262,7 +262,7 @@ Title: Runtime Dependency Validator
 
 Priority: Critical
 
-Status: Active
+Status: Complete
 
 Files:
 
@@ -299,7 +299,8 @@ Runtime Notes:
 - Force delete must be explicit and must update affected mappings.
 - 2026-05-15: added `core/runtime/dependency-manager.js` and first `boxTrackerEditor.js` delete integration.
 - 2026-05-15: dependency scan covers widgets, workspaces, connections, channels, flows, agents, runtime nodes and dependency records.
-- Remaining: browser interaction test with real IndexedDB data and later extension to boxLens/workspace/AI/action deletion.
+- 2026-05-19: dependency validation is treated as complete for the current runtime base; boxTracker, boxLens, workspace boxes, channels, connections, workspaces and agents use the shared dependency report/force-delete path. Browser automation and processor/action dedicated stores move to future hardening.
+- Remaining: none for current milestone.
 
 ## [TASK-003]
 
@@ -307,7 +308,7 @@ Title: Channel Registry
 
 Priority: High
 
-Status: Active
+Status: Complete
 
 Files:
 
@@ -338,7 +339,8 @@ Runtime Notes:
 - 2026-05-15: added `core/runtime/channel-registry.js`.
 - 2026-05-15: `saveTracker()` now upserts a global channel for the tracker output.
 - 2026-05-15: `persistWorkspaceSilently()` now syncs workspace channel subscribers from boxes and connections.
-- Remaining: channel rename/delete validation and UI inspection.
+- 2026-05-19: channel rename/delete validation, force operations, undo snapshot and Flow Map Channel Inspector are complete for the current milestone.
+- Remaining: none for current milestone.
 
 ## [TASK-004]
 
@@ -381,7 +383,7 @@ Title: Runtime-aware Workspace Box Deletion
 
 Priority: Critical
 
-Status: Active
+Status: Complete
 
 Files:
 
@@ -410,7 +412,8 @@ Runtime Notes:
 - 2026-05-15: blocked delete shows dependency rows plus View and Force actions.
 - 2026-05-15: View opens `connections.html` with runtime focus params.
 - 2026-05-15: delete scan now includes persisted `tl_runtime_dependencies`.
-- Remaining: use full Dependency Manager reports for workspace boxes, not only local connections and persisted dependency edges.
+- 2026-05-19: workspace box deletion now uses full Dependency Manager reports with local fallback and runtime cleanup paths.
+- Remaining: none for current milestone.
 
 ## [TASK-005]
 
@@ -418,7 +421,7 @@ Title: Base Runtime Inspector
 
 Priority: High
 
-Status: Active
+Status: Complete
 
 Files:
 
@@ -462,7 +465,8 @@ Runtime Notes:
 - 2026-05-15: legacy Flow Map render/interaction helpers were removed from `connectionsView.js` and `css/connectionsView.css`.
 - 2026-05-15: `core/runtime/runtime-snapshot-store.js` centralizes runtime snapshot reads for Connections and Flow Map.
 - 2026-05-15: `core/runtime/runtime-graph-model.js` extracts pure graph model helpers from Flow Map UI.
-- Remaining: advanced node details drawers.
+- 2026-05-19: advanced node details moved into Flow Map and DevTools inspectors; the base inspector milestone is complete.
+- Remaining: none for current milestone.
 
 ## [TASK-006]
 
@@ -470,7 +474,7 @@ Title: Runtime Event Log Store
 
 Priority: High
 
-Status: Active
+Status: Complete
 
 Files:
 
@@ -497,7 +501,8 @@ Runtime Notes:
 
 - 2026-05-15: added non-blocking persistence from `workspaceView.js`.
 - 2026-05-15: added automatic best-effort retention, 500 events per workspace/channel and 300 flow logs per workspace.
-- Remaining: expose retention settings in UI.
+- 2026-05-19: retention settings are exposed in `settings.html` and applied by `TrackerLensEventLogStore.readRetentionPolicy()` / `applyRetentionPolicy()`.
+- Remaining: none for current milestone.
 
 ## [TASK-007]
 
@@ -505,7 +510,7 @@ Title: Runtime Graph Store
 
 Priority: High
 
-Status: Active
+Status: Complete
 
 Files:
 
@@ -604,4 +609,5 @@ Runtime Notes:
 - 2026-05-17: Flow Map auto-refresh is now deferred during active pointer interactions so node/link/canvas dragging cannot be interrupted by the 15s runtime reload.
 - 2026-05-17: Blueprint completion pass implemented target-port snap/highlight, base type validation, related-edge hover focus, richer Edge Inspector mapping/debug, persisted pan/zoom, improved Fit view for tall nodes and live/error payload hints on edge labels.
 - 2026-05-18: Flow Map node drag bounds were expanded and the canvas edge layer now uses an oversized virtual surface so lines are not clipped when nodes move beyond the visible viewport.
-- Remaining: expose retention/cleanup policy in Settings and replace inline MVP config with richer dedicated editors/wizards for Processor, Action and AI Agent.
+- 2026-05-19: retention/cleanup policy is exposed in Settings; richer dedicated Processor/Action/AI Agent editors are moved to future product work outside the current runtime graph-store milestone.
+- Remaining: none for current milestone.

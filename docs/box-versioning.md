@@ -12,6 +12,8 @@ Main APIs:
 - `normalizeVersioning(box)`
 - `buildManifest(box, extra)`
 - `bumpVersion(version, part)`
+- `satisfiesRuntimeVersion(range, runtimeVersion)`
+- `compareVersions(left, right)`
 - `validateBox(box)`
 
 ## Contract
@@ -75,5 +77,5 @@ The top-level fields stay duplicated intentionally. Older screens can keep readi
 ## Current Limits
 
 - Migration policies are metadata only for now.
-- Compatibility ranges are stored but not enforced at runtime yet.
+- Compatibility ranges are enforced before workspace runtime mount through `validateBox()`.
 - Changelog editing is intentionally minimal: the editor manages the current entry.

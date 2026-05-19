@@ -147,6 +147,8 @@ Persisted boxes now include:
 
 Legacy boxes with only `version` are normalized on editor save, library read, portable export and portable import.
 
+`js/workspaceView.js` now calls `TrackerLensBoxVersioning.validateBox()` before mounting a runtime box and blocks boxes whose `runtimeVersion` is incompatible with the current runtime contract.
+
 ## Box Dependency System
 
 `core/runtime/dependency-manager.js` is the central dependency-safety gate for runtime mutations.
@@ -163,6 +165,15 @@ It now supports:
 The public validation API is `canDeleteNode({ id, type })`; destructive cleanup goes through `forceDeleteNode({ id, type, report })`.
 
 `js/workspace.js` uses `inspectNode()` before deleting selected boxes, so boxLens deletion gets the same dependency report path as boxTracker deletion.
+
+## Runtime Log Retention
+
+`core/runtime/event-log-store.js` reads retention limits from Settings:
+
+- `storage.runtimeEventLimit`
+- `storage.runtimeFlowLogLimit`
+
+`settings.html` exposes those limits in `Dati & Archiviazione` and can apply the retention policy to all runtime event/flow-log scopes.
 
 ## AI Memory System
 

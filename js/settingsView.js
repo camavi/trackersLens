@@ -53,6 +53,8 @@ const defaultSettings = {
     keepLogs: "30",
     compression: true,
     autoCleanup: true,
+    runtimeEventLimit: 500,
+    runtimeFlowLogLimit: 300,
   },
   notifications: {
     desktop: true,
@@ -451,8 +453,14 @@ const renderStorage = () =>
     ),
     _.div({ class: "tl-settings-storage-used" }, _.span("Spazio Utilizzato"), _.strong(`${settingsState.storage.usedLabel} / ${settingsState.storage.quotaLabel}`)),
     renderSettingSelect("Mantieni Logs", "storage.keepLogs", [option("7", "7 giorni"), option("30", "30 giorni"), option("90", "90 giorni")]),
+    _.Grid(
+      { cols: 2, gap: 12 },
+      renderField("Eventi runtime max", renderSettingInput("storage.runtimeEventLimit", { type: "number", min: 50, max: 5000 })),
+      renderField("Flow logs max", renderSettingInput("storage.runtimeFlowLogLimit", { type: "number", min: 50, max: 3000 }))
+    ),
     renderSettingToggle("Compressione Dati", "storage.compression"),
-    renderSettingToggle("Cleanup automatico", "storage.autoCleanup")
+    renderSettingToggle("Cleanup automatico", "storage.autoCleanup"),
+    btn({ class: "tl-settings-primary", onclick: applyRuntimeRetention }, icon("cleaning_services", "sm"), "Applica retention runtime")
   );
 
 const renderNotifications = () =>
@@ -742,6 +750,20 @@ const clearCacheStore = async () => {
     settingsState.error = error?.message || "Errore pulizia cache";
   }
   await refreshSettings();
+};
+
+const applyRuntimeRetention = async () => {
+  try {
+    await saveSettings(true);
+    const policy = await window.TrackerLensEventLogStore?.readRetentionPolicy?.();
+    if (!policy) throw new Error("Event Log Store non disponibile");
+    await window.TrackerLensEventLogStore.applyRetentionPolicy(policy);
+    settingsState.notice = `Retention runtime applicata: ${policy.eventLimit} eventi, ${policy.flowLogLimit} flow logs`;
+    settingsState.error = "";
+  } catch (error) {
+    settingsState.error = error?.message || "Errore retention runtime";
+  }
+  mountSettings();
 };
 
 const runBackupNow = async () => {

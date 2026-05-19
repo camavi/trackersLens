@@ -12,6 +12,12 @@ window.TrackerLensEventLogStore = (() => {
     { name: STORES.events, columns: [{ name: "workspaceId" }, { name: "channel" }, { name: "eventType" }, { name: "createdAt" }] },
     { name: STORES.flowLogs, columns: [{ name: "workspaceId" }, { name: "flowId" }, { name: "createdAt" }] },
   ];
+  const DEFAULT_RETENTION = {
+    eventLimit: 500,
+    flowLogLimit: 300,
+  };
+  const SETTINGS_STORE = tableName("TL_SETTINGS", "tl_settings");
+  const SETTINGS_RECORD_ID = "global";
 
   const createIndexes = (store, columns = []) => {
     columns.forEach((column) => {
@@ -115,6 +121,25 @@ window.TrackerLensEventLogStore = (() => {
     };
   };
 
+  const readRetentionPolicy = async () => {
+    const db = await ensureStores();
+    try {
+      if (!db.objectStoreNames.contains(SETTINGS_STORE)) return { ...DEFAULT_RETENTION };
+      const settings = await new Promise((resolve) => {
+        const request = db.transaction(SETTINGS_STORE, "readonly").objectStore(SETTINGS_STORE).get(SETTINGS_RECORD_ID);
+        request.onsuccess = (event) => resolve(event.target.result?.settings || {});
+        request.onerror = () => resolve({});
+      });
+      const storage = settings?.storage || {};
+      return {
+        eventLimit: Math.min(5000, Math.max(50, Number(storage.runtimeEventLimit || DEFAULT_RETENTION.eventLimit))),
+        flowLogLimit: Math.min(3000, Math.max(50, Number(storage.runtimeFlowLogLimit || DEFAULT_RETENTION.flowLogLimit))),
+      };
+    } finally {
+      db.close();
+    }
+  };
+
   const pruneByScope = async ({ storeName, workspaceId = "global", channel = "", limit = 500 }) => {
     const db = await ensureStores();
     try {
@@ -142,6 +167,26 @@ window.TrackerLensEventLogStore = (() => {
 
   const cleanupFlowLogs = ({ workspaceId = "global", limit = 300 } = {}) =>
     pruneByScope({ storeName: STORES.flowLogs, workspaceId, limit });
+
+  const applyRetentionPolicy = async (policy = null) => {
+    const retention = policy || await readRetentionPolicy();
+    const [events, flowLogs] = await Promise.all([listEvents(), listFlowLogs()]);
+    const eventScopes = [...new Set(events.map((event) => `${event.workspaceId || "global"}::${event.channel || ""}`))];
+    const flowScopes = [...new Set(flowLogs.map((log) => log.workspaceId || "global"))];
+    await Promise.all([
+      ...eventScopes.map((scope) => {
+        const [workspaceId, channel] = scope.split("::");
+        return cleanupEvents({ workspaceId, channel, limit: retention.eventLimit });
+      }),
+      ...flowScopes.map((workspaceId) => cleanupFlowLogs({ workspaceId, limit: retention.flowLogLimit })),
+    ]);
+    return {
+      ...retention,
+      eventScopes: eventScopes.length,
+      flowScopes: flowScopes.length,
+      appliedAt: new Date().toISOString(),
+    };
+  };
 
   const cleanupNodeReferences = async ({ nodeIds = [], workspaceId = "" } = {}) => {
     const ids = new Set(nodeIds.filter(Boolean).map(String));
@@ -219,9 +264,11 @@ window.TrackerLensEventLogStore = (() => {
     };
 
     await write(STORES.events, event);
-    cleanupEvents({ workspaceId, channel, limit: 500 }).catch((error) => {
-      console.warn("Cleanup eventi runtime non completato:", error);
-    });
+    readRetentionPolicy()
+      .then((policy) => cleanupEvents({ workspaceId, channel, limit: policy.eventLimit }))
+      .catch((error) => {
+        console.warn("Cleanup eventi runtime non completato:", error);
+      });
     return event;
   };
 
@@ -248,9 +295,11 @@ window.TrackerLensEventLogStore = (() => {
     };
 
     await write(STORES.flowLogs, log);
-    cleanupFlowLogs({ workspaceId, limit: 300 }).catch((error) => {
-      console.warn("Cleanup flow logs non completato:", error);
-    });
+    readRetentionPolicy()
+      .then((policy) => cleanupFlowLogs({ workspaceId, limit: policy.flowLogLimit }))
+      .catch((error) => {
+        console.warn("Cleanup flow logs non completato:", error);
+      });
     return log;
   };
 
@@ -282,6 +331,7 @@ window.TrackerLensEventLogStore = (() => {
 
   return {
     STORES,
+    applyRetentionPolicy,
     clearAll,
     clearStore,
     cleanupConnectionReferences,
@@ -294,5 +344,6 @@ window.TrackerLensEventLogStore = (() => {
     listEvents,
     recordEvent,
     recordFlowLog,
+    readRetentionPolicy,
   };
 })();

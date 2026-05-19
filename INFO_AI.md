@@ -3581,6 +3581,44 @@ Verifiche eseguite:
 - `curl -I http://127.0.0.1:3031/js/flowMapView.js`
 - `curl -I http://127.0.0.1:3031/core/runtime/runtime-graph-model.js`
 
+## Aggiornamento 2026-05-19 - Chiusura residui punti 1, 3, 5, 6, 7, 8
+
+Obiettivo della sessione: chiudere i residui operativi dei punti gia avviati prima di proseguire con i task successivi.
+
+Fatto:
+
+- Punto 1 Event Bus Visivo:
+  - marcato come completo operativo in `docs/new_vision_progress.md`; le estensioni DevTools restano evoluzione futura.
+- Punto 3 Sandbox Isolation:
+  - aggiunta allowlist opzionale manifest (`allowedOrigins`, `networkAllowlist`, `originAllowlist`) per `context.fetch()` e `context.websocket()`;
+  - aggiornato `docs/sandbox-isolation.md`.
+- Punto 5 Versioning Boxes:
+  - aggiunti compare semver e `satisfiesRuntimeVersion()`;
+  - `workspaceView.js` blocca il mount runtime di box incompatibili con il runtime corrente;
+  - aggiornato `docs/box-versioning.md`.
+- Punto 6 Box Dependency System:
+  - chiuso come completo operativo nel tracking; processor/action store dedicati restano lavoro futuro.
+- Punto 7 AI Memory System e punto 8 Local AI First:
+  - chiusi come completi operativi nel tracking; embeddings/summarization/router locale restano evoluzioni future.
+- Runtime retention:
+  - `TrackerLensEventLogStore` legge la retention da Settings;
+  - `settings.html` espone limiti per eventi runtime e flow logs con azione `Applica retention runtime`.
+- `tasks/active_tasks.md`:
+  - TASK-001, TASK-003, TASK-005, TASK-006, TASK-007 e TASK-008 marcati Complete per il milestone corrente.
+
+Verifiche eseguite:
+
+- `node --check core/runtime/box-versioning.js`
+- `node --check core/runtime/event-log-store.js`
+- `node --check core/runtime/sandbox-policy.js`
+- `node --check core/runtime/sandbox-runner.js`
+- `node --check js/settingsView.js`
+- `node --check js/workspaceView.js`
+- `git diff --check`
+- `curl -I http://127.0.0.1:3031/settings.html`
+- `curl -I http://127.0.0.1:3031/workspace.html`
+- `curl -I http://127.0.0.1:3031/flowMap.html`
+
 ## Aggiornamento 2026-05-18 - Marketplace Verified punto 9
 
 Obiettivo della sessione: introdurre la fondazione locale per asset marketplace verificabili prima di un marketplace remoto.

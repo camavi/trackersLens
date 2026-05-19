@@ -1514,6 +1514,12 @@ const mountRuntimeBox = (box) => {
   if (!host || !mount) return;
 
   const code = getRuntimeCode(box);
+  const versioning = window.TrackerLensBoxVersioning?.validateBox?.(box);
+  if (versioning?.ok === false) {
+    host.dataset.versionStatus = "blocked";
+    mount.innerHTML = `<div class="tl-runtime-error">Version blocked: ${versioning.errors.join(", ")}</div>`;
+    return;
+  }
   const sandbox = window.TrackerLensSandboxPolicy?.validateBox?.({ box, code });
   host.dataset.sandboxStatus = sandbox?.ok === false ? "blocked" : "allowed";
   if (sandbox?.ok === false) {
