@@ -3775,10 +3775,10 @@ const renderStatusBar = () =>
 const renderShell = () =>
   _.div(
     { class: "tl-flow-shell" },
+    renderHeader(),
     window.TrackerLensSidebar.render({ activeId: "flow" }),
     _.div(
       { class: "tl-flow-main" },
-      renderHeader(),
       state.error ? _.div({ class: "tl-flow-error" }, state.error) : null,
       _.div(
         { class: `tl-flow-grid${state.inspectorOpen ? "" : " is-inspector-closed"}` },

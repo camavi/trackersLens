@@ -667,18 +667,18 @@ const mount = () => {
   root.replaceChildren(
     _.div(
       { class: "tl-devtools-shell" },
+      _.header(
+        { class: "tl-devtools-topbar" },
+        window.TrackerLensSidebar.renderBrand({ className: "tl-devtools-brand" }),
+        _.div(
+          _.p({ class: "tl-devtools-kicker" }, "Trackers Lens"),
+          _.h1("Runtime DevTools")
+        ),
+        _.div({ class: "tl-devtools-status" }, _.span({ class: "tl-devtools-dot" }), "Core")
+      ),
       window.TrackerLensSidebar?.render({ activeId: "devtools" }),
       _.div(
         { class: "tl-devtools-main" },
-        _.header(
-          { class: "tl-devtools-topbar" },
-          window.TrackerLensSidebar.renderBrand({ className: "tl-devtools-brand" }),
-          _.div(
-            _.p({ class: "tl-devtools-kicker" }, "Trackers Lens"),
-            _.h1("Runtime DevTools")
-          ),
-          _.div({ class: "tl-devtools-status" }, _.span({ class: "tl-devtools-dot" }), "Core")
-        ),
         _.div({ class: "tl-devtools-grid-bg" }, ...[].concat(renderContent()))
       )
     )

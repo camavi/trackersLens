@@ -16,25 +16,26 @@ body {
 
 .tl-flow-shell {
   display: grid;
+  grid-template-rows: 70px minmax(0, 1fr);
   grid-template-columns: 76px minmax(0, 1fr);
 }
 
-.tl-flow-shell > .tl-view-sidebar {
-  margin-top: 112px;
-}
-
 .tl-flow-main {
+  grid-column: 2;
+  grid-row: 2;
   min-width: 0;
   min-height: 0;
   display: grid;
-  grid-template-rows: 60px minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr);
   border-left: 1px solid rgba(214, 226, 235, 0.07);
   overflow: hidden;
 }
 
 .tl-flow-topbar {
+  grid-column: 1 / -1;
+  grid-row: 1;
   display: grid;
-  grid-template-columns: minmax(252px, 252px) minmax(220px, 320px) minmax(0, 1fr) auto;
+  grid-template-columns: 256px minmax(220px, 320px) minmax(0, 1fr) auto;
   align-items: center;
   gap: 18px;
   padding: 0 18px 0 0;
