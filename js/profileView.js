@@ -6,13 +6,13 @@ const profileStats = [
   { label: "Workspace", value: "24", icon: "workspaces", tone: "pink" },
   { label: "Box Creati", value: "152", icon: "deployed_code", tone: "green" },
   { label: "Tracker Attivi", value: "37", icon: "radar", tone: "blue" },
-  { label: "AI Jobs", value: "1.284", icon: "psychology", tone: "purple" },
+  { label: "AI Jobs", value: "1.284", icon: "psychology", tone: "gold" },
   { label: "Dati Elaborati", value: "12.6 GB", icon: "data_thresholding", tone: "gold" },
 ];
 
 const timeline = [
-  ["12:32", "Hai creato un nuovo workspace “Crypto Monitor”", "Workspace", "workspaces", "purple"],
-  ["11:45", "AI Job completato: Market Analysis", "AI", "psychology", "violet"],
+  ["12:32", "Hai creato un nuovo workspace “Crypto Monitor”", "Workspace", "workspaces", "gold"],
+  ["11:45", "AI Job completato: Market Analysis", "AI", "psychology", "gold"],
   ["10:21", "Aggiunto nuovo tracker “BTC Price”", "Tracker", "radar", "green"],
   ["09:15", "Connessione Binance API aggiornata", "Connessione", "link", "blue"],
   ["08:42", "Backup automatico completato", "Sistema", "verified", "slate"],
@@ -39,9 +39,9 @@ const devices = [
 ];
 
 const quickActions = [
-  ["Nuovo Workspace", "deployed_code", "purple"],
+  ["Nuovo Workspace", "deployed_code", "gold"],
   ["Aggiungi Tracker", "track_changes", "green"],
-  ["Nuovo AI Job", "psychology", "violet"],
+  ["Nuovo AI Job", "psychology", "gold"],
   ["Importa Dati", "download", "blue"],
   ["Esporta Dati", "upload", "cyan"],
   ["Pulisci Cache", "delete_sweep", "gold"],
@@ -170,7 +170,7 @@ const renderAiUsage = () =>
       _.div({ class: "tl-profile-donut" }, _.strong("1.284"), _.span("Total AI Jobs"), _.em("+ 342 (36%)")),
       _.div(
         { class: "tl-profile-ai-metrics" },
-        _.p(_.span(dot("purple"), "Token Utilizzati"), _.strong("2.4M")),
+        _.p(_.span(dot("gold"), "Token Utilizzati"), _.strong("2.4M")),
         _.p(_.span(dot("blue"), "Richieste AI"), _.strong("1.284")),
         _.p(_.span(dot("green"), "Tempo Medio"), _.strong("18.4s")),
         _.p(_.span(dot("gold"), "Costo Stimato"), _.strong("$1.82"))

@@ -17,7 +17,7 @@ body {
   grid-template-rows: 70px minmax(0, 1fr);
   overflow: hidden;
   background:
-    radial-gradient(circle at 18% 2%, rgba(151, 78, 255, 0.18), transparent 30%),
+    radial-gradient(circle at 18% 2%, rgba(255, 199, 44, 0.14), transparent 30%),
     radial-gradient(circle at 86% 8%, rgba(49, 204, 133, 0.1), transparent 27%),
     radial-gradient(circle at 74% 92%, rgba(242, 190, 65, 0.08), transparent 30%),
     linear-gradient(180deg, #071018 0%, #03080d 100%);
@@ -189,7 +189,7 @@ body {
   border-radius: 8px;
   background:
     linear-gradient(120deg, rgba(10, 20, 34, 0.84), rgba(8, 15, 25, 0.72)),
-    radial-gradient(circle at 63% 16%, rgba(143, 71, 255, 0.2), transparent 26%);
+    radial-gradient(circle at 63% 16%, rgba(255, 199, 44, 0.17), transparent 26%);
   box-shadow: 0 22px 68px rgba(0, 0, 0, 0.32), inset 0 1px 0 rgba(255, 255, 255, 0.04);
   overflow: hidden;
 }
@@ -199,8 +199,8 @@ body {
   inset: 0 22% 0 42%;
   opacity: 0.72;
   background:
-    radial-gradient(ellipse at center, rgba(146, 74, 255, 0.22), transparent 45%),
-    repeating-linear-gradient(165deg, transparent 0 18px, rgba(154, 86, 255, 0.14) 19px 20px);
+    radial-gradient(ellipse at center, rgba(255, 199, 44, 0.18), transparent 45%),
+    repeating-linear-gradient(165deg, transparent 0 18px, rgba(255, 199, 44, 0.11) 19px 20px);
   filter: blur(0.2px);
   mask-image: linear-gradient(90deg, transparent, #000 20%, #000 70%, transparent);
 }
@@ -284,8 +284,8 @@ body {
 
 .tl-profile-builder-badge {
   padding: 6px 10px;
-  color: #d7b8ff;
-  background: rgba(128, 67, 207, 0.28);
+  color: #ffe8ad;
+  background: rgba(255, 199, 44, 0.16);
 }
 
 .tl-profile-identity p {
@@ -395,7 +395,7 @@ body {
 
 .tl-profile-plan strong {
   display: block;
-  color: #c59aff;
+  color: #ffc72c;
   font-size: 18px;
 }
 
@@ -405,14 +405,16 @@ body {
   display: grid !important;
   place-items: center;
   border-radius: 50%;
-  color: #bd7cff !important;
-  background: rgba(129, 69, 215, 0.2);
+  color: #ffc72c !important;
+  background: rgba(255, 199, 44, 0.14);
 }
 
 .tl-profile-plan-btn.cms-btn {
   width: 100%;
   margin-top: 16px;
-  background: rgba(120, 68, 205, 0.22);
+  color: #161000;
+  border-color: rgba(255, 199, 44, 0.45);
+  background: linear-gradient(180deg, #ffd84f, #d99a00);
 }
 
 .tl-profile-hero-actions {
@@ -440,8 +442,8 @@ body {
 .tl-profile-ghost.cms-btn:hover,
 .tl-profile-action.cms-btn:hover,
 .tl-profile-link-btn.cms-btn:hover {
-  border-color: rgba(177, 102, 255, 0.55);
-  box-shadow: 0 0 28px rgba(151, 78, 255, 0.24);
+  border-color: rgba(255, 199, 44, 0.55);
+  box-shadow: 0 0 28px rgba(255, 199, 44, 0.2);
 }
 
 .tl-profile-tabs.cms-toolbar {
@@ -461,9 +463,9 @@ body {
 }
 
 .tl-profile-tab.is-active.cms-btn {
-  color: #fff !important;
-  border-bottom: 2px solid #a856ff !important;
-  box-shadow: 0 12px 30px rgba(157, 79, 255, 0.34);
+  color: #ffe8ad !important;
+  border-bottom: 2px solid #ffc72c !important;
+  box-shadow: 0 12px 30px rgba(255, 199, 44, 0.24);
 }
 
 .tl-profile-card.cms-card {
@@ -592,22 +594,22 @@ body {
   place-items: center;
   border-radius: 50%;
   color: #fff;
-  background: #4b2a83;
-  box-shadow: 0 0 18px rgba(162, 84, 255, 0.45);
+  background: #7a5200;
+  box-shadow: 0 0 18px rgba(255, 199, 44, 0.34);
 }
 
 .tl-profile-event-badge {
   padding: 5px 8px;
   border-radius: 6px;
   background: rgba(255, 255, 255, 0.045);
-  color: #caa9ff;
+  color: #ffe8ad;
   text-align: center;
   font-size: 12px;
 }
 
 .tl-profile-link-btn.cms-btn {
   margin-top: 12px;
-  color: #c792ff;
+  color: #ffc72c;
   border: 0;
   background: transparent;
   padding-left: 0;
@@ -630,8 +632,8 @@ body {
   border-radius: 50%;
   background:
     radial-gradient(circle, rgba(8, 18, 31, 0.98) 0 58%, transparent 59%),
-    conic-gradient(#9d54ff 0 78%, rgba(36, 53, 78, 0.8) 78% 100%);
-  box-shadow: 0 0 38px rgba(153, 78, 255, 0.34);
+    conic-gradient(#ffc72c 0 78%, rgba(36, 53, 78, 0.8) 78% 100%);
+  box-shadow: 0 0 38px rgba(255, 199, 44, 0.26);
 }
 
 .tl-profile-donut strong {
@@ -715,14 +717,14 @@ body {
   flex: 1;
   height: var(--h);
   border-radius: 4px 4px 0 0;
-  background: linear-gradient(180deg, rgba(169, 90, 255, 0.82), rgba(94, 47, 151, 0.18));
-  box-shadow: 0 0 16px rgba(163, 84, 255, 0.22);
+  background: linear-gradient(180deg, rgba(255, 199, 44, 0.82), rgba(122, 82, 0, 0.18));
+  box-shadow: 0 0 16px rgba(255, 199, 44, 0.2);
 }
 
 .tl-profile-chart-fill {
   position: absolute;
   inset: 10px 0 0;
-  background: linear-gradient(180deg, rgba(151, 78, 255, 0.16), transparent);
+  background: linear-gradient(180deg, rgba(255, 199, 44, 0.13), transparent);
 }
 
 .tl-profile-action-grid {
@@ -864,8 +866,8 @@ body {
 }
 
 .tl-profile-dot-status.is-purple {
-  background: #9e59ff;
-  box-shadow: 0 0 12px rgba(158, 89, 255, 0.86);
+  background: #ffc72c;
+  box-shadow: 0 0 12px rgba(255, 199, 44, 0.72);
 }
 
 .tl-profile-dot-status.is-blue {
