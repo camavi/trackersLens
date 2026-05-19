@@ -5,7 +5,6 @@ const workspaceState = {
   device: "desktop",
   search: "",
   zoom: 100,
-  activeRail: "dashboard",
   activeTool: "select",
   selectedAssetId: null,
   selectedBoxId: null,
@@ -65,16 +64,6 @@ const toolBehavior = {
   order: { canSelect: true, canMove: false, canResize: false, canConnect: false, cursor: "default" },
   delete: { canSelect: false, canMove: false, canResize: false, canConnect: false, cursor: "not-allowed" },
 };
-
-const railItems = [
-  { id: "dashboard", icon: "dashboard", label: "Aggiungi box" },
-  { id: "library", icon: "folder_open", label: "Libreria" },
-  { id: "links", icon: "link", label: "Collegamenti" },
-  { id: "database", icon: "database", label: "Database" },
-  { id: "stats", icon: "monitoring", label: "Statistiche" },
-  { id: "ai", icon: "psychology", label: "AI" },
-  { id: "settings", icon: "settings", label: "Impostazioni" },
-];
 
 const cloneWorkspaceModel = () => ({
   workspace: { ...workspaceState.workspace },
@@ -368,8 +357,7 @@ const renderHeader = () =>
 
 const renderRail = () => {
   return window.TrackerLensSidebar.render({
-    activeId: workspaceState.activeRail,
-    items: railItems.map((item) => ({ ...item, url: item.id === "dashboard" ? "editorWorkspace.html" : item.id === "library" ? "library.html" : null })),
+    activeId: "dashboard",
     onHelp: () => setNotice("Suggerimento: seleziona un box e usa la toolbar in basso."),
   });
 };
@@ -383,12 +371,6 @@ const setAssetType = (type) => {
 const setDevice = (device) => {
   workspaceState.device = device;
   setNotice(`Anteprima ${device} attiva`);
-  mountWorkspace();
-};
-
-const setRail = (rail) => {
-  workspaceState.activeRail = rail;
-  setNotice(railItems.find((item) => item.id === rail)?.label || "Pannello aggiornato");
   mountWorkspace();
 };
 
@@ -685,28 +667,8 @@ const renderAddPanel = () =>
       })
     ),
     _.p({ class: "tl-box-list-title" }, "I miei box"),
-    renderAssetList(),
-    renderRailPanel()
+    renderAssetList()
   );
-
-const renderRailPanel = () => {
-  const summaries = {
-    library: ["Libreria pronta", "Usa Libreria Asset per importare asset quando il catalogo sara collegato."],
-    links: ["Collegamenti", `${workspaceState.boxes.filter((box) => box.type === "boxTracker").length} tracker disponibili da collegare.`],
-    database: ["Database", `${workspaceState.boxes.length} box nel workspace corrente.`],
-    stats: ["Statistiche", workspaceState.boxes.length ? "Box presenti nella griglia locale." : "Nessun box ancora posizionato."],
-    ai: ["AI", "Assistente workspace pronto per suggerimenti e automazioni."],
-    settings: ["Impostazioni", "Configura griglia e workspace dal pannello proprieta."],
-  };
-  const panel = summaries[workspaceState.activeRail];
-  if (!panel) return null;
-
-  return _.Card(
-    { class: "tl-rail-info" },
-    _.div({ class: "tl-rail-info-title" }, panel[0]),
-    _.p(panel[1])
-  );
-};
 
 const renderDeviceSwitch = () =>
   _.Row(
