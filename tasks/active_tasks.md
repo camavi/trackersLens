@@ -6,7 +6,7 @@ Title: Offline-first Mode
 
 Priority: High
 
-Status: Active
+Status: Complete
 
 Files:
 
@@ -29,7 +29,8 @@ Formalize local offline queue/cache behavior for future sync, package and market
 Runtime Notes:
 
 - 2026-05-18: added local queue/cache stores and status API.
-- Remaining: UI indicators, sync queue execution and conflict resolver.
+- 2026-05-19: added queue processing, conflict resolution, DevTools offline indicators, queue table, cache table and manual Process/Resolve actions.
+- Remaining: none for current milestone.
 
 ## [TASK-014]
 
@@ -37,7 +38,7 @@ Title: Internal Package System
 
 Priority: High
 
-Status: Active
+Status: Complete
 
 Files:
 
@@ -60,7 +61,8 @@ Create local package registry and package lock foundation for boxes, runtime lib
 Runtime Notes:
 
 - 2026-05-18: added package manifest normalization, registration, dependency resolution and workspace locks.
-- Remaining: semver resolver, install flow and package inspector UI.
+- 2026-05-19: added semver matching, latest-compatible resolver, install flow with dependency lock records and DevTools package/lock inspector.
+- Remaining: none for current milestone.
 
 ## [TASK-015]
 
@@ -68,7 +70,7 @@ Title: Runtime DevTools
 
 Priority: Critical
 
-Status: Active
+Status: Complete
 
 Files:
 
@@ -99,7 +101,8 @@ Runtime Notes:
 - 2026-05-18: added `TrackerLensDevToolsRuntime.load()` and loaded runtime modules in `database.html`.
 - 2026-05-18: added dedicated `devtools.html` with Overview, Graph, Offline, Packages, Time Travel and Performance tabs.
 - 2026-05-18: added Events and Channels tabs, JSON inspector and Flow Map deep link into DevTools.
-- Remaining: Events/Channels filters, AI tab and deep links from Analytics.
+- 2026-05-19: added Events/Channels filters, Offline queue actions, Package install/inspector, Time Travel controls, AI tab and Analytics deep links.
+- Remaining: none for current milestone.
 
 ## [TASK-016]
 
@@ -107,7 +110,7 @@ Title: Time Travel Data
 
 Priority: High
 
-Status: Active
+Status: Complete
 
 Files:
 
@@ -133,7 +136,8 @@ Persist versioned runtime snapshots that can later power timeline, replay, diff 
 Runtime Notes:
 
 - 2026-05-18: added snapshot capture/list/latest APIs and extended runtime snapshots with core runtime stores.
-- Remaining: UI timeline, restore, replay and snapshot diff.
+- 2026-05-19: added snapshot capture/restore/replay/diff APIs and DevTools timeline controls.
+- Remaining: none for current milestone.
 
 ## [TASK-019]
 

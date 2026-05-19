@@ -12,6 +12,7 @@ const tabs = [
   { id: "packages", label: "Packages", icon: "deployed_code" },
   { id: "time", label: "Time Travel", icon: "history" },
   { id: "performance", label: "Performance", icon: "speed" },
+  { id: "ai", label: "AI", icon: "psychology" },
 ];
 
 const state = {
@@ -23,6 +24,13 @@ const state = {
     type: params.get("type") || (params.get("nodeId") ? "node" : params.get("eventId") ? "event" : params.get("channel") ? "channel" : ""),
     id: params.get("id") || params.get("nodeId") || params.get("eventId") || params.get("channel") || "",
   },
+  filters: {
+    eventType: params.get("eventType") || "all",
+    channel: params.get("channelFilter") || params.get("channel") || "all",
+    channelStatus: params.get("channelStatus") || "all",
+  },
+  timeDiff: null,
+  timeReplay: null,
 };
 
 const formatDate = (value) => {
@@ -57,6 +65,18 @@ const setTab = (tab) => {
   state.tab = tab;
   const query = new URLSearchParams(window.location.search);
   query.set("tab", tab);
+  history.replaceState(null, "", `${window.location.pathname}?${query.toString()}`);
+  mount();
+};
+
+const updateFilter = (key, value) => {
+  state.filters[key] = value || "all";
+  const query = new URLSearchParams(window.location.search);
+  query.set("tab", state.tab);
+  Object.entries(state.filters).forEach(([filterKey, filterValue]) => {
+    if (filterValue && filterValue !== "all") query.set(filterKey, filterValue);
+    else query.delete(filterKey);
+  });
   history.replaceState(null, "", `${window.location.pathname}?${query.toString()}`);
   mount();
 };
@@ -103,6 +123,14 @@ const actionCell = (label, onclick) =>
 
 const badge = (label, tone = "") =>
   _.span({ class: `tl-devtools-badge${tone ? ` is-${tone}` : ""}` }, label);
+
+const select = (value, options, onChange) =>
+  _.select(
+    { class: "tl-devtools-select", value, onchange: (event) => onChange(event.target.value) },
+    ...options.map((option) => _.option({ value: option.value }, option.label))
+  );
+
+const option = (value, label = value) => ({ value, label });
 
 const renderOverview = () => {
   const data = state.data || {};
@@ -202,13 +230,27 @@ const renderGraph = () => {
 };
 
 const renderEvents = () => {
-  const events = [...(runtime().events || [])].sort((a, b) => Date.parse(b.createdAt || 0) - Date.parse(a.createdAt || 0));
+  const allEvents = [...(runtime().events || [])];
+  const eventTypes = ["all", ...new Set(allEvents.map((event) => event.eventType || event.type || "event").filter(Boolean))];
+  const channels = ["all", ...new Set(allEvents.map((event) => event.channel).filter(Boolean))];
+  const events = allEvents
+    .filter((event) => state.filters.eventType === "all" || (event.eventType || event.type || "event") === state.filters.eventType)
+    .filter((event) => state.filters.channel === "all" || event.channel === state.filters.channel)
+    .sort((a, b) => Date.parse(b.createdAt || 0) - Date.parse(a.createdAt || 0));
   const flowLogs = [...(runtime().flowLogs || [])].sort((a, b) => Date.parse(b.createdAt || 0) - Date.parse(a.createdAt || 0));
   return _.section(
     { class: "tl-devtools-panel" },
     _.div(
       { class: "tl-devtools-section" },
-      _.h2("Runtime Events"),
+      _.div(
+        { class: "tl-devtools-section-head" },
+        _.h2("Runtime Events"),
+        _.div(
+          { class: "tl-devtools-filters" },
+          select(state.filters.eventType, eventTypes.map((item) => option(item, item === "all" ? "All types" : item)), (value) => updateFilter("eventType", value)),
+          select(state.filters.channel, channels.map((item) => option(item, item === "all" ? "All channels" : item)), (value) => updateFilter("channel", value))
+        )
+      ),
       table(["Time", "Type", "Channel", "Source", "Target", "Status", ""], events.map((event) =>
         _.tr(
           _.td(formatDate(event.createdAt)),
@@ -239,12 +281,20 @@ const renderEvents = () => {
 };
 
 const renderChannels = () => {
-  const channels = [...(runtime().channels || [])].sort((a, b) => String(a.name || "").localeCompare(String(b.name || "")));
+  const allChannels = [...(runtime().channels || [])];
+  const statuses = ["all", ...new Set(allChannels.map((channel) => channel.status || "active").filter(Boolean))];
+  const channels = allChannels
+    .filter((channel) => state.filters.channelStatus === "all" || (channel.status || "active") === state.filters.channelStatus)
+    .sort((a, b) => String(a.name || "").localeCompare(String(b.name || "")));
   return _.section(
     { class: "tl-devtools-panel" },
     _.div(
       { class: "tl-devtools-section" },
-      _.h2("Runtime Channels"),
+      _.div(
+        { class: "tl-devtools-section-head" },
+        _.h2("Runtime Channels"),
+        _.div({ class: "tl-devtools-filters" }, select(state.filters.channelStatus, statuses.map((item) => option(item, item === "all" ? "All statuses" : item)), (value) => updateFilter("channelStatus", value)))
+      ),
       table(["Name", "Workspace", "Producers", "Subscribers", "Updated", ""], channels.map((channel) =>
         _.tr(
           _.td(channel.name || channel.id || "N/D"),
@@ -261,6 +311,8 @@ const renderChannels = () => {
 
 const renderOffline = () => {
   const offline = state.data?.offline || {};
+  const queue = state.data?.offlineQueue || [];
+  const cache = state.data?.offlineCache || [];
   return _.section(
     { class: "tl-devtools-panel" },
     _.div(
@@ -273,43 +325,111 @@ const renderOffline = () => {
         _.tr(_.td("Cache"), _.td(number(offline.cacheCount))),
         _.tr(_.td("Updated"), _.td(formatDate(offline.updatedAt))),
       ])
+    ),
+    _.div(
+      { class: "tl-devtools-section" },
+      _.div(
+        { class: "tl-devtools-section-head" },
+        _.h2("Sync Queue"),
+        btn({ class: "tl-devtools-row-action", onclick: processOfflineQueue }, icon("sync", "sm"), "Process")
+      ),
+      table(["Operation", "Target", "Status", "Attempts", "Updated", ""], queue.map((item) =>
+        _.tr(
+          _.td(item.operation || "sync"),
+          _.td(item.target || "N/D"),
+          _.td(badge(item.status || "pending", item.status === "done" ? "green" : item.status === "conflict" ? "gold" : "")),
+          _.td(number(item.attempts)),
+          _.td(formatDate(item.updatedAt || item.createdAt)),
+          _.td(item.status === "conflict"
+            ? btn({ class: "tl-devtools-row-action", onclick: () => resolveOfflineConflict(item.id) }, icon("rule", "sm"), "Resolve")
+            : btn({ class: "tl-devtools-row-action", onclick: () => selectDetail("offline", item.id) }, icon("open_in_new", "sm"), "Inspect"))
+        )
+      ))
+    ),
+    _.div(
+      { class: "tl-devtools-section" },
+      _.h2("Offline Cache"),
+      table(["Scope", "Key", "TTL", "Updated"], cache.map((item) =>
+        _.tr(_.td(item.scope || "runtime"), _.td(item.key || item.id), _.td(item.expiresAt ? formatDate(item.expiresAt) : "none"), _.td(formatDate(item.updatedAt)))
+      ))
     )
   );
 };
 
-const renderPackages = () =>
-  _.section(
+const renderPackages = () => {
+  const packages = state.data?.packages || [];
+  const locks = state.data?.packageLocks || [];
+  return _.section(
     { class: "tl-devtools-panel" },
     _.div(
       { class: "tl-devtools-section" },
-      _.h2("Internal Packages"),
-      table(["Name", "Version", "Type", "Status"], (state.data?.packages || []).map((item) =>
+      _.div(
+        { class: "tl-devtools-section-head" },
+        _.h2("Internal Packages"),
+        btn({ class: "tl-devtools-row-action", onclick: installSelectedPackage }, icon("download", "sm"), "Install latest")
+      ),
+      table(["Name", "Version", "Type", "Status", ""], packages.map((item) =>
         _.tr(
           _.td(item.name || item.id || "N/D"),
           _.td(item.version || "N/D"),
           _.td(item.type || item.category || "package"),
-          _.td(item.status || "registered")
+          _.td(item.status || "registered"),
+          actionCell("Inspect", () => selectDetail("package", item.id))
         )
+      ))
+    ),
+    _.div(
+      { class: "tl-devtools-section" },
+      _.h2("Package Locks"),
+      table(["Workspace", "Package", "Version", "Locked"], locks.map((item) =>
+        _.tr(_.td(item.workspaceId || "global"), _.td(item.name || item.packageId), _.td(item.version || "N/D"), _.td(formatDate(item.lockedAt)))
       ))
     )
   );
+};
 
-const renderTime = () =>
-  _.section(
+const renderTime = () => {
+  const snapshots = state.data?.snapshots || [];
+  return _.section(
     { class: "tl-devtools-panel" },
     _.div(
       { class: "tl-devtools-section" },
-      _.h2("Time Travel"),
-      table(["Snapshot", "Workspace", "Reason", "Created"], (state.data?.snapshots || []).map((item) =>
+      _.div(
+        { class: "tl-devtools-section-head" },
+        _.h2("Time Travel"),
+        btn({ class: "tl-devtools-row-action", onclick: captureSnapshot }, icon("add_a_photo", "sm"), "Capture")
+      ),
+      table(["Snapshot", "Workspace", "Reason", "Created", ""], snapshots.map((item) =>
         _.tr(
           _.td(item.id || "N/D"),
           _.td(item.workspaceId || "global"),
           _.td(item.reason || item.label || "snapshot"),
-          _.td(formatDate(item.createdAt || item.updatedAt))
+          _.td(formatDate(item.createdAt || item.updatedAt)),
+          _.td(
+            _.div(
+              { class: "tl-devtools-row-actions" },
+              btn({ class: "tl-devtools-row-action", onclick: () => selectDetail("snapshot", item.id) }, icon("open_in_new", "sm"), "Inspect"),
+              btn({ class: "tl-devtools-row-action", onclick: () => restoreSnapshot(item.id) }, icon("restore", "sm"), "Restore"),
+              btn({ class: "tl-devtools-row-action", onclick: () => replaySnapshot(item.id) }, icon("play_arrow", "sm"), "Replay")
+            )
+          )
         )
       ))
-    )
+    ),
+    state.timeReplay
+      ? _.div({ class: "tl-devtools-section" }, _.h2("Replay Preview"), table(["Time", "Type", "Channel", "Status"], state.timeReplay.events.map((event) =>
+        _.tr(_.td(formatDate(event.createdAt)), _.td(event.eventType || "event"), _.td(event.channel || "N/D"), _.td(event.status || "ok"))
+      )))
+      : null,
+    state.timeDiff
+      ? _.div({ class: "tl-devtools-section" }, _.h2("Snapshot Diff"), table(["Store", "Added", "Removed", "Changed"], state.timeDiff.changes.map((item) =>
+        _.tr(_.td(item.key), _.td(number(item.added.length)), _.td(number(item.removed.length)), _.td(number(item.changed.length)))
+      )))
+      : snapshots.length > 1
+        ? _.div({ class: "tl-devtools-section" }, _.h2("Snapshot Diff"), btn({ class: "tl-devtools-row-action", onclick: () => diffLatestSnapshots(snapshots[1].id, snapshots[0].id) }, icon("difference", "sm"), "Diff latest"))
+        : null
   );
+};
 
 const renderPerformance = () =>
   _.section(
@@ -329,6 +449,90 @@ const renderPerformance = () =>
     )
   );
 
+const renderAi = () => {
+  const ai = state.data?.ai || {};
+  const providers = ai.providers || [];
+  const agents = ai.agents || [];
+  const jobs = ai.jobs || [];
+  const memory = ai.memory || [];
+  return _.section(
+    { class: "tl-devtools-panel" },
+    _.div(
+      { class: "tl-devtools-section" },
+      _.h2("AI Runtime"),
+      table(["Metric", "Value"], [
+        _.tr(_.td("Providers"), _.td(number(providers.length))),
+        _.tr(_.td("Agents"), _.td(number(agents.length))),
+        _.tr(_.td("Jobs"), _.td(number(jobs.length))),
+        _.tr(_.td("Memory blocks"), _.td(number(memory.length))),
+      ])
+    ),
+    _.div(
+      { class: "tl-devtools-section" },
+      _.h2("Providers"),
+      table(["Name", "Model", "Status", "Local", ""], providers.map((item) =>
+        _.tr(
+          _.td(item.name || item.id || "N/D"),
+          _.td(item.model || "N/D"),
+          _.td(item.status || "idle"),
+          _.td(item.local ? "yes" : "no"),
+          actionCell("Inspect", () => selectDetail("aiProvider", item.id || item.name))
+        )
+      ))
+    ),
+    _.div(
+      { class: "tl-devtools-section" },
+      _.h2("Memory"),
+      table(["Name", "Scope", "Workspace", "Updated", ""], memory.map((item) =>
+        _.tr(
+          _.td(item.name || item.id || "Memory"),
+          _.td(item.scope || "workspace"),
+          _.td(item.workspaceId || "global"),
+          _.td(formatDate(item.updatedAt)),
+          actionCell("Inspect", () => selectDetail("aiMemory", item.id))
+        )
+      ))
+    )
+  );
+};
+
+const processOfflineQueue = async () => {
+  await window.TrackerLensOfflineFirst?.processQueue?.();
+  await loadDevTools();
+};
+
+const resolveOfflineConflict = async (id) => {
+  await window.TrackerLensOfflineFirst?.resolveConflict?.({ id, resolution: "retry", note: "Resolved from DevTools" });
+  await loadDevTools();
+};
+
+const installSelectedPackage = async () => {
+  const pkg = state.data?.packages?.[0];
+  if (!pkg) return;
+  await window.TrackerLensPackageSystem?.installPackage?.({ workspaceId: "global", name: pkg.name, range: pkg.version });
+  await loadDevTools();
+};
+
+const captureSnapshot = async () => {
+  await window.TrackerLensTimeTravelStore?.capture?.({ workspaceId: "global", reason: "devtools", label: "DevTools capture" });
+  await loadDevTools();
+};
+
+const restoreSnapshot = async (snapshotId) => {
+  await window.TrackerLensTimeTravelStore?.restore?.({ snapshotId });
+  await loadDevTools();
+};
+
+const replaySnapshot = async (snapshotId) => {
+  state.timeReplay = await window.TrackerLensTimeTravelStore?.replay?.({ snapshotId, limit: 25 });
+  mount();
+};
+
+const diffLatestSnapshots = async (fromId, toId) => {
+  state.timeDiff = await window.TrackerLensTimeTravelStore?.diffSnapshots?.({ fromId, toId });
+  mount();
+};
+
 const activePanel = () => ({
   overview: renderOverview,
   graph: renderGraph,
@@ -338,6 +542,7 @@ const activePanel = () => ({
   packages: renderPackages,
   time: renderTime,
   performance: renderPerformance,
+  ai: renderAi,
 }[state.tab] || renderOverview)();
 
 const selectedRecord = () => {
@@ -348,6 +553,11 @@ const selectedRecord = () => {
   if (type === "flowLog") return (runtime().flowLogs || []).find((log) => log.id === id);
   if (type === "channel") return (runtime().channels || []).find((channel) => channel.name === id || channel.id === id);
   if (type === "dependency") return (graph().dependencies || []).find((dependency) => dependency.id === id || dependency.connectionId === id);
+  if (type === "offline") return (state.data?.offlineQueue || []).find((item) => item.id === id);
+  if (type === "package") return (state.data?.packages || []).find((item) => item.id === id);
+  if (type === "snapshot") return (state.data?.snapshots || []).find((item) => item.id === id);
+  if (type === "aiProvider") return (state.data?.ai?.providers || []).find((item) => item.id === id || item.name === id);
+  if (type === "aiMemory") return (state.data?.ai?.memory || []).find((item) => item.id === id);
   return null;
 };
 

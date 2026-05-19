@@ -34,13 +34,29 @@ API:
 ```js
 TrackerLensPackageSystem.register(manifest, source)
 TrackerLensPackageSystem.listPackages()
+TrackerLensPackageSystem.resolvePackage({ name, range, type })
 TrackerLensPackageSystem.resolveDependencies(manifest)
+TrackerLensPackageSystem.installPackage({ workspaceId, manifest, name, range, source })
 TrackerLensPackageSystem.lockWorkspace({ workspaceId, packages })
+TrackerLensPackageSystem.satisfies(version, range)
 ```
 
-## Prossimi step
+## Resolver
 
-- Resolver semver reale.
-- Package install da `.tlbox` / marketplace.
-- Runtime permission enforcement per package.
-- UI package inspector in DevTools.
+Il resolver supporta:
+
+- `latest` / `*`
+- `=1.2.3`
+- `>`, `>=`, `<`, `<=`
+- `^1.2.3`
+- `~1.2.3`
+
+`installPackage()` risolve il package, valida le dependency disponibili e scrive `tl_package_lock` per il workspace.
+
+## DevTools
+
+`devtools.html?tab=packages` mostra package registrati, lock per workspace e inspector JSON. L'azione `Install latest` installa il package locale piu recente disponibile nel workspace globale.
+
+## Stato
+
+Il punto 14 e completo per il milestone corrente. Import marketplace remoto e permission enforcement package-specific restano futuri.

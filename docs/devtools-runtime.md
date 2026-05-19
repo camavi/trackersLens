@@ -20,9 +20,13 @@ Il loader aggrega:
 
 - `TrackerLensGraphEngine.buildGraph()`
 - `TrackerLensOfflineFirst.status()`
+- `TrackerLensOfflineFirst.listQueue()`
+- `TrackerLensOfflineFirst.listCache()`
 - `TrackerLensPackageSystem.listPackages()`
+- `TrackerLensPackageSystem.listLocks()`
 - `TrackerLensTimeTravelStore.list()`
 - `TrackerLensBoxPerformanceMonitor.list()`
+- `TrackerLensAiRuntimeStore.list()`
 
 ## UI attuale
 
@@ -36,7 +40,7 @@ js/devtoolsView.js
 css/devtools.css
 ```
 
-La pagina espone tab per Overview, Graph, Events, Channels, Offline, Packages, Time Travel e Performance usando `TrackerLensDevToolsRuntime.load()` come sorgente unica.
+La pagina espone tab per Overview, Graph, Events, Channels, Offline, Packages, Time Travel, Performance e AI usando `TrackerLensDevToolsRuntime.load()` come sorgente unica.
 
 La UI supporta deep link e inspector JSON:
 
@@ -44,14 +48,22 @@ La UI supporta deep link e inspector JSON:
 devtools.html?tab=graph&type=node&id=<nodeId>
 devtools.html?tab=events&type=event&id=<eventId>
 devtools.html?tab=channels&type=channel&id=<channelName>
+devtools.html?tab=ai&type=aiMemory&id=<memoryId>
 ```
 
 `flowMap.html` apre DevTools con il nodo o channel corrente quando disponibile.
+`analytics.html` apre DevTools verso Performance, Events e Overview.
 
 `database.html` continua a caricare i moduli runtime core per ispezione IndexedDB e debug di basso livello.
 
-## Prossimi step
+## Stato
 
-- Aggiungere filtri dedicati per Events e Channels.
-- Aggiungere deep link da Analytics.
-- Aggiungere tab AI quando il runtime AI locale avra un inspector stabile.
+Il punto 15 e completo per il milestone corrente:
+
+- filtri Events per tipo e channel;
+- filtro Channels per status;
+- Offline queue/cache inspector;
+- Package/lock inspector;
+- Time Travel capture/restore/replay/diff controls;
+- AI tab con providers e memory;
+- deep link da Analytics.

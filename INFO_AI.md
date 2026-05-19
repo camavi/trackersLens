@@ -3619,6 +3619,42 @@ Verifiche eseguite:
 - `curl -I http://127.0.0.1:3031/workspace.html`
 - `curl -I http://127.0.0.1:3031/flowMap.html`
 
+## Aggiornamento 2026-05-19 - Chiusura punti 13, 14, 15, 16
+
+Obiettivo della sessione: completare Offline-first Mode, Internal Package System, Runtime DevTools e Time Travel Data.
+
+Fatto:
+
+- Punto 13 Offline-first Mode:
+  - `TrackerLensOfflineFirst.processQueue()` processa la queue locale con handler estendibili;
+  - `resolveConflict()` gestisce conflitti `useLocal`, `useRemote`, `skip`, `retry`;
+  - DevTools mostra indicatori offline, Sync Queue, Cache e azioni Process/Resolve.
+- Punto 14 Internal Package System:
+  - aggiunto resolver semver (`*`, `latest`, `=`, `>`, `>=`, `<`, `<=`, `^`, `~`);
+  - aggiunti `resolvePackage()` e `installPackage()`;
+  - DevTools mostra package, lock e azione install del package locale piu recente.
+- Punto 15 DevTools:
+  - loader runtime esteso con queue/cache offline, package locks e AI runtime;
+  - aggiunti filtri Events/Channels;
+  - aggiunto tab AI;
+  - aggiunti deep link da Analytics verso DevTools Events/Performance/Overview.
+- Punto 16 Time Travel Data:
+  - aggiunti `restore()`, `replay()`, `diffSnapshots()` e `snapshotById()`;
+  - DevTools Time Travel espone Capture, Restore, Replay e Diff latest.
+- `tasks/active_tasks.md` e `docs/new_vision_progress.md` marcano 13, 14, 15 e 16 come completi operativi.
+
+Verifiche eseguite:
+
+- `node --check core/runtime/offline-first.js`
+- `node --check core/runtime/package-system.js`
+- `node --check core/runtime/time-travel-store.js`
+- `node --check core/runtime/devtools-runtime.js`
+- `node --check js/devtoolsView.js`
+- `node --check js/analyticsView.js`
+- `curl -I http://127.0.0.1:3031/devtools.html`
+- `curl -I http://127.0.0.1:3031/analytics.html`
+- headless Chrome dump su `http://127.0.0.1:3031/devtools.html`
+
 ## Aggiornamento 2026-05-18 - Marketplace Verified punto 9
 
 Obiettivo della sessione: introdurre la fondazione locale per asset marketplace verificabili prima di un marketplace remoto.

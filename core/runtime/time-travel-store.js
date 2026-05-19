@@ -43,6 +43,37 @@ window.TrackerLensTimeTravelStore = (() => {
     }
   };
 
+  const readAllStore = async (storeName) => {
+    const db = await ensureDb();
+    try {
+      if (!db.objectStoreNames.contains(storeName)) return [];
+      return await new Promise((resolve, reject) => {
+        const request = db.transaction(storeName, "readonly").objectStore(storeName).getAll();
+        request.onsuccess = (event) => resolve(Array.from(event.target.result || []));
+        request.onerror = (event) => reject(event.target.error || new Error(`Errore lettura ${storeName}`));
+      });
+    } finally {
+      db.close();
+    }
+  };
+
+  const replaceStore = async (storeName, records = []) => {
+    const db = await ensureDb();
+    try {
+      if (!db.objectStoreNames.contains(storeName)) return { storeName, restored: 0, skipped: true };
+      return await new Promise((resolve, reject) => {
+        const transaction = db.transaction(storeName, "readwrite");
+        const store = transaction.objectStore(storeName);
+        store.clear();
+        records.filter((record) => record?.id).forEach((record) => store.put(record));
+        transaction.oncomplete = () => resolve({ storeName, restored: records.length, skipped: false });
+        transaction.onerror = (event) => reject(event.target.error || new Error(`Errore restore ${storeName}`));
+      });
+    } finally {
+      db.close();
+    }
+  };
+
   const list = async ({ workspaceId = "" } = {}) => {
     const db = await ensureDb();
     try {
@@ -78,12 +109,82 @@ window.TrackerLensTimeTravelStore = (() => {
 
   const latest = async ({ workspaceId = "" } = {}) => (await list({ workspaceId }))[0] || null;
 
+  const snapshotById = async (id = "") => (await list()).find((item) => item.id === id) || null;
+
+  const runtimeStores = () => window.TrackerLensRuntimeSnapshotStore?.STORES || {};
+
+  const restore = async ({ snapshotId = "", snapshot = null, stores = [] } = {}) => {
+    const record = snapshot || await snapshotById(snapshotId);
+    if (!record) throw new Error("Snapshot non trovato");
+    const state = record.state || {};
+    const storeMap = runtimeStores();
+    const targets = stores.length ? stores : [
+      "channels",
+      "flows",
+      "runtimeNodes",
+      "runtimeDependencies",
+      "connections",
+      "offlineQueue",
+      "offlineCache",
+      "packages",
+      "packageLock",
+      "performance",
+    ];
+    const restored = [];
+    for (const key of targets) {
+      const storeName = storeMap[key];
+      if (!storeName || !Array.isArray(state[key])) continue;
+      restored.push(await replaceStore(storeName, clone(state[key])));
+    }
+    return {
+      snapshotId: record.id,
+      restored,
+      restoredAt: now(),
+    };
+  };
+
+  const countById = (records = []) => new Map(records.filter((item) => item?.id).map((item) => [item.id, item]));
+
+  const diffSnapshots = async ({ fromId = "", toId = "" } = {}) => {
+    const [from, to] = await Promise.all([snapshotById(fromId), snapshotById(toId)]);
+    if (!from || !to) throw new Error("Snapshot diff richiede fromId e toId validi");
+    const keys = ["channels", "flows", "events", "flowLogs", "runtimeNodes", "runtimeDependencies", "connections", "packages", "packageLock", "performance"];
+    const changes = keys.map((key) => {
+      const left = countById(from.state?.[key] || []);
+      const right = countById(to.state?.[key] || []);
+      const added = [...right.keys()].filter((id) => !left.has(id));
+      const removed = [...left.keys()].filter((id) => !right.has(id));
+      const changed = [...right.keys()].filter((id) => left.has(id) && JSON.stringify(left.get(id)) !== JSON.stringify(right.get(id)));
+      return { key, added, removed, changed, total: added.length + removed.length + changed.length };
+    });
+    return { fromId, toId, changes, total: changes.reduce((sum, item) => sum + item.total, 0) };
+  };
+
+  const replay = async ({ snapshotId = "", limit = 50 } = {}) => {
+    const record = await snapshotById(snapshotId);
+    if (!record) throw new Error("Snapshot non trovato");
+    const events = [...(record.state?.events || [])]
+      .sort((a, b) => Date.parse(a.createdAt || 0) - Date.parse(b.createdAt || 0))
+      .slice(0, limit);
+    return {
+      snapshotId: record.id,
+      events,
+      count: events.length,
+      replayedAt: now(),
+    };
+  };
+
   return {
     SCHEMA_VERSION,
     STORE,
     capture,
+    diffSnapshots,
     ensureDb,
     latest,
     list,
+    readAllStore,
+    replay,
+    restore,
+    snapshotById,
   };
 })();

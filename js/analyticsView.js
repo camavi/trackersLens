@@ -111,6 +111,10 @@ const formatBytes = (bytes = 0) => {
   }
   return `${value >= 10 ? value.toFixed(0) : value.toFixed(1)} ${units[index]}`;
 };
+const openDevTools = (tab = "overview", extra = {}) => {
+  const query = new URLSearchParams({ tab, ...extra });
+  window.location.href = `devtools.html?${query.toString()}`;
+};
 
 const timeLabel = (value) => {
   const date = value ? new Date(value) : null;
@@ -406,7 +410,8 @@ const renderHeader = () =>
         { class: "tl-analytics-head-actions", gap: 14 },
         _.span({ class: "tl-analytics-live-pill" }, dot(), "Sistema Online"),
         btn({ class: "tl-analytics-small-btn" }, icon("calendar_today", "sm"), "Ultimi 30 minuti"),
-        btn({ class: "tl-analytics-icon-btn", "aria-label": "Aggiorna" }, icon("refresh", "sm"))
+        btn({ class: "tl-analytics-small-btn", onclick: () => openDevTools("performance") }, icon("speed", "sm"), "DevTools"),
+        btn({ class: "tl-analytics-icon-btn", "aria-label": "Aggiorna", onclick: mountAnalytics }, icon("refresh", "sm"))
       )
     ),
     _.Grid({ class: "tl-analytics-metrics-grid", cols: "repeat(auto-fit, minmax(160px, 1fr))", gap: 10 }, ...analyticsState.metrics.map(renderMetricCard))
@@ -427,7 +432,7 @@ const renderLiveStream = () =>
         )
       )
     ),
-    btn({ class: "tl-analytics-log-btn" }, icon("article", "sm"), "Visualizza tutto il log")
+    btn({ class: "tl-analytics-log-btn", onclick: () => openDevTools("events") }, icon("article", "sm"), "Visualizza tutto il log")
   );
 
 const renderLineChart = (title, meta, tone = "purple", multi = false) =>
@@ -464,7 +469,7 @@ const renderGauge = () =>
         _.div({ class: "tl-analytics-service" }, _.span(icon(iconName, "sm"), name), _.strong({ class: `is-${status}` }, dot(), state))
       )
     ),
-    btn({ class: "tl-analytics-link-btn" }, "Vedi tutti i servizi", icon("chevron_right", "sm"))
+    btn({ class: "tl-analytics-link-btn", onclick: () => openDevTools("overview") }, "Vedi tutti i servizi", icon("chevron_right", "sm"))
   );
 
 const renderMetricsArea = () =>
@@ -478,7 +483,7 @@ const renderMetricsArea = () =>
 const renderTrackerTable = () =>
   _.section(
     { class: "tl-analytics-tracker-table" },
-    _.Row({ justify: "space-between", align: "center" }, _.h3("Monitoraggio boxTracker"), btn({ class: "tl-analytics-small-btn" }, icon("my_location", "sm"), "Gestisci Trackers")),
+    _.Row({ justify: "space-between", align: "center" }, _.h3("Monitoraggio boxTracker"), btn({ class: "tl-analytics-small-btn", onclick: () => openDevTools("performance") }, icon("speed", "sm"), "DevTools Performance")),
     _.div(
       { class: "tl-analytics-table-wrap" },
       _.table(

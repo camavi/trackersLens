@@ -22,16 +22,26 @@ API:
 TrackerLensTimeTravelStore.capture({ workspaceId, reason, label, state })
 TrackerLensTimeTravelStore.list({ workspaceId })
 TrackerLensTimeTravelStore.latest({ workspaceId })
+TrackerLensTimeTravelStore.restore({ snapshotId, snapshot, stores })
+TrackerLensTimeTravelStore.replay({ snapshotId, limit })
+TrackerLensTimeTravelStore.diffSnapshots({ fromId, toId })
+TrackerLensTimeTravelStore.snapshotById(id)
 ```
 
 ## Stato
 
 `capture()` usa `TrackerLensRuntimeSnapshotStore.load()` quando non viene passato uno stato esplicito. Lo snapshot include graph, eventi, canali, package, performance, offline cache/queue e altri store runtime letti dallo snapshot store.
 
-## Prossimi step
+## DevTools
 
-- UI timeline.
-- Restore selettivo.
-- Replay eventi.
-- Diff tra snapshot.
-- Snapshot automatici su save/import/delete.
+`devtools.html?tab=time` espone:
+
+- timeline tabellare degli snapshot;
+- `Capture` manuale;
+- `Restore`;
+- `Replay` degli eventi salvati nello snapshot;
+- `Diff latest` tra gli ultimi due snapshot.
+
+## Stato
+
+Il punto 16 e completo per il milestone corrente. Snapshot automatici su tutte le mutazioni distruttive restano un'estensione futura.
