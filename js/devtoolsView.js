@@ -635,7 +635,7 @@ const renderContent = () => {
     _.section(
       { class: "tl-devtools-metrics", "aria-label": "Runtime metrics" },
       metric("Nodes", state.data?.stats?.graphNodes, "hub", "cyan"),
-      metric("Dependencies", state.data?.stats?.graphDependencies, "lan", "violet"),
+      metric("Dependencies", state.data?.stats?.graphDependencies, "lan", "gold"),
       metric("Graph Issues", state.data?.graph?.validation?.issues?.length, "report", state.data?.graph?.validation?.ok ? "green" : "red"),
       metric("Offline Queue", state.data?.stats?.queuedOffline, "cloud_off", "gold"),
       metric("Packages", state.data?.stats?.packages, "deployed_code", "green"),

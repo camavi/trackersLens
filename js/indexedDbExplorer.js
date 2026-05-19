@@ -3,7 +3,7 @@ const btn = (props, ...children) => _.Btn({ type: "button", ...props }, ...child
 const dot = (props = {}) => _.span({ ...props, class: `tl-db-dot${props.class ? ` ${props.class}` : ""}` });
 
 const dbExplorerStores = [
-  { name: "tl_widgets", icon: "widgets", color: "purple" },
+  { name: "tl_widgets", icon: "widgets", color: "gold" },
   { name: "tl_pages", icon: "dashboard_customize", color: "blue" },
   { name: "tl_tracker_logs", icon: "receipt_long", color: "green" },
   { name: "tl_settings", icon: "tune", color: "gold" },
@@ -27,7 +27,7 @@ const sampleRecords = [
       status: "online",
       channels: ["btc-price", "market-cap"],
       endpoint: "local://widgets/crypto-tracker",
-      code: { html: "<section data-tl-bind=\"btcPrice\"></section>", css: ".value { color: #c084fc; }" },
+      code: { html: "<section data-tl-bind=\"btcPrice\"></section>", css: ".value { color: #ffc72c; }" },
     },
   },
   {

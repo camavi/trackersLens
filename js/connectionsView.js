@@ -9,7 +9,7 @@ if (runtimeParams.get("view") === "graph") {
 }
 
 const connectionTypes = [
-  { name: "API Endpoint", color: "purple", icon: "api", count: 128 },
+  { name: "API Endpoint", color: "gold", icon: "api", count: 128 },
   { name: "Data Source", color: "green", icon: "hub", count: 96 },
   { name: "Widget -> Widget", color: "blue", icon: "conversion_path", count: 72 },
   { name: "Widget -> API", color: "gold", icon: "sync_alt", count: 184 },
@@ -17,7 +17,7 @@ const connectionTypes = [
   { name: "Event Listener", color: "cyan", icon: "sensors", count: 48 },
   { name: "WebSocket", color: "lime", icon: "settings_input_antenna", count: 24 },
   { name: "RSS Feed", color: "orange", icon: "rss_feed", count: 18 },
-  { name: "AI Connector", color: "violet", icon: "psychology", count: 31 },
+  { name: "AI Connector", color: "gold", icon: "psychology", count: 31 },
   { name: "IndexedDB", color: "slate", icon: "database", count: 22 },
   { name: "MCP Connection", color: "indigo", icon: "lan", count: 11 },
 ];
@@ -207,7 +207,7 @@ const connectionState = {
   },
 };
 
-const typeColor = (type) => connectionTypes.find((item) => item.name === type)?.color || "purple";
+const typeColor = (type) => connectionTypes.find((item) => item.name === type)?.color || "gold";
 const normalize = (value) => String(value || "").toLowerCase();
 
 const visibleConnections = () => {
@@ -615,7 +615,7 @@ const renderFilterPanel = () => {
           class: `tl-link-type${connectionState.selectedType === "all" ? " is-active" : ""}`,
           onclick: () => setType("all"),
         },
-        _.span({ class: "tl-link-type-icon is-purple" }, icon("all_inclusive", "sm")),
+        _.span({ class: "tl-link-type-icon is-gold" }, icon("all_inclusive", "sm")),
         _.span({ class: "tl-link-type-name" }, "Tutti i tipi"),
         _.span({ class: "tl-link-count" }, String(data.total))
       ),
@@ -1006,10 +1006,10 @@ const formatShortDate = (value) => {
 const renderRealtimeChart = () =>
   _.div(
     { class: "tl-link-line-chart", "aria-label": "Grafico attivita realtime" },
-    _.span({ class: "tl-link-chart-line is-purple" }),
+    _.span({ class: "tl-link-chart-line is-gold" }),
     _.span({ class: "tl-link-chart-line is-green" }),
     _.span({ class: "tl-link-chart-line is-red" }),
-    _.Row({ class: "tl-link-chart-legend", gap: 16 }, _.span(dot({ class: "is-purple" }), "Richieste/min"), _.span(dot({ class: "is-green" }), "Successi"), _.span(dot({ class: "is-red" }), "Errori"))
+    _.Row({ class: "tl-link-chart-legend", gap: 16 }, _.span(dot({ class: "is-gold" }), "Richieste/min"), _.span(dot({ class: "is-green" }), "Successi"), _.span(dot({ class: "is-red" }), "Errori"))
   );
 
 const renderDonut = (className, value, label) =>

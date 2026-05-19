@@ -184,8 +184,8 @@
 
 .tl-devtools-tab.is-active {
   border-color: rgba(255, 199, 44, 0.72);
-  background: rgba(88, 28, 135, 0.72);
-  color: #ffffff;
+  background: linear-gradient(180deg, rgba(255, 199, 44, 0.24), rgba(255, 199, 44, 0.1));
+  color: #ffe6a3;
 }
 
 .tl-devtools-panel {

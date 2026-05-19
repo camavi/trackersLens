@@ -3,10 +3,10 @@ const btn = (props, ...children) => _.Btn({ type: "button", ...props }, ...child
 const dot = (props = {}) => _.span({ ...props, class: `tl-analytics-dot${props.class ? ` ${props.class}` : ""}` });
 
 const fallbackMetricCards = [
-  { label: "Tracker Attivi", value: "24", delta: "+12%", tone: "purple", icon: "my_location" },
+  { label: "Tracker Attivi", value: "24", delta: "+12%", tone: "gold", icon: "my_location" },
   { label: "Connessioni Live", value: "38", delta: "+8%", tone: "green", icon: "hub" },
   { label: "Richieste/min", value: "1.248", delta: "+18%", tone: "blue", icon: "lan" },
-  { label: "AI Jobs Attivi", value: "5", delta: "+2", tone: "violet", icon: "psychology" },
+  { label: "AI Jobs Attivi", value: "5", delta: "+2", tone: "gold", icon: "psychology" },
   { label: "Success Rate", value: "98.6%", delta: "+1.3%", tone: "green", icon: "donut_large" },
   { label: "Error Rate", value: "1.4%", delta: "-0.7%", tone: "red", icon: "error_outline" },
   { label: "Memoria Usata", value: "256 MB", delta: "54%", tone: "gold", icon: "inventory_2" },
@@ -300,11 +300,11 @@ const buildAnalyticsData = async () => {
     queryMs,
     source: dbOnline ? "indexeddb" : "empty",
     metrics: [
-      { label: "Tracker Attivi", value: formatNumber(trackers.filter((item) => item.active).length), delta: `${trackers.length} totali`, tone: "purple", icon: "my_location" },
+      { label: "Tracker Attivi", value: formatNumber(trackers.filter((item) => item.active).length), delta: `${trackers.length} totali`, tone: "gold", icon: "my_location" },
       { label: "Connessioni Live", value: formatNumber(activeConnections.length), delta: `${connections.length} totali`, tone: "green", icon: "hub" },
       { label: "Richieste/min", value: formatNumber(requestEstimate), delta: "stima runtime", tone: "blue", icon: "lan" },
       { label: "Events/sec", value: perfEventRate.toFixed(2), delta: performanceRecords.length ? "runtime reale" : "in attesa", tone: "blue", icon: "speed" },
-      { label: "AI Jobs Attivi", value: formatNumber(aiItems.length), delta: `${aiItems.length ? "+ real" : "0"}`, tone: "violet", icon: "psychology" },
+      { label: "AI Jobs Attivi", value: formatNumber(aiItems.length), delta: `${aiItems.length ? "+ real" : "0"}`, tone: "gold", icon: "psychology" },
       { label: "Success Rate", value: `${successRate.toFixed(1)}%`, delta: `${activeConnections.length} ok`, tone: "green", icon: "donut_large" },
       { label: "Error Rate", value: `${errorRate.toFixed(1)}%`, delta: `${errorConnections.length} errori`, tone: "red", icon: "error_outline" },
       { label: "Memoria Box", value: formatBytes(perfMemory), delta: performanceRecords.length ? "stimata" : "idle", tone: "gold", icon: "memory" },
@@ -435,7 +435,7 @@ const renderLiveStream = () =>
     btn({ class: "tl-analytics-log-btn", onclick: () => openDevTools("events") }, icon("article", "sm"), "Visualizza tutto il log")
   );
 
-const renderLineChart = (title, meta, tone = "purple", multi = false) =>
+const renderLineChart = (title, meta, tone = "gold", multi = false) =>
   _.Card(
     { class: "tl-analytics-chart-card" },
     _.Row({ justify: "space-between", align: "center" }, _.div(_.h3(title), _.p(meta)), _.span({ class: `tl-analytics-chart-pill is-${tone}` }, multi ? analyticsState.chart.latency : analyticsState.chart.requests)),
@@ -475,7 +475,7 @@ const renderGauge = () =>
 const renderMetricsArea = () =>
   _.section(
     { class: "tl-analytics-realtime" },
-    renderLineChart("Traffico Richieste", "Richieste al minuto", "purple"),
+    renderLineChart("Traffico Richieste", "Richieste al minuto", "gold"),
     renderLineChart("Endpoint Performance (ms)", "Tempo medio di risposta", "green", true),
     renderBarChart()
   );

@@ -120,11 +120,11 @@ body {
 
 .tl-db-edit.cms-btn {
   min-width: 104px;
-  color: #fff;
+  color: #161000;
   border-color: rgba(255, 199, 44, 0.58);
   border-radius: 8px;
-  background: linear-gradient(180deg, #6840ad, #56338f);
-  box-shadow: 0 10px 28px rgba(86, 51, 143, 0.25);
+  background: linear-gradient(180deg, #ffd84f, #d99a00);
+  box-shadow: 0 10px 28px rgba(255, 199, 44, 0.2);
   font-weight: 800;
 }
 
@@ -237,8 +237,8 @@ body {
   display: grid;
   place-items: center;
   border-radius: 8px;
-  color: #f7f2ff;
-  background: linear-gradient(180deg, rgba(119, 73, 200, 0.88), rgba(80, 46, 134, 0.88));
+  color: #161000;
+  background: linear-gradient(180deg, rgba(255, 216, 79, 0.88), rgba(217, 154, 0, 0.84));
   box-shadow: 0 0 28px rgba(255, 199, 44, 0.2);
 }
 
@@ -307,9 +307,9 @@ body {
 }
 
 .tl-db-store.is-active.cms-btn {
-  border-color: rgba(183, 140, 255, 0.32);
-  background: linear-gradient(90deg, rgba(119, 73, 200, 0.48), rgba(119, 73, 200, 0.15));
-  box-shadow: 0 0 34px rgba(119, 73, 200, 0.18);
+  border-color: rgba(255, 199, 44, 0.34);
+  background: linear-gradient(90deg, rgba(255, 199, 44, 0.22), rgba(255, 199, 44, 0.08));
+  box-shadow: 0 0 34px rgba(255, 199, 44, 0.14);
 }
 
 .tl-db-store-icon {
@@ -463,8 +463,8 @@ body {
 }
 
 .tl-db-view-switch .is-active.cms-btn {
-  color: #fff;
-  background: linear-gradient(180deg, #6840ad, #56338f);
+  color: #161000;
+  background: linear-gradient(180deg, #ffd84f, #d99a00);
   box-shadow: 0 0 20px rgba(255, 199, 44, 0.22);
 }
 
@@ -518,7 +518,7 @@ body {
 
 .tl-db-table tbody tr:hover,
 .tl-db-table tbody tr.is-selected {
-  background: linear-gradient(90deg, rgba(119, 73, 200, 0.2), rgba(53, 201, 121, 0.06), transparent);
+  background: linear-gradient(90deg, rgba(255, 199, 44, 0.15), rgba(53, 201, 121, 0.06), transparent);
   box-shadow: inset 2px 0 0 #ffc72c;
 }
 
@@ -620,8 +620,8 @@ body {
 }
 
 .tl-db-record-card.is-selected.cms-card {
-  border-color: rgba(183, 140, 255, 0.35);
-  box-shadow: 0 0 32px rgba(119, 73, 200, 0.16);
+  border-color: rgba(255, 199, 44, 0.35);
+  box-shadow: 0 0 32px rgba(255, 199, 44, 0.14);
 }
 
 .tl-db-record-card h3 {
@@ -796,9 +796,9 @@ body {
 }
 
 .tl-db-inspector-actions .tl-db-primary.cms-btn {
-  color: #fff;
+  color: #161000;
   border-color: rgba(255, 199, 44, 0.5);
-  background: linear-gradient(180deg, #6840ad, #56338f);
+  background: linear-gradient(180deg, #ffd84f, #d99a00);
 }
 
 .tl-db-footer {

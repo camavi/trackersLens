@@ -33,7 +33,7 @@ let aiRuntimeMeta = {
 };
 
 let metrics = [
-  { label: "Modelli Attivi", value: "4", delta: "+2 attivi", tone: "purple", icon: "psychology" },
+  { label: "Modelli Attivi", value: "4", delta: "+2 attivi", tone: "gold", icon: "psychology" },
   { label: "AI Jobs Attivi", value: "12", delta: "+3 da ieri", tone: "green", icon: "radar" },
   { label: "Richieste AI / min", value: "128", delta: "+18.4%", tone: "blue", icon: "rocket_launch" },
   { label: "Token Utilizzati (oggi)", value: "1.2M", delta: "+21.7%", tone: "gold", icon: "database" },
@@ -101,11 +101,11 @@ const buildPromptBlocks = (flow) => {
       block.title || block.name || `Step ${index + 1}`,
       block.description || block.prompt || block.type || "Prompt step",
       block.icon || (index === 0 ? "bolt" : "psychology"),
-      block.tone || ["green", "blue", "purple", "violet", "gold"][index % 5],
+      block.tone || ["green", "blue", "gold", "gold", "gold"][index % 5],
     ]);
   }
   return [
-    ["Runtime", "Nessun prompt flow reale salvato", "psychology", "purple"],
+    ["Runtime", "Nessun prompt flow reale salvato", "psychology", "gold"],
     ["Origine", "Crea record in tl_ai_prompt_flows", "database", "blue"],
     ["Output", "In attesa di pipeline", "chat", "gold"],
   ];
@@ -142,7 +142,7 @@ const buildRuntimeViewModel = (data, queryMs = 0) => {
       indexedDb: data.stores?.length ? "Connected" : "Empty",
     },
     metrics: [
-      { label: "Modelli Attivi", value: formatNumber(activeProviders), delta: `${data.providers.length} configurati`, tone: "purple", icon: "psychology" },
+      { label: "Modelli Attivi", value: formatNumber(activeProviders), delta: `${data.providers.length} configurati`, tone: "gold", icon: "psychology" },
       { label: "AI Jobs Attivi", value: formatNumber(runningJobs), delta: `${data.jobs.length} totali`, tone: "green", icon: "radar" },
       { label: "Richieste AI / min", value: formatNumber(requestEstimate), delta: "stima locale", tone: "blue", icon: "rocket_launch" },
       { label: "Token Utilizzati (oggi)", value: formatNumber(tokenTotal), delta: data.jobs.length ? "da tl_ai_jobs" : "nessun job", tone: "gold", icon: "database" },
@@ -393,7 +393,7 @@ const renderAnalytics = () =>
         _.div(_.span("Token Totali"), _.strong(metrics[3]?.value || "0"), _.em(metrics[3]?.delta || "")),
         _.div(_.span("Costo Stimato"), _.strong(metrics[6]?.value || "$0.00"), _.em(metrics[6]?.delta || ""))
       ),
-      renderSpark("purple", 20)
+      renderSpark("gold", 20)
     ),
     _.Card(
       { class: "tl-ai-analytics-card" },

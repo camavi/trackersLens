@@ -108,11 +108,11 @@ body {
 
 .tl-library-create.cms-btn {
   min-width: 148px;
-  color: #fff;
+  color: #161000;
   border-color: rgba(255, 199, 44, 0.58);
   border-radius: 8px;
-  background: linear-gradient(180deg, #6840ad, #56338f);
-  box-shadow: 0 10px 28px rgba(86, 51, 143, 0.25);
+  background: linear-gradient(180deg, #ffd84f, #d99a00);
+  box-shadow: 0 10px 28px rgba(255, 199, 44, 0.2);
   font-weight: 800;
 }
 
@@ -205,7 +205,7 @@ body {
   bottom: -1px;
   height: 2px;
   border-radius: 999px;
-  background: linear-gradient(90deg, #b78cff, rgba(183, 140, 255, 0));
+  background: linear-gradient(90deg, #ffc72c, rgba(255, 199, 44, 0));
 }
 
 .tl-category-section {
@@ -243,8 +243,9 @@ body {
 }
 
 .tl-category-btn.is-active.cms-btn {
-  color: #fff;
-  background: linear-gradient(90deg, rgba(119, 73, 200, 0.42), rgba(119, 73, 200, 0.13));
+  color: #ffe8ad;
+  border-color: rgba(255, 199, 44, 0.28);
+  background: linear-gradient(90deg, rgba(255, 199, 44, 0.2), rgba(255, 199, 44, 0.07));
 }
 
 .tl-category-count {
@@ -333,9 +334,9 @@ body {
 }
 
 .tl-view-toggle.is-active.cms-btn {
-  color: #fff;
+  color: #161000;
   border-color: rgba(255, 199, 44, 0.38);
-  background: linear-gradient(180deg, rgba(119, 73, 200, 0.62), rgba(86, 51, 143, 0.46));
+  background: linear-gradient(180deg, #ffd84f, #d99a00);
 }
 
 .tl-box-card.cms-card {
@@ -371,8 +372,8 @@ body {
   display: grid;
   place-items: center;
   border-radius: 8px;
-  color: #fff;
-  background: linear-gradient(180deg, rgba(119, 73, 200, 0.82), rgba(70, 42, 116, 0.82));
+  color: #161000;
+  background: linear-gradient(180deg, rgba(255, 216, 79, 0.88), rgba(217, 154, 0, 0.82));
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08);
   overflow: hidden;
 }
@@ -458,7 +459,7 @@ body {
 }
 
 .tl-card-category {
-  color: #b78cff;
+  color: #ffc72c;
   font-size: 14px;
 }
 
@@ -554,8 +555,8 @@ body {
   display: grid;
   place-items: center;
   border-radius: 8px;
-  color: #fff;
-  background: linear-gradient(180deg, #6840ad, #56338f);
+  color: #161000;
+  background: linear-gradient(180deg, #ffd84f, #d99a00);
 }
 
 .tl-empty-card h2 {
@@ -570,9 +571,9 @@ body {
 
 .tl-empty-action.cms-btn {
   margin-top: 8px;
-  color: #fff;
+  color: #161000;
   border-color: rgba(255, 199, 44, 0.58);
   border-radius: 8px;
-  background: linear-gradient(180deg, #6840ad, #56338f);
+  background: linear-gradient(180deg, #ffd84f, #d99a00);
   font-weight: 800;
 }
