@@ -28,6 +28,14 @@ window.TrackerLensSidebar = (() => {
       _.Icon({ name: item.icon, size: "md" })
     );
 
+  const renderBrand = ({ className = "tl-app-brand", showChevron = true } = {}) =>
+    _.div(
+      { class: `${className} tl-brand-lockup` },
+      _.span({ class: "tl-brand-mark", "aria-hidden": "true" }),
+      _.h1({ class: "tl-brand-title" }, "TRACKERS ", _.span("LENS")),
+      showChevron ? _.Icon({ name: "chevron_right", size: "sm" }) : null
+    );
+
   const render = ({ activeId = "dashboard", items = defaultItems, onHelp = null } = {}) =>
     _.aside(
       { class: "tl-view-sidebar", "aria-label": "Navigazione workspace" },
@@ -59,6 +67,7 @@ window.TrackerLensSidebar = (() => {
   return {
     defaultItems,
     navigate,
+    renderBrand,
     render,
   };
 })();

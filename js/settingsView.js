@@ -248,12 +248,7 @@ const maskKey = (value) => {
   return `${text.slice(0, 3)}${"*".repeat(Math.max(12, text.length - 7))}${text.slice(-4)}`;
 };
 
-const renderBrand = () =>
-  _.Row(
-    { class: "tl-settings-brand" },
-    _.span({ class: "tl-brand-mark", "aria-hidden": "true" }),
-    _.h1({ class: "tl-brand-title" }, "TRACKERS ", _.span("LENS"))
-  );
+const renderBrand = () => window.TrackerLensSidebar.renderBrand({ className: "tl-settings-brand" });
 
 const renderTopbar = () =>
   _.header(

@@ -1,3 +1,38 @@
+.tl-brand-lockup {
+  height: 100%;
+  min-width: 0;
+  padding: 0 18px;
+  display: flex;
+  align-items: center;
+  gap: 13px;
+  border-right: 1px solid var(--tl-border-soft);
+}
+
+body .tl-brand-lockup .tl-brand-mark {
+  width: 34px;
+  height: 34px;
+  flex: 0 0 34px;
+  background: url("../icons/logo.svg") center / contain no-repeat;
+}
+
+body .tl-brand-lockup .tl-brand-title {
+  margin: 0;
+  flex: 0 0 auto;
+  font-size: 18px;
+  line-height: 1;
+  font-weight: 800;
+  letter-spacing: 0;
+  white-space: nowrap;
+}
+
+body .tl-brand-lockup .tl-brand-title span {
+  color: var(--tl-accent);
+}
+
+body .tl-brand-lockup .cms-icon {
+  flex: 0 0 auto;
+}
+
 .tl-view-sidebar {
   margin: 36px 10px 22px;
   padding: 22px 10px 14px;

@@ -55,12 +55,7 @@ const systemRows = [
   ["Node.js", "v24.14.1"],
 ];
 
-const renderBrand = () =>
-  _.Row(
-    { class: "tl-profile-brand" },
-    _.span({ class: "tl-brand-mark", "aria-hidden": "true" }),
-    _.h1({ class: "tl-brand-title" }, "TRACKERS ", _.span("LENS"))
-  );
+const renderBrand = () => window.TrackerLensSidebar.renderBrand({ className: "tl-profile-brand" });
 
 const renderTopbar = () =>
   _.header(

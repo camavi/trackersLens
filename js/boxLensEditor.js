@@ -413,12 +413,7 @@ const loadLensForEdit = async () => {
 const renderHeader = () =>
   _.header(
     { class: "tl-box-header" },
-    _.div(
-      { class: "tl-box-brand" },
-      _.span({ class: "tl-brand-mark", "aria-hidden": "true" }),
-      _.h1({ class: "tl-brand-title" }, "TRACKERS ", _.span("LENS")),
-      icon("chevron_right", "sm")
-    ),
+    window.TrackerLensSidebar.renderBrand({ className: "tl-box-brand" }),
     _.div(
       { class: "tl-workspace-heading" },
       _.h1(boxLensData.workspace.name),

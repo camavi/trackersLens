@@ -560,13 +560,7 @@ const setSelected = (id) => {
   mountConnections();
 };
 
-const renderBrand = () =>
-  _.Row(
-    { class: "tl-link-brand" },
-    _.span({ class: "tl-brand-mark", "aria-hidden": "true" }),
-    _.h1({ class: "tl-brand-title" }, "TRACKERS ", _.span("LENS")),
-    icon("chevron_right", "sm")
-  );
+const renderBrand = () => window.TrackerLensSidebar.renderBrand({ className: "tl-link-brand" });
 
 const renderTopbar = () =>
   _.header(

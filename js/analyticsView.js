@@ -346,13 +346,7 @@ const buildAnalyticsData = async () => {
   };
 };
 
-const renderBrand = () =>
-  _.Row(
-    { class: "tl-analytics-brand" },
-    _.span({ class: "tl-brand-mark", "aria-hidden": "true" }),
-    _.h1({ class: "tl-brand-title" }, "TRACKERS ", _.span("LENS")),
-    icon("chevron_right", "sm")
-  );
+const renderBrand = () => window.TrackerLensSidebar.renderBrand({ className: "tl-analytics-brand" });
 
 const renderTopbar = () =>
   _.header(

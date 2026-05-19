@@ -328,12 +328,7 @@ const exportCurrentWorkspace = async () => {
 const renderHeader = () =>
   _.header(
     { class: "tl-workspace-header" },
-    _.Row(
-      { class: "tl-app-brand" },
-      _.span({ class: "tl-brand-mark", "aria-hidden": "true" }),
-      _.h1({ class: "tl-brand-title" }, "TRACKERS ", _.span("LENS")),
-      icon("chevron_right", "sm")
-    ),
+    window.TrackerLensSidebar.renderBrand({ className: "tl-app-brand" }),
     _.div(
       { class: "tl-workspace-title" },
       _.h1(workspaceState.workspace.name, btn({ class: "tl-title-edit", "aria-label": "Modifica nome workspace", onclick: focusWorkspaceName }, icon("edit", "sm"))),

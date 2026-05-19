@@ -948,7 +948,7 @@ const renderHeader = () => {
 
   return _.header(
     { class: "tl-tracker-header" },
-    _.div({ class: "tl-tracker-brand" }, _.span({ class: "tl-brand-mark" }), _.h1({ class: "tl-brand-title" }, "TRACKERS ", _.span("LENS")), icon("chevron_right", "sm")),
+    window.TrackerLensSidebar.renderBrand({ className: "tl-tracker-brand" }),
     _.div({ class: "tl-workspace-heading" }, _.h1(trackerData.workspace.name, _.span({ class: "tl-online-dot" })), _.p("• ", trackerState.notice || trackerState.savedLabel)),
     _.Toolbar(
       { class: "tl-tracker-actions", align: "center", gap: 12 },
