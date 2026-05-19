@@ -1719,6 +1719,7 @@ const renderSelect = (className, value, options, onChange) =>
 const renderHeader = () =>
   _.header(
     { class: "tl-flow-topbar" },
+    window.TrackerLensSidebar.renderBrand({ className: "tl-flow-brand" }),
     _.div(
       _.span({ class: "tl-flow-kicker" }, "Runtime"),
       _.h1("Flow Map")

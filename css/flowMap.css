@@ -30,13 +30,17 @@ body {
 
 .tl-flow-topbar {
   display: grid;
-  grid-template-columns: minmax(220px, 320px) minmax(0, 1fr) auto;
+  grid-template-columns: minmax(252px, 252px) minmax(220px, 320px) minmax(0, 1fr) auto;
   align-items: center;
   gap: 18px;
-  padding: 0 18px 0 22px;
+  padding: 0 18px 0 0;
   border-bottom: 1px solid rgba(214, 226, 235, 0.08);
   background: rgba(5, 10, 15, 0.8);
   backdrop-filter: blur(14px);
+}
+
+.tl-flow-brand {
+  border-right-color: rgba(214, 226, 235, 0.08);
 }
 
 .tl-flow-topbar h1,

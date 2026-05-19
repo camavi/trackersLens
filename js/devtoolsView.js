@@ -672,6 +672,7 @@ const mount = () => {
         { class: "tl-devtools-main" },
         _.header(
           { class: "tl-devtools-topbar" },
+          window.TrackerLensSidebar.renderBrand({ className: "tl-devtools-brand" }),
           _.div(
             _.p({ class: "tl-devtools-kicker" }, "Trackers Lens"),
             _.h1("Runtime DevTools")
