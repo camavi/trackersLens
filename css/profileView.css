@@ -266,10 +266,11 @@ body {
   min-width: 34px;
   height: 34px;
   padding: 0;
-  color: #fff;
-  border-color: rgba(202, 138, 255, 0.52);
+  color: #161000;
+  border-color: rgba(255, 199, 44, 0.56);
   border-radius: 8px;
-  background: #4b2b80;
+  background: linear-gradient(180deg, #ffd84f, #d99a00);
+  box-shadow: 0 10px 24px rgba(255, 199, 44, 0.24);
 }
 
 .tl-profile-identity {
