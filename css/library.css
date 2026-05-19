@@ -291,6 +291,11 @@ body {
   z-index: 1;
 }
 
+.tl-library-grid {
+  align-items: stretch;
+  grid-auto-rows: 286px;
+}
+
 .tl-library-toolbar {
   margin-bottom: 26px;
 }
@@ -340,7 +345,8 @@ body {
 }
 
 .tl-box-card.cms-card {
-  min-height: 220px;
+  height: 100%;
+  min-height: 0;
   border: 1px solid rgba(214, 226, 235, 0.1);
   border-radius: 8px;
   background:
@@ -356,11 +362,12 @@ body {
 }
 
 .tl-box-card>.cms-card-body {
-  min-height: 220px;
+  height: 100%;
+  min-height: 0;
   padding: 18px;
   display: grid;
-  grid-template-rows: auto 1fr auto;
-  gap: 18px;
+  grid-template-rows: auto minmax(58px, 1fr) auto;
+  gap: 16px;
 }
 
 .tl-card-head {
@@ -401,6 +408,10 @@ body {
   font-size: 16px;
   line-height: 1.28;
   overflow-wrap: anywhere;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
 }
 
 .tl-card-type {
@@ -453,9 +464,15 @@ body {
   margin: 0;
   color: var(--tl-text-muted);
   line-height: 1.5;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
 }
 
 .tl-card-foot {
+  min-width: 0;
+  align-self: end;
 }
 
 .tl-card-category {
@@ -474,6 +491,9 @@ body {
 .tl-card-meta {
   color: var(--tl-text-soft);
   font-size: 12px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .tl-card-warning {
@@ -504,6 +524,7 @@ body {
 
 .tl-library-list .tl-box-card.cms-card,
 .tl-library-list .tl-box-card>.cms-card-body {
+  height: auto;
   min-height: 120px;
 }
 
