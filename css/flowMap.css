@@ -765,7 +765,7 @@ body.is-flow-palette-dragging .tl-flow-canvas {
 }
 
 .tl-flow-node.is-impact-dimmed {
-  opacity: 0.34;
+  opacity: 0.75;
 }
 
 .tl-flow-node.is-live {
