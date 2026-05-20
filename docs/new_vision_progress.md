@@ -1,6 +1,6 @@
 # Trackers Lens - Avanzamento nuova visione
 
-Aggiornato il 2026-05-18.
+Aggiornato il 2026-05-20.
 
 Questo documento traduce `docs/new_vision.md` in una mappa operativa. La visione resta: Trackers Lens non deve essere un dashboard builder, ma un AI Runtime Operating Environment locale, event-driven, channel-based e ispezionabile.
 
@@ -55,6 +55,11 @@ Priorita successive:
 | 18 | Chrome Fork | Visione | Solo direzione strategica. | Rimandare fino a runtime/plugin stabile. |
 | 19 | Box Graph Engine | Parziale avanzato | `runtime-graph-store.js`, `runtime-graph-model.js`, `core/runtime/graph-engine.js`, `docs/box-graph-engine.md`, `tl_runtime_nodes`, `tl_runtime_dependencies`, `tl_flows`, facade `buildGraph()` / `inspectNode()`, Flow Map e DevTools consumano il facade. | Aggiungere validazione graph, query path/ancestors/descendants e overlay performance/time travel. |
 | 20 | Runtime locale intelligente | In corso | La direzione e gia nel codice: local-first, runtime graph, channel registry, event logs, Flow Map. | Continuare a costruire il prodotto come runtime operating environment, non come dashboard. |
+
+## Note operative 2026-05-20
+
+- `editorWorkspace.html` e piu vicino a un composer operativo: drag/drop robusto da `Aggiungi Box`, mini-mappa `Navigator` reale con selezione box, pan del canvas quando lo zoom supera il 100% e bottom bar riallineata.
+- Questi interventi non cambiano la visione strategica in `docs/new_vision.md`; consolidano l'ergonomia locale del workspace editor dentro la direzione runtime operating environment.
 
 ## Milestone consigliate
 

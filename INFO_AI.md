@@ -3581,6 +3581,34 @@ Verifiche eseguite:
 - `curl -I http://127.0.0.1:3031/js/flowMapView.js`
 - `curl -I http://127.0.0.1:3031/core/runtime/runtime-graph-model.js`
 
+## Aggiornamento 2026-05-20 - Editor workspace canvas UX
+
+Obiettivo della sessione: rendere piu operativo `editorWorkspace.html` nelle interazioni base di composizione e navigazione canvas.
+
+Fatto:
+
+- `js/workspace.js`:
+  - la lista `Aggiungi Box` usa ora card trascinabili reali e salva l'asset id in `dataTransfer`;
+  - aggiunto fallback pointer-based per il drag da libreria locale verso il canvas, cosi il drop funziona anche quando il drag HTML nativo e instabile;
+  - il drop calcola la posizione sulla griglia e crea il box nel punto di rilascio;
+  - il `Navigator` laterale non e piu statico: disegna box reali, connessioni e selezione corrente;
+  - click sulla mini-mappa seleziona il box corrispondente;
+  - aggiunto pan del canvas a zoom maggiore del 100% con drag sullo sfondo;
+  - il reset vista riporta zoom e pan allo stato iniziale.
+- `css/workspace.css`:
+  - aggiunti stati visuali per drag asset, mini-mappa Navigator, box selezionati nel Navigator, allineamento bottom bar e cursor `grab/grabbing` durante il pan;
+  - griglia e linee del canvas applicano la stessa trasformazione `translate(...) scale(...)` per restare allineate durante pan/zoom.
+- `css/connectionsView.css` e `css/indexedDbExplorer.css`:
+  - corretti allineamenti verticali/orizzontali in liste e badge dei pannelli Connections/Database.
+
+Verifiche eseguite:
+
+- `node --check js/workspace.js`
+
+Nota documentazione:
+
+- `docs/new_vision.md` non e stato aggiornato perche questa sessione non cambia la direzione strategica del prodotto.
+
 ## Aggiornamento 2026-05-19 - Chiusura residui punti 1, 3, 5, 6, 7, 8
 
 Obiettivo della sessione: chiudere i residui operativi dei punti gia avviati prima di proseguire con i task successivi.

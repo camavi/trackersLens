@@ -195,6 +195,7 @@ body {
   margin-bottom: 6px;
   display: grid;
   grid-template-columns: 26px minmax(0, 1fr) auto;
+  align-items: center;
   gap: 9px;
   justify-content: stretch;
   color: var(--tl-text);
@@ -229,12 +230,17 @@ body {
 .tl-link-type-name {
   min-width: 0;
   overflow: hidden;
+  line-height: 1;
   text-align: left;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
 .tl-link-count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 20px;
   padding: 2px 7px;
   border: 1px solid rgba(255, 255, 255, 0.08);
   border-radius: 7px;
@@ -475,9 +481,10 @@ body {
 .tl-link-view-switch .cms-btn {
   width: 32px;
   min-width: 32px;
-  height: 30px;
+  height: 31px;
   border-color: transparent;
   padding: 0;
+  min-height: 0;
 }
 
 .tl-link-view-switch .is-active.cms-btn {

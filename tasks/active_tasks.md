@@ -614,4 +614,5 @@ Runtime Notes:
 - 2026-05-17: Blueprint completion pass implemented target-port snap/highlight, base type validation, related-edge hover focus, richer Edge Inspector mapping/debug, persisted pan/zoom, improved Fit view for tall nodes and live/error payload hints on edge labels.
 - 2026-05-18: Flow Map node drag bounds were expanded and the canvas edge layer now uses an oversized virtual surface so lines are not clipped when nodes move beyond the visible viewport.
 - 2026-05-19: retention/cleanup policy is exposed in Settings; richer dedicated Processor/Action/AI Agent editors are moved to future product work outside the current runtime graph-store milestone.
+- 2026-05-20: editor workspace composition UX now supports robust local-library drag/drop onto the canvas, Navigator mini-map selection and zoomed canvas pan.
 - Remaining: none for current milestone.

@@ -5,6 +5,9 @@ const workspaceState = {
   device: "desktop",
   search: "",
   zoom: 100,
+  panX: 0,
+  panY: 0,
+  suppressCanvasClick: false,
   activeTool: "select",
   selectedAssetId: null,
   selectedBoxId: null,
@@ -29,6 +32,14 @@ const workspaceState = {
   future: [],
 };
 
+const assetDragState = {
+  assetId: null,
+  startX: 0,
+  startY: 0,
+  dragged: false,
+  suppressClick: false,
+};
+
 const openChromePage = (url) => {
   if (window.TrackerLensSidebar?.navigate) {
     window.TrackerLensSidebar.navigate(url);
@@ -39,6 +50,7 @@ const openChromePage = (url) => {
 
 const icon = (name, size = "md") => _.Icon({ name, size });
 const btn = (props, ...children) => _.Btn({ type: "button", ...props }, ...children);
+const WORKSPACE_ASSET_MIME = "application/x-trackerlens-workspace-asset";
 
 const db = new DatabaseIndexedDB({
   dbName: tlConfig.DB_NAME,
@@ -371,6 +383,10 @@ const setDevice = (device) => {
 
 const setZoom = (zoom) => {
   workspaceState.zoom = Math.max(50, Math.min(150, zoom));
+  if (workspaceState.zoom <= 100) {
+    workspaceState.panX = 0;
+    workspaceState.panY = 0;
+  }
   setNotice(`Zoom impostato al ${workspaceState.zoom}%`);
   mountWorkspace();
 };
@@ -403,18 +419,33 @@ const setActiveTool = (toolId) => {
 };
 
 const renderAssetCard = (asset) =>
-  _.Card(
+  _.div(
     {
-      class: `tl-asset-card${workspaceState.selectedAssetId === asset.id ? " is-selected" : ""}`,
+      class: `tl-asset-card cms-card${workspaceState.selectedAssetId === asset.id ? " is-selected" : ""}`,
       draggable: true,
-      onclick: () => addAssetToCanvas(asset.id),
+      "data-asset-id": asset.id,
+      onclick: () => {
+        if (assetDragState.suppressClick) {
+          assetDragState.suppressClick = false;
+          return;
+        }
+        addAssetToCanvas(asset.id);
+      },
+      onmousedown: (event) => startAssetPointerDrag(event, asset.id),
       ondragstart: (event) => {
         workspaceState.selectedAssetId = asset.id;
-        event.dataTransfer?.setData("text/plain", asset.id);
+        if (event.dataTransfer) {
+          event.dataTransfer.effectAllowed = "copy";
+          event.dataTransfer.setData(WORKSPACE_ASSET_MIME, asset.id);
+          event.dataTransfer.setData("text/plain", asset.id);
+        }
       },
     },
-    _.span({ class: "tl-asset-icon", style: { "--asset-color": asset.color } }, icon(asset.icon, "sm")),
-    _.div(_.div({ class: "tl-asset-name" }, asset.name), _.div({ class: "tl-asset-type" }, asset.category || asset.note || asset.type))
+    _.div(
+      { class: "cms-card-body" },
+      _.span({ class: "tl-asset-icon", style: { "--asset-color": asset.color } }, icon(asset.icon, "sm")),
+      _.div(_.div({ class: "tl-asset-name" }, asset.name), _.div({ class: "tl-asset-type" }, asset.category || asset.note || asset.type))
+    )
   );
 
 const workspaceAssets = () => workspaceState.localAssets;
@@ -693,9 +724,11 @@ const renderCanvas = () =>
     renderCanvasToolbar(),
     _.div(
       {
-        class: `tl-canvas tl-tool-${workspaceState.activeTool} tl-canvas-${workspaceState.device}${workspaceState.workspace.showGrid ? "" : " no-grid"}${workspaceState.previewMode ? " is-preview" : ""}`,
+        class: `tl-canvas tl-tool-${workspaceState.activeTool} tl-canvas-${workspaceState.device}${workspaceState.workspace.showGrid ? "" : " no-grid"}${workspaceState.previewMode ? " is-preview" : ""}${workspaceState.zoom > 100 ? " is-zoomed" : ""}${workspaceState.interaction?.type === "pan" ? " is-panning" : ""}`,
         style: {
           "--tl-zoom": workspaceState.zoom / 100,
+          "--tl-pan-x": `${workspaceState.panX}px`,
+          "--tl-pan-y": `${workspaceState.panY}px`,
           "--tl-columns": workspaceState.workspace.columns,
           "--tl-rows": workspaceState.workspace.rows,
           "--tl-cell-width": `${100 / workspaceState.workspace.columns}%`,
@@ -703,13 +736,17 @@ const renderCanvas = () =>
           "--tl-major-width": `${500 / workspaceState.workspace.columns}%`,
           "--tl-major-height": `${500 / workspaceState.workspace.rows}%`,
           backgroundColor: workspaceState.workspace.background,
-          cursor: toolBehavior[workspaceState.activeTool]?.cursor || "default",
+          cursor: workspaceState.interaction?.type === "pan" ? "grabbing" : workspaceState.zoom > 100 && workspaceState.activeTool === "select" ? "grab" : toolBehavior[workspaceState.activeTool]?.cursor || "default",
         },
-        ondragover: (event) => event.preventDefault(),
+        ondragover: handleCanvasDragOver,
         ondrop: handleCanvasDrop,
         onmousedown: startCanvasPointer,
         onmousemove: handleCanvasHover,
         onclick: (event) => {
+          if (workspaceState.suppressCanvasClick) {
+            workspaceState.suppressCanvasClick = false;
+            return;
+          }
           if (event.currentTarget === event.target) selectBox(null);
         },
       },
@@ -733,7 +770,13 @@ const renderCanvas = () =>
 
 const renderDropZone = () =>
   _.button(
-    { class: "tl-drop-zone", type: "button", onclick: () => addAssetToCanvas(visibleAssets()[0]?.id) },
+    {
+      class: "tl-drop-zone",
+      type: "button",
+      onclick: () => addAssetToCanvas(visibleAssets()[0]?.id),
+      ondragover: handleCanvasDragOver,
+      ondrop: handleCanvasDrop,
+    },
     _.div(
       _.div({ class: "tl-drop-icon" }, icon("dashboard", "xxl")),
       _.p({ class: "tl-drop-title" }, "Trascina un box qui"),
@@ -804,6 +847,54 @@ const renderConnectionLayer = () => {
   );
 };
 
+const navigatorBoxStyle = (box) => ({
+  left: `${((box.x - 1) / workspaceState.workspace.columns) * 100}%`,
+  top: `${((box.y - 1) / workspaceState.workspace.rows) * 100}%`,
+  width: `${(box.width / workspaceState.workspace.columns) * 100}%`,
+  height: `${(box.height / workspaceState.workspace.rows) * 100}%`,
+  "--asset-color": box.color,
+});
+
+const boxAtNavigatorPoint = (event) => {
+  const rect = event.currentTarget.getBoundingClientRect();
+  const gridX = ((event.clientX - rect.left) / rect.width) * workspaceState.workspace.columns + 1;
+  const gridY = ((event.clientY - rect.top) / rect.height) * workspaceState.workspace.rows + 1;
+  return visibleWorkspaceBoxes()
+    .slice()
+    .sort((a, b) => (b.zIndex || 1) - (a.zIndex || 1))
+    .find((box) => gridX >= box.x && gridX <= box.x + box.width && gridY >= box.y && gridY <= box.y + box.height) || null;
+};
+
+const handleNavigatorClick = (event) => {
+  const box = boxAtNavigatorPoint(event);
+  if (!box) {
+    selectBox(null);
+    return;
+  }
+  workspaceState.activeTool = "select";
+  selectBox(box.id);
+};
+
+const renderNavigator = () => {
+  const boxes = visibleWorkspaceBoxes();
+  const lines = workspaceState.connections.map(connectionLine).filter(Boolean);
+  return _.div(
+    { class: "tl-navigator", role: "button", tabindex: 0, onclick: handleNavigatorClick },
+    _.svg(
+      { class: "tl-navigator-lines", viewBox: "0 0 100 100", preserveAspectRatio: "none", "aria-hidden": "true" },
+      ...lines.map((line) => _.line({ x1: line.x1, y1: line.y1, x2: line.x2, y2: line.y2 }))
+    ),
+    ...boxes.map((box) =>
+      _.span({
+        class: `tl-navigator-box${isBoxSelected(box.id) ? " is-selected" : ""}${box.type === "boxTracker" ? " is-tracker" : ""}`,
+        title: box.name,
+        style: navigatorBoxStyle(box),
+      })
+    ),
+    boxes.length ? null : _.span({ class: "tl-navigator-empty" }, "Nessun box")
+  );
+};
+
 const renderProperties = () => {
   const workspace = workspaceState.workspace;
   const box = selectedBox();
@@ -826,7 +917,7 @@ const renderProperties = () => {
       renderToggle("Aggancia alla griglia", workspace.snapToGrid, () => updateWorkspaceConfig("snapToGrid", !workspace.snapToGrid, "Aggancio alla griglia aggiornato"))
     ),
     box ? renderSelectedBoxProperties(box) : null,
-    _.Card({ class: "tl-property-card" }, _.Row({ class: "tl-card-head", justify: "space-between" }, _.span("Navigator")), _.div({ class: "tl-navigator" }, _.div({ class: "tl-navigator-view" })))
+    _.Card({ class: "tl-property-card" }, _.Row({ class: "tl-card-head", justify: "space-between" }, _.span("Navigator")), renderNavigator())
   );
 };
 
@@ -1025,21 +1116,42 @@ const focusWorkspaceName = () => {
   (target?.matches?.("input") ? target : target?.querySelector?.("input"))?.focus();
 };
 
-const addAssetToCanvas = (assetId) => {
-  const asset = workspaceAssets().find((item) => item.id === assetId);
-  if (!asset) return;
+const assetBoxSize = (asset = {}) => ({
+  width: asset.type === "boxTracker" ? 5 : asset.width || 10,
+  height: asset.type === "boxTracker" ? 3 : asset.height || 6,
+});
+
+const dropGridPosition = (event, asset) => {
+  const metrics = canvasMetrics();
+  if (!metrics) return null;
+  const size = assetBoxSize(asset);
+  const point = clientToCanvas(event);
+  return {
+    x: clamp(Math.floor(point.x / metrics.cellWidth) + 1, 1, workspaceState.workspace.columns - size.width + 1),
+    y: clamp(Math.floor(point.y / metrics.cellHeight) + 1, 1, workspaceState.workspace.rows - size.height + 1),
+  };
+};
+
+const addAssetToCanvas = (assetId, position = null) => {
+  const asset = assetById(assetId);
+  if (!asset) {
+    setNotice("Seleziona un box dalla libreria prima di aggiungerlo.");
+    mountWorkspace();
+    return;
+  }
 
   commitWorkspaceChange(`${asset.name} aggiunto alla griglia`, () => {
     const index = workspaceState.boxes.length;
+    const size = assetBoxSize(asset);
     const box = displayBoxFromAsset(asset, {
       id: `${asset.id}-${Date.now()}`,
       assetId: asset.id,
       sourceId: asset.sourceId || asset.id,
       type: asset.type,
-      x: 3 + (index % 4) * 7,
-      y: 3 + Math.floor(index / 4) * 5,
-      width: asset.type === "boxTracker" ? 5 : asset.width || 10,
-      height: asset.type === "boxTracker" ? 3 : asset.height || 6,
+      x: position?.x || 3 + (index % 4) * 7,
+      y: position?.y || 3 + Math.floor(index / 4) * 5,
+      width: size.width,
+      height: size.height,
       zIndex: workspaceState.boxes.length + 1,
       channels: asset.type === "boxTracker" ? ["default", "btc-price"] : [],
     });
@@ -1050,10 +1162,59 @@ const addAssetToCanvas = (assetId) => {
   });
 };
 
+const startAssetPointerDrag = (event, assetId) => {
+  if (event.button !== 0) return;
+  assetDragState.assetId = assetId;
+  assetDragState.startX = event.clientX;
+  assetDragState.startY = event.clientY;
+  assetDragState.dragged = false;
+  workspaceState.selectedAssetId = assetId;
+};
+
+const updateAssetPointerDrag = (event) => {
+  if (!assetDragState.assetId) return;
+  const dx = event.clientX - assetDragState.startX;
+  const dy = event.clientY - assetDragState.startY;
+  if (assetDragState.dragged || Math.hypot(dx, dy) > 6) {
+    assetDragState.dragged = true;
+    document.body.classList.add("is-dragging-workspace-asset");
+  }
+};
+
+const finishAssetPointerDrop = (event) => {
+  if (!assetDragState.assetId) return;
+  const assetId = assetDragState.assetId;
+  const wasDragged = assetDragState.dragged;
+
+  assetDragState.assetId = null;
+  assetDragState.dragged = false;
+  document.body.classList.remove("is-dragging-workspace-asset");
+
+  if (!wasDragged) return;
+  assetDragState.suppressClick = true;
+
+  const dropTarget = document.elementFromPoint(event.clientX, event.clientY)?.closest?.(".tl-canvas, .tl-drop-zone");
+  if (!dropTarget) return;
+
+  const asset = assetById(assetId);
+  addAssetToCanvas(assetId, asset ? dropGridPosition(event, asset) : null);
+};
+
+const handleCanvasDragOver = (event) => {
+  event.preventDefault();
+  if (event.dataTransfer) event.dataTransfer.dropEffect = "copy";
+};
+
 const handleCanvasDrop = (event) => {
   event.preventDefault();
-  const assetId = event.dataTransfer?.getData("text/plain") || workspaceState.selectedAssetId;
-  addAssetToCanvas(assetId);
+  event.stopPropagation();
+  const assetId = event.dataTransfer?.getData(WORKSPACE_ASSET_MIME) || event.dataTransfer?.getData("text/plain") || workspaceState.selectedAssetId;
+  const asset = assetById(assetId);
+  assetDragState.assetId = null;
+  assetDragState.dragged = false;
+  assetDragState.suppressClick = true;
+  document.body.classList.remove("is-dragging-workspace-asset");
+  addAssetToCanvas(assetId, asset ? dropGridPosition(event, asset) : null);
 };
 
 const selectBox = (boxId) => {
@@ -1240,6 +1401,22 @@ const deltaToGrid = (event, interaction) => {
 const startCanvasPointer = (event) => {
   if (event.button !== 0 || event.target.closest?.(".tl-placed-box")) return;
   if (workspaceState.activeTool !== "select") return;
+
+  if (workspaceState.zoom > 100) {
+    event.preventDefault();
+    workspaceState.interaction = {
+      type: "pan",
+      startClientX: event.clientX,
+      startClientY: event.clientY,
+      initialPanX: workspaceState.panX,
+      initialPanY: workspaceState.panY,
+      dragged: false,
+    };
+    setNotice("Trascina per spostare la vista del canvas.");
+    mountWorkspace();
+    return;
+  }
+
   const point = clientToCanvas(event);
   workspaceState.interaction = { type: "select-rect", startClientX: event.clientX, startClientY: event.clientY, startX: point.x, startY: point.y };
   workspaceState.selectionRect = { left: point.x, top: point.y, width: 0, height: 0 };
@@ -1305,6 +1482,16 @@ const updatePointerInteraction = (event) => {
     return;
   }
 
+  if (interaction.type === "pan") {
+    const dx = event.clientX - interaction.startClientX;
+    const dy = event.clientY - interaction.startClientY;
+    interaction.dragged = interaction.dragged || Math.abs(dx) > 1 || Math.abs(dy) > 1;
+    workspaceState.panX = interaction.initialPanX + dx;
+    workspaceState.panY = interaction.initialPanY + dy;
+    mountWorkspace();
+    return;
+  }
+
   if (interaction.type === "move") {
     const { dx, dy } = deltaToGrid(event, interaction);
     interaction.dragged = interaction.dragged || dx !== 0 || dy !== 0;
@@ -1339,6 +1526,14 @@ const finishPointerInteraction = () => {
     workspaceState.selectionRect = null;
     workspaceState.interaction = null;
     setNotice(workspaceState.selectedBoxIds.length ? `${workspaceState.selectedBoxIds.length} box selezionati` : "Selezione rimossa");
+    mountWorkspace();
+    return;
+  }
+
+  if (interaction.type === "pan") {
+    workspaceState.interaction = null;
+    workspaceState.suppressCanvasClick = interaction.dragged;
+    setNotice(interaction.dragged ? "Vista canvas spostata" : "Vista canvas invariata");
     mountWorkspace();
     return;
   }
@@ -1546,6 +1741,8 @@ const clearWorkspace = () => {
 
 const resetWorkspaceView = () => {
   workspaceState.zoom = 100;
+  workspaceState.panX = 0;
+  workspaceState.panY = 0;
   workspaceState.device = "desktop";
   workspaceState.actionMenuOpen = false;
   setNotice("Vista workspace ripristinata");
@@ -1662,4 +1859,6 @@ const initializeWorkspace = async () => {
 CMSwift.ready(initializeWorkspace);
 document.addEventListener("keydown", handleWorkspaceKeys);
 document.addEventListener("mousemove", updatePointerInteraction);
+document.addEventListener("mousemove", updateAssetPointerDrag);
 document.addEventListener("mouseup", finishPointerInteraction);
+document.addEventListener("mouseup", finishAssetPointerDrop);
