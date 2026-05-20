@@ -203,6 +203,8 @@ Nota aggiornata 2026-05-12: e stata aggiunta la schermata `profile.html` per "Pr
 
 Nota aggiornata 2026-05-20: il box "I miei preferiti" di `library.html` e ora operativo. `js/library.js` salva gli id preferiti in IndexedDB nello store `tl_settings` con record `library_favorites`, aggiunge toggle a stella sulle card, filtro dedicato nella sidebar e lista compatta dei preferiti. Gli item preferiti sono allineati a sinistra e usano icone colorate coerenti col tipo asset: boxLens oro, boxTracker verde, workspace blu. La UI resta composta con pattern CMSwift (`_.Btn`, `_.Grid`, `_.Row`, `_.Toolbar`, `_.Card`) e `css/library.css` contiene solo gli stati visuali specifici.
 
+Nota aggiornata 2026-05-20: `flowMap.html` ha iniziato la migrazione verso refresh reattivi CMSwift. `js/flowMapView.js` usa ora `CMSwift.reactive.signal()` per runtime, filtri, focus, loading/error e timestamp aggiornamento; i filtri principali usano model bidirezionali CMSwift. Il refresh periodico da 15s confronta la firma strutturale del graph e, se nodi/edge/flussi non cambiano, aggiorna in modo mirato status bar, live bus, inspector, classi live/error, badge e footer dei nodi senza ricostruire tutta la shell con `root.replaceChildren(renderShell())`. Il re-render completo resta per cambi strutturali, filtri, drag/linking e fallback errori.
+
 `library.html`, `editorWorkspace.html` e i punti che aprono un `boxTracker` ora passano `trackerId` quando esiste un record sorgente, cosi viene aperto in modalita modifica:
 
 ```txt

@@ -92,9 +92,49 @@ const state = {
   updatedAt: new Date(),
   activeStatusPanel: "",
   inspectorOpen: true,
+  mounted: false,
 };
 
 state.viewport = loadStoredViewport() || state.viewport;
+
+const flowReactive = CMSwift.reactive;
+const [getRuntimeState, setRuntimeSignal] = flowReactive.signal(state.runtime);
+const [getFiltersState, setFiltersSignal] = flowReactive.signal(state.filters);
+const [getFocusState, setFocusSignal] = flowReactive.signal(state.focus);
+const [getUpdatedAtState, setUpdatedAtSignal] = flowReactive.signal(state.updatedAt);
+const [getLoadingState, setLoadingSignal] = flowReactive.signal(state.loading);
+const [getErrorState, setErrorSignal] = flowReactive.signal(state.error);
+
+const syncReactiveState = () => {
+  flowReactive.batch(() => {
+    setRuntimeSignal(state.runtime);
+    setFiltersSignal(state.filters);
+    setFocusSignal(state.focus);
+    setUpdatedAtSignal(state.updatedAt);
+    setLoadingSignal(state.loading);
+    setErrorSignal(state.error);
+  });
+};
+
+const setRuntimeState = (runtime) => {
+  state.runtime = runtime;
+  setRuntimeSignal(runtime);
+};
+
+const setFiltersState = (filters) => {
+  state.filters = filters;
+  setFiltersSignal(filters);
+};
+
+const setFocusState = (focus) => {
+  state.focus = focus;
+  setFocusSignal(focus);
+};
+
+const filterModel = (key) => [
+  () => getFiltersState()[key],
+  (value) => setFilter(key, value),
+];
 
 const runtimeStoreName = (key, fallback) => tlConfig?.TABLES?.[key] || fallback;
 
@@ -262,15 +302,57 @@ const loadLibraryItems = async () => {
   }
 };
 
+const sortById = (items = []) =>
+  [...items].sort((a, b) => String(a.id || a.name || "").localeCompare(String(b.id || b.name || "")));
+
+const runtimeGraphSignature = () => JSON.stringify({
+  nodes: sortById(state.runtime.nodes).map((node) => ({
+    id: node.id,
+    sourceRef: node.sourceRef,
+    assetId: node.assetId,
+    type: node.type,
+    label: node.label,
+    workspaceId: node.workspaceId,
+    status: node.status,
+    inputs: node.inputs || [],
+    outputs: node.outputs || [],
+    channels: node.channels || [],
+    flowPosition: node.flowPosition || null,
+    configured: Boolean(node.metadata?.configured),
+    draft: Boolean(node.metadata?.draft),
+    library: Boolean(node.metadata?.library),
+  })),
+  dependencies: sortById(state.runtime.dependencies).map((dependency) => ({
+    id: dependency.id,
+    sourceNodeId: dependency.sourceNodeId,
+    targetNodeId: dependency.targetNodeId,
+    channel: dependency.channel,
+    status: dependency.status,
+    connectionId: dependency.connectionId || "",
+    sourcePort: dependency.metadata?.sourcePort || dependency.sourcePort || "",
+    targetPort: dependency.metadata?.targetPort || dependency.targetPort || "",
+    virtual: Boolean(dependency.metadata?.virtual),
+  })),
+  flows: sortById(state.runtime.flows).map((flow) => ({
+    id: flow.id,
+    workspaceId: flow.workspaceId,
+    name: flow.name,
+    updatedAt: flow.updatedAt || flow.savedAt || "",
+  })),
+});
+
 const loadRuntime = async (options = {}) => {
   const silent = Boolean(options.silent);
   const force = Boolean(options.force);
+  const previousGraphSignature = runtimeGraphSignature();
   if (state.interaction && !force) {
     state.pendingRuntimeRefresh = true;
     return;
   }
   state.loading = !silent;
   state.error = "";
+  setLoadingSignal(state.loading);
+  setErrorSignal(state.error);
   if (!silent) mount();
 
   try {
@@ -311,19 +393,28 @@ const loadRuntime = async (options = {}) => {
 
     const nodes = enrichNodesWithLibrarySample(mergeLibraryNodes(runtimeNodes, libraryItems), libraryItems);
     const mergedDependencies = mergeConnectionDependencies(nodes, dependencies, connections);
-    state.runtime = { channels, flows, events, flowLogs, nodes, dependencies: mergedDependencies };
+    setRuntimeState({ channels, flows, events, flowLogs, nodes, dependencies: mergedDependencies });
     state.graphEngine = engineResult;
     state.libraryItems = libraryItems;
     state.connections = connections;
     state.performance = performanceRecords || [];
-    if (state.inspectorOpen && !state.focus.nodeId && nodes[0]?.id) state.focus.nodeId = nodes[0].id;
+    if (state.inspectorOpen && !state.focus.nodeId && nodes[0]?.id) {
+      setFocusState({ ...state.focus, nodeId: nodes[0].id });
+    }
     state.updatedAt = new Date();
+    setUpdatedAtSignal(state.updatedAt);
   } catch (error) {
     console.error("Errore Flow Map:", error);
     state.error = error?.message || "Errore caricamento Flow Map";
+    setErrorSignal(state.error);
   } finally {
     state.loading = false;
-    if (!state.interaction) mount({ preserveScroll: silent });
+    setLoadingSignal(state.loading);
+    if (!state.interaction) {
+      const canPatchRuntime = silent && state.mounted && previousGraphSignature === runtimeGraphSignature() && !state.error;
+      if (canPatchRuntime) refreshRuntimeDom({ preserveScroll: true });
+      else mount({ preserveScroll: silent });
+    }
   }
 };
 
@@ -365,6 +456,7 @@ const mergeRuntimeEvent = (event = {}) => {
       ? { ...channel, lastValue: event.payload, lastEmittedAt: event.createdAt, updatedAt: event.createdAt }
       : channel
   );
+  setRuntimeSignal(state.runtime);
   return true;
 };
 
@@ -398,7 +490,7 @@ const refreshLiveBusDom = () => {
   if (statusButton) {
     statusButton.classList.toggle("is-green", state.liveBus.connected);
     statusButton.classList.toggle("is-gold", !state.liveBus.connected);
-    const statusLabel = statusButton.querySelector("span");
+    const statusLabel = statusButton.querySelector("[data-status-label]");
     if (statusLabel) statusLabel.textContent = state.liveBus.connected ? `${state.liveBus.count} live bus` : "bus offline";
   }
 };
@@ -646,13 +738,13 @@ const createDraftNodeAtPoint = async ({ item, canvas, event }) => {
 
   state.paletteDragItem = null;
   if (node?.id) {
-    state.focus = {
+    setFocusState({
       mode: "dependencies",
       nodeId: node.id,
       nodeType: node.type,
       channel: node.channels?.[0] || "",
       connectionId: "",
-    };
+    });
   }
   await loadRuntime();
 };
@@ -918,7 +1010,7 @@ const endInteraction = (event) => {
 };
 
 const setFilter = (key, value) => {
-  state.filters = { ...state.filters, [key]: value };
+  setFiltersState({ ...state.filters, [key]: value });
   state.viewport = loadStoredViewport() || { zoom: 1, panX: 0, panY: 0 };
   syncFilterQuery();
   mount();
@@ -935,7 +1027,7 @@ const syncFilterQuery = () => {
 };
 
 const focusLogLevel = (level = "all") => {
-  state.filters = { ...state.filters, logLevel: level };
+  setFiltersState({ ...state.filters, logLevel: level });
   state.activeStatusPanel = level === "warning" || level === "error" ? level : "logs";
   syncFilterQuery();
   mount();
@@ -950,7 +1042,7 @@ const hasActiveFilters = () =>
   Object.values(state.filters).some((value) => value && value !== "all");
 
 const resetFilters = () => {
-  state.filters = Object.fromEntries(Object.keys(state.filters).map((key) => [key, "all"]));
+  setFiltersState(Object.fromEntries(Object.keys(state.filters).map((key) => [key, "all"])));
   syncFilterQuery();
   mount();
 };
@@ -1011,27 +1103,27 @@ const fitVisibleGraph = () => {
 };
 
 const selectNode = (node) => {
-  state.focus = {
+  setFocusState({
     mode: "dependencies",
     nodeId: node.id,
     edgeId: "",
     nodeType: node.type || "node",
     channel: nodeChannels(node)[0] || "",
     connectionId: "",
-  };
+  });
   state.inspectorOpen = true;
   mount();
 };
 
 const selectEdge = (edge) => {
-  state.focus = {
+  setFocusState({
     mode: "edge",
     nodeId: "",
     edgeId: edge.id,
     nodeType: "",
     channel: edge.channel || "",
     connectionId: edge.connectionId || "",
-  };
+  });
   state.inspectorTab = "details";
   state.inspectorOpen = true;
   mount();
@@ -1045,12 +1137,12 @@ const setGraphHover = (nodeId = "", portKey = "") => {
 };
 
 const clearSelection = () => {
-  state.focus = { mode: "", nodeId: "", edgeId: "", nodeType: "", channel: "", connectionId: "" };
+  setFocusState({ mode: "", nodeId: "", edgeId: "", nodeType: "", channel: "", connectionId: "" });
   mount();
 };
 
 const closeInspector = () => {
-  state.focus = { mode: "", nodeId: "", edgeId: "", nodeType: "", channel: "", connectionId: "" };
+  setFocusState({ mode: "", nodeId: "", edgeId: "", nodeType: "", channel: "", connectionId: "" });
   state.inspectorOpen = false;
   mount({ preserveScroll: true });
 };
@@ -1278,8 +1370,12 @@ const channelRecordFor = (channelName = "", workspaceId = "") => {
 const selectChannel = (channelName = "", workspaceId = "") => {
   const channel = normalizePortChannel(channelName || "default");
   state.focus.channel = channel;
-  if (workspaceId) state.filters.workspaceId = workspaceId;
-  state.filters.channel = channel;
+  setFocusSignal(state.focus);
+  setFiltersState({
+    ...state.filters,
+    ...(workspaceId ? { workspaceId } : {}),
+    channel,
+  });
   state.activeStatusPanel = "channels";
   mount();
 };
@@ -1417,8 +1513,8 @@ const performChannelRename = async ({ channel, target = "", form = null, close =
         updated: result?.updated || {},
       },
     });
-    state.filters.channel = normalizePortChannel(to);
-    state.focus.channel = normalizePortChannel(to);
+    setFiltersState({ ...state.filters, channel: normalizePortChannel(to) });
+    setFocusState({ ...state.focus, channel: normalizePortChannel(to) });
     close?.();
     closeParent?.();
     await loadRuntime();
@@ -1521,8 +1617,8 @@ const performChannelDelete = async ({ channel, close = null, closeParent = null,
         deleted: result?.deleted || {},
       },
     });
-    if (state.filters.channel === normalizePortChannel(name)) state.filters.channel = "all";
-    if (state.focus.channel === normalizePortChannel(name)) state.focus.channel = "";
+    if (state.filters.channel === normalizePortChannel(name)) setFiltersState({ ...state.filters, channel: "all" });
+    if (state.focus.channel === normalizePortChannel(name)) setFocusState({ ...state.focus, channel: "" });
     close?.();
     closeParent?.();
     await loadRuntime();
@@ -1707,14 +1803,15 @@ const renderLiveBusPill = () =>
     _.span({ "data-live-bus-label": "true" }, liveBusLabel())
   );
 
-const renderSelect = (className, value, options, onChange) =>
-  _.Select({
+const renderSelect = (className, value, options, onChange) => {
+  const model = Array.isArray(value) ? value : null;
+  return _.Select({
     class: className,
-    value,
+    ...(model ? { model } : { value, onChange }),
     options,
     slots: { arrow: () => icon("keyboard_arrow_down", "sm") },
-    onChange,
   });
+};
 
 const renderHeader = () =>
   _.header(
@@ -2000,14 +2097,14 @@ const persistRuntimeNodeConfig = async ({ node, form, close, force = false }) =>
         forced: Boolean(force),
       },
     });
-    state.focus = {
+    setFocusState({
       mode: "dependencies",
       nodeId: nextNode.id,
       edgeId: "",
       nodeType: nextNode.type,
       channel: channels[0] || "",
       connectionId: "",
-    };
+    });
     close?.();
     await loadRuntime();
   } catch (error) {
@@ -2113,7 +2210,7 @@ const performDraftNodeDelete = async (node, closeDialog = null) => {
     },
   });
 
-  state.focus = { mode: "", nodeId: "", edgeId: "", nodeType: "", channel: "", connectionId: "" };
+  setFocusState({ mode: "", nodeId: "", edgeId: "", nodeType: "", channel: "", connectionId: "" });
   closeDialog?.();
   await loadRuntime();
 };
@@ -2128,14 +2225,14 @@ const restoreLastDeletedNode = async () => {
         window.TrackerLensRuntimeGraphStore.upsertDependency({ dependency })));
     }
     await window.TrackerLensChannelRegistry?.restoreChannelRecords?.(snapshot.channels || []);
-    state.focus = {
+    setFocusState({
       mode: "dependencies",
       nodeId: snapshot.node.id,
       edgeId: "",
       nodeType: snapshot.node.type || "",
       channel: nodeChannels(snapshot.node)[0] || "",
       connectionId: "",
-    };
+    });
     state.lastDeletedNode = null;
     await loadRuntime();
   } catch (error) {
@@ -2444,14 +2541,14 @@ const createRuntimeLink = async (source, target, options = {}) => {
     });
     state.linkingSourceId = "";
     state.linkingPort = "";
-    state.focus = {
+    setFocusState({
       mode: "edge",
       nodeId: "",
       edgeId: dependency.id,
       nodeType: "",
       channel: runtimeConnection.channel || channel,
       connectionId: runtimeConnection.id || connectionId,
-    };
+    });
     await loadRuntime();
   } catch (error) {
     console.error("Errore creazione collegamento Flow Map:", error);
@@ -2490,7 +2587,7 @@ const performEdgeDelete = async (edge, closeDialog = null) => {
   });
   state.lastDeletedConnection = deletedConnection;
   closeDialog?.();
-  state.focus = { mode: "", nodeId: "", edgeId: "", nodeType: "", channel: "", connectionId: "" };
+  setFocusState({ mode: "", nodeId: "", edgeId: "", nodeType: "", channel: "", connectionId: "" });
   await loadRuntime();
 };
 
@@ -2610,25 +2707,25 @@ const renderPalette = () =>
 const renderFilterbar = () =>
   _.div(
     { class: "tl-flow-filterbar" },
-    renderSelect("tl-flow-select", state.filters.workspaceId, workspaceOptions(), (value) => setFilter("workspaceId", value)),
-    renderSelect("tl-flow-select", state.filters.channel, channelOptions(), (value) => setFilter("channel", value)),
-    renderSelect("tl-flow-select is-small", state.filters.type, typeOptions(), (value) => setFilter("type", value)),
-    renderSelect("tl-flow-select is-small", state.filters.origin, [
+    renderSelect("tl-flow-select", filterModel("workspaceId"), workspaceOptions()),
+    renderSelect("tl-flow-select", filterModel("channel"), channelOptions()),
+    renderSelect("tl-flow-select is-small", filterModel("type"), typeOptions()),
+    renderSelect("tl-flow-select is-small", filterModel("origin"), [
       { value: "all", label: "All origins" },
       { value: "runtime", label: "Runtime" },
       { value: "library", label: "Library" },
-    ], (value) => setFilter("origin", value)),
-    renderSelect("tl-flow-select is-small", state.filters.state, [
+    ]),
+    renderSelect("tl-flow-select is-small", filterModel("state"), [
       { value: "all", label: "All states" },
       { value: "configured", label: "Configured" },
       { value: "draft", label: "Draft" },
-    ], (value) => setFilter("state", value)),
-    renderSelect("tl-flow-select is-small", state.filters.activity, [
+    ]),
+    renderSelect("tl-flow-select is-small", filterModel("activity"), [
       { value: "all", label: "All activity" },
       { value: "live", label: "Live only" },
       { value: "errors", label: "Errors only" },
-    ], (value) => setFilter("activity", value)),
-    renderSelect("tl-flow-select is-small", state.filters.eventType, eventTypeOptions(), (value) => setFilter("eventType", value)),
+    ]),
+    renderSelect("tl-flow-select is-small", filterModel("eventType"), eventTypeOptions()),
     hasActiveFilters() ? btn({ class: "is-ghost is-filter-reset", onclick: resetFilters }, icon("filter_alt_off", "sm"), "Reset") : null
   );
 
@@ -3019,6 +3116,90 @@ const renderFlowEdges = () => {
   positionEdgeLabels();
 };
 
+const replaceRenderedNode = (selector, nextNode, { preserveScroll = false } = {}) => {
+  const current = document.querySelector(selector);
+  if (!current || !nextNode) return false;
+  const scrollTop = preserveScroll ? current.scrollTop : 0;
+  current.replaceWith(nextNode);
+  if (preserveScroll) {
+    const replacement = document.querySelector(selector);
+    if (replacement) replacement.scrollTop = Math.min(scrollTop, replacement.scrollHeight - replacement.clientHeight);
+  }
+  return true;
+};
+
+const refreshNodeRuntimeDom = (graph, activity) => {
+  (graph.nodes || []).forEach((node) => {
+    const live = activity.nodeActivity?.get(node.id);
+    const badges = document.querySelector(`[data-flow-node-badges="${escapeSelectorValue(node.id)}"]`);
+    if (badges) {
+      badges.replaceChildren(...nodeBadges(node, live).map((badge) => _.span({ class: `tl-flow-node-badge is-${badge.tone}` }, badge.label)));
+    }
+
+    const footerInfo = document.querySelector(`[data-flow-node-footer="${escapeSelectorValue(node.id)}"] [data-flow-node-footer-info]`);
+    if (footerInfo) {
+      const fieldCount = sampleOutputFields(node).length;
+      const perf = nodePerformance(node);
+      footerInfo.textContent = perf
+        ? `${performanceLabel(perf)} · ${perf.health || perf.status || "perf"}`
+        : live ? `${live.count} events · ${formatShortDate(live.lastAt)}` : fieldCount ? `${fieldCount} outputs` : node.metadata?.library ? "library" : node.status || "idle";
+    }
+  });
+};
+
+const refreshInspectorRuntimeDom = () => {
+  const status = document.querySelector("[data-flow-inspector-status]");
+  if (!status) return;
+
+  const edge = selectedEdge();
+  if (edge) {
+    status.replaceChildren(dot(), edge.status || "active");
+    return;
+  }
+
+  const node = selectedNode();
+  if (!node) return;
+  status.replaceChildren(dot(), isDraftNode(node) ? "draft" : node.status || "active");
+};
+
+const refreshStatusBarDom = ({ preserveScroll = false } = {}) => {
+  statusItems().forEach((item) => {
+    const button = document.querySelector(`[data-status-item="${escapeSelectorValue(item.id)}"]`);
+    if (!button) return;
+    button.title = item.title;
+    button.className = `tl-flow-statusbar-btn${item.tone ? ` is-${item.tone}` : ""}${state.activeStatusPanel === item.id ? " is-active" : ""}`;
+    const label = button.querySelector("[data-status-label]");
+    if (label) label.textContent = item.label;
+  });
+
+  const updated = document.querySelector("[data-flow-status-updated]");
+  if (updated) {
+    updated.textContent = state.liveBus.lastAt ? `Live ${formatShortDate(state.liveBus.lastAt)}` : `Updated ${formatShortDate(state.updatedAt)}`;
+  }
+
+  if (state.activeStatusPanel) {
+    replaceRenderedNode(".tl-flow-status-popover", renderStatusPopover(), { preserveScroll });
+  }
+};
+
+const refreshRuntimeDom = ({ preserveScroll = false } = {}) => {
+  syncReactiveState();
+  const baseGraph = graphModel();
+  const activity = recentActivity(baseGraph);
+  const graph = filterByActivity(baseGraph, activity);
+  state.edgeRender = { graph, activity };
+
+  refreshLiveBusDom();
+  updateLiveClasses(graph, activity);
+  refreshNodeRuntimeDom(graph, activity);
+  refreshInspectorRuntimeDom();
+  refreshStatusBarDom({ preserveScroll });
+  requestAnimationFrame(() => {
+    refreshLiveBusDom();
+    renderFlowEdges();
+  });
+};
+
 const renderCanvas = () => {
   const baseGraph = graphModel();
   const activity = recentActivity(baseGraph);
@@ -3152,11 +3333,15 @@ const renderCanvas = () => {
             })),
             _.span({ class: "tl-flow-node-title" }, icon(graphIcon(node), "sm"), _.strong(node.label || node.id)),
             _.span(
-              { class: "tl-flow-node-badges" },
+              { class: "tl-flow-node-badges", "data-flow-node-badges": node.id },
               ...nodeBadges(node, live).map((badge) => _.span({ class: `tl-flow-node-badge is-${badge.tone}` }, badge.label))
             ),
             _.small({ class: "tl-flow-node-meta" }, `${node.type || "node"} · ${channelName || "no channel"}`),
-            _.span({ class: "tl-flow-node-footer" }, _.em(footerInfo), _.span(`${inputPorts.length} in · ${outputPorts.length} out`))
+            _.span(
+              { class: "tl-flow-node-footer", "data-flow-node-footer": node.id },
+              _.em({ "data-flow-node-footer-info": "true" }, footerInfo),
+              _.span({ "data-flow-node-footer-ports": "true" }, `${inputPorts.length} in · ${outputPorts.length} out`)
+            )
           );
         })
       )
@@ -3384,7 +3569,7 @@ const renderEdgeInspector = (edge) => {
       { class: "tl-flow-node-hero is-edge" },
       _.span({ class: `tl-flow-node-icon is-${graphTone(source || edge.sourceType || "cyan")}` }, icon("route", "md")),
       _.div(_.h2(edgeDisplayLabel(edge)), _.p(edge.metadata?.source || edge.connectionId || "runtime dependency")),
-      _.span({ class: "tl-flow-status" }, dot(), edge.status || "active")
+      _.span({ class: "tl-flow-status", "data-flow-inspector-status": "true" }, dot(), edge.status || "active")
     ),
     _.div(
       { class: "tl-flow-node-actions is-edge-actions" },
@@ -3465,7 +3650,7 @@ const renderInspector = () => {
       { class: "tl-flow-node-hero" },
       _.span({ class: `tl-flow-node-icon is-${graphTone(node)}` }, icon(graphIcon(node), "md")),
       _.div(_.h2(node.label || node.id), _.p(node.type || "Runtime Node")),
-      _.span({ class: "tl-flow-status" }, dot(), draft ? "draft" : node.status || "active")
+      _.span({ class: "tl-flow-status", "data-flow-inspector-status": "true" }, dot(), draft ? "draft" : node.status || "active")
     ) : _.p({ class: "tl-flow-muted" }, "Nessun nodo selezionato."),
     node ? _.div(
       { class: "tl-flow-node-actions" },
@@ -3765,7 +3950,7 @@ const renderStatusBar = () =>
             onclick: () => toggleStatusPanel(item.id),
           },
           icon(item.icon, "sm"),
-          _.span(item.label)
+          _.span({ "data-status-label": item.id }, item.label)
         )
       )
     ),
@@ -3807,7 +3992,9 @@ const mount = (options = {}) => {
   const root = document.getElementById("tl-flow-map-root");
   if (!root) return;
   const scrollPositions = options.preserveScroll ? capturePanelScroll() : null;
+  syncReactiveState();
   root.replaceChildren(renderShell());
+  state.mounted = true;
   if (scrollPositions) restorePanelScroll(scrollPositions);
   requestAnimationFrame(() => {
     renderFlowEdges();

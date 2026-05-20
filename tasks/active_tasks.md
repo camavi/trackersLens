@@ -177,6 +177,7 @@ Runtime Notes:
 - 2026-05-18: Flow Map now uses `TrackerLensGraphEngine.buildGraph()` as the primary runtime loader with snapshot fallback.
 - 2026-05-18: added graph validation, shared connection validation, upstream/downstream traversal and impact analysis; DevTools Graph tab now exposes validation issues and impact inspector.
 - 2026-05-19: added path queries, visual impact overlay in Flow Map and repair cleanup for broken/duplicate graph records.
+- 2026-05-20: Flow Map periodic refresh now uses CMSwift reactive signals for runtime/filter/focus state and applies targeted DOM patches for non-structural updates, preserving full mount only for graph structure changes and critical interactions.
 - Remaining: performance and time-travel overlays move to TASK-010 and TASK-016.
 
 ## [TASK-010]

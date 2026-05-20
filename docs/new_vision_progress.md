@@ -60,7 +60,8 @@ Priorita successive:
 
 - `editorWorkspace.html` e piu vicino a un composer operativo: drag/drop robusto da `Aggiungi Box`, mini-mappa `Navigator` reale con selezione box, pan del canvas quando lo zoom supera il 100% e bottom bar riallineata.
 - `library.html` ora ha preferiti locali operativi: gli asset segnati con stella vengono salvati in `tl_settings` (`library_favorites`), compaiono nel box "I miei preferiti" con icone tipizzate e possono essere filtrati dalla sidebar. Questo rafforza la library locale come punto di gestione degli asset runtime.
-- Questi interventi non cambiano la visione strategica in `docs/new_vision.md`; consolidano l'ergonomia locale di editor e library dentro la direzione runtime operating environment.
+- `flowMap.html` ha avviato il passaggio a refresh reattivi CMSwift: segnali per runtime/filtri/focus, model bidirezionali sui filtri e patch mirate nel refresh periodico quando la struttura del graph non cambia. La Flow Map resta full-render solo per cambi strutturali o interazioni critiche.
+- Questi interventi non cambiano la visione strategica in `docs/new_vision.md`; consolidano l'ergonomia locale di editor, library e Flow Map dentro la direzione runtime operating environment.
 
 ## Milestone consigliate
 
