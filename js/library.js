@@ -6,6 +6,8 @@ const libraryState = {
   verifying: false,
   error: "",
   widgets: [],
+  favoriteIds: new Set(),
+  favoritesOnly: false,
   query: "",
   type: "all",
   category: "Tutti",
@@ -25,6 +27,10 @@ const sortOptions = [
 const selectArrowSlot = {
   arrow: () => icon("keyboard_arrow_down", "sm"),
 };
+
+const DB_NAME = (typeof tlConfig !== "undefined" ? tlConfig.DB_NAME : null) || "TrackersLens";
+const SETTINGS_STORE = (typeof tlConfig !== "undefined" ? tlConfig.TABLES?.TL_SETTINGS : null) || "tl_settings";
+const FAVORITES_RECORD_ID = "library_favorites";
 
 const openChromePage = (url) => {
   window.location.assign(url);
@@ -96,6 +102,104 @@ const scanMarketplaceTrust = async () => {
     libraryState.error = error?.message || "Verifica marketplace non riuscita.";
   } finally {
     libraryState.verifying = false;
+    mountLibrary();
+  }
+};
+
+const openSettingsDb = (version = undefined) =>
+  new Promise((resolve, reject) => {
+    if (!window.indexedDB) {
+      reject(new Error("IndexedDB non disponibile"));
+      return;
+    }
+
+    const request = version ? indexedDB.open(DB_NAME, version) : indexedDB.open(DB_NAME);
+    request.onupgradeneeded = (event) => {
+      const db = event.target.result;
+      if (!db.objectStoreNames.contains(SETTINGS_STORE)) {
+        db.createObjectStore(SETTINGS_STORE, { keyPath: "id" });
+      }
+    };
+    request.onsuccess = (event) => {
+      const db = event.target.result;
+      db.onversionchange = () => {
+        db.close();
+        console.warn("IndexedDB preferiti libreria chiuso per consentire aggiornamento da un'altra scheda.");
+      };
+      resolve(db);
+    };
+    request.onerror = (event) => reject(event.target.error || new Error("Errore apertura IndexedDB preferiti"));
+    request.onblocked = () => reject(new Error("IndexedDB bloccato da un'altra scheda."));
+  });
+
+const ensureSettingsStore = async () => {
+  const db = await openSettingsDb();
+  if (db.objectStoreNames.contains(SETTINGS_STORE)) return db;
+
+  const nextVersion = db.version + 1;
+  db.close();
+  return openSettingsDb(nextVersion);
+};
+
+const loadFavoriteIds = async () => {
+  const db = await ensureSettingsStore();
+
+  try {
+    return await new Promise((resolve, reject) => {
+      const request = db.transaction(SETTINGS_STORE, "readonly").objectStore(SETTINGS_STORE).get(FAVORITES_RECORD_ID);
+      request.onsuccess = (event) => {
+        const record = event.target.result || {};
+        const ids = Array.isArray(record.favoriteIds) ? record.favoriteIds : Array.isArray(record.items) ? record.items : [];
+        resolve(new Set(ids.filter(Boolean).map(String)));
+      };
+      request.onerror = (event) => reject(event.target.error || new Error("Errore lettura preferiti"));
+    });
+  } finally {
+    db.close();
+  }
+};
+
+const saveFavoriteIds = async () => {
+  const db = await ensureSettingsStore();
+  const record = {
+    id: FAVORITES_RECORD_ID,
+    type: "libraryFavorites",
+    favoriteIds: Array.from(libraryState.favoriteIds),
+    updatedAt: new Date().toISOString(),
+  };
+
+  try {
+    await new Promise((resolve, reject) => {
+      const request = db.transaction(SETTINGS_STORE, "readwrite").objectStore(SETTINGS_STORE).put(record);
+      request.onsuccess = () => resolve(record);
+      request.onerror = (event) => reject(event.target.error || new Error("Errore salvataggio preferiti"));
+    });
+  } finally {
+    db.close();
+  }
+};
+
+const isFavorite = (item) => libraryState.favoriteIds.has(String(item.id));
+
+const toggleFavorite = async (item, event = null) => {
+  event?.stopPropagation?.();
+  const id = String(item.id);
+  const nextIds = new Set(libraryState.favoriteIds);
+
+  if (nextIds.has(id)) {
+    nextIds.delete(id);
+  } else {
+    nextIds.add(id);
+  }
+
+  libraryState.favoriteIds = nextIds;
+  mountLibrary();
+
+  try {
+    await saveFavoriteIds();
+  } catch (error) {
+    console.warn("[TrackerLens Library Favorites]", error);
+    libraryState.error = error?.message || "Preferiti non salvati.";
     mountLibrary();
   }
 };
@@ -175,6 +279,7 @@ const visibleWidgets = () => {
 
   return libraryState.widgets
     .filter((widget) => libraryState.type === "all" || widget.type === libraryState.type)
+    .filter((widget) => !libraryState.favoritesOnly || isFavorite(widget))
     .filter((widget) => category === "Tutti" || widget.category === category)
     .filter((widget) => !query || widget.searchText.includes(query))
     .sort(sortWidgets);
@@ -191,7 +296,9 @@ const sortWidgets = (a, b) => {
 };
 
 const categoryCounts = () => {
-  const scoped = libraryState.widgets.filter((widget) => libraryState.type === "all" || widget.type === libraryState.type);
+  const scoped = libraryState.widgets
+    .filter((widget) => libraryState.type === "all" || widget.type === libraryState.type)
+    .filter((widget) => !libraryState.favoritesOnly || isFavorite(widget));
   const counts = new Map([["Tutti", scoped.length]]);
 
   scoped.forEach((widget) => {
@@ -233,6 +340,12 @@ const setType = (type) => {
   mountLibrary();
 };
 
+const setFavoritesOnly = (enabled) => {
+  libraryState.favoritesOnly = enabled;
+  libraryState.category = "Tutti";
+  mountLibrary();
+};
+
 const setCategory = (category) => {
   libraryState.category = category;
   mountLibrary();
@@ -260,13 +373,51 @@ const renderCategory = (category) =>
     )
   );
 
-const renderFilterPanel = () =>
-  _.aside(
+const renderFilterPanel = () => {
+  const favoriteItems = libraryState.widgets.filter(isFavorite).sort(sortWidgets);
+  const hasFavorites = favoriteItems.length > 0;
+  const favoriteBody = hasFavorites
+    ? [
+      _.Grid(
+        { class: "tl-favorites-list", cols: 1, gap: 6 },
+        ...favoriteItems.slice(0, 6).map((item) =>
+          btn(
+            {
+              class: `tl-favorite-item is-${item.type}`,
+              onclick: () => openBoxEditor(item),
+            },
+            icon(item.type === "workspace" ? "dashboard_customize" : item.type === "boxTracker" ? "cloud_queue" : "dashboard", "sm"),
+            _.span(item.name)
+          )
+        )
+      ),
+      btn(
+        {
+          class: `tl-favorites-filter${libraryState.favoritesOnly ? " is-active" : ""}`,
+          onclick: () => setFavoritesOnly(!libraryState.favoritesOnly),
+        },
+        icon(libraryState.favoritesOnly ? "filter_alt_off" : "filter_alt", "xs"),
+        libraryState.favoritesOnly ? "Mostra tutto" : "Filtra preferiti"
+      )
+    ]
+    : [
+      _.p({ class: "tl-library-muted" }, "Nessun preferito ancora."),
+      _.p({ class: "tl-library-muted" }, "Usa la stella sulle card per ritrovarli qui.")
+    ];
+
+  return _.aside(
     { class: "tl-library-panel", "aria-label": "Filtri libreria" },
     _.Row(
       { class: "tl-library-panel-head", align: "center", justify: "space-between", gap: 14 },
       _.h2({ class: "tl-library-title" }, "Libreria"),
-      btn({ class: "tl-library-star", "aria-label": "Preferiti" }, icon("star_outline", "sm"))
+      btn(
+        {
+          class: `tl-library-star${libraryState.favoritesOnly ? " is-active" : ""}`,
+          "aria-label": libraryState.favoritesOnly ? "Mostra tutta la libreria" : "Mostra preferiti",
+          onclick: () => setFavoritesOnly(!libraryState.favoritesOnly),
+        },
+        icon(libraryState.favoritesOnly ? "star" : "star_outline", "sm")
+      )
     ),
     renderTabs(),
     _.section(
@@ -276,11 +427,15 @@ const renderFilterPanel = () =>
     ),
     _.section(
       { class: "tl-library-favorites" },
-      _.h3({ class: "tl-section-label" }, "I miei preferiti"),
-      _.p({ class: "tl-library-muted" }, "Nessun preferito ancora."),
-      _.p({ class: "tl-library-muted" }, "Aggiungi box alla tua libreria per trovarli qui.")
+      _.Row(
+        { class: "tl-favorites-head", align: "center", justify: "space-between", gap: 10 },
+        _.h3({ class: "tl-section-label" }, "I miei preferiti"),
+        hasFavorites ? _.span({ class: "tl-favorites-count" }, String(favoriteItems.length)) : null
+      ),
+      ...favoriteBody
     )
   );
+};
 
 const renderSort = () =>
   _.Select({
@@ -299,7 +454,7 @@ const renderToolbar = (items) =>
     { class: "tl-library-toolbar", align: "center", justify: "space-between", gap: 18 },
     _.Row(
       { class: "tl-result-heading", align: "baseline", gap: 10 },
-      _.h2(libraryState.category === "Tutti" ? "Tutta la libreria" : libraryState.category),
+      _.h2(libraryState.favoritesOnly ? "I miei preferiti" : libraryState.category === "Tutti" ? "Tutta la libreria" : libraryState.category),
       _.span({ class: "tl-result-count" }, `${items.length} elementi`)
     ),
     _.Row(
@@ -357,13 +512,21 @@ const renderBoxCard = (box) =>
       },
     },
     _.Grid(
-      { class: "tl-card-head", cols: "52px minmax(0, 1fr)", gap: 14, align: "center" },
+      { class: "tl-card-head", cols: "52px minmax(0, 1fr) 32px", gap: 14, align: "center" },
       renderBoxIcon(box),
       _.div(
         { class: "tl-card-title" },
         _.h3(box.name),
         _.div({ class: "tl-card-type" }, box.type),
         renderTrustBadge(box)
+      ),
+      btn(
+        {
+          class: `tl-card-favorite${isFavorite(box) ? " is-active" : ""}`,
+          "aria-label": isFavorite(box) ? `Rimuovi ${box.name} dai preferiti` : `Aggiungi ${box.name} ai preferiti`,
+          onclick: (event) => toggleFavorite(box, event),
+        },
+        icon(isFavorite(box) ? "star" : "star_outline", "sm")
       )
     ),
     _.p({ class: "tl-card-description" }, box.description),
@@ -399,9 +562,9 @@ const renderEmptyState = () =>
     { class: "tl-library-state" },
     _.Card(
       { class: "tl-empty-card" },
-      _.div({ class: "tl-empty-icon" }, icon("inventory_2", "md")),
-      _.h2(libraryState.type === "workspace" ? "Nessun workspace salvato" : "Nessun elemento in libreria"),
-      _.p("Workspace, boxLens e boxTracker salvati in locale appariranno in questa libreria."),
+      _.div({ class: "tl-empty-icon" }, icon(libraryState.favoritesOnly ? "star_outline" : "inventory_2", "md")),
+      _.h2(libraryState.favoritesOnly ? "Nessun preferito salvato" : libraryState.type === "workspace" ? "Nessun workspace salvato" : "Nessun elemento in libreria"),
+      _.p(libraryState.favoritesOnly ? "Aggiungi una stella a workspace, boxLens o boxTracker per ritrovarli qui." : "Workspace, boxLens e boxTracker salvati in locale appariranno in questa libreria."),
       btn({ class: "tl-empty-action", onclick: openCreateBox }, icon("add", "sm"), "Crea nuovo box")
     )
   );
@@ -490,7 +653,14 @@ const loadLibrary = async () => {
   try {
     const report = await window.TrackerLensLocalLibrary.inspect();
     console.info("[TrackerLens IndexedDB]", report);
-    libraryState.widgets = await window.TrackerLensLocalLibrary.listLibraryItems();
+    const items = await window.TrackerLensLocalLibrary.listLibraryItems();
+    const favoriteIds = await loadFavoriteIds()
+      .catch((error) => {
+        console.warn("[TrackerLens Library Favorites]", error);
+        return new Set();
+      });
+    libraryState.widgets = items;
+    libraryState.favoriteIds = favoriteIds;
     if (window.TrackerLensMarketplaceVerification) {
       libraryState.widgets = await window.TrackerLensMarketplaceVerification.enrichAssets(libraryState.widgets);
     }

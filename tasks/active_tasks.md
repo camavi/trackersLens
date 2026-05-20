@@ -257,6 +257,7 @@ Runtime Notes:
 
 - 2026-05-18: added local trust report store `tl_marketplace_trust`.
 - 2026-05-18: added scanner API for local assets and trust badges in `library.html`.
+- 2026-05-20: enabled the Library favorites box with persisted favorite ids in `tl_settings` record `library_favorites`, card star toggles, typed/color-coded favorite item icons and a favorites-only filter in `library.html`.
 - 2026-05-18: keep this task open for full end-to-end testing once the real remote marketplace exists.
 - Remaining: public-key signatures, remote marketplace page, import blocking for unsafe bundles and network/domain allowlist.
 

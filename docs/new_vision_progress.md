@@ -59,7 +59,8 @@ Priorita successive:
 ## Note operative 2026-05-20
 
 - `editorWorkspace.html` e piu vicino a un composer operativo: drag/drop robusto da `Aggiungi Box`, mini-mappa `Navigator` reale con selezione box, pan del canvas quando lo zoom supera il 100% e bottom bar riallineata.
-- Questi interventi non cambiano la visione strategica in `docs/new_vision.md`; consolidano l'ergonomia locale del workspace editor dentro la direzione runtime operating environment.
+- `library.html` ora ha preferiti locali operativi: gli asset segnati con stella vengono salvati in `tl_settings` (`library_favorites`), compaiono nel box "I miei preferiti" con icone tipizzate e possono essere filtrati dalla sidebar. Questo rafforza la library locale come punto di gestione degli asset runtime.
+- Questi interventi non cambiano la visione strategica in `docs/new_vision.md`; consolidano l'ergonomia locale di editor e library dentro la direzione runtime operating environment.
 
 ## Milestone consigliate
 
