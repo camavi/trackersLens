@@ -621,10 +621,10 @@ const renderInspector = () => {
         renderJsonPreview(record),
         _.Toolbar(
           { class: "tl-db-inspector-actions", gap: 8 },
-          btn({ class: "tl-db-primary", onclick: openEditor }, "Edit JSON"),
-          btn({ onclick: copySelectedJson }, "Copy JSON"),
+          btn({ class: "tl-db-primary", onclick: openEditor }, "Edit"),
+          btn({ onclick: copySelectedJson }, "Copy"),
           btn({}, "Export"),
-          btn({ onclick: openEditor }, "Open Box")
+          btn({ onclick: openEditor }, "Open")
         )
       )
       : _.div({ class: "tl-db-empty" }, "Seleziona un record per ispezionare il JSON.")

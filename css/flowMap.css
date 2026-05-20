@@ -582,11 +582,11 @@ body.is-flow-palette-dragging .tl-flow-canvas {
 }
 
 .tl-flow-edge-label.is-impact-dimmed {
-  opacity: 0.2;
+  opacity: 0.8;
 }
 
 .tl-flow-edge-label.is-dimmed {
-  opacity: 0.28;
+  opacity: 0.8;
 }
 
 .tl-flow-edge-label.is-virtual {

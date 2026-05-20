@@ -157,7 +157,7 @@ body {
   padding: 12px 12px 10px 0;
   display: grid;
   grid-template-columns: 330px repeat(3, minmax(0, 1fr));
-  grid-template-rows: auto 104px 360px 280px 330px 36px;
+  grid-template-rows: auto 104px 430px 340px 330px 36px;
   gap: 10px;
   overflow: auto;
   overscroll-behavior: contain;
@@ -496,7 +496,7 @@ body {
 .tl-settings-core > .tl-settings-general,
 .tl-settings-core > .tl-settings-ai-card,
 .tl-settings-core > .tl-settings-status-panel {
-  max-height: 360px;
+  max-height: 430px;
   overflow: auto;
   overscroll-behavior: contain;
 }
@@ -504,7 +504,7 @@ body {
 .tl-settings-config > .tl-settings-connections,
 .tl-settings-config > .tl-settings-storage,
 .tl-settings-config > .tl-settings-notifications {
-  max-height: 280px;
+  max-height: 340px;
   overflow: auto;
   overscroll-behavior: contain;
 }
