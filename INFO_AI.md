@@ -3624,6 +3624,25 @@ Verifiche previste a fine sessione:
 - `git diff --check`
 - test HTTP/Browser di `connections.html`
 
+## Aggiornamento 2026-05-21 - Database data panel toolbar
+
+Fatto:
+
+- `js/indexedDbExplorer.js`:
+  - la ricerca del pannello dati e stata spostata nella testata accanto a titolo/count e stato `Realtime`;
+  - la toolbar sotto la testata contiene solo filtri, azioni e switch vista.
+- `css/indexedDbExplorer.css`:
+  - la testata del pannello dati usa una griglia titolo / ricerca / stato;
+  - la riga filtri ora occupa tutta la larghezza e distribuisce select, azioni e visualizzazione in colonne stabili;
+  - aggiunti breakpoint per mantenere la ricerca e i filtri leggibili su viewport piu stretti;
+  - aggiunto padding orizzontale uniforme alla tabella, con piu spazio sulla prima colonna.
+
+Verifiche previste a fine sessione:
+
+- `node --check js/indexedDbExplorer.js`
+- `git diff --check`
+- test HTTP/Browser di `database.html`
+
 ## Aggiornamento 2026-05-20 - Editor workspace canvas UX
 
 Obiettivo della sessione: rendere piu operativo `editorWorkspace.html` nelle interazioni base di composizione e navigazione canvas.

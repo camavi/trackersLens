@@ -102,6 +102,8 @@ Runtime Notes:
 - 2026-05-18: added dedicated `devtools.html` with Overview, Graph, Offline, Packages, Time Travel and Performance tabs.
 - 2026-05-18: added Events and Channels tabs, JSON inspector and Flow Map deep link into DevTools.
 - 2026-05-19: added Events/Channels filters, Offline queue actions, Package install/inspector, Time Travel controls, AI tab and Analytics deep links.
+- 2026-05-21: `database.html` data panel now separates title/search/realtime status in the section header from a full-width filter/action/view toolbar below it.
+- 2026-05-21: `database.html` table cells now have consistent horizontal padding, with extra first-column spacing so records are not attached to the left edge.
 - Remaining: none for current milestone.
 
 ## [TASK-016]

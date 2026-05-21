@@ -429,17 +429,6 @@ const setView = (view) => {
 const renderTableToolbar = () =>
   _.Toolbar(
     { class: "tl-db-table-toolbar", align: "center", justify: "space-between", gap: 12 },
-    _.Search({
-      class: "tl-db-table-search-input",
-      label: "Cerca nei dati...",
-      value: explorerState.query,
-      "aria-label": "Cerca nei dati",
-      onInput: (event) => {
-        explorerState.query = event.target.value;
-        explorerState.selectedId = "";
-        mountExplorer();
-      },
-    }),
     _.Row(
       { class: "tl-db-filter-row", align: "center", gap: 10 },
       renderSelect("tl-db-filter", explorerState.type, optionList("type", "Tipo"), (value) => { explorerState.type = value; explorerState.selectedId = ""; mountExplorer(); }),
@@ -546,6 +535,17 @@ const renderDataView = () => {
     _.div(
       { class: "tl-db-section-head" },
       _.div(_.h2(store.name), _.p(`${records.length} record caricati · query visuale locale`)),
+      _.Search({
+        class: "tl-db-table-search-input",
+        label: "Cerca nei dati...",
+        value: explorerState.query,
+        "aria-label": "Cerca nei dati",
+        onInput: (event) => {
+          explorerState.query = event.target.value;
+          explorerState.selectedId = "";
+          mountExplorer();
+        },
+      }),
       _.span({ class: "tl-db-live-pill" }, dot(), "Realtime")
     ),
     renderTableToolbar(),
