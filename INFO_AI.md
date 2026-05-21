@@ -205,6 +205,28 @@ Nota aggiornata 2026-05-20: il box "I miei preferiti" di `library.html` e ora op
 
 Nota aggiornata 2026-05-20: `flowMap.html` ha iniziato la migrazione verso refresh reattivi CMSwift. `js/flowMapView.js` usa ora `CMSwift.reactive.signal()` per runtime, filtri, focus, loading/error e timestamp aggiornamento; i filtri principali usano model bidirezionali CMSwift. Il refresh periodico da 15s confronta la firma strutturale del graph e, se nodi/edge/flussi non cambiano, aggiorna in modo mirato status bar, live bus, inspector, classi live/error, badge e footer dei nodi senza ricostruire tutta la shell con `root.replaceChildren(renderShell())`. Il re-render completo resta per cambi strutturali, filtri, drag/linking e fallback errori.
 
+Nota aggiornata 2026-05-21: `connections.html` segue la stessa direzione reattiva per il Runtime Inspector. `js/connectionsView.js` usa ora `CMSwift.reactive.signal()` per collegamenti, runtime, filtri, selezione, loading/error, focus e timestamp; i select principali sono collegati con model bidirezionali CMSwift. Il refresh automatico del runtime ogni 10s non ricostruisce piu tutta la shell con `root.replaceChildren(renderShell())`: aggiorna i signal e rimpiazza solo riepilogo, Runtime Inspector e Runtime Node Summary quando presente. Le card analytics restano montate e aggiornano in-place solo valori e liste interne tramite `data-link-analytics-value` / `data-link-analytics-list`. Il full mount resta per caricamento iniziale, cambio filtri/vista/selezione e mutazioni strutturali dei collegamenti.
+
+Nota aggiornata 2026-05-21: il box lista di `connections.html` e stato rifinito per separare meglio header e controlli. La testata di "Tutti i Collegamenti" ora contiene titolo/count, ricerca e stato online sulla stessa riga; sotto, la toolbar filtri occupa tutta la larghezza con select stato/tipo/ordinamento e switch vista allineato a destra.
+
+Nota aggiornata 2026-05-21: l'aside destro di `connections.html` e stato separato in tab interne `Dettagli`, `Configurazione` e `Runtime Inspector`. Ogni tab mostra solo il contenuto pertinente: hero/metadati del collegamento, preview JSON oppure inspector runtime. Le azioni contestuali restano disponibili in basso, mentre il pannello attivo ha scroll interno per evitare un aside ingestibile.
+
+Nota aggiornata 2026-05-21: le azioni dell'inspector collegamento sono state compattate. `Testa` resta il comando primario con icona play e testo, mentre `Modifica`, `Duplica` ed `Elimina` sono icon button con tooltip CMSwift e label accessibili.
+
+Nota aggiornata 2026-05-21: rimossa la testata ridondante dell'aside collegamento (`Selected connection` / `Dettagli Collegamento`) per recuperare spazio verticale; le tab dell'inspector diventano il primo elemento utile del pannello.
+
+Nota aggiornata 2026-05-21: il donut `Tasso di Successo` in `connections.html` e ora legato al valore reale tramite variabile CSS `--value`; al 100% il cerchio e completamente chiuso invece di mostrare una porzione neutra fissa.
+
+Nota aggiornata 2026-05-21: anche il donut `Distribuzione per Tipo` in `connections.html` e ora dinamico. I segmenti vengono calcolati dai conteggi reali dei tipi collegamento e usano gli stessi colori definiti per la sidebar sinistra (`connectionTypes.color`), con legenda coerente nel box analytics.
+
+Nota aggiornata 2026-05-21: la distribuzione per tipo di `connections.html` include ora anche tipi runtime non presenti nel catalogo statico della sidebar, come `processor -> processor` e `source -> processor`; questi restano coerenti col tono oro usato dai badge della tabella.
+
+Nota aggiornata 2026-05-21: nella sola analytics `Distribuzione per Tipo`, i collegamenti runtime che contengono `processor` vengono aggregati nel gruppo sintetico `Processor`, mantenendo invece il dettaglio originale nella tabella.
+
+Nota aggiornata 2026-05-21: il donut `Runtime Graph` in `connections.html` e ora dinamico e rappresenta la struttura del graph (`Nodes`, `Channels`, `Flows`) con segmenti reali. `Events` resta una metrica testuale nella legenda per evitare che volumi molto grandi schiaccino gli altri segmenti.
+
+Nota aggiornata 2026-05-21: il box `Attivita in Tempo Reale` di `connections.html` non usa piu linee CSS statiche. `js/connectionsView.js` genera uno sparkline SVG dinamico per richieste, successi ed errori a partire dallo stato corrente di connessioni/eventi, e il refresh reattivo rimpiazza solo il nodo chart.
+
 `library.html`, `editorWorkspace.html` e i punti che aprono un `boxTracker` ora passano `trackerId` quando esiste un record sorgente, cosi viene aperto in modalita modifica:
 
 ```txt
@@ -3584,6 +3606,23 @@ Verifiche eseguite:
 - `node --check core/runtime/runtime-graph-model.js`
 - `curl -I http://127.0.0.1:3031/js/flowMapView.js`
 - `curl -I http://127.0.0.1:3031/core/runtime/runtime-graph-model.js`
+
+## Aggiornamento 2026-05-21 - Connections analytics Top Endpoint
+
+Fatto:
+
+- `js/connectionsView.js`:
+  - il renderer `Top Endpoint` ora produce una preview compatta top-3 con rank, icona tipizzata, label normalizzata, conteggio, barra proporzionale al valore massimo e riepilogo aggregato degli endpoint restanti;
+  - la lista resta dentro il refresh analytics reattivo e viene sostituita in-place senza rimontare la shell.
+- `css/connectionsView.css`:
+  - aggiunto trattamento visivo compatto per endpoint ranking con accenti colore, icone CMSwift e barra dinamica;
+  - ridotti padding, gap e dimensioni interne della card `Top Endpoint` per mantenere visibile la preview top-3 senza overflow verticale.
+
+Verifiche previste a fine sessione:
+
+- `node --check js/connectionsView.js`
+- `git diff --check`
+- test HTTP/Browser di `connections.html`
 
 ## Aggiornamento 2026-05-20 - Editor workspace canvas UX
 

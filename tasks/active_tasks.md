@@ -178,6 +178,19 @@ Runtime Notes:
 - 2026-05-18: added graph validation, shared connection validation, upstream/downstream traversal and impact analysis; DevTools Graph tab now exposes validation issues and impact inspector.
 - 2026-05-19: added path queries, visual impact overlay in Flow Map and repair cleanup for broken/duplicate graph records.
 - 2026-05-20: Flow Map periodic refresh now uses CMSwift reactive signals for runtime/filter/focus state and applies targeted DOM patches for non-structural updates, preserving full mount only for graph structure changes and critical interactions.
+- 2026-05-21: Connections Runtime Inspector refresh now uses CMSwift reactive signals for runtime/filter/selection state and applies targeted DOM patches for runtime summary and inspector; analytics cards stay mounted and patch only metric values/internal lists instead of rebuilding the whole connections shell every 10s.
+- 2026-05-21: Connections list layout now separates title/search/status in the section header from a full-width filter/view toolbar below it.
+- 2026-05-21: Connections right inspector now uses internal tabs for Details, Configuration and Runtime Inspector so JSON/runtime sections are no longer stacked in one long aside.
+- 2026-05-21: Connections inspector actions are compacted with `Testa` as the primary button and edit/duplicate/delete as icon-only tooltip actions.
+- 2026-05-21: Removed redundant Connections inspector heading/kicker so tabs start at the top of the right aside.
+- 2026-05-21: Connections success-rate donut now uses a dynamic CSS `--value`; 100% renders as a closed ring instead of a fixed 95% arc.
+- 2026-05-21: Connections type-distribution donut now builds dynamic conic segments from real type counts and reuses the sidebar type colors.
+- 2026-05-21: Connections type distribution now includes uncataloged runtime types such as processor/source mappings, keeping their gold table-badge color.
+- 2026-05-21: Connections analytics now groups processor-related runtime mapping types under a single `Processor` bucket while preserving detailed table badges.
+- 2026-05-21: Connections Runtime Graph donut now renders dynamic graph-structure segments for nodes/channels/flows while keeping events as text-only.
+- 2026-05-21: Connections realtime activity card now renders a dynamic SVG sparkline for requests/success/errors and patches only the chart node during refresh.
+- 2026-05-21: Connections Top Endpoint analytics now renders a compact top-3 ranked preview with icon/type cues, proportional bars, aggregated overflow count and in-place reactive list replacement.
+- 2026-05-21: Connections Top Endpoint card spacing was tightened so the full top-3 preview fits inside the analytics card without vertical overflow.
 - Remaining: performance and time-travel overlays move to TASK-010 and TASK-016.
 
 ## [TASK-010]

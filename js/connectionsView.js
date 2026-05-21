@@ -22,6 +22,18 @@ const connectionTypes = [
   { name: "MCP Connection", color: "indigo", icon: "lan", count: 11 },
 ];
 
+const typeToneRgb = {
+  green: "53, 201, 121",
+  blue: "56, 145, 248",
+  gold: "255, 199, 44",
+  pink: "236, 72, 153",
+  cyan: "34, 211, 238",
+  lime: "132, 204, 22",
+  orange: "249, 115, 22",
+  indigo: "255, 199, 44",
+  slate: "148, 163, 184",
+};
+
 const sampleConnections = [
   {
     id: "conn_01H7X9K8A1B2",
@@ -205,10 +217,109 @@ const connectionState = {
     channel: runtimeParams.get("channel") || "",
     connectionId: runtimeParams.get("connectionId") || "",
   },
+  inspectorTab: "details",
+  mounted: false,
 };
 
-const typeColor = (type) => connectionTypes.find((item) => item.name === type)?.color || "gold";
+const connectionsReactive = CMSwift.reactive;
+const filtersSnapshot = () => ({
+  query: connectionState.query,
+  type: connectionState.type,
+  status: connectionState.status,
+  sort: connectionState.sort,
+  view: connectionState.view,
+  selectedType: connectionState.selectedType,
+});
+const [, setConnectionsSignal] = connectionsReactive.signal(connectionState.connections);
+const [, setRuntimeSignal] = connectionsReactive.signal(connectionState.runtime);
+const [getFiltersState, setFiltersSignal] = connectionsReactive.signal(filtersSnapshot());
+const [, setSelectedIdSignal] = connectionsReactive.signal(connectionState.selectedId);
+const [, setLoadedAtSignal] = connectionsReactive.signal(connectionState.loadedAt);
+const [, setLoadingSignal] = connectionsReactive.signal(connectionState.loading);
+const [, setRuntimeLoadingSignal] = connectionsReactive.signal(connectionState.runtimeLoading);
+const [, setErrorSignal] = connectionsReactive.signal(connectionState.error);
+const [, setRuntimeErrorSignal] = connectionsReactive.signal(connectionState.runtimeError);
+const [, setRuntimeFocusSignal] = connectionsReactive.signal(connectionState.runtimeFocus);
+
+const syncReactiveState = () => {
+  connectionsReactive.batch(() => {
+    setConnectionsSignal(connectionState.connections);
+    setRuntimeSignal(connectionState.runtime);
+    setFiltersSignal(filtersSnapshot());
+    setSelectedIdSignal(connectionState.selectedId);
+    setLoadedAtSignal(connectionState.loadedAt);
+    setLoadingSignal(connectionState.loading);
+    setRuntimeLoadingSignal(connectionState.runtimeLoading);
+    setErrorSignal(connectionState.error);
+    setRuntimeErrorSignal(connectionState.runtimeError);
+    setRuntimeFocusSignal(connectionState.runtimeFocus);
+  });
+};
+
+const setConnectionsState = (connections) => {
+  connectionState.connections = connections;
+  setConnectionsSignal(connections);
+};
+
+const setRuntimeState = (runtime) => {
+  connectionState.runtime = runtime;
+  setRuntimeSignal(runtime);
+};
+
+const setLoadedAtState = (loadedAt) => {
+  connectionState.loadedAt = loadedAt;
+  setLoadedAtSignal(loadedAt);
+};
+
+const setSelectedIdState = (selectedId) => {
+  connectionState.selectedId = selectedId;
+  setSelectedIdSignal(selectedId);
+};
+
+const setFilterState = (patch) => {
+  Object.assign(connectionState, patch);
+  setFiltersSignal(filtersSnapshot());
+  if (Object.prototype.hasOwnProperty.call(patch, "selectedId")) {
+    setSelectedIdSignal(connectionState.selectedId);
+  }
+};
+
+const setRuntimeFocusState = (runtimeFocus) => {
+  connectionState.runtimeFocus = runtimeFocus;
+  setRuntimeFocusSignal(runtimeFocus);
+};
+
+const setInspectorTab = (tab) => {
+  connectionState.inspectorTab = tab;
+  mountConnections();
+};
+
+const filterModel = (key, options = {}) => [
+  () => getFiltersState()[key],
+  (value) => {
+    setFilterState({
+      [key]: value,
+      ...(options.keepSelection ? {} : { selectedId: "" }),
+    });
+    mountConnections();
+  },
+];
+
 const normalize = (value) => String(value || "").toLowerCase();
+const typeColor = (type) => {
+  const normalized = normalize(type);
+  if (normalized === "processor" || normalized.includes("processor")) return "gold";
+  const known = connectionTypes.find((item) => normalize(item.name) === normalized);
+  if (known) return known.color;
+  if (normalized.includes("source")) return "gold";
+  return "gold";
+};
+
+const analyticsTypeName = (type) => {
+  const normalized = normalize(type);
+  if (normalized.includes("processor")) return "Processor";
+  return type || "Sconosciuto";
+};
 
 const visibleConnections = () => {
   const query = normalize(connectionState.query).trim();
@@ -286,7 +397,9 @@ const readRuntimeStore = async (storeName) => {
 
 const loadRuntimeInspectorData = async () => {
   connectionState.runtimeLoading = true;
+  setRuntimeLoadingSignal(true);
   connectionState.runtimeError = "";
+  setRuntimeErrorSignal("");
 
   try {
     const snapshot = window.TrackerLensRuntimeSnapshotStore?.load
@@ -302,18 +415,20 @@ const loadRuntimeInspectorData = async () => {
         readRuntimeStore(runtimeStoreName("TL_RUNTIME_DEPENDENCIES", "tl_runtime_dependencies")),
       ]);
 
-    connectionState.runtime = {
+    setRuntimeState({
       channels,
       flows,
       events,
       runtimeNodes,
       runtimeDependencies,
-    };
+    });
   } catch (error) {
     console.error("Errore caricamento Runtime Inspector:", error);
     connectionState.runtimeError = error?.message || "Errore Runtime Inspector";
+    setRuntimeErrorSignal(connectionState.runtimeError);
   } finally {
     connectionState.runtimeLoading = false;
+    setRuntimeLoadingSignal(false);
   }
 };
 
@@ -400,10 +515,27 @@ const stats = () => {
 const typeCount = (name) =>
   connectionState.connections.filter((item) => item.type === name).length;
 
+const typeDistribution = () => {
+  const counts = connectionState.connections.reduce((map, item) => {
+    const name = analyticsTypeName(item.type);
+    map.set(name, (map.get(name) || 0) + 1);
+    return map;
+  }, new Map());
+  const rows = Array.from(counts.entries())
+    .map(([name, count]) => ({ name, count, color: typeColor(name) }))
+    .sort((a, b) => b.count - a.count || a.name.localeCompare(b.name));
+
+  if (rows.length <= 5) return rows;
+  const visible = rows.slice(0, 4);
+  const otherCount = rows.slice(4).reduce((sum, item) => sum + item.count, 0);
+  return [...visible, { name: "Altri", count: otherCount, color: "slate" }];
+};
+
 const loadConnections = async () => {
   connectionState.loading = true;
   connectionState.runtimeLoading = true;
   connectionState.error = "";
+  syncReactiveState();
   mountConnections();
 
   try {
@@ -411,25 +543,27 @@ const loadConnections = async () => {
       window.TrackerLensConnectionsStore.list(),
       loadRuntimeInspectorData(),
     ]);
-    connectionState.connections = records;
+    setConnectionsState(records);
     const focusedConnection = records.find((record) => connectionMatchesRuntimeFocus(record));
-    connectionState.selectedId = focusedConnection?.id || (hasRuntimeFocus() ? "" : records[0]?.id || "");
-    connectionState.loadedAt = new Date();
+    setSelectedIdState(focusedConnection?.id || (hasRuntimeFocus() ? "" : records[0]?.id || ""));
+    setLoadedAtState(new Date());
   } catch (error) {
     console.error("Errore caricamento collegamenti:", error);
     connectionState.error = error?.message || "Errore caricamento collegamenti";
-    connectionState.connections = [];
+    setErrorSignal(connectionState.error);
+    setConnectionsState([]);
   } finally {
     connectionState.loading = false;
+    setLoadingSignal(false);
     mountConnections();
   }
 };
 
 const persistConnection = async (connection) => {
   const saved = await window.TrackerLensConnectionsStore.upsert(connection);
-  connectionState.connections = connectionState.connections.map((item) => item.id === saved.id ? saved : item);
-  connectionState.selectedId = saved.id;
-  connectionState.loadedAt = new Date();
+  setConnectionsState(connectionState.connections.map((item) => item.id === saved.id ? saved : item));
+  setSelectedIdState(saved.id);
+  setLoadedAtState(new Date());
   mountConnections();
 };
 
@@ -472,9 +606,9 @@ const testConnection = async (connection) => {
 const duplicateConnection = async (connection) => {
   if (!connection) return;
   const saved = await window.TrackerLensConnectionsStore.duplicate(connection);
-  connectionState.connections = [saved, ...connectionState.connections];
-  connectionState.selectedId = saved.id;
-  connectionState.loadedAt = new Date();
+  setConnectionsState([saved, ...connectionState.connections]);
+  setSelectedIdState(saved.id);
+  setLoadedAtState(new Date());
   mountConnections();
 };
 
@@ -487,10 +621,10 @@ const deleteConnection = async (connection) => {
   if (window.TrackerLensEventLogStore?.cleanupConnectionReferences) {
     await window.TrackerLensEventLogStore.cleanupConnectionReferences({ connectionId: connection.id, workspaceId: connection.workspaceId || "" });
   }
-  connectionState.connections = connectionState.connections.filter((item) => item.id !== connection.id);
-  connectionState.selectedId = connectionState.connections[0]?.id || "";
+  setConnectionsState(connectionState.connections.filter((item) => item.id !== connection.id));
+  setSelectedIdState(connectionState.connections[0]?.id || "");
   await loadRuntimeInspectorData();
-  connectionState.loadedAt = new Date();
+  setLoadedAtState(new Date());
   mountConnections();
 };
 
@@ -515,19 +649,19 @@ const createConnection = async () => {
     updatedAt: now,
     endpoint: "event-bus://local/manual",
   });
-  connectionState.connections = [saved, ...connectionState.connections];
-  connectionState.selectedId = saved.id;
+  setConnectionsState([saved, ...connectionState.connections]);
+  setSelectedIdState(saved.id);
   mountConnections();
 };
 
 const refreshRuntimeInspector = async () => {
   await loadRuntimeInspectorData();
-  connectionState.loadedAt = new Date();
-  mountConnections();
+  setLoadedAtState(new Date());
+  refreshRuntimeDom({ preserveScroll: true });
 };
 
 const clearRuntimeFocus = () => {
-  connectionState.runtimeFocus = { mode: "", nodeId: "", nodeType: "", channel: "", connectionId: "" };
+  setRuntimeFocusState({ mode: "", nodeId: "", nodeType: "", channel: "", connectionId: "" });
   const url = new URL(window.location.href);
   ["runtime", "nodeId", "nodeType", "channel", "connectionId"].forEach((key) => url.searchParams.delete(key));
   window.history.replaceState({}, "", `${url.pathname}${url.search}`);
@@ -535,13 +669,12 @@ const clearRuntimeFocus = () => {
 };
 
 const setType = (type) => {
-  connectionState.selectedType = type;
-  connectionState.selectedId = "";
+  setFilterState({ selectedType: type, selectedId: "" });
   mountConnections();
 };
 
 const setView = (view) => {
-  connectionState.view = view;
+  setFilterState({ view });
   mountConnections();
 };
 
@@ -556,7 +689,8 @@ const openFlowMap = () => {
 };
 
 const setSelected = (id) => {
-  connectionState.selectedId = id;
+  setSelectedIdState(id);
+  connectionState.inspectorTab = "details";
   mountConnections();
 };
 
@@ -624,7 +758,7 @@ const renderFilterPanel = () => {
       renderFilterButton("Nessun filtro temporale", "event")
     ),
     _.section(
-      { class: "tl-link-summary" },
+      { class: "tl-link-summary", "data-link-summary": "runtime" },
       _.h3("Riepilogo"),
       _.div(_.span("Totale collegamenti"), _.strong(data.total)),
       _.div(_.span("Attivi"), _.strong({ class: "is-ok" }, data.active)),
@@ -635,46 +769,48 @@ const renderFilterPanel = () => {
   );
 };
 
-const renderSelect = (className, value, options, onChange) =>
-  _.Select({
+const renderSelect = (className, value, options, onChange) => {
+  const model = Array.isArray(value) ? value : null;
+  return _.Select({
     class: className,
-    value,
+    ...(model ? { model } : { value, onChange }),
     options,
     slots: { arrow: () => icon("keyboard_arrow_down", "sm") },
-    onChange,
+  });
+};
+
+const renderTableSearch = () =>
+  _.Search({
+    class: "tl-link-table-search-input",
+    label: "Cerca collegamenti...",
+    value: getFiltersState().query,
+    "aria-label": "Cerca collegamenti",
+    onInput: (event) => {
+      setFilterState({ query: event.target.value, selectedId: "" });
+      mountConnections();
+    },
   });
 
 const renderToolbar = () =>
   _.Toolbar(
     { class: "tl-link-table-toolbar", align: "center", justify: "space-between", gap: 12 },
-    _.Search({
-      class: "tl-link-table-search-input",
-      label: "Cerca collegamenti...",
-      value: connectionState.query,
-      "aria-label": "Cerca collegamenti",
-      onInput: (event) => {
-        connectionState.query = event.target.value;
-        connectionState.selectedId = "";
-        mountConnections();
-      },
-    }),
     _.Row(
       { class: "tl-link-filter-row", align: "center", gap: 10 },
-      renderSelect("tl-link-filter", connectionState.status, [
+      renderSelect("tl-link-filter", filterModel("status"), [
         { value: "all", label: "Tutti gli stati" },
         { value: "active", label: "Attivo" },
         { value: "inactive", label: "Inattivo" },
         { value: "error", label: "Errore" },
         { value: "timeout", label: "Timeout" },
-      ], (value) => { connectionState.status = value; connectionState.selectedId = ""; mountConnections(); }),
-      renderSelect("tl-link-filter", connectionState.type, [
+      ]),
+      renderSelect("tl-link-filter", filterModel("type"), [
         { value: "all", label: "Tipo" },
         ...connectionTypes.map((type) => ({ value: type.name, label: type.name })),
-      ], (value) => { connectionState.type = value; connectionState.selectedId = ""; mountConnections(); }),
-      renderSelect("tl-link-filter", connectionState.sort, [
+      ]),
+      renderSelect("tl-link-filter", filterModel("sort", { keepSelection: true }), [
         { value: "recent", label: "Ordina: Piu recenti" },
         { value: "name", label: "Ordina: Nome" },
-      ], (value) => { connectionState.sort = value; mountConnections(); }),
+      ]),
       _.div(
         { class: "tl-link-view-switch", role: "group", "aria-label": "Cambia vista" },
         btn({ class: connectionState.view === "table" ? "is-active" : "", "aria-label": "Table", onclick: () => setView("table") }, icon("table_rows", "sm")),
@@ -770,6 +906,7 @@ const renderMainTable = () => {
     _.div(
       { class: "tl-link-section-head" },
       _.div(_.h2("Tutti i Collegamenti"), _.p(`${count} collegamenti reali · store tl_connections`)),
+      renderTableSearch(),
       _.span({ class: "tl-link-live-pill" }, dot(), "Sistema Online")
     ),
     renderToolbar(),
@@ -842,7 +979,7 @@ const renderRuntimeNodeSummary = () => {
   const status = node?.status || (runtime.dependencies.length || runtime.channels.length ? "linked" : "not indexed");
 
   return _.div(
-    { class: "tl-runtime-node-summary" },
+    { class: "tl-runtime-node-summary", "data-link-runtime-node-summary": "true" },
     _.div(
       { class: "tl-link-hero is-runtime-node" },
       _.span({ class: "tl-link-orb is-cyan" }, icon(type === "boxTracker" ? "storage" : "account_tree", "md")),
@@ -876,15 +1013,15 @@ const renderRuntimeInspector = (connection) => {
   const runtime = connectionRuntimeContext(connection);
 
   if (connectionState.runtimeLoading) {
-    return _.section({ class: "tl-runtime-inspector" }, _.h3("Runtime Inspector"), _.p({ class: "tl-link-muted" }, "Caricamento runtime graph..."));
+    return _.section({ class: "tl-runtime-inspector", "data-link-runtime-inspector": "true" }, _.h3("Runtime Inspector"), _.p({ class: "tl-link-muted" }, "Caricamento runtime graph..."));
   }
 
   if (connectionState.runtimeError) {
-    return _.section({ class: "tl-runtime-inspector" }, _.h3("Runtime Inspector"), _.p({ class: "tl-link-error-text" }, connectionState.runtimeError));
+    return _.section({ class: "tl-runtime-inspector", "data-link-runtime-inspector": "true" }, _.h3("Runtime Inspector"), _.p({ class: "tl-link-error-text" }, connectionState.runtimeError));
   }
 
   return _.section(
-    { class: "tl-runtime-inspector" },
+    { class: "tl-runtime-inspector", "data-link-runtime-inspector": "true" },
     _.Row({ justify: "space-between", align: "center" }, _.h3("Runtime Inspector"), btn({ class: "tl-runtime-refresh", onclick: refreshRuntimeInspector }, icon("sync", "sm"))),
     renderRuntimeFocus(),
     _.Grid(
@@ -932,51 +1069,104 @@ const renderRuntimeInspector = (connection) => {
   );
 };
 
+const inspectorTabs = [
+  { id: "details", label: "Details", icon: "info" },
+  { id: "config", label: "Setting", icon: "data_object" },
+  { id: "runtime", label: "Runtime", icon: "hub" },
+];
+
+const renderInspectorTabs = () =>
+  _.div(
+    { class: "tl-link-inspector-tabs", role: "tablist", "aria-label": "Sezioni inspector collegamento" },
+    ...inspectorTabs.map((tab) =>
+      btn(
+        {
+          class: `tl-link-inspector-tab${connectionState.inspectorTab === tab.id ? " is-active" : ""}`,
+          role: "tab",
+          "aria-selected": String(connectionState.inspectorTab === tab.id),
+          onclick: () => setInspectorTab(tab.id),
+        },
+        icon(tab.icon, "sm"),
+        _.span(tab.label)
+      )
+    )
+  );
+
+const renderConnectionDetailsPanel = (item) =>
+  _.div(
+    { class: "tl-link-inspector-panel is-details", role: "tabpanel" },
+    _.div(
+      { class: "tl-link-hero" },
+      _.span({ class: `tl-link-orb is-${typeColor(item.type)}` }, icon("link", "md")),
+      _.div(_.h3(item.name), _.p(item.id)),
+      renderStatus(item.status)
+    ),
+    _.Grid(
+      { class: "tl-link-meta-grid", cols: 2, gap: 8 },
+      ...[
+        ["Tipo", item.type],
+        ["Creato il", formatDate(item.createdAt)],
+        ["Ultimo update", formatDate(item.updatedAt)],
+        ["Ultimo test", item.lastTest],
+        ["Source", item.from],
+        ["Target", item.to],
+        ["Metodo", item.method],
+        ["Frequenza", item.frequency],
+        ["Timeout", item.timeout],
+        ["Tentativi", String(item.retries)],
+        ["Stato", item.status],
+        ["Endpoint", item.targetMeta],
+      ].map(([label, value]) => _.div({ class: "tl-link-meta" }, _.span(label), _.strong(value)))
+    )
+  );
+
+const renderConnectionConfigPanel = (item) =>
+  _.div(
+    { class: "tl-link-inspector-panel is-config", role: "tabpanel" },
+    _.div({ class: "tl-link-json-head" }, _.h3("Configurazione"), _.span("JSON preview")),
+    renderJson(item)
+  );
+
+const renderConnectionRuntimePanel = (item) =>
+  _.div(
+    { class: "tl-link-inspector-panel is-runtime", role: "tabpanel" },
+    renderRuntimeInspector(item)
+  );
+
+const renderInspectorPanel = (item) => {
+  if (connectionState.inspectorTab === "config") return renderConnectionConfigPanel(item);
+  if (connectionState.inspectorTab === "runtime") return renderConnectionRuntimePanel(item);
+  return renderConnectionDetailsPanel(item);
+};
+
+const renderInspectorActions = (item) =>
+  _.Toolbar(
+    { class: "tl-link-inspector-actions", gap: 8 },
+    btn({ class: "tl-link-primary", onclick: () => testConnection(item) }, icon("play_arrow", "sm"), "Testa"),
+    _.Tooltip(
+      btn({ class: "tl-link-icon-action", "aria-label": "Modifica collegamento", title: "Modifica", onclick: () => { } }, icon("edit", "sm")),
+      "Modifica"
+    ),
+    _.Tooltip(
+      btn({ class: "tl-link-icon-action", "aria-label": "Duplica collegamento", title: "Duplica", onclick: () => duplicateConnection(item) }, icon("content_copy", "sm")),
+      "Duplica"
+    ),
+    _.Tooltip(
+      btn({ class: "tl-link-icon-action is-danger", "aria-label": "Elimina collegamento", title: "Elimina", onclick: () => deleteConnection(item) }, icon("delete", "sm")),
+      "Elimina"
+    )
+  );
+
 const renderInspector = () => {
   const item = selectedConnection();
   const isRuntimeNodeFocus = !item && hasRuntimeFocus();
   return _.aside(
     { class: "tl-link-inspector", "aria-label": "Dettagli collegamento" },
-    _.div(
-      { class: "tl-link-inspector-head" },
-      _.span({ class: "tl-link-kicker" }, isRuntimeNodeFocus ? "Runtime focus" : "Selected connection"),
-      _.h2(isRuntimeNodeFocus ? "Dettagli Runtime Node" : "Dettagli Collegamento")
-    ),
     item ? _.div(
       { class: "tl-link-inspector-body" },
-      _.div(
-        { class: "tl-link-hero" },
-        _.span({ class: `tl-link-orb is-${typeColor(item.type)}` }, icon("link", "md")),
-        _.div(_.h3(item.name), _.p(item.id)),
-        renderStatus(item.status)
-      ),
-      _.Grid(
-        { class: "tl-link-meta-grid", cols: 2, gap: 8 },
-        ...[
-          ["Tipo", item.type],
-          ["Creato il", formatDate(item.createdAt)],
-          ["Ultimo update", formatDate(item.updatedAt)],
-          ["Ultimo test", item.lastTest],
-          ["Source", item.from],
-          ["Target", item.to],
-          ["Metodo", item.method],
-          ["Frequenza", item.frequency],
-          ["Timeout", item.timeout],
-          ["Tentativi", String(item.retries)],
-          ["Stato", item.status],
-          ["Endpoint", item.targetMeta],
-        ].map(([label, value]) => _.div({ class: "tl-link-meta" }, _.span(label), _.strong(value)))
-      ),
-      _.div({ class: "tl-link-json-head" }, _.h3("Configurazione"), _.span("JSON preview")),
-      renderJson(item),
-      renderRuntimeInspector(item),
-      _.Toolbar(
-        { class: "tl-link-inspector-actions", gap: 8 },
-        btn({ class: "tl-link-primary", onclick: () => testConnection(item) }, icon("play_arrow", "sm"), "Testa collegamento"),
-        btn({}, icon("edit", "sm"), "Modifica"),
-        btn({ onclick: () => duplicateConnection(item) }, "Duplica"),
-        btn({ class: "is-danger", onclick: () => deleteConnection(item) }, "Elimina")
-      )
+      renderInspectorTabs(),
+      renderInspectorPanel(item),
+      renderInspectorActions(item)
     ) : isRuntimeNodeFocus ? _.div(
       { class: "tl-link-inspector-body is-runtime-node" },
       renderRuntimeNodeSummary(),
@@ -997,45 +1187,210 @@ const formatShortDate = (value) => {
   return new Intl.DateTimeFormat("it-IT", { hour: "2-digit", minute: "2-digit" }).format(date);
 };
 
-const renderRealtimeChart = () =>
-  _.div(
-    { class: "tl-link-line-chart", "aria-label": "Grafico attivita realtime" },
-    _.span({ class: "tl-link-chart-line is-gold" }),
-    _.span({ class: "tl-link-chart-line is-green" }),
-    _.span({ class: "tl-link-chart-line is-red" }),
-    _.Row({ class: "tl-link-chart-legend", gap: 16 }, _.span(dot({ class: "is-gold" }), "Richieste/min"), _.span(dot({ class: "is-green" }), "Successi"), _.span(dot({ class: "is-red" }), "Errori"))
+const svgNode = (name, attrs = {}, ...children) => {
+  const node = document.createElementNS("http://www.w3.org/2000/svg", name);
+  Object.entries(attrs).forEach(([key, value]) => {
+    if (value !== undefined && value !== null) node.setAttribute(key, String(value));
+  });
+  children.flat().filter(Boolean).forEach((child) => node.append(child));
+  return node;
+};
+
+const activitySeries = (base, trend, jitter, length = 8) =>
+  Array.from({ length }, (_, index) => Math.max(0, Math.round(base + trend * index + ((index % 3) - 1) * jitter)));
+
+const activityChartModel = () => {
+  const data = stats();
+  const eventPressure = Math.min(18, Math.ceil((connectionState.runtime.events.length || 0) / 40));
+  const requestsBase = Math.max(1, data.total + eventPressure);
+  const successBase = Math.max(0, data.active);
+  const errorBase = Math.max(0, data.error + data.timeout);
+  return [
+    { key: "requests", label: "Richieste/min", color: "#ffc72c", values: activitySeries(requestsBase, Math.max(1, data.active), 1) },
+    { key: "success", label: "Successi", color: "#35c979", values: activitySeries(successBase, Math.max(0, data.active - errorBase) / 2, 1) },
+    { key: "errors", label: "Errori", color: "#f87171", values: activitySeries(errorBase, errorBase ? 0.35 : 0, errorBase ? 1 : 0) },
+  ];
+};
+
+const chartPoints = (values, maxValue, width = 280, height = 106, pad = 12) =>
+  values.map((value, index) => {
+    const x = pad + (index * (width - pad * 2)) / Math.max(1, values.length - 1);
+    const y = height - pad - (value / Math.max(1, maxValue)) * (height - pad * 2);
+    return `${x.toFixed(1)},${y.toFixed(1)}`;
+  }).join(" ");
+
+const renderRealtimeChart = () => {
+  const series = activityChartModel();
+  const maxValue = Math.max(1, ...series.flatMap((item) => item.values));
+  const requestPoints = chartPoints(series[0].values, maxValue);
+  const requestArea = `12,94 ${requestPoints} 268,94`;
+
+  return _.div(
+    { class: "tl-link-line-chart", "data-link-activity-chart": "true", "aria-label": "Grafico attivita realtime" },
+    svgNode(
+      "svg",
+      { class: "tl-link-activity-svg", viewBox: "0 0 280 116", role: "img", "aria-label": "Andamento richieste, successi ed errori" },
+      [28, 52, 76].map((y) => svgNode("line", { class: "tl-link-chart-grid", x1: 12, y1: y, x2: 268, y2: y })),
+      [series[0], series[1], series[2]].map((item) =>
+        svgNode(
+          "g",
+          { class: `tl-link-chart-series is-${item.key}` },
+          item.key === "requests" ? svgNode("polygon", { class: "tl-link-chart-area", points: requestArea }) : null,
+          svgNode("polyline", { points: chartPoints(item.values, maxValue), fill: "none", stroke: item.color, "stroke-width": item.key === "requests" ? 3 : 2.4, "stroke-linecap": "round", "stroke-linejoin": "round" }),
+          svgNode("circle", { cx: chartPoints(item.values, maxValue).split(" ").at(-1).split(",")[0], cy: chartPoints(item.values, maxValue).split(" ").at(-1).split(",")[1], r: item.key === "requests" ? 3.5 : 3, fill: item.color })
+        )
+      )
+    ),
+    _.div(
+      { class: "tl-link-chart-legend" },
+      ...series.map((item) =>
+        _.span(
+          { class: `tl-link-chart-key is-${item.key}` },
+          _.span({ class: "tl-link-chart-key-dot", style: { "--tone-color": item.color } }),
+          _.span(item.label),
+          _.strong(String(item.values.at(-1)))
+        )
+      )
+    )
+  );
+};
+
+const analyticsModel = () => {
+  const data = stats();
+  const runtime = connectionState.runtime;
+  const successRate = data.total ? Math.round((data.active / data.total) * 1000) / 10 : 0;
+  const topTypes = typeDistribution();
+  const topEndpoints = connectionState.connections
+    .map((item) => item.targetMeta || item.endpoint)
+    .filter(Boolean)
+    .reduce((map, endpoint) => map.set(endpoint, (map.get(endpoint) || 0) + 1), new Map());
+  const endpoints = Array.from(topEndpoints.entries()).sort((a, b) => b[1] - a[1]);
+
+  return { data, runtime, successRate, topTypes, endpoints };
+};
+
+const renderTypeRows = (topTypes) =>
+  topTypes.length
+    ? topTypes.map((type) =>
+      _.p(
+        _.span({ class: "tl-link-type-dot", style: { "--tone": typeToneRgb[type.color] || typeToneRgb.gold } }),
+        _.span(type.name),
+        _.strong(String(type.count))
+      )
+    )
+    : [_.p("Nessun tipo salvato")];
+
+const endpointIcon = (name) => {
+  const value = String(name || "").toLowerCase();
+  if (value.startsWith("wss://") || value.startsWith("ws://")) return "sensors";
+  if (value.startsWith("event-bus://")) return "hub";
+  if (value.startsWith("indexeddb://")) return "database";
+  if (value.startsWith("local://")) return "memory";
+  if (value.startsWith("http://") || value.startsWith("https://")) return "api";
+  return "link";
+};
+
+const endpointLabel = (name) => String(name || "Nessun endpoint").replace(/^https?:\/\//i, "").replace(/^wss?:\/\//i, "");
+
+const renderEndpointRows = (endpoints) => {
+  if (!endpoints.length) {
+    return [
+      _.div(
+        { class: "tl-link-endpoint is-empty" },
+        _.span({ class: "tl-link-endpoint-rank" }, "-"),
+        _.div({ class: "tl-link-endpoint-main" }, _.span({ class: "tl-link-endpoint-name" }, "Nessun endpoint"), _.span({ class: "tl-link-endpoint-meta" }, "In attesa di collegamenti")),
+        _.strong("0")
+      ),
+    ];
+  }
+
+  const visibleEndpoints = endpoints.slice(0, 3);
+  const hiddenEndpoints = endpoints.slice(3);
+  const hiddenTotal = hiddenEndpoints.reduce((sum, [, count]) => sum + count, 0);
+  const maxCount = Math.max(...visibleEndpoints.map(([, count]) => count), 1);
+  const rows = visibleEndpoints.map(([name, count], index) =>
+    _.div(
+      { class: `tl-link-endpoint is-rank-${index + 1}`, style: { "--w": `${Math.max(12, Math.round((count / maxCount) * 100))}%` } },
+      _.span({ class: "tl-link-endpoint-rank" }, String(index + 1)),
+      _.span({ class: "tl-link-endpoint-icon" }, _.Icon(endpointIcon(name), { size: "sm" })),
+      _.div(
+        { class: "tl-link-endpoint-main" },
+        _.span({ class: "tl-link-endpoint-name", title: String(name) }, endpointLabel(name)),
+        _.span({ class: "tl-link-endpoint-meta" }, count === 1 ? "1 collegamento" : `${count} collegamenti`)
+      ),
+      _.strong(String(count)),
+      _.span({ class: "tl-link-bar", "aria-hidden": "true" })
+    )
   );
 
-const renderDonut = (className, value, label) =>
-  _.div({ class: `tl-link-donut ${className}` }, _.strong(value), _.span(label));
+  if (hiddenEndpoints.length) {
+    rows.push(
+      _.div(
+        { class: "tl-link-endpoint-more" },
+        _.span(`+${hiddenEndpoints.length} endpoint`),
+        _.strong(`${hiddenTotal} collegamenti`)
+      )
+    );
+  }
+
+  return rows;
+};
+
+const graphDistribution = (runtime) => [
+  { name: "Nodes", key: "runtimeNodes", count: runtime.runtimeNodes.length, color: "pink" },
+  { name: "Channels", key: "channels", count: runtime.channels.length, color: "blue" },
+  { name: "Flows", key: "flows", count: runtime.flows.length, color: "green" },
+].filter((item) => item.count > 0);
+
+const renderGraphRows = (segments, eventsCount) => [
+  ...segments.map((item) =>
+    _.p(
+      _.span({ class: "tl-link-type-dot", style: { "--tone": typeToneRgb[item.color] || typeToneRgb.gold } }),
+      _.span(item.name),
+      _.strong({ "data-link-analytics-value": item.key }, String(item.count))
+    )
+  ),
+  _.p(
+    _.span({ class: "tl-link-type-dot", style: { "--tone": typeToneRgb.gold } }),
+    _.span("Events"),
+    _.strong({ "data-link-analytics-value": "events" }, String(eventsCount))
+  ),
+];
+
+const donutValueStyle = (value) => ({ "--value": `${Math.max(0, Math.min(100, Number(value) || 0))}%` });
+
+const conicSegments = (items, total) => {
+  if (!total || !items.length) return "rgba(148, 163, 184, 0.25) 0 100%";
+  let cursor = 0;
+  return items.map((item, index) => {
+    const next = index === items.length - 1 ? 100 : cursor + (item.count / total) * 100;
+    const color = `rgb(${typeToneRgb[item.color] || typeToneRgb.gold})`;
+    const segment = `${color} ${cursor.toFixed(2)}% ${next.toFixed(2)}%`;
+    cursor = next;
+    return segment;
+  }).join(", ");
+};
+
+const typeDonutSegments = (types, total) => conicSegments(types, total);
+const typeDonutStyle = (topTypes, total) => ({ "--segments": typeDonutSegments(topTypes, total) });
+const graphDonutStyle = (segments) => ({ "--segments": conicSegments(segments, segments.reduce((sum, item) => sum + item.count, 0)) });
 
 const renderAnalytics = () =>
   (() => {
-    const data = stats();
-    const runtime = connectionState.runtime;
-    const successRate = data.total ? Math.round((data.active / data.total) * 1000) / 10 : 0;
-    const topTypes = connectionTypes
-      .map((type) => ({ ...type, count: typeCount(type.name) }))
-      .filter((type) => type.count > 0)
-      .sort((a, b) => b.count - a.count)
-      .slice(0, 5);
-    const topEndpoints = connectionState.connections
-      .map((item) => item.targetMeta || item.endpoint)
-      .filter(Boolean)
-      .reduce((map, endpoint) => map.set(endpoint, (map.get(endpoint) || 0) + 1), new Map());
-    const endpoints = Array.from(topEndpoints.entries()).sort((a, b) => b[1] - a[1]).slice(0, 5);
+    const { data, runtime, successRate, topTypes, endpoints } = analyticsModel();
+    const graphSegments = graphDistribution(runtime);
 
     return (
       _.section(
-        { class: "tl-link-analytics", "aria-label": "Analytics collegamenti" },
-        _.Card({ class: "tl-link-analytics-card is-wide" }, _.Row({ justify: "space-between" }, _.h3("Attivita in Tempo Reale"), _.span(`${data.total} conn.`)), renderRealtimeChart()),
-        _.Card({ class: "tl-link-analytics-card" }, _.h3("Runtime Graph"), _.div({ class: "tl-link-success-wrap" }, renderDonut("is-multi", String(runtime.runtimeNodes.length), "Nodes"), _.div(_.p(`Channels ${runtime.channels.length}`), _.p(`Flows ${runtime.flows.length}`), _.p(`Events ${runtime.events.length}`)))),
-        _.Card({ class: "tl-link-analytics-card" }, _.h3("Tasso di Successo"), _.div({ class: "tl-link-success-wrap" }, renderDonut("is-success", `${successRate}%`, "Successo"), _.div(_.p(`Successi ${data.active}`), _.p(`Errori ${data.error}`), _.p(`Timeout ${data.timeout}`)))),
-        _.Card({ class: "tl-link-analytics-card" }, _.h3("Distribuzione per Tipo"), _.div({ class: "tl-link-success-wrap" }, renderDonut("is-multi", String(data.total), "Totale"), _.div(...(topTypes.length ? topTypes.map((type) => _.p(`${type.name} ${type.count}`)) : [_.p("Nessun tipo salvato")])))),
+        { class: "tl-link-analytics", "data-link-analytics": "runtime", "aria-label": "Analytics collegamenti" },
+        _.Card({ class: "tl-link-analytics-card is-wide", "data-link-analytics-card": "activity" }, _.Row({ justify: "space-between" }, _.h3("Attivita in Tempo Reale"), _.span({ "data-link-analytics-value": "total" }, `${data.total} conn.`)), renderRealtimeChart()),
+        _.Card({ class: "tl-link-analytics-card", "data-link-analytics-card": "runtime" }, _.h3("Runtime Graph"), _.div({ class: "tl-link-success-wrap" }, _.div({ class: "tl-link-donut is-graph", "data-link-analytics-donut": "graph", style: graphDonutStyle(graphSegments) }, _.strong({ "data-link-analytics-value": "runtimeNodes" }, String(runtime.runtimeNodes.length)), _.span("Nodes")), _.div({ class: "tl-link-type-breakdown", "data-link-analytics-list": "graph" }, ...renderGraphRows(graphSegments, runtime.events.length)))),
+        _.Card({ class: "tl-link-analytics-card", "data-link-analytics-card": "success" }, _.h3("Tasso di Successo"), _.div({ class: "tl-link-success-wrap" }, _.div({ class: "tl-link-donut is-success", "data-link-analytics-donut": "success", style: donutValueStyle(successRate) }, _.strong({ "data-link-analytics-value": "successRate" }, `${successRate}%`), _.span("Successo")), _.div(_.p("Successi ", _.span({ "data-link-analytics-value": "active" }, String(data.active))), _.p("Errori ", _.span({ "data-link-analytics-value": "error" }, String(data.error))), _.p("Timeout ", _.span({ "data-link-analytics-value": "timeout" }, String(data.timeout)))))),
+        _.Card({ class: "tl-link-analytics-card", "data-link-analytics-card": "types" }, _.h3("Distribuzione per Tipo"), _.div({ class: "tl-link-success-wrap" }, _.div({ class: "tl-link-donut is-types", "data-link-analytics-donut": "types", style: typeDonutStyle(topTypes, data.total) }, _.strong({ "data-link-analytics-value": "typeTotal" }, String(data.total)), _.span("Totale")), _.div({ class: "tl-link-type-breakdown", "data-link-analytics-list": "types" }, ...renderTypeRows(topTypes)))),
         _.Card(
-          { class: "tl-link-analytics-card" },
+          { class: "tl-link-analytics-card", "data-link-analytics-card": "endpoints" },
           _.h3("Top Endpoint"),
-          ...(endpoints.length ? endpoints : [["Nessun endpoint", 0]]).map(([name, count]) => _.div({ class: "tl-link-endpoint" }, _.span(name), _.strong(String(count)), _.span({ class: "tl-link-bar", style: { "--w": `${Math.max(8, Math.min(100, count * 24))}%` } })))
+          _.div({ "data-link-analytics-list": "endpoints" }, ...renderEndpointRows(endpoints))
         )
       )
     );
@@ -1059,18 +1414,98 @@ const renderShell = () =>
     )
   );
 
+const replaceRenderedNode = (selector, nextNode, { preserveScroll = false } = {}) => {
+  const current = document.querySelector(selector);
+  if (!current || !nextNode) return false;
+  const scrollTop = preserveScroll ? current.scrollTop : 0;
+  current.replaceWith(nextNode);
+  if (preserveScroll) {
+    const replacement = document.querySelector(selector);
+    if (replacement) replacement.scrollTop = scrollTop;
+  }
+  return true;
+};
+
+const setAnalyticsText = (key, value) => {
+  const target = document.querySelector(`[data-link-analytics-value="${key}"]`);
+  if (target) target.textContent = String(value);
+};
+
+const replaceAnalyticsList = (key, rows) => {
+  const target = document.querySelector(`[data-link-analytics-list="${key}"]`);
+  if (target) target.replaceChildren(...rows);
+};
+
+const replaceActivityChart = () => {
+  const target = document.querySelector("[data-link-activity-chart]");
+  if (target) target.replaceWith(renderRealtimeChart());
+};
+
+const setAnalyticsDonutValue = (key, value) => {
+  const target = document.querySelector(`[data-link-analytics-donut="${key}"]`);
+  if (target) target.style.setProperty("--value", `${Math.max(0, Math.min(100, Number(value) || 0))}%`);
+};
+
+const setAnalyticsDonutSegments = (key, segments) => {
+  const target = document.querySelector(`[data-link-analytics-donut="${key}"]`);
+  if (target) target.style.setProperty("--segments", segments);
+};
+
+const refreshAnalyticsDom = () => {
+  const analytics = document.querySelector("[data-link-analytics]");
+  if (!analytics) return false;
+
+  const { data, runtime, successRate, topTypes, endpoints } = analyticsModel();
+  const graphSegments = graphDistribution(runtime);
+  setAnalyticsText("total", `${data.total} conn.`);
+  replaceActivityChart();
+  setAnalyticsText("runtimeNodes", runtime.runtimeNodes.length);
+  setAnalyticsDonutSegments("graph", conicSegments(graphSegments, graphSegments.reduce((sum, item) => sum + item.count, 0)));
+  replaceAnalyticsList("graph", renderGraphRows(graphSegments, runtime.events.length));
+  setAnalyticsText("successRate", `${successRate}%`);
+  setAnalyticsDonutValue("success", successRate);
+  setAnalyticsText("active", data.active);
+  setAnalyticsText("error", data.error);
+  setAnalyticsText("timeout", data.timeout);
+  setAnalyticsText("typeTotal", data.total);
+  setAnalyticsDonutSegments("types", typeDonutSegments(topTypes, data.total));
+  replaceAnalyticsList("types", renderTypeRows(topTypes));
+  replaceAnalyticsList("endpoints", renderEndpointRows(endpoints));
+  return true;
+};
+
+const refreshRuntimeDom = ({ preserveScroll = true } = {}) => {
+  if (!connectionState.mounted) {
+    mountConnections();
+    return;
+  }
+
+  syncReactiveState();
+
+  const selected = selectedConnection();
+  const nextFilterPanel = renderFilterPanel();
+  replaceRenderedNode("[data-link-summary]", nextFilterPanel.querySelector("[data-link-summary]"), { preserveScroll });
+  replaceRenderedNode("[data-link-runtime-inspector]", renderRuntimeInspector(selected), { preserveScroll });
+  replaceRenderedNode("[data-link-runtime-node-summary]", renderRuntimeNodeSummary(), { preserveScroll });
+  if (!refreshAnalyticsDom()) {
+    replaceRenderedNode("[data-link-analytics]", renderAnalytics(), { preserveScroll });
+  }
+};
+
 const mountConnections = () => {
   const root = document.getElementById("tl-connections-root");
   if (!root) return;
+  syncReactiveState();
   root.replaceChildren(renderShell());
+  connectionState.mounted = true;
 };
 
 const startRuntimeInspectorRefresh = () => {
   window.setInterval(() => {
     if (connectionState.runtimeLoading) return;
     loadRuntimeInspectorData().then(() => {
-      connectionState.loadedAt = new Date();
-      mountConnections();
+      setLoadedAtState(new Date());
+      refreshRuntimeDom({ preserveScroll: true });
     });
   }, 10000);
 };

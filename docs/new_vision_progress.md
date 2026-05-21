@@ -1,6 +1,6 @@
 # Trackers Lens - Avanzamento nuova visione
 
-Aggiornato il 2026-05-20.
+Aggiornato il 2026-05-21.
 
 Questo documento traduce `docs/new_vision.md` in una mappa operativa. La visione resta: Trackers Lens non deve essere un dashboard builder, ma un AI Runtime Operating Environment locale, event-driven, channel-based e ispezionabile.
 
@@ -61,7 +61,20 @@ Priorita successive:
 - `editorWorkspace.html` e piu vicino a un composer operativo: drag/drop robusto da `Aggiungi Box`, mini-mappa `Navigator` reale con selezione box, pan del canvas quando lo zoom supera il 100% e bottom bar riallineata.
 - `library.html` ora ha preferiti locali operativi: gli asset segnati con stella vengono salvati in `tl_settings` (`library_favorites`), compaiono nel box "I miei preferiti" con icone tipizzate e possono essere filtrati dalla sidebar. Questo rafforza la library locale come punto di gestione degli asset runtime.
 - `flowMap.html` ha avviato il passaggio a refresh reattivi CMSwift: segnali per runtime/filtri/focus, model bidirezionali sui filtri e patch mirate nel refresh periodico quando la struttura del graph non cambia. La Flow Map resta full-render solo per cambi strutturali o interazioni critiche.
-- Questi interventi non cambiano la visione strategica in `docs/new_vision.md`; consolidano l'ergonomia locale di editor, library e Flow Map dentro la direzione runtime operating environment.
+- `connections.html` ha avviato lo stesso passaggio sul Runtime Inspector: il refresh automatico da 10s usa signal CMSwift e patch mirate per riepilogo e inspector runtime; le card analytics restano montate e aggiornano solo valori/listati interni, evitando il rebuild completo della shell quando cambiano solo dati runtime.
+- Il box principale di `connections.html` separa ora header e controlli: titolo/count, ricerca e stato online stanno nella testata, mentre filtri e switch vista occupano una riga full-width sotto.
+- L'aside destro di `connections.html` usa ora tab interne per separare dettagli, configurazione JSON e Runtime Inspector, mantenendo le azioni contestuali sempre accessibili.
+- Le azioni dell'inspector collegamento sono state rese piu minimali: comando `Testa` primario e azioni secondarie icon-only con tooltip.
+- Rimossa la testata ridondante dell'aside collegamento per lasciare piu spazio alle tab e ai contenuti.
+- Il donut `Tasso di Successo` di `connections.html` usa ora il valore reale come variabile CSS, quindi al 100% il cerchio risulta chiuso.
+- Il donut `Distribuzione per Tipo` di `connections.html` usa ora segmenti dinamici basati sui conteggi reali e colori coerenti con i tipi della sidebar sinistra.
+- La distribuzione per tipo include anche tipi runtime non catalogati, come `processor -> processor` e `source -> processor`, mantenendo il colore oro dei badge tabella.
+- Nella distribuzione analytics, i tipi runtime che contengono `processor` vengono aggregati come gruppo `Processor`, mentre la tabella conserva il tipo dettagliato.
+- Il donut `Runtime Graph` di `connections.html` e ora dinamico su `Nodes`, `Channels` e `Flows`; `Events` resta metrica testuale per non distorcere la proporzione visuale.
+- Il box `Attivita in Tempo Reale` di `connections.html` usa ora uno sparkline SVG dinamico per richieste, successi ed errori, aggiornato in-place dal refresh reattivo.
+- Il box `Top Endpoint` di `connections.html` usa ora una preview compatta top-3 con icona, conteggio, barra proporzionale e riepilogo aggregato degli endpoint restanti, aggiornata in-place dal refresh analytics.
+- La preview `Top Endpoint` e stata ulteriormente compattata per mantenere tre righe visibili dentro la card analytics senza overflow verticale.
+- Questi interventi non cambiano la visione strategica in `docs/new_vision.md`; consolidano l'ergonomia locale di editor, library, Flow Map e Connections dentro la direzione runtime operating environment.
 
 ## Milestone consigliate
 
