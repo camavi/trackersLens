@@ -82,8 +82,8 @@ const renderSidebar = () => window.TrackerLensSidebar.render({ activeId: "profil
 const renderStat = (item) =>
   _.div(
     { class: `tl-profile-stat is-${item.tone}` },
-    _.span({ class: "tl-profile-stat-icon" }, icon(item.icon, "sm")),
-    _.div(_.strong(item.value), _.span(item.label))
+    _.span({ class: "tl-profile-stat-icon" }, icon(item.icon, "md")),
+    _.div(_.strong(item.value), _.span({ class: 'label' }, item.label))
   );
 
 const renderHero = () =>
@@ -115,7 +115,7 @@ const renderHero = () =>
     ),
     _.aside(
       { class: "tl-profile-plan" },
-      _.div(_.span({ class: "tl-profile-plan-icon" }, icon("crown", "md")), _.div(_.span("Piano Attuale"), _.strong("Premium"), _.em("Rinnovo: 24/06/2024"))),
+      _.div(_.span({ class: "tl-profile-plan-icon" }, icon("crown", "lg")), _.div(_.span("Piano Attuale"), _.strong("Premium"), _.em("Rinnovo: 24/06/2024"))),
       btn({ class: "tl-profile-plan-btn" }, "Gestisci Abbonamento")
     ),
     _.Toolbar(
