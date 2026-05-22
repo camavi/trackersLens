@@ -199,6 +199,42 @@ Nota aggiornata 2026-05-12: corretti overflow e sovrapposizioni nella griglia di
 
 Nota aggiornata 2026-05-12: le metric card di `ai.html` sono state riallineate al riferimento visuale desiderato: icona neon in alto a destra colorata in base al tono della metrica, numero grande a sinistra, delta sotto e sparkline colorato in basso. I colori ora distinguono AI core viola, jobs/success verde, provider/network blu, errori rosso e token/costi oro.
 
+Nota aggiornata 2026-05-22: le KPI card di `ai.html` sono state ricompattate sullo stesso schema introdotto in `analytics.html`: header inline con icona piccola e label, valore compatto, meta su due righe (`delta` e sorgente dato) e sparkline come barra bottom. `js/aiRuntimeCenter.js` aggiunge ora `source` alle metriche (`IndexedDB`, `Runtime`, `AI Jobs`, `idle`, `Planned` o `demo`) e `css/aiRuntimeCenter.css` riduce icone, padding e tipografia per rendere la riga KPI piu densa.
+
+Nota aggiornata 2026-05-22: in `ai.html` il box `AI Flow Overview` e stato rimosso. `Prompt Flows` usa ora l'area centrale liberata su due righe (`grid-row: 2 / 4`) e il CSS dedicato al vecchio flow graph (`tl-ai-flow`, `tl-ai-flow-node`, `tl-ai-line` e varianti) e stato eliminato da `css/aiRuntimeCenter.css`.
+
+Nota aggiornata 2026-05-22: il box `Prompt Flows` di `ai.html` e stato ridisegnato come pipeline orizzontale piu leggibile: step card numerate, icona dedicata, testo su piu righe clampato e linea di collegamento di background. La struttura usa ancora CMSwift per row/card/button e CSS locale per il trattamento visuale.
+
+Nota aggiornata 2026-05-22: il box `Prompt Flows` di `ai.html` e stato rinominato `Prompt` e trasformato in archivio locale di prompt. Usa lo store IndexedDB `tl_ai_prompt_flows`, permette add/edit/delete dei prompt dalle card e apre un dialog CMSwift ricercabile tramite `Visualizza tutti`; la pipeline e i collegamenti visuali fra card sono stati rimossi.
+
+Nota aggiornata 2026-05-22: il box `Prompt` di `ai.html` segue ora la struttura operativa usata in `connections.html`: titolo e azioni principali in header, filtro categoria su riga dedicata e switch visuale lista/box. I prompt salvano anche `category`, usata dal filtro locale.
+
+Nota aggiornata 2026-05-22: la toolbar `Prompt` di `ai.html` usa ora `_.Select` per il filtro categoria e aggiunge una barra `_.Search` affiancata, prima dello switch lista/box. Categoria e ricerca filtrano insieme la lista locale.
+
+Nota aggiornata 2026-05-22: lo stato vuoto del box `Prompt` di `ai.html` e stato ridisegnato come area centrale tratteggiata con griglia leggera, icona grande e CTA `Aggiungi Prompt`, mantenendo testo coerente con lo store locale.
+
+Nota aggiornata 2026-05-22: il dialog `Nuovo prompt` di `ai.html` usa ora campi CMSwift (`_.Input` e `_.Select`) e un pannello scuro piatto senza gradienti, con accento oro coerente con la sezione AI.
+
+Nota aggiornata 2026-05-22: il box `AI Agents` di `ai.html` e stato riallineato alla struttura del box `Prompt`: header con titolo/count/store e azioni, toolbar con filtro stato, ricerca e switch lista/box, piu stato vuoto centrale coerente con il trattamento AI.
+
+Nota aggiornata 2026-05-22: il layout principale di `ai.html` sotto le KPI e stato riorganizzato in righe operative: `AI Agents` + `Prompt`, `AI Models & Providers` + `AI Memory`, `AI Jobs` + `AI Logs`, poi analytics a quattro card.
+
+Nota aggiornata 2026-05-22: le tre righe operative principali di `ai.html` sotto le KPI ora hanno altezza uniforme di circa 500px, quindi `AI Agents`, `Prompt`, `AI Models & Providers`, `AI Memory`, `AI Jobs` e `AI Logs` condividono la stessa presenza visuale.
+
+Nota aggiornata 2026-05-22: nel box `AI Agents` di `ai.html` filtro stato, ricerca e switch lista/box sono stati allineati su una sola riga come nel box `Prompt`. Le azioni `Aggiungi`, `Aggiungi Agente` e `Visualizza tutti` sono ora operative: scrivono/leggono `tl_ai_agents` tramite `TrackerLensAiRuntimeStore`, con dialog CMSwift per creazione, lista ricercabile, modifica ed eliminazione.
+
+Nota aggiornata 2026-05-22: `settings.html` e stata riorganizzata in una griglia operativa a due colonne mantenendo la sidebar categorie `Impostazioni` e la barra orizzontale `Azioni Rapide`. I pannelli ora seguono l'ordine richiesto: `Impostazioni Generali` + `Informazioni Sistema`, `Stato Sistema` + `Impostazioni Connessioni`, `AI Provider Predefinito` + `Archiviazione & Cache`, `Notifiche` + `Backup & Ripristino`, con `Sicurezza & API Keys` a larghezza piena. La shell resta CMSwift/Trackers Lens; lo scroll principale e tornato sul contenitore pagina e l'aside `Impostazioni` resta sticky durante la lettura dei pannelli.
+
+Nota aggiornata 2026-05-22: `settings.html` ha iniziato il passaggio a refresh mirati invece del full remount. `js/settingsView.js` espone signal CMSwift per settings/runtime chrome, toggle e slider non chiamano piu `mountSettings()`, gli slider aggiornano in-place il valore mostrato e le azioni che cambiano solo notice/stato aggiornano solo pill header e footer. Il full render resta per import/reset/refresh e mutazioni strutturali come API keys o backup.
+
+Nota aggiornata 2026-05-22: il pannello `Backup & Ripristino` di `settings.html` e stato ridisegnato per sfruttare lo spazio disponibile. Mostra ora una card stato con ultimo backup, tempo trascorso, dimensione, timeline eseguito/prossimo backup e countdown stimato in base a `backup.frequency` / `backup.automatic`; i controlli backup aggiornano solo il pannello tramite patch mirata, non tutta la shell.
+
+Nota aggiornata 2026-05-22: nella card stato di `Backup & Ripristino`, `Ultimo Backup` e lo stato locale sono ora separati in due colonne sulla stessa riga. In assenza di backup locali restano quindi leggibili sia `Nessun backup locale` sia `Dimensione 0 B` senza comprimere il valore `Mai`.
+
+Nota aggiornata 2026-05-22: il pannello `Sicurezza & API Keys` di `settings.html` ora usa una testata operativa con titolo, descrizione, ricerca locale e CTA `Aggiungi Nuova Chiave`. La lista chiavi viene filtrata in-place e le azioni add/edit/delete aggiornano solo il pannello sicurezza e il runtime chrome, senza rimontare tutta la pagina.
+
+Nota aggiornata 2026-05-22: l'aside `Impostazioni` di `settings.html` e ora un navigatore operativo. Le categorie sono modellate in `js/settingsView.js` con target pannello, meta e icona; il click esegue smooth-scroll sul pannello reale, lo stato active segue lo scroll tramite `IntersectionObserver` e la search topbar evidenzia categorie/pannelli coerenti senza nascondere il contenuto.
+
 Nota aggiornata 2026-05-12: e stata aggiunta la schermata `profile.html` per "Profilo Utente", pensata come centro identita operativo dell'utente Trackers Lens e non come pagina account generica. La UI usa CMSwift per shell/topbar/sidebar, search, toolbar, grid, card, bottoni, select, icone e componenti compositivi; `css/profileView.css` gestisce solo l'identita visuale premium: dark mode, griglia puntinata, hero profilo, avatar glow, badge online, piano Premium, tabs, timeline, donut AI usage, chart workspace, quick actions, sicurezza, dispositivi, informazioni sistema e footer runtime live. La sidebar standard (`js/tl-sidebar.js`, `css/tl-sidebar.css`) ora rende il profilo utente navigabile verso `profile.html`, con stato attivo, avatar compatto, nome e stato online. Punto ancora prototipale: i dati della pagina profilo sono demo/statici; serviranno persistenza in `tl_settings`/store dedicato e collegamento a metriche reali IndexedDB per account, billing, dispositivi e usage AI.
 
 Nota aggiornata 2026-05-20: il box "I miei preferiti" di `library.html` e ora operativo. `js/library.js` salva gli id preferiti in IndexedDB nello store `tl_settings` con record `library_favorites`, aggiunge toggle a stella sulle card, filtro dedicato nella sidebar e lista compatta dei preferiti. Gli item preferiti sono allineati a sinistra e usano icone colorate coerenti col tipo asset: boxLens oro, boxTracker verde, workspace blu. La UI resta composta con pattern CMSwift (`_.Btn`, `_.Grid`, `_.Row`, `_.Toolbar`, `_.Card`) e `css/library.css` contiene solo gli stati visuali specifici.

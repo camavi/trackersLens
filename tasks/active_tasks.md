@@ -1,5 +1,44 @@
 # Active Tasks
 
+## [TASK-020]
+
+Title: Settings Control Panel Layout
+
+Priority: Medium
+
+Status: Complete
+
+Files:
+
+- `settings.html`
+- `js/settingsView.js`
+- `css/settingsView.css`
+
+Dependencies:
+
+- `tl_settings`
+- `TrackerLensSidebar`
+- `CMSwift`
+
+Regression Risk:
+
+Low
+
+Description:
+
+Refine the Settings page visual hierarchy without changing its IndexedDB-backed settings behavior.
+
+Runtime Notes:
+
+- 2026-05-22: `settings.html` now keeps the left `Impostazioni` category aside and `Azioni Rapide` toolbar, while the main settings panels are arranged as a two-column operational grid: General/System Info, System Status/Connections, AI Provider/Storage, Notifications/Backup, and full-width Security/API Keys.
+- 2026-05-22: page scrolling is handled by the main settings page container again; `tl-settings-content-grid` and its panels no longer create nested scroll areas, and the left `Impostazioni` aside is sticky.
+- 2026-05-22: Settings now uses CMSwift reactive signals for settings/runtime chrome state and avoids full shell remounts for local toggle/range updates, save notices, diagnostics, AI test, notifications test and export notice. Full remount remains for import/reset/refresh and structural changes such as API key list edits or backup cards.
+- 2026-05-22: `Backup & Ripristino` was upgraded with a richer backup status card, elapsed/next backup labels, next-run countdown from frequency settings and targeted panel refresh for backup controls/run-now.
+- 2026-05-22: the backup status hero now separates `Ultimo Backup` and local backup state into two same-row content columns, so `Nessun backup locale` and backup size stay visible in the available horizontal space.
+- 2026-05-22: `Sicurezza & API Keys` now has a title/search/add header, local API-key filtering and targeted panel refresh for add/edit/delete instead of full shell remount.
+- 2026-05-22: the `Impostazioni` aside now works as a settings navigator: categories scroll to real panels, active state follows page scroll with `IntersectionObserver`, and topbar search highlights matching panels/categories without hiding content.
+- Remaining: none for current milestone.
+
 ## [TASK-013]
 
 Title: Offline-first Mode
@@ -104,6 +143,18 @@ Runtime Notes:
 - 2026-05-19: added Events/Channels filters, Offline queue actions, Package install/inspector, Time Travel controls, AI tab and Analytics deep links.
 - 2026-05-21: `database.html` data panel now separates title/search/realtime status in the section header from a full-width filter/action/view toolbar below it.
 - 2026-05-21: `database.html` table cells now have consistent horizontal padding, with extra first-column spacing so records are not attached to the left edge.
+- 2026-05-22: `ai.html` KPI cards now reuse the compact analytics-style structure with inline small icons, dense values, delta/source metadata and bottom sparkline bars.
+- 2026-05-22: `ai.html` no longer renders `AI Flow Overview`; `Prompt Flows` spans the freed center area and obsolete flow graph CSS was removed.
+- 2026-05-22: `ai.html` Prompt Flows was restyled as a larger horizontal pipeline with numbered step cards, connector line, clearer icon/title/meta hierarchy and clamped descriptions.
+- 2026-05-22: `ai.html` Prompt Flows became `Prompt`, an IndexedDB-backed prompt archive with add/edit/delete actions and a CMSwift Dialog list with local search.
+- 2026-05-22: `ai.html` Prompt now uses a Connections-style control structure with header actions, category filter and list/grid view switch; prompt records persist `category`.
+- 2026-05-22: `ai.html` Prompt toolbar now uses CMSwift `_.Select` plus `_.Search`, ordered as category filter, search, list/grid switch.
+- 2026-05-22: `ai.html` Prompt empty state now renders as a centered dashed drop-zone with grid texture and `Aggiungi Prompt` CTA.
+- 2026-05-22: `ai.html` new/edit prompt dialog now uses CMSwift `_.Input`/`_.Select` fields and flat dark AI styling instead of gradient modal treatment.
+- 2026-05-22: `ai.html` AI Agents now mirrors the Prompt box structure with header actions, status filter, search, list/grid switch and centered empty state.
+- 2026-05-22: `ai.html` main layout below KPI cards was reordered into Agents/Prompt, Providers/Memory, Jobs/Logs and four-card analytics rows.
+- 2026-05-22: `ai.html` primary operational rows below KPI cards now use uniform ~500px heights for Agents/Prompt, Providers/Memory and Jobs/Logs.
+- 2026-05-22: `ai.html` AI Agents toolbar now keeps status filter, search and view switch on one row; Add/View all open CMSwift dialogs backed by `tl_ai_agents`, including edit/delete support.
 - Remaining: none for current milestone.
 
 ## [TASK-016]

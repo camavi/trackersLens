@@ -24,6 +24,47 @@ const formatDateTime = (value) => {
   if (!date || Number.isNaN(date.getTime())) return "Mai";
   return date.toLocaleString("it-IT", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" });
 };
+const formatRelativeDuration = (ms) => {
+  const value = Math.max(0, Number(ms) || 0);
+  const minutes = Math.round(value / 60000);
+  if (minutes < 1) return "adesso";
+  if (minutes < 60) return `${minutes} min`;
+  const hours = Math.round(minutes / 60);
+  if (hours < 24) return `${hours} h`;
+  const days = Math.round(hours / 24);
+  if (days < 30) return `${days} giorni`;
+  const months = Math.round(days / 30);
+  return `${months} mesi`;
+};
+const backupIntervalMs = (frequency) => {
+  if (frequency === "daily") return 24 * 60 * 60 * 1000;
+  if (frequency === "weekly") return 7 * 24 * 60 * 60 * 1000;
+  return 0;
+};
+const getBackupSchedule = () => {
+  const backup = settingsState.settings.backup;
+  const lastBackup = backup.lastBackupAt ? new Date(backup.lastBackupAt) : null;
+  const hasLastBackup = lastBackup && !Number.isNaN(lastBackup.getTime());
+  const interval = backup.automatic ? backupIntervalMs(backup.frequency) : 0;
+  const elapsed = hasLastBackup ? Date.now() - lastBackup.getTime() : 0;
+  const nextBackup = hasLastBackup && interval ? new Date(lastBackup.getTime() + interval) : null;
+  const remaining = nextBackup ? nextBackup.getTime() - Date.now() : 0;
+  return {
+    lastLabel: hasLastBackup ? formatDateTime(lastBackup) : "Mai",
+    agoLabel: hasLastBackup ? `${formatRelativeDuration(elapsed)} fa` : "Nessun backup locale",
+    nextLabel: !backup.automatic
+      ? "Backup manuale"
+      : nextBackup
+        ? formatDateTime(nextBackup)
+        : "Dopo il primo backup",
+    nextInLabel: !backup.automatic
+      ? "Automazione disattivata"
+      : nextBackup
+        ? (remaining <= 0 ? "In coda ora" : `tra ${formatRelativeDuration(remaining)}`)
+        : "Non pianificato",
+    tone: hasLastBackup ? (remaining <= 0 && interval ? "warn" : "online") : "warn",
+  };
+};
 
 const defaultSettings = {
   general: {
@@ -95,21 +136,36 @@ const mergeSettings = (record = {}) => {
   return merged;
 };
 
-const settingCategories = [
-  ["Generale", "Impostazioni generali del sistema", "tune"],
-  ["AI & Modelli", "Provider, modelli e preferenze AI", "psychology"],
-  ["Connessioni", "API, WebSocket e integrazioni", "hub"],
-  ["Dati & Archiviazione", "IndexedDB, cache e backup", "database"],
-  ["Performance", "Performance, limiti e ottimizzazioni", "speed"],
-  ["Notifiche", "Avvisi, email e notifiche push", "notifications"],
-  ["Sicurezza", "Chiavi API, permessi e privacy", "shield"],
-  ["Interfaccia", "Tema, layout e personalizzazioni", "palette"],
-  ["Backup & Ripristino", "Esporta, importa e ripristina dati", "restore"],
-  ["Sistema", "Info sistema e diagnostica", "settings_suggest"],
+const settingSections = [
+  { id: "general", title: "Generale", description: "Impostazioni generali del sistema", icon: "tune", target: "general", meta: "Workspace • Lingua" },
+  { id: "ai", title: "AI & Modelli", description: "Provider, modelli e preferenze AI", icon: "psychology", target: "ai", meta: "Provider • Local AI" },
+  { id: "connections", title: "Connessioni", description: "API, WebSocket e integrazioni", icon: "hub", target: "connections", meta: "Timeout • SSL" },
+  { id: "data", title: "Dati & Archiviazione", description: "IndexedDB, cache e backup", icon: "database", target: "storage", meta: "Storage • Cache" },
+  { id: "performance", title: "Performance", description: "Performance, limiti e ottimizzazioni", icon: "speed", target: "status", meta: "Runtime • Retention" },
+  { id: "notifications", title: "Notifiche", description: "Avvisi, email e notifiche push", icon: "notifications", target: "notifications", meta: "Desktop • Email" },
+  { id: "security", title: "Sicurezza", description: "Chiavi API, permessi e privacy", icon: "shield", target: "security", meta: "API Keys • Privacy" },
+  { id: "interface", title: "Interfaccia", description: "Tema, layout e personalizzazioni", icon: "palette", target: "general", meta: "Layout • Tema" },
+  { id: "backup", title: "Backup & Ripristino", description: "Esporta, importa e ripristina dati", icon: "restore", target: "backup", meta: "Backup • Restore" },
+  { id: "system", title: "Sistema", description: "Info sistema e diagnostica", icon: "settings_suggest", target: "system", meta: "Info • Diagnostica" },
 ];
+
+const panelOwners = {
+  general: "general",
+  ai: "ai",
+  connections: "connections",
+  storage: "data",
+  status: "performance",
+  notifications: "notifications",
+  security: "security",
+  backup: "backup",
+  system: "system",
+};
 
 const settingsState = {
   search: "",
+  apiKeySearch: "",
+  activeSectionId: "general",
+  navLockUntil: 0,
   loading: true,
   error: "",
   notice: "",
@@ -127,6 +183,14 @@ const settingsState = {
   updatedAt: new Date(),
   queryMs: 0,
 };
+
+const settingsReactive = window.CMSwift?.reactive || window._?.reactive;
+const [, setSettingsSignal] = settingsReactive?.signal
+  ? settingsReactive.signal(settingsState.settings)
+  : [() => settingsState.settings, (value) => { settingsState.settings = value; }];
+const [, setRuntimeChromeSignal] = settingsReactive?.signal
+  ? settingsReactive.signal({ error: settingsState.error, notice: settingsState.notice, updatedAt: settingsState.updatedAt, queryMs: settingsState.queryMs })
+  : [() => ({ error: settingsState.error, notice: settingsState.notice, updatedAt: settingsState.updatedAt, queryMs: settingsState.queryMs }), () => {}];
 
 const option = (value, label = value) => ({ value, label });
 const readPath = (path) => path.split(".").reduce((value, key) => value?.[key], settingsState.settings);
@@ -234,18 +298,89 @@ const saveSettings = async (silent = false) => {
   } finally {
     db.close();
   }
-  if (!silent) mountSettings();
+  patchSettingsRuntimeChrome();
 };
 const mutateSetting = (path, value, { rerender = false, persist = false } = {}) => {
   writePath(path, value);
+  setSettingsSignal(clone(settingsState.settings));
   if (persist) saveSettings(true);
-  if (rerender) mountSettings();
+  if (rerender) patchSettingsRuntimeChrome();
 };
 const maskKey = (value) => {
   const text = normalizeText(value);
   if (!text) return "Non configurata";
   if (text.length <= 8) return `${"*".repeat(Math.max(4, text.length))}`;
   return `${text.slice(0, 3)}${"*".repeat(Math.max(12, text.length - 7))}${text.slice(-4)}`;
+};
+const getSettingSection = (id) => settingSections.find((section) => section.id === id) || settingSections[0];
+const getPanelById = (panelId) => document.querySelector(`[data-settings-panel-id="${panelId}"]`);
+const buildPanelProps = (panelId, className, extra = {}) => {
+  const ownerId = panelOwners[panelId] || panelId;
+  const owner = getSettingSection(ownerId);
+  return {
+    class: className,
+    id: `settings-panel-${panelId}`,
+    "data-settings-panel-id": panelId,
+    "data-settings-owner": ownerId,
+    "data-settings-search": normalizeText([owner.title, owner.description, owner.meta, panelId].join(" ")).toLowerCase(),
+    ...extra,
+  };
+};
+const setActiveSettingsSection = (sectionId) => {
+  if (!sectionId || settingsState.activeSectionId === sectionId) return;
+  settingsState.activeSectionId = sectionId;
+  document.querySelectorAll("[data-settings-category]").forEach((item) => {
+    item.classList.toggle("is-active", item.dataset.settingsCategory === sectionId);
+  });
+};
+const scrollToSettingsSection = (sectionId) => {
+  const section = getSettingSection(sectionId);
+  const panel = getPanelById(section.target);
+  if (!panel) return;
+  settingsState.navLockUntil = Date.now() + 900;
+  setActiveSettingsSection(section.id);
+  panel.classList.add("is-focus-pulse");
+  panel.scrollIntoView({ behavior: "smooth", block: "start" });
+  window.setTimeout(() => panel.classList.remove("is-focus-pulse"), 900);
+};
+const applySettingsSearch = () => {
+  const query = normalizeText(settingsState.search).toLowerCase();
+  document.querySelectorAll("[data-settings-panel-id]").forEach((panel) => {
+    const matches = !query || panel.dataset.settingsSearch?.includes(query);
+    panel.classList.toggle("is-search-dimmed", !matches);
+    panel.classList.toggle("is-search-match", Boolean(query && matches));
+  });
+  document.querySelectorAll("[data-settings-category]").forEach((item) => {
+    const section = getSettingSection(item.dataset.settingsCategory);
+    const matches = !query || normalizeText([section.title, section.description, section.meta].join(" ")).toLowerCase().includes(query);
+    item.classList.toggle("is-search-dimmed", !matches);
+    item.classList.toggle("is-search-match", Boolean(query && matches));
+  });
+};
+let settingsSectionObserver = null;
+const syncSettingsNavigation = () => {
+  settingsSectionObserver?.disconnect();
+  const main = document.querySelector(".tl-settings-main");
+  const panels = Array.from(document.querySelectorAll("[data-settings-panel-id]"));
+  if (!main || !panels.length || !window.IntersectionObserver) {
+    applySettingsSearch();
+    return;
+  }
+  settingsSectionObserver = new IntersectionObserver((entries) => {
+    if (Date.now() < settingsState.navLockUntil) return;
+    const visible = entries
+      .filter((entry) => entry.isIntersecting)
+      .sort((a, b) => b.intersectionRatio - a.intersectionRatio)[0];
+    const ownerId = visible?.target?.dataset?.settingsOwner;
+    if (ownerId) setActiveSettingsSection(ownerId);
+  }, {
+    root: main,
+    rootMargin: "-18% 0px -58% 0px",
+    threshold: [0.18, 0.35, 0.55],
+  });
+  panels.forEach((panel) => settingsSectionObserver.observe(panel));
+  setActiveSettingsSection(settingsState.activeSectionId);
+  applySettingsSearch();
 };
 
 const renderBrand = () => window.TrackerLensSidebar.renderBrand({ className: "tl-settings-brand" });
@@ -263,6 +398,7 @@ const renderTopbar = () =>
         "aria-label": "Cerca impostazioni",
         onInput: (event) => {
           settingsState.search = event.target.value;
+          applySettingsSearch();
         },
       })
     ),
@@ -286,7 +422,7 @@ const renderHeader = () =>
       ),
       _.Toolbar(
         { class: "tl-settings-head-actions", gap: 14 },
-        _.span({ class: "tl-settings-live-pill" }, dot(settingsState.error ? "error" : "online"), settingsState.error || settingsState.notice || "Sistema Online"),
+        _.span({ class: "tl-settings-live-pill", "data-settings-live-pill": "true" }, dot(settingsState.error ? "error" : "online"), settingsState.error || settingsState.notice || "Sistema Online"),
         btn({ class: "tl-settings-save", onclick: () => saveSettings(false) }, icon("save", "sm"), "Salva Modifiche")
       )
     )
@@ -299,11 +435,15 @@ const renderCategorySidebar = () =>
     _.p("Configura e personalizza il comportamento di Trackers Lens"),
     _.div(
       { class: "tl-settings-category-list" },
-      ...settingCategories.map(([title, description, iconName], index) =>
+      ...settingSections.map(({ id, title, description, icon: iconName, meta }) =>
         btn(
-          { class: `tl-settings-category${index === 0 ? " is-active" : ""}` },
+          {
+            class: `tl-settings-category${settingsState.activeSectionId === id ? " is-active" : ""}`,
+            "data-settings-category": id,
+            onclick: () => scrollToSettingsSection(id),
+          },
           _.span({ class: "tl-settings-category-icon" }, icon(iconName, "sm")),
-          _.span(_.strong(title), _.small(description)),
+          _.span(_.strong(title), _.small(description), _.em(meta)),
           icon("chevron_right", "sm")
         )
       )
@@ -347,11 +487,11 @@ const renderToggleRow = (label, checked = true, onChange = null) =>
   );
 
 const renderSettingToggle = (label, path) =>
-  renderToggleRow(label, Boolean(readPath(path)), (checked) => mutateSetting(path, Boolean(checked), { persist: true, rerender: true }));
+  renderToggleRow(label, Boolean(readPath(path)), (checked) => mutateSetting(path, Boolean(checked), { persist: true }));
 
 const renderGeneral = () =>
   _.Card(
-    { class: "tl-settings-panel tl-settings-general" },
+    buildPanelProps("general", "tl-settings-panel tl-settings-general"),
     _.h3("Impostazioni Generali"),
     renderField("Nome Workspace Predefinito", renderSettingInput("general.workspaceName")),
     _.Grid(
@@ -377,7 +517,7 @@ const renderRange = (label, value, min, max, suffix = "") =>
 const renderSettingRange = (label, path, min, max, step = 1, suffix = "") =>
   _.div(
     { class: "tl-settings-range-row" },
-    _.div(_.span(label), _.strong(`${readPath(path)}${suffix}`)),
+    _.div(_.span(label), _.strong({ "data-settings-range-value": path }, `${readPath(path)}${suffix}`)),
     _.input({
       class: "tl-settings-range",
       type: "range",
@@ -385,14 +525,21 @@ const renderSettingRange = (label, path, min, max, step = 1, suffix = "") =>
       max,
       step,
       value: readPath(path),
-      onInput: (event) => mutateSetting(path, Number(event.target.value), { rerender: true }),
+      onInput: (event) => {
+        const nextValue = Number(event.target.value);
+        mutateSetting(path, nextValue);
+        const valueNode = event.currentTarget
+          ?.closest(".tl-settings-range-row")
+          ?.querySelector(`[data-settings-range-value="${path}"]`);
+        if (valueNode) valueNode.textContent = `${nextValue}${suffix}`;
+      },
       onChange: () => saveSettings(true),
     })
   );
 
 const renderAiProvider = () =>
   _.Card(
-    { class: "tl-settings-panel tl-settings-ai-card" },
+    buildPanelProps("ai", "tl-settings-panel tl-settings-ai-card"),
     _.Row({ align: "center", justify: "space-between" }, _.h3("AI Provider Predefinito"), _.span({ class: "tl-settings-status is-online" }, dot(settingsState.providers.length ? "online" : "warn"), settingsState.providers.length ? "Connesso" : "Non configurato")),
     renderSettingSelect("Provider", "ai.provider", [
       option("OpenAI"),
@@ -403,7 +550,7 @@ const renderAiProvider = () =>
       ...settingsState.providers.map((provider) => option(provider.name)),
     ]),
     renderField("Modello predefinito", renderSettingInput("ai.model")),
-    renderToggleRow("Local AI first", Boolean(settingsState.settings.ai.localFirst), (checked) => mutateSetting("ai.localFirst", Boolean(checked), { rerender: true, persist: true })),
+    renderToggleRow("Local AI first", Boolean(settingsState.settings.ai.localFirst), (checked) => mutateSetting("ai.localFirst", Boolean(checked), { persist: true })),
     renderSettingRange("Temperatura", "ai.temperature", 0, 2, 0.01),
     renderSettingRange("Token massimi", "ai.maxTokens", 256, 8192, 1),
     btn({ class: "tl-settings-primary", onclick: testAiConnection }, icon("radar", "sm"), "Testa Connessione")
@@ -411,7 +558,7 @@ const renderAiProvider = () =>
 
 const renderConnections = () =>
   _.Card(
-    { class: "tl-settings-panel tl-settings-connections" },
+    buildPanelProps("connections", "tl-settings-panel tl-settings-connections"),
     _.h3("Impostazioni Connessioni"),
     _.Grid(
       { cols: 2, gap: 12 },
@@ -427,7 +574,7 @@ const renderConnections = () =>
 
 const renderStorage = () =>
   _.Card(
-    { class: "tl-settings-panel tl-settings-storage" },
+    buildPanelProps("storage", "tl-settings-panel tl-settings-storage"),
     _.h3("Archiviazione & Cache"),
     _.div(
       { class: "tl-settings-storage-grid" },
@@ -460,7 +607,7 @@ const renderStorage = () =>
 
 const renderNotifications = () =>
   _.Card(
-    { class: "tl-settings-panel tl-settings-notifications" },
+    buildPanelProps("notifications", "tl-settings-panel tl-settings-notifications"),
     _.h3("Notifiche"),
     renderSettingToggle("Notifiche Desktop", "notifications.desktop"),
     renderSettingToggle("Notifiche Email", "notifications.email"),
@@ -490,7 +637,7 @@ const runtimeServices = () => {
 
 const renderSystemStatus = () =>
   _.aside(
-    { class: "tl-settings-panel tl-settings-status-panel" },
+    buildPanelProps("status", "tl-settings-panel tl-settings-status-panel"),
     _.h3("Stato Sistema"),
     _.div(
       { class: "tl-settings-service-list" },
@@ -519,48 +666,127 @@ const renderQuickActions = () =>
     ].map(([label, iconName, onclick]) => btn({ class: "tl-settings-action", onclick }, icon(iconName, "sm"), label, icon("chevron_right", "sm")))
   );
 
-const renderBackup = () =>
-  _.Card(
-    { class: "tl-settings-panel tl-settings-backup" },
-    _.h3("Backup & Ripristino"),
-    _.Grid(
-      { cols: "minmax(0, 1fr) minmax(0, 1fr)", gap: 18 },
+const renderBackup = () => {
+  const schedule = getBackupSchedule();
+  return _.Card(
+    buildPanelProps("backup", "tl-settings-panel tl-settings-backup", { "data-settings-backup-panel": "true" }),
+    _.Row(
+      { class: "tl-settings-backup-heading", align: "center", justify: "space-between" },
+      _.h3("Backup & Ripristino"),
+      _.span({ class: `tl-settings-status is-${schedule.tone}` }, dot(schedule.tone), settingsState.settings.backup.automatic ? "Automatico" : "Manuale")
+    ),
+    _.div(
+      { class: "tl-settings-backup-overview" },
       _.div(
-        { class: "tl-settings-backup-card" },
-        _.span("Ultimo Backup"),
-        _.strong(formatDateTime(settingsState.settings.backup.lastBackupAt)),
-        _.small(`Dimensione ${formatBytes(settingsState.settings.backup.lastBackupSize)}`)
+        { class: "tl-settings-backup-hero" },
+        _.span({ class: "tl-settings-backup-orb" }, icon("backup", "md")),
+        _.div(
+          { class: "tl-settings-backup-hero-copy" },
+          _.small("Ultimo Backup"),
+          _.strong(schedule.lastLabel)
+        ),
+        _.div(
+          { class: "tl-settings-backup-hero-copy tl-settings-backup-hero-status" },
+          _.small("Stato locale"),
+          _.strong(schedule.agoLabel),
+          _.span({ class: "tl-settings-backup-size" }, `Dimensione ${formatBytes(settingsState.settings.backup.lastBackupSize)}`)
+        )
       ),
       _.div(
-        { class: "tl-settings-backup-controls" },
-        renderSettingToggle("Backup automatico", "backup.automatic"),
-        renderSettingSelect("Frequenza backup", "backup.frequency", [option("daily", "Giornaliero"), option("weekly", "Settimanale"), option("manual", "Manuale")]),
-        renderSettingSelect("Retention", "backup.retention", [option("7", "7 giorni"), option("30", "30 giorni"), option("90", "90 giorni")])
-      )
-    ),
-    _.Toolbar({ gap: 10 }, btn({ class: "tl-settings-primary", onclick: runBackupNow }, icon("backup", "sm"), "Esegui Backup Ora"), btn({ class: "tl-settings-ghost", onclick: importConfiguration }, icon("restore", "sm"), "Ripristina Backup"))
-  );
-
-const renderSecurity = () =>
-  _.Card(
-    { class: "tl-settings-panel tl-settings-security" },
-    _.h3("Sicurezza & API Keys"),
-    _.p("Gestisci le chiavi API e le credenziali dei servizi"),
-    _.div(
-      { class: "tl-settings-key-list" },
-      ...settingsState.settings.apiKeys.map(({ id, name, value, tone }) =>
+        { class: "tl-settings-backup-timeline" },
         _.div(
-          { class: "tl-settings-api-row" },
-          _.span({ class: `tl-settings-api-orb is-${tone}` }, icon("key", "sm")),
-          _.strong(name),
-          _.code(maskKey(value)),
-          btn({ class: "tl-settings-row-btn", "aria-label": `Modifica ${name}`, onclick: () => editApiKey(id) }, icon("edit", "sm")),
-          btn({ class: "tl-settings-row-btn", "aria-label": `Elimina ${name}`, onclick: () => clearApiKey(id) }, icon("delete", "sm"))
+          { class: "tl-settings-backup-step is-done" },
+          _.span({ class: "tl-settings-backup-step-dot" }, icon("check", "sm")),
+          _.div(_.small("Eseguito"), _.strong(schedule.agoLabel))
+        ),
+        _.div({ class: "tl-settings-backup-line", "aria-hidden": "true" }),
+        _.div(
+          { class: `tl-settings-backup-step is-${schedule.tone}` },
+          _.span({ class: "tl-settings-backup-step-dot" }, icon("schedule", "sm")),
+          _.div(_.small("Prossimo backup"), _.strong(schedule.nextInLabel), _.em(schedule.nextLabel))
         )
       )
     ),
-    btn({ class: "tl-settings-primary", onclick: addApiKey }, icon("add", "sm"), "Aggiungi Nuova Chiave")
+    _.div(
+      { class: "tl-settings-backup-settings" },
+      renderToggleRow("Backup automatico", Boolean(settingsState.settings.backup.automatic), (checked) => {
+        mutateSetting("backup.automatic", Boolean(checked), { persist: true });
+        patchSettingsBackupPanel();
+      }),
+      renderSelect("Frequenza backup", readPath("backup.frequency"), [option("daily", "Giornaliero"), option("weekly", "Settimanale"), option("manual", "Manuale")], (value) => {
+        mutateSetting("backup.frequency", value, { persist: true });
+        patchSettingsBackupPanel();
+      }),
+      renderSelect("Retention", readPath("backup.retention"), [option("7", "7 giorni"), option("30", "30 giorni"), option("90", "90 giorni")], (value) => {
+        mutateSetting("backup.retention", value, { persist: true });
+        patchSettingsBackupPanel();
+      })
+    ),
+    _.Toolbar({ class: "tl-settings-backup-actions", gap: 10 }, btn({ class: "tl-settings-primary", onclick: runBackupNow }, icon("backup", "sm"), "Esegui Backup Ora"), btn({ class: "tl-settings-ghost", onclick: importConfiguration }, icon("restore", "sm"), "Ripristina Backup"))
   );
+};
+
+const patchSettingsBackupPanel = () => {
+  const panel = document.querySelector("[data-settings-backup-panel]");
+  if (panel) panel.replaceWith(renderBackup());
+  syncSettingsNavigation();
+};
+
+const patchSettingsSecurityPanel = () => {
+  const panel = document.querySelector("[data-settings-security-panel]");
+  if (panel) panel.replaceWith(renderSecurity());
+  syncSettingsNavigation();
+};
+
+const renderSecurity = () => {
+  const search = normalizeText(settingsState.apiKeySearch).toLowerCase();
+  const keys = settingsState.settings.apiKeys.filter(({ id, name, value }) =>
+    !search || [id, name, maskKey(value)].some((item) => normalizeText(item).toLowerCase().includes(search))
+  );
+  return _.Card(
+    buildPanelProps("security", "tl-settings-panel tl-settings-security", { "data-settings-security-panel": "true" }),
+    _.div(
+      { class: "tl-settings-security-head" },
+      _.div(_.h3("Sicurezza & API Keys"), _.p("Gestisci le chiavi API e le credenziali dei servizi")),
+      _.div(
+        { class: "tl-settings-security-search" },
+        _.Search({
+          class: "tl-settings-security-search-input",
+          label: "Cerca chiave...",
+          value: settingsState.apiKeySearch,
+          "aria-label": "Cerca chiave API",
+          onInput: (event) => {
+            settingsState.apiKeySearch = event.target.value;
+            patchSettingsSecurityPanel();
+          },
+        })
+      ),
+      btn({ class: "tl-settings-primary tl-settings-security-add", onclick: addApiKey }, icon("add", "sm"), "Aggiungi Nuova Chiave")
+    ),
+    _.div(
+      { class: "tl-settings-key-list" },
+      ...(keys.length
+        ? keys.map(({ id, name, value, tone }) =>
+            _.div(
+              { class: "tl-settings-api-row" },
+              _.span({ class: `tl-settings-api-orb is-${tone}` }, icon("key", "sm")),
+              _.strong(name),
+              _.code(maskKey(value)),
+              btn({ class: "tl-settings-row-btn", "aria-label": `Modifica ${name}`, onclick: () => editApiKey(id) }, icon("edit", "sm")),
+              btn({ class: "tl-settings-row-btn", "aria-label": `Elimina ${name}`, onclick: () => clearApiKey(id) }, icon("delete", "sm"))
+            )
+          )
+        : [
+            _.div(
+              { class: "tl-settings-security-empty" },
+              icon("search_off", "md"),
+              _.strong("Nessuna chiave trovata"),
+              _.span("Modifica la ricerca o aggiungi una nuova chiave API.")
+            ),
+          ])
+    )
+  );
+};
 
 const renderSystemInfo = () => {
   const memory = performance?.memory;
@@ -569,7 +795,7 @@ const renderSystemInfo = () => {
   const platform = navigator.userAgentData?.platform || navigator.platform || "Browser";
   const architecture = navigator.userAgentData?.architecture || (/\b(?:x86_64|Win64|x64|amd64)\b/i.test(navigator.userAgent) ? "x64" : "Browser");
   return _.aside(
-    { class: "tl-settings-panel tl-settings-system" },
+    buildPanelProps("system", "tl-settings-panel tl-settings-system"),
     _.h3("Informazioni Sistema"),
     ...[
       ["Versione Trackers Lens", (typeof tlConfig !== "undefined" ? tlConfig.VERSION : null) || "v1.0.0"],
@@ -586,7 +812,7 @@ const renderSystemInfo = () => {
 
 const renderFooter = () =>
   _.footer(
-    { class: "tl-settings-footer" },
+    { class: "tl-settings-footer", "data-settings-footer": "true" },
     _.span(dot(settingsState.error ? "error" : "online"), settingsState.error ? "System Warning" : "System Online"),
     _.span(dot(settingsState.stores.includes(SETTINGS_STORE) ? "online" : "warn"), settingsState.stores.includes(SETTINGS_STORE) ? "IndexedDB Connected" : "IndexedDB Warning"),
     _.span(`Memory Usage ${performance?.memory?.usedJSHeapSize ? formatBytes(performance.memory.usedJSHeapSize) : "N/D"}`),
@@ -595,6 +821,25 @@ const renderFooter = () =>
     _.span(`Last Update ${settingsState.updatedAt.toLocaleTimeString("it-IT")}`),
     _.span({ class: "tl-settings-footer-pulse", "aria-hidden": "true" })
   );
+
+const patchSettingsRuntimeChrome = () => {
+  settingsState.updatedAt = new Date();
+  setRuntimeChromeSignal({
+    error: settingsState.error,
+    notice: settingsState.notice,
+    updatedAt: settingsState.updatedAt,
+    queryMs: settingsState.queryMs,
+  });
+  const livePill = document.querySelector("[data-settings-live-pill]");
+  if (livePill) {
+    livePill.replaceChildren(
+      dot(settingsState.error ? "error" : "online"),
+      settingsState.error || settingsState.notice || "Sistema Online"
+    );
+  }
+  const footer = document.querySelector("[data-settings-footer]");
+  if (footer) footer.replaceWith(renderFooter());
+};
 
 const renderShell = () =>
   _.div(
@@ -609,9 +854,18 @@ const renderShell = () =>
         renderHeader(),
         renderCategorySidebar(),
         renderQuickActions(),
-        _.section({ class: "tl-settings-core" }, renderGeneral(), renderAiProvider(), renderSystemStatus()),
-        _.section({ class: "tl-settings-config" }, renderConnections(), renderStorage(), renderNotifications()),
-        _.section({ class: "tl-settings-bottom" }, renderBackup(), renderSecurity(), renderSystemInfo()),
+        _.section(
+          { class: "tl-settings-content-grid", "aria-label": "Pannelli impostazioni" },
+          renderGeneral(),
+          renderSystemInfo(),
+          renderSystemStatus(),
+          renderConnections(),
+          renderAiProvider(),
+          renderStorage(),
+          renderNotifications(),
+          renderBackup(),
+          renderSecurity()
+        ),
         renderFooter()
       )
     )
@@ -621,6 +875,7 @@ const loadSettingsStores = async () => {
   const started = performance.now();
   const record = await getSettingsRecord();
   settingsState.settings = mergeSettings(record || {});
+  setSettingsSignal(clone(settingsState.settings));
   settingsState.createdAt = record?.createdAt || "";
 
   const db = await ensureSettingsStore();
@@ -693,7 +948,7 @@ const exportConfiguration = () => {
   link.click();
   URL.revokeObjectURL(url);
   settingsState.notice = "Configurazione esportata";
-  mountSettings();
+  patchSettingsRuntimeChrome();
 };
 
 const importConfiguration = () => {
@@ -706,6 +961,7 @@ const importConfiguration = () => {
     try {
       const payload = JSON.parse(await file.text());
       settingsState.settings = mergeSettings(payload.settings || payload);
+      setSettingsSignal(clone(settingsState.settings));
       await saveSettings(true);
       settingsState.notice = "Configurazione importata";
     } catch (error) {
@@ -718,6 +974,7 @@ const importConfiguration = () => {
 
 const resetSettings = async () => {
   settingsState.settings = clone(defaultSettings);
+  setSettingsSignal(clone(settingsState.settings));
   settingsState.notice = "Impostazioni ripristinate";
   await saveSettings(true);
   mountSettings();
@@ -758,35 +1015,37 @@ const applyRuntimeRetention = async () => {
   } catch (error) {
     settingsState.error = error?.message || "Errore retention runtime";
   }
-  mountSettings();
+  patchSettingsRuntimeChrome();
 };
 
 const runBackupNow = async () => {
   const serialized = JSON.stringify(settingsState.settings);
   settingsState.settings.backup.lastBackupAt = new Date().toISOString();
   settingsState.settings.backup.lastBackupSize = new Blob([serialized]).size;
+  setSettingsSignal(clone(settingsState.settings));
   settingsState.notice = "Backup configurazione creato";
   await saveSettings(true);
-  mountSettings();
+  patchSettingsBackupPanel();
+  patchSettingsRuntimeChrome();
 };
 
 const runDiagnostics = async () => {
   settingsState.notice = `Diagnostica OK: ${settingsState.stores.length} store, ${settingsState.connections.length} connessioni, ${settingsState.providers.length} provider AI`;
   settingsState.error = "";
-  mountSettings();
+  patchSettingsRuntimeChrome();
 };
 
 const testAiConnection = () => {
   const provider = settingsState.providers.find((item) => item.name === settingsState.settings.ai.provider);
   settingsState.notice = provider ? `Provider ${provider.name}: ${provider.status || "configurato"}` : "Provider salvato, nessun record runtime reale trovato";
-  mountSettings();
+  patchSettingsRuntimeChrome();
 };
 
 const testNotifications = () => {
   settingsState.notice = settingsState.settings.notifications.desktop || settingsState.settings.notifications.email
     ? "Preferenze notifiche attive"
     : "Notifiche disattivate";
-  mountSettings();
+  patchSettingsRuntimeChrome();
 };
 
 const editApiKey = async (id) => {
@@ -795,18 +1054,22 @@ const editApiKey = async (id) => {
   const nextValue = window.prompt(`Chiave per ${item.name}`, item.value || "");
   if (nextValue === null) return;
   item.value = nextValue.trim();
+  setSettingsSignal(clone(settingsState.settings));
   settingsState.notice = `${item.name} aggiornata`;
   await saveSettings(true);
-  mountSettings();
+  patchSettingsSecurityPanel();
+  patchSettingsRuntimeChrome();
 };
 
 const clearApiKey = async (id) => {
   const item = settingsState.settings.apiKeys.find((key) => key.id === id);
   if (!item) return;
   item.value = "";
+  setSettingsSignal(clone(settingsState.settings));
   settingsState.notice = `${item.name} rimossa`;
   await saveSettings(true);
-  mountSettings();
+  patchSettingsSecurityPanel();
+  patchSettingsRuntimeChrome();
 };
 
 const addApiKey = async () => {
@@ -819,9 +1082,11 @@ const addApiKey = async () => {
     value: value.trim(),
     tone: "gold",
   });
+  setSettingsSignal(clone(settingsState.settings));
   settingsState.notice = "Nuova chiave API aggiunta";
   await saveSettings(true);
-  mountSettings();
+  patchSettingsSecurityPanel();
+  patchSettingsRuntimeChrome();
 };
 
 const mountSettings = () => {
@@ -829,6 +1094,7 @@ const mountSettings = () => {
   if (!root) return;
   settingsState.updatedAt = new Date();
   root.replaceChildren(renderShell());
+  syncSettingsNavigation();
 };
 
 const bootSettings = async () => {

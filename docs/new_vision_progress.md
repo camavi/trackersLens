@@ -76,6 +76,18 @@ Priorita successive:
 - La preview `Top Endpoint` e stata ulteriormente compattata per mantenere tre righe visibili dentro la card analytics senza overflow verticale.
 - Il pannello dati di `database.html` segue ora lo stesso schema operativo: titolo/count, ricerca e stato realtime nella testata, con filtri, azioni e switch vista in una toolbar full-width separata.
 - Le KPI card di `analytics.html` sono state rese piu compatte e leggibili: icone meno button-like, meno padding e indicazione esplicita della sorgente dato (`IndexedDB`, `Performance`, `Storage API`, `Stimato`, `idle` o `demo`).
+- Le KPI card di `ai.html` seguono ora lo stesso schema compatto di `analytics.html`: icona piccola inline, valore piu denso, delta e sorgente dato su due righe e sparkline come bottom bar.
+- `ai.html` non mostra piu il box `AI Flow Overview`; `Prompt Flows` occupa l'area centrale liberata e il CSS del vecchio flow graph e stato rimosso.
+- `Prompt Flows` di `ai.html` ora usa una pipeline visuale piu curata con step numerati, icone, testo leggibile e linea di collegamento.
+- Il box `Prompt Flows` di `ai.html` e stato trasformato in `Prompt`: archivio locale di prompt su `tl_ai_prompt_flows`, con aggiunta, modifica, cancellazione e dialog CMSwift ricercabile per la lista completa.
+- Il box `Prompt` di `ai.html` ora replica il pattern operativo di `connections.html`: header con titolo/add/visualizza tutti, filtro categoria e switch lista/box, con `category` persistita sui prompt.
+- La toolbar `Prompt` di `ai.html` usa ora componenti CMSwift (`_.Select` categoria e `_.Search` prompt) prima dello switch lista/box, con filtro combinato sui prompt salvati.
+- Lo stato vuoto di `Prompt` in `ai.html` ora usa una drop-zone centrale con bordo tratteggiato, griglia leggera e CTA `Aggiungi Prompt`.
+- Il dialog `Nuovo prompt` di `ai.html` e stato riallineato ai pattern CMSwift della pagina: input/select CMSwift e pannello scuro piatto senza gradienti.
+- Il box `AI Agents` di `ai.html` segue ora lo stesso pattern operativo del box `Prompt`: header, filtro stato, ricerca, switch lista/box ed empty-state centrale.
+- Il layout sotto le KPI di `ai.html` e stato riordinato per righe: Agents/Prompt, Providers/Memory, Jobs/Logs e analytics finali a quattro card.
+- Le righe operative principali sotto le KPI di `ai.html` sono ora uniformate a circa 500px di altezza per dare pari peso visuale ad Agents/Prompt, Providers/Memory e Jobs/Logs.
+- Il box `AI Agents` di `ai.html` ha ora toolbar a riga unica come `Prompt` e azioni operative `Aggiungi` / `Visualizza tutti` su `tl_ai_agents`, con dialog CMSwift per lista ricercabile, creazione, modifica ed eliminazione.
 - Le KPI card, il box `Flusso Attivita Live`, i grafici realtime e `System Health` di `analytics.html` usano ora signal CMSwift e si aggiornano in-place ogni 5s: metriche, lista eventi, chart cards e health gauge vengono patchati senza rimontare tutta la pagina.
 - I grafici realtime di `analytics.html` non sono piu linee decorative: usano serie SVG calcolate da bucket runtime recenti (`tl_events`, `tl_flow_logs`, `tl_box_performance`) e mostrano stato vuoto quando manca telemetria.
 - Gli stati vuoti dei grafici realtime restano ora vincolati alla superficie del grafico, evitando overflow dentro le card compatte.
@@ -92,6 +104,11 @@ Priorita successive:
 - La sparkline decorativa di `Storage & Database` e stata rimossa: la card mostra solo donut e dettagli storage.
 - Le card analytics inferiori di `analytics.html` (`Distribuzione per Tipo`, `AI Analytics`, `Storage & Database`, `Workspace Activity`, `Top Endpoint`) sono ora incluse nel refresh reattivo ogni 5s con patch mirata della sezione bottom e dati reali da IndexedDB/runtime.
 - I donut `Distribuzione per Tipo` e `Storage & Database` usano ora gradienti conic calcolati dai valori correnti, non piu segmenti CSS statici.
+- `settings.html` e stato riallineato come control panel operativo: la sidebar categorie `Impostazioni` resta sticky, la barra `Azioni Rapide` resta sopra i pannelli e il contenuto principale usa una griglia a due colonne ordinata per coppie funzionali, con scroll normale sul contenitore pagina e `Sicurezza & API Keys` a larghezza piena.
+- `settings.html` ha avviato il passaggio a update reattivi CMSwift: settings/runtime chrome sono tracciati da signal, toggle e slider non rimontano piu la shell e pill header/footer vengono aggiornati con patch mirate quando cambia solo notice/stato.
+- Il pannello `Backup & Ripristino` di `settings.html` usa ora lo spazio extra per una visualizzazione operativa con ultimo backup, tempo trascorso, dimensione, prossimo backup stimato e countdown basato sulla frequenza locale.
+- Il pannello `Sicurezza & API Keys` di `settings.html` e stato trasformato in un blocco operativo con titolo, ricerca locale e CTA `Aggiungi Nuova Chiave`, con filtro e mutazioni add/edit/delete applicate tramite patch del solo pannello.
+- L'aside `Impostazioni` di `settings.html` e ora collegato ai pannelli reali: click con smooth-scroll, active state automatico durante lo scroll e search topbar che evidenzia categorie/pannelli pertinenti senza trasformare la pagina in tab nascoste.
 - Questi interventi non cambiano la visione strategica in `docs/new_vision.md`; consolidano l'ergonomia locale di editor, library, Flow Map e Connections dentro la direzione runtime operating environment.
 
 ## Milestone consigliate
