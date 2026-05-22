@@ -1,15 +1,24 @@
 const icon = (name, size = "md") => _.Icon({ name, size });
 const btn = (props, ...children) => _.Btn({ type: "button", ...props }, ...children);
 const dot = (props = {}) => _.span({ ...props, class: `tl-analytics-dot${props.class ? ` ${props.class}` : ""}` });
+const svgNode = (name, attrs = {}, ...children) => {
+  const node = document.createElementNS("http://www.w3.org/2000/svg", name);
+  Object.entries(attrs).forEach(([key, value]) => {
+    if (value === false || value == null) return;
+    node.setAttribute(key, String(value === true ? "" : value));
+  });
+  children.flat().filter(Boolean).forEach((child) => node.append(child));
+  return node;
+};
 
 const fallbackMetricCards = [
-  { label: "Tracker Attivi", value: "24", delta: "+12%", tone: "gold", icon: "my_location" },
-  { label: "Connessioni Live", value: "38", delta: "+8%", tone: "green", icon: "hub" },
-  { label: "Richieste/min", value: "1.248", delta: "+18%", tone: "blue", icon: "lan" },
-  { label: "AI Jobs Attivi", value: "5", delta: "+2", tone: "gold", icon: "psychology" },
-  { label: "Success Rate", value: "98.6%", delta: "+1.3%", tone: "green", icon: "donut_large" },
-  { label: "Error Rate", value: "1.4%", delta: "-0.7%", tone: "red", icon: "error_outline" },
-  { label: "Memoria Usata", value: "256 MB", delta: "54%", tone: "gold", icon: "inventory_2" },
+  { label: "Tracker Attivi", value: "24", delta: "demo", source: "demo", tone: "gold", icon: "my_location" },
+  { label: "Connessioni Live", value: "38", delta: "demo", source: "demo", tone: "green", icon: "hub" },
+  { label: "Richieste/min", value: "1.248", delta: "demo", source: "demo", tone: "blue", icon: "lan" },
+  { label: "AI Jobs Attivi", value: "5", delta: "demo", source: "demo", tone: "gold", icon: "psychology" },
+  { label: "Success Rate", value: "98.6%", delta: "demo", source: "demo", tone: "green", icon: "donut_large" },
+  { label: "Error Rate", value: "1.4%", delta: "demo", source: "demo", tone: "red", icon: "error_outline" },
+  { label: "Memoria Usata", value: "256 MB", delta: "demo", source: "demo", tone: "gold", icon: "inventory_2" },
 ];
 
 const fallbackLiveEvents = [
@@ -76,6 +85,7 @@ const analyticsState = {
   storage: {
     totalLabel: "2.45 GB",
     quotaLabel: "/ 5 GB",
+    percent: 72,
     lines: ["IndexedDB 1.78 GB (72%)", "Cache 420 MB (17%)", "Logs 180 MB (7%)", "Altri 80 MB (4%)"],
   },
   workspaces: [
@@ -94,6 +104,17 @@ const analyticsState = {
     lastUpdate: "12:32:18",
   },
 };
+
+const reactive = window.CMSwift?.reactive || window._?.reactive;
+const [getLiveEvents, setLiveEvents] = reactive?.signal
+  ? reactive.signal(analyticsState.liveEvents)
+  : [() => analyticsState.liveEvents, (value) => { analyticsState.liveEvents = value; }];
+const [getMetrics, setMetrics] = reactive?.signal
+  ? reactive.signal(analyticsState.metrics)
+  : [() => analyticsState.metrics, (value) => { analyticsState.metrics = value; }];
+const [getChartState, setChartState] = reactive?.signal
+  ? reactive.signal({ chart: analyticsState.chart, services: analyticsState.services })
+  : [() => ({ chart: analyticsState.chart, services: analyticsState.services }), (value) => { analyticsState.chart = value.chart; analyticsState.services = value.services; }];
 
 const contentOf = (record) =>
   record?.content && typeof record.content === "object" ? record.content : record || {};
@@ -198,6 +219,70 @@ const normalizeWorkspaceRecord = (record, index) => {
   };
 };
 
+const activityStatus = (status = "") => {
+  const value = String(status).toLowerCase();
+  if (["error", "failed", "timeout", "warn", "warning"].some((item) => value.includes(item))) return value.includes("warn") ? "warn" : "error";
+  if (["active", "ok", "success", "emitted", "received", "online"].some((item) => value.includes(item))) return "online";
+  return value || "online";
+};
+
+const activityIcon = (item = {}) => {
+  const value = `${item.eventType || ""} ${item.level || ""} ${item.channel || ""} ${item.message || ""}`.toLowerCase();
+  if (value.includes("error") || value.includes("timeout")) return "error_outline";
+  if (value.includes("websocket") || value.includes("ws")) return "settings_input_antenna";
+  if (value.includes("flow") || value.includes("connection")) return "account_tree";
+  if (value.includes("channel") || item.channel) return "hub";
+  return "my_location";
+};
+
+const liveEventTuples = (items = []) =>
+  items
+    .sort((a, b) => Date.parse(b.at || 0) - Date.parse(a.at || 0))
+    .slice(0, 8)
+    .map((item) => [item.time || timeLabel(item.at), item.title || "Evento", item.desc || "Aggiornato", activityStatus(item.status || item.level), item.icon || activityIcon(item)]);
+
+const readRuntimeActivity = async () => {
+  if (!window.TrackerLensEventLogStore) return [];
+  const [events, flowLogs] = await Promise.all([
+    window.TrackerLensEventLogStore.listEvents().catch(() => []),
+    window.TrackerLensEventLogStore.listFlowLogs().catch(() => []),
+  ]);
+  return [
+    ...events.map((event) => ({
+      at: event.createdAt,
+      title: event.channel || event.sourceNodeId || "Runtime event",
+      desc: `${event.eventType || "event"} · ${event.status || "ok"}`,
+      status: event.status || event.eventType,
+      icon: activityIcon(event),
+    })),
+    ...flowLogs.map((log) => ({
+      at: log.createdAt,
+      title: log.nodeId || log.connectionId || "Flow log",
+      desc: log.message || `${log.level || "info"} · runtime`,
+      status: log.level,
+      icon: activityIcon(log),
+    })),
+  ];
+};
+
+const bucketValues = (items = [], { valueOf = () => 1, dateOf = (item) => item.createdAt || item.updatedAt, bucketCount = 18 } = {}) => {
+  const now = Date.now();
+  const windowMs = 30 * 60 * 1000;
+  const bucketMs = windowMs / bucketCount;
+  const buckets = Array.from({ length: bucketCount }, () => ({ total: 0, count: 0 }));
+
+  items.forEach((item) => {
+    const date = new Date(dateOf(item) || 0);
+    const time = date.getTime();
+    if (!time || Number.isNaN(time) || time < now - windowMs || time > now + 1000) return;
+    const index = Math.min(bucketCount - 1, Math.max(0, Math.floor((time - (now - windowMs)) / bucketMs)));
+    buckets[index].total += Number(valueOf(item)) || 0;
+    buckets[index].count += 1;
+  });
+
+  return buckets.map((bucket) => (bucket.count ? Math.round((bucket.total / bucket.count) * 10) / 10 : 0));
+};
+
 const buildAnalyticsData = async () => {
   const started = performance.now();
   const [widgetRecords, pageRecords, connections, storage] = await Promise.all([
@@ -267,7 +352,17 @@ const buildAnalyticsData = async () => {
   const lastItems = [
     ...connections.map((item) => ({ at: item.updatedAt || item.createdAt, title: item.name, desc: `${item.type || "Collegamento"} · ${item.result || item.status || "sincronizzato"}`, status: String(item.status || "active").toLowerCase(), icon: item.type === "WebSocket" ? "settings_input_antenna" : "hub" })),
     ...trackers.map((item) => ({ at: item.updatedAt, title: item.name, desc: `${item.category || "Tracker"} · ${item.endpoint ? hostFrom(item.endpoint) : "runtime locale"}`, status: item.active ? "online" : "warn", icon: /ai/i.test(item.name) ? "psychology" : "my_location" })),
-  ].sort((a, b) => new Date(b.at || 0) - new Date(a.at || 0));
+  ];
+  const runtimeItems = await readRuntimeActivity();
+  const liveEvents = liveEventTuples(runtimeItems.length ? runtimeItems : lastItems.length ? lastItems : fallbackLiveEvents.map(([time, title, desc, status, iconName]) => ({ time, title, desc, status, icon: iconName })));
+  const runtimeEventRows = runtimeItems.filter((item) => item.at);
+  const requestSeries = bucketValues(runtimeEventRows, { valueOf: () => 1, dateOf: (item) => item.at });
+  const latencySeries = bucketValues(performanceRecords, { valueOf: (item) => Number(item.avgLatencyMs) || 0, dateOf: (item) => item.updatedAt || item.createdAt });
+  const errorItems = [
+    ...runtimeEventRows.filter((item) => activityStatus(item.status) === "error"),
+    ...errorConnections.map((item) => ({ at: item.updatedAt || item.createdAt })),
+  ];
+  const errorSeries = bucketValues(errorItems, { valueOf: () => 1, dateOf: (item) => item.at });
 
   const realTrackerRows = trackers.slice(0, 8).map((tracker, index) => {
     const perf = performanceByBox.get(tracker.id) || {};
@@ -300,17 +395,17 @@ const buildAnalyticsData = async () => {
     queryMs,
     source: dbOnline ? "indexeddb" : "empty",
     metrics: [
-      { label: "Tracker Attivi", value: formatNumber(trackers.filter((item) => item.active).length), delta: `${trackers.length} totali`, tone: "gold", icon: "my_location" },
-      { label: "Connessioni Live", value: formatNumber(activeConnections.length), delta: `${connections.length} totali`, tone: "green", icon: "hub" },
-      { label: "Richieste/min", value: formatNumber(requestEstimate), delta: "stima runtime", tone: "blue", icon: "lan" },
-      { label: "Events/sec", value: perfEventRate.toFixed(2), delta: performanceRecords.length ? "runtime reale" : "in attesa", tone: "blue", icon: "speed" },
-      { label: "AI Jobs Attivi", value: formatNumber(aiItems.length), delta: `${aiItems.length ? "+ real" : "0"}`, tone: "gold", icon: "psychology" },
-      { label: "Success Rate", value: `${successRate.toFixed(1)}%`, delta: `${activeConnections.length} ok`, tone: "green", icon: "donut_large" },
-      { label: "Error Rate", value: `${errorRate.toFixed(1)}%`, delta: `${errorConnections.length} errori`, tone: "red", icon: "error_outline" },
-      { label: "Memoria Box", value: formatBytes(perfMemory), delta: performanceRecords.length ? "stimata" : "idle", tone: "gold", icon: "memory" },
-      { label: "Memoria Usata", value: formatBytes(usage), delta: `${storagePercent}%`, tone: "gold", icon: "inventory_2" },
+      { label: "Tracker Attivi", value: formatNumber(trackers.filter((item) => item.active).length), delta: `${trackers.length} totali`, source: "IndexedDB", tone: "gold", icon: "my_location" },
+      { label: "Connessioni Live", value: formatNumber(activeConnections.length), delta: `${connections.length} totali`, source: "IndexedDB", tone: "green", icon: "hub" },
+      { label: "Richieste/min", value: formatNumber(requestEstimate), delta: "stima runtime", source: perfEventRate ? "Performance" : "Stimato", tone: "blue", icon: "lan" },
+      { label: "Events/sec", value: perfEventRate.toFixed(2), delta: performanceRecords.length ? "runtime reale" : "in attesa", source: performanceRecords.length ? "Performance" : "idle", tone: "blue", icon: "speed" },
+      { label: "AI Jobs Attivi", value: formatNumber(aiItems.length), delta: `${aiItems.length ? "rilevati" : "0"}`, source: "IndexedDB", tone: "gold", icon: "psychology" },
+      { label: "Success Rate", value: `${successRate.toFixed(1)}%`, delta: `${activeConnections.length} ok`, source: connections.length ? "Connessioni" : "Stimato", tone: "green", icon: "donut_large" },
+      { label: "Error Rate", value: `${errorRate.toFixed(1)}%`, delta: `${errorConnections.length} errori`, source: connections.length || perfEvents ? "Runtime" : "idle", tone: "red", icon: "error_outline" },
+      { label: "Memoria Box", value: formatBytes(perfMemory), delta: performanceRecords.length ? "stimata" : "idle", source: performanceRecords.length ? "Performance" : "idle", tone: "gold", icon: "memory" },
+      { label: "Memoria Usata", value: formatBytes(usage), delta: `${storagePercent}% quota`, source: storage ? "Storage API" : "Stimato", tone: "gold", icon: "inventory_2" },
     ],
-    liveEvents: (lastItems.length ? lastItems : fallbackLiveEvents.map(([time, title, desc, status, iconName]) => ({ time, title, desc, status, icon: iconName }))).slice(0, 8).map((item) => [item.time || timeLabel(item.at), item.title || "Evento", item.desc || "Aggiornato", item.status === "active" ? "online" : item.status, item.icon || "hub"]),
+    liveEvents,
     trackers: realTrackerRows.length ? realTrackerRows : fallbackTrackers,
     services: [
       ["IndexedDB", dbOnline ? "Online" : "Vuoto", dbOnline ? "online" : "warn", "database"],
@@ -326,12 +421,19 @@ const buildAnalyticsData = async () => {
       latency: avgLatency ? `${avgLatency} ms` : "idle",
       errors: `${formatNumber(perfErrors || errorConnections.length)} errori`,
       health: String(healthScore),
+      requestSeries,
+      latencySeries,
+      errorSeries,
+      hasRequestSeries: requestSeries.some(Boolean),
+      hasLatencySeries: latencySeries.some(Boolean),
+      hasErrorSeries: errorSeries.some(Boolean),
     },
     distribution,
     ai: [`Jobs Completati ${formatNumber(aiItems.length)}`, `Tracker AI ${formatNumber(widgets.filter((item) => /ai/i.test(item.name)).length)}`, `Connessioni AI ${formatNumber(connections.filter((item) => /ai/i.test(item.name || item.type)).length)}`, `Modelli Usati ${aiItems.length ? "local/runtime" : "0"}`],
     storage: {
       totalLabel: formatBytes(usage),
       quotaLabel: `/ ${formatBytes(quota)}`,
+      percent: storagePercent,
       lines: [`IndexedDB ${formatBytes(usage)} (${storagePercent}%)`, `Widget ${formatNumber(widgets.length)} record`, `Workspace ${formatNumber(pages.length)} record`, `Collegamenti ${formatNumber(connections.length)} record`],
     },
     workspaces: workspaces.length ? workspaces : analyticsState.workspaces,
@@ -380,12 +482,37 @@ const renderSpark = (tone, seed = 0) =>
 const renderMetricCard = (metric, index) =>
   _.Card(
     { class: `tl-analytics-metric is-${metric.tone}` },
-    _.Row(
-      { align: "center", gap: 12 },
-      _.span({ class: "tl-analytics-metric-icon" }, icon(metric.icon, "md")),
-      _.div(_.span({ class: "tl-analytics-label" }, metric.label), _.strong(metric.value))
+    _.div(
+      { class: "tl-analytics-metric-head" },
+      _.span({ class: "tl-analytics-metric-icon" }, icon(metric.icon, "sm")),
+      _.span({ class: "tl-analytics-label" }, metric.label)
     ),
-    _.Row({ justify: "space-between", align: "center" }, renderSpark(metric.tone, index * 7), _.span({ class: `tl-analytics-delta is-${metric.tone}` }, metric.delta))
+    _.strong(metric.value),
+    _.div(
+      { class: "tl-analytics-metric-foot" },
+      _.span({ class: `tl-analytics-delta is-${metric.tone}` }, metric.delta),
+      _.span({ class: "tl-analytics-source" }, metric.source || "runtime")
+    ),
+    renderSpark(metric.tone, index * 7)
+  );
+
+const renderMetricCards = (metrics = getMetrics()) =>
+  metrics.map(renderMetricCard);
+
+const renderChartCards = () => [
+  renderLineChart("Traffico Richieste", "Richieste al minuto", "gold"),
+  renderLineChart("Endpoint Performance (ms)", "Tempo medio di risposta", "green", true),
+  renderBarChart(),
+];
+
+const renderLiveEventRows = (events = getLiveEvents()) =>
+  events.map(([time, title, desc, status, iconName]) =>
+    _.div(
+      { class: `tl-analytics-event is-${status}` },
+      _.span({ class: "tl-analytics-event-icon" }, icon(iconName, "sm")),
+      _.div(_.time(time), _.strong(title), _.p(desc)),
+      dot()
+    )
   );
 
 const renderHeader = () =>
@@ -408,7 +535,7 @@ const renderHeader = () =>
         btn({ class: "tl-analytics-icon-btn", "aria-label": "Aggiorna", onclick: mountAnalytics }, icon("refresh", "sm"))
       )
     ),
-    _.Grid({ class: "tl-analytics-metrics-grid", cols: "repeat(auto-fit, minmax(160px, 1fr))", gap: 10 }, ...analyticsState.metrics.map(renderMetricCard))
+    _.Grid({ class: "tl-analytics-metrics-grid", "data-analytics-metrics": "true", cols: "repeat(auto-fit, minmax(138px, 1fr))", gap: 10 }, ...renderMetricCards())
   );
 
 const renderLiveStream = () =>
@@ -416,51 +543,84 @@ const renderLiveStream = () =>
     { class: "tl-analytics-stream", "aria-label": "Flusso attivita live" },
     _.Row({ justify: "space-between", align: "center" }, _.h3("Flusso Attività Live"), _.span({ class: "tl-analytics-live-chip" }, dot(), "LIVE")),
     _.div(
-      { class: "tl-analytics-event-list" },
-      ...analyticsState.liveEvents.map(([time, title, desc, status, iconName]) =>
-        _.div(
-          { class: `tl-analytics-event is-${status}` },
-          _.span({ class: "tl-analytics-event-icon" }, icon(iconName, "sm")),
-          _.div(_.time(time), _.strong(title), _.p(desc)),
-          dot()
-        )
-      )
+      { class: "tl-analytics-event-list", "data-analytics-live-events": "true" },
+      ...renderLiveEventRows()
     ),
     btn({ class: "tl-analytics-log-btn", onclick: () => openDevTools("events") }, icon("article", "sm"), "Visualizza tutto il log")
   );
 
-const renderLineChart = (title, meta, tone = "gold", multi = false) =>
+const chartPoints = (values = [], maxValue = Math.max(1, ...values)) =>
+  values.map((value, index) => {
+    const x = 12 + (index * (256 / Math.max(1, values.length - 1)));
+    const y = 112 - ((Number(value) || 0) / maxValue) * 86;
+    return `${x.toFixed(1)},${y.toFixed(1)}`;
+  }).join(" ");
+
+const renderSvgLineChart = ({ values = [], tone = "gold", color = "#ffc72c", empty = false }) => {
+  const maxValue = Math.max(1, ...values);
+  const points = chartPoints(values, maxValue);
+  return _.div(
+    { class: `tl-analytics-chart-surface is-${tone}${empty ? " is-empty" : ""}` },
+    svgNode(
+      "svg",
+      { class: "tl-analytics-chart-svg", viewBox: "0 0 280 128", role: "img", "aria-label": empty ? "Nessuna telemetria disponibile" : "Grafico runtime reale" },
+      [30, 60, 90].map((y) => svgNode("line", { class: "tl-analytics-chart-grid", x1: 12, y1: y, x2: 268, y2: y })),
+      empty
+        ? svgNode("line", { class: "tl-analytics-chart-empty-line", x1: 12, y1: 96, x2: 268, y2: 96 })
+        : svgNode("polyline", { points, fill: "none", stroke: color, "stroke-width": 3, "stroke-linecap": "round", "stroke-linejoin": "round" }),
+      !empty && svgNode("circle", { cx: points.split(" ").at(-1)?.split(",")[0], cy: points.split(" ").at(-1)?.split(",")[1], r: 3.5, fill: color })
+    ),
+    empty && _.span({ class: "tl-analytics-chart-empty" }, "Nessuna telemetria")
+  );
+};
+
+const renderErrorBars = (values = []) => {
+  const maxValue = Math.max(1, ...values);
+  const empty = !values.some(Boolean);
+  return _.div(
+    { class: `tl-analytics-chart-surface is-red${empty ? " is-empty" : ""}` },
+    svgNode(
+      "svg",
+      { class: "tl-analytics-chart-svg", viewBox: "0 0 280 128", role: "img", "aria-label": empty ? "Nessun errore registrato" : "Errori runtime reali" },
+      [30, 60, 90].map((y) => svgNode("line", { class: "tl-analytics-chart-grid", x1: 12, y1: y, x2: 268, y2: y })),
+      values.map((value, index) => {
+        const x = 14 + (index * (252 / Math.max(1, values.length - 1)));
+        const height = empty ? 0 : Math.max(4, ((Number(value) || 0) / maxValue) * 88);
+        return svgNode("rect", { class: "tl-analytics-chart-bar", x: x.toFixed(1), y: (108 - height).toFixed(1), width: 5, height: height.toFixed(1), rx: 2 });
+      })
+    ),
+    empty && _.span({ class: "tl-analytics-chart-empty" }, "Nessun errore")
+  );
+};
+
+const renderLineChart = (title, meta, tone = "gold", multi = false, chart = getChartState().chart) =>
   _.Card(
     { class: "tl-analytics-chart-card" },
-    _.Row({ justify: "space-between", align: "center" }, _.div(_.h3(title), _.p(meta)), _.span({ class: `tl-analytics-chart-pill is-${tone}` }, multi ? analyticsState.chart.latency : analyticsState.chart.requests)),
-    _.div(
-      { class: `tl-analytics-line-chart is-${tone}${multi ? " is-multi" : ""}` },
-      _.span({ class: "line one" }),
-      _.span({ class: "line two" }),
-      _.span({ class: "line three" }),
-      _.span({ class: "line four" })
-    )
+    _.Row({ justify: "space-between", align: "center" }, _.div(_.h3(title), _.p(meta)), _.span({ class: `tl-analytics-chart-pill is-${tone}` }, multi ? chart.latency : chart.requests)),
+    renderSvgLineChart({
+      values: multi ? chart.latencySeries : chart.requestSeries,
+      tone,
+      color: multi ? "#35c979" : "#ffc72c",
+      empty: multi ? !chart.hasLatencySeries : !chart.hasRequestSeries,
+    })
   );
 
 const renderBarChart = () =>
   _.Card(
     { class: "tl-analytics-chart-card" },
-    _.Row({ justify: "space-between", align: "center" }, _.div(_.h3("Errori & Timeout"), _.p("Errori negli ultimi 30 minuti")), _.span({ class: "tl-analytics-chart-pill is-red" }, analyticsState.chart.errors)),
-    _.div(
-      { class: "tl-analytics-bars" },
-      ...Array.from({ length: 26 }, (item, index) => _.span({ style: { height: `${12 + ((index * 17) % 72)}%` } }))
-    )
+    _.Row({ justify: "space-between", align: "center" }, _.div(_.h3("Errori & Timeout"), _.p("Errori negli ultimi 30 minuti")), _.span({ class: "tl-analytics-chart-pill is-red" }, getChartState().chart.errors)),
+    renderErrorBars(getChartState().chart.errorSeries)
   );
 
-const renderGauge = () =>
+const renderGauge = (state = getChartState()) =>
   _.Card(
     { class: "tl-analytics-system-card" },
     _.h3("System Health"),
-    _.div({ class: "tl-analytics-gauge" }, _.strong(analyticsState.chart.health), _.span("/100"), _.p("Salute Sistema")),
+    _.div({ class: "tl-analytics-gauge", style: { "--health": `${Math.max(0, Math.min(100, Number(state.chart.health) || 0))}%` } }, _.strong(state.chart.health), _.span("/100"), _.p("Salute Sistema")),
     _.div(
       { class: "tl-analytics-service-list" },
-      ...analyticsState.services.map(([name, state, status, iconName]) =>
-        _.div({ class: "tl-analytics-service" }, _.span(icon(iconName, "sm"), name), _.strong({ class: `is-${status}` }, dot(), state))
+      ...state.services.map(([name, serviceState, status, iconName]) =>
+        _.div({ class: "tl-analytics-service" }, _.span(icon(iconName, "sm"), name), _.strong({ class: `is-${status}` }, dot(), serviceState))
       )
     ),
     btn({ class: "tl-analytics-link-btn", onclick: () => openDevTools("overview") }, "Vedi tutti i servizi", icon("chevron_right", "sm"))
@@ -468,10 +628,8 @@ const renderGauge = () =>
 
 const renderMetricsArea = () =>
   _.section(
-    { class: "tl-analytics-realtime" },
-    renderLineChart("Traffico Richieste", "Richieste al minuto", "gold"),
-    renderLineChart("Endpoint Performance (ms)", "Tempo medio di risposta", "green", true),
-    renderBarChart()
+    { class: "tl-analytics-realtime", "data-analytics-charts": "true" },
+    ...renderChartCards()
   );
 
 const renderTrackerTable = () =>
@@ -507,53 +665,96 @@ const renderTrackerTable = () =>
 const renderRightPanel = () =>
   _.aside(
     { class: "tl-analytics-right" },
-    renderGauge(),
-    _.Card(
-      { class: "tl-analytics-endpoint-card" },
-      _.Row({ justify: "space-between", align: "center" }, _.h3("Top Endpoint"), btn({ class: "tl-analytics-tiny-select" }, "Per richieste", icon("keyboard_arrow_down", "sm"))),
-      ...analyticsState.endpoints.map(([name, count, width]) =>
-        _.div({ class: "tl-analytics-endpoint" }, _.span(name), _.strong(count), _.span({ class: "tl-analytics-bar", style: { "--w": `${width}%` } }))
-      ),
-      btn({ class: "tl-analytics-link-btn" }, "Vedi tutti gli endpoint")
-    )
+    _.div({ "data-analytics-system-health": "true" }, renderGauge())
   );
 
-const renderDonut = (className, value, label) =>
-  _.div({ class: `tl-analytics-donut ${className}` }, _.strong(value), _.span(label));
+const renderTopEndpointCard = () =>
+  _.Card(
+    { class: "tl-analytics-endpoint-card tl-analytics-bottom-card is-endpoints" },
+    _.Row({ class: "tl-analytics-endpoint-head", justify: "space-between", align: "center" }, _.h3("Top Endpoint"), btn({ class: "tl-analytics-tiny-select" }, "Per richieste", icon("keyboard_arrow_down", "sm"))),
+    ...analyticsState.endpoints.slice(0, 3).map(([name, count, width]) =>
+      _.div({ class: "tl-analytics-endpoint" }, _.span(name), _.strong(count), _.span({ class: "tl-analytics-bar", style: { "--w": `${width}%` } }))
+    ),
+    btn({ class: "tl-analytics-link-btn" }, "Vedi tutti gli endpoint")
+  );
+
+const donutColors = ["#d99a00", "#35c979", "#368df8", "#ffc72c", "#8a95a3"];
+
+const donutGradient = (items = [], { emptyColor = "rgba(148, 163, 184, 0.22)" } = {}) => {
+  const total = items.reduce((sum, item) => sum + Math.max(0, Number(item.value) || 0), 0);
+  if (!total) return `conic-gradient(${emptyColor} 0 100%)`;
+  let cursor = 0;
+  const segments = items.map((item, index) => {
+    const value = Math.max(0, Number(item.value) || 0);
+    const start = cursor;
+    const end = index === items.length - 1 ? 100 : cursor + ((value / total) * 100);
+    cursor = end;
+    return `${item.color || donutColors[index % donutColors.length]} ${start.toFixed(2)}% ${end.toFixed(2)}%`;
+  });
+  return `conic-gradient(${segments.join(", ")})`;
+};
+
+const renderDonut = (className, value, label, gradient) =>
+  _.div({ class: `tl-analytics-donut ${className}`, style: { "--donut-gradient": gradient } }, _.strong(value), _.span(label));
+
+const renderDistributionDonut = () =>
+  renderDonut(
+    "is-multi",
+    String(analyticsState.distribution.reduce((total, item) => total + Number(item[1] || 0), 0)),
+    "Totale",
+    donutGradient(analyticsState.distribution.map((item, index) => ({ value: item[1], color: donutColors[index % donutColors.length] })))
+  );
+
+const renderStorageDonut = () => {
+  const usedPercent = Math.max(0, Math.min(100, Number(analyticsState.storage.percent) || 0));
+  return renderDonut(
+    "is-storage",
+    analyticsState.storage.totalLabel,
+    analyticsState.storage.quotaLabel,
+    donutGradient([
+      { value: usedPercent, color: "#d99a00" },
+      { value: Math.max(0, 100 - usedPercent), color: "rgba(148, 163, 184, 0.22)" },
+    ])
+  );
+};
 
 const renderAnalyticsCards = () =>
   _.section(
-    { class: "tl-analytics-bottom" },
+    { class: "tl-analytics-bottom", "data-analytics-bottom": "true" },
     _.Card(
-      { class: "tl-analytics-bottom-card" },
+      { class: "tl-analytics-bottom-card is-distribution" },
       _.h3("Distribuzione per Tipo"),
       _.div(
         { class: "tl-analytics-donut-row" },
-        renderDonut("is-multi", String(analyticsState.distribution.reduce((total, item) => total + Number(item[1] || 0), 0)), "Totale"),
+        renderDistributionDonut(),
         _.div(...analyticsState.distribution.map(([name, count, pct]) => _.p(`${name} ${count} (${pct})`)))
       )
     ),
     _.Card(
-      { class: "tl-analytics-bottom-card" },
+      { class: "tl-analytics-bottom-card is-ai" },
       _.h3("AI Analytics"),
       _.div(
         { class: "tl-analytics-ai-layout" },
         _.div({ class: "tl-analytics-ai-core" }, _.span(icon("psychology", "lg"))),
-        _.div({ class: "tl-analytics-ai-list" }, ...analyticsState.ai.map((line) => _.p(line)))
+        _.div({ class: "tl-analytics-ai-list" }, ...analyticsState.ai.map((line) => _.Chip({ class: "tl-analytics-ai-chip", label: line })))
       )
     ),
     _.Card(
-      { class: "tl-analytics-bottom-card" },
+      { class: "tl-analytics-bottom-card is-storage" },
       _.h3("Storage & Database"),
-      _.div({ class: "tl-analytics-donut-row" }, renderDonut("is-storage", analyticsState.storage.totalLabel, analyticsState.storage.quotaLabel), _.div(...analyticsState.storage.lines.map((line) => _.p(line)))),
-      renderSpark("green", 22)
+      _.div(
+        { class: "tl-analytics-donut-row is-storage-layout" },
+        renderStorageDonut(),
+        _.div({ class: "tl-analytics-storage-details" }, ...analyticsState.storage.lines.map((line) => _.p(line)))
+      )
     ),
     _.Card(
-      { class: "tl-analytics-bottom-card" },
+      { class: "tl-analytics-bottom-card is-workspace" },
       _.h3("Workspace Activity"),
       ...analyticsState.workspaces.map(([name, width]) => _.div({ class: "tl-analytics-workspace-bar" }, _.span(name), _.span({ class: "tl-analytics-bar", style: { "--w": `${width}%` } }))),
       btn({ class: "tl-analytics-link-btn" }, "Visualizza tutti i workspace")
-    )
+    ),
+    renderTopEndpointCard()
   );
 
 const renderFooter = () =>
@@ -567,6 +768,65 @@ const renderFooter = () =>
     _.span(analyticsState.footer.indexedDb),
     _.span(`Last Update ${analyticsState.footer.lastUpdate}`)
   );
+
+const replaceLiveStreamDom = () => {
+  const list = document.querySelector("[data-analytics-live-events]");
+  if (!list) return false;
+  const scrollTop = list.scrollTop;
+  list.replaceChildren(...renderLiveEventRows());
+  list.scrollTop = scrollTop;
+  return true;
+};
+
+const replaceMetricCardsDom = () => {
+  const grid = document.querySelector("[data-analytics-metrics]");
+  if (!grid) return false;
+  grid.replaceChildren(...renderMetricCards());
+  return true;
+};
+
+const replaceChartCardsDom = () => {
+  const charts = document.querySelector("[data-analytics-charts]");
+  if (!charts) return false;
+  charts.replaceChildren(...renderChartCards());
+  return true;
+};
+
+const replaceSystemHealthDom = () => {
+  const health = document.querySelector("[data-analytics-system-health]");
+  if (!health) return false;
+  health.replaceChildren(renderGauge());
+  return true;
+};
+
+const replaceBottomAnalyticsDom = () => {
+  const bottom = document.querySelector("[data-analytics-bottom]");
+  if (!bottom) return false;
+  bottom.replaceWith(renderAnalyticsCards());
+  return true;
+};
+
+const refreshSmallAnalytics = async () => {
+  const nextState = await buildAnalyticsData();
+  analyticsState.metrics = nextState.metrics;
+  analyticsState.liveEvents = nextState.liveEvents;
+  analyticsState.chart = nextState.chart;
+  analyticsState.services = nextState.services;
+  analyticsState.footer = nextState.footer;
+  analyticsState.distribution = nextState.distribution;
+  analyticsState.ai = nextState.ai;
+  analyticsState.storage = nextState.storage;
+  analyticsState.workspaces = nextState.workspaces;
+  analyticsState.endpoints = nextState.endpoints;
+  setMetrics(nextState.metrics);
+  setLiveEvents(nextState.liveEvents);
+  setChartState({ chart: nextState.chart, services: nextState.services });
+  replaceMetricCardsDom();
+  replaceLiveStreamDom();
+  replaceChartCardsDom();
+  replaceSystemHealthDom();
+  replaceBottomAnalyticsDom();
+};
 
 const renderShell = () =>
   _.div(
@@ -595,6 +855,9 @@ const mountAnalytics = async () => {
   root.replaceChildren(renderShell());
   try {
     Object.assign(analyticsState, await buildAnalyticsData());
+    setLiveEvents(analyticsState.liveEvents);
+    setMetrics(analyticsState.metrics);
+    setChartState({ chart: analyticsState.chart, services: analyticsState.services });
   } catch (error) {
     console.warn("Analytics real data non disponibili:", error);
     Object.assign(analyticsState, {
@@ -602,8 +865,20 @@ const mountAnalytics = async () => {
       error: error?.message || "Dati reali non disponibili",
       footer: { ...analyticsState.footer, indexedDb: "IndexedDB error", lastUpdate: timeLabel(new Date()) },
     });
+    setLiveEvents(analyticsState.liveEvents);
+    setMetrics(analyticsState.metrics);
+    setChartState({ chart: analyticsState.chart, services: analyticsState.services });
   }
   root.replaceChildren(renderShell());
 };
 
-mountAnalytics();
+let smallAnalyticsTimer = null;
+
+const startLiveStreamRefresh = () => {
+  if (smallAnalyticsTimer) window.clearInterval(smallAnalyticsTimer);
+  smallAnalyticsTimer = window.setInterval(() => {
+    refreshSmallAnalytics().catch((error) => console.warn("KPI/live analytics non aggiornati:", error));
+  }, 5000);
+};
+
+mountAnalytics().then(startLiveStreamRefresh);

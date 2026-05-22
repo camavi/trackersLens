@@ -75,6 +75,23 @@ Priorita successive:
 - Il box `Top Endpoint` di `connections.html` usa ora una preview compatta top-3 con icona, conteggio, barra proporzionale e riepilogo aggregato degli endpoint restanti, aggiornata in-place dal refresh analytics.
 - La preview `Top Endpoint` e stata ulteriormente compattata per mantenere tre righe visibili dentro la card analytics senza overflow verticale.
 - Il pannello dati di `database.html` segue ora lo stesso schema operativo: titolo/count, ricerca e stato realtime nella testata, con filtri, azioni e switch vista in una toolbar full-width separata.
+- Le KPI card di `analytics.html` sono state rese piu compatte e leggibili: icone meno button-like, meno padding e indicazione esplicita della sorgente dato (`IndexedDB`, `Performance`, `Storage API`, `Stimato`, `idle` o `demo`).
+- Le KPI card, il box `Flusso Attivita Live`, i grafici realtime e `System Health` di `analytics.html` usano ora signal CMSwift e si aggiornano in-place ogni 5s: metriche, lista eventi, chart cards e health gauge vengono patchati senza rimontare tutta la pagina.
+- I grafici realtime di `analytics.html` non sono piu linee decorative: usano serie SVG calcolate da bucket runtime recenti (`tl_events`, `tl_flow_logs`, `tl_box_performance`) e mostrano stato vuoto quando manca telemetria.
+- Gli stati vuoti dei grafici realtime restano ora vincolati alla superficie del grafico, evitando overflow dentro le card compatte.
+- Il layout operativo di `analytics.html` e stato riorganizzato in una griglia a 5 colonne: `Flusso Attivita Live` resta persistente a sinistra, i grafici realtime occupano la prima riga, `System Health` resta a destra, `Monitoraggio boxTracker` occupa la seconda riga e le card di distribuzione, AI, storage, workspace e endpoint riempiono le righe inferiori.
+- Nell'ultima riga Analytics, `Storage & Database` ora ha piu spazio, `Workspace Activity` resta compatta e `Top Endpoint` torna una card stretta di riepilogo.
+- `Top Endpoint` usa ora un header titolo/filtro su una sola riga e righe compatte coerenti con `Workspace Activity`.
+- La preview `Top Endpoint` mostra solo i primi 3 endpoint e separa testo/conteggio dalla barra per evitare sovrapposizioni nella card stretta.
+- Gli item `Top Endpoint` sono ora su una sola riga con testo, conteggio e barra allineati come `Workspace Activity`.
+- Le righe `Workspace Activity` usano ora una proporzione 50/50 fra label e barra.
+- `AI Analytics` ha ricevuto un layer visuale CSS tipo rete neurale e statistiche con movimento lento sfalsato, mantenendo supporto `prefers-reduced-motion`.
+- L'animazione del layer neurale di `AI Analytics` e stata resa piu evidente con drift multi-step, pulse di opacita e micro-rotazioni.
+- Le statistiche `AI Analytics` sono ora chip CMSwift con trattamento glass/neural leggero.
+- `Storage & Database` usa ora lo spazio destro disponibile per la sparkline, evitando overflow verticale nella card.
+- La sparkline decorativa di `Storage & Database` e stata rimossa: la card mostra solo donut e dettagli storage.
+- Le card analytics inferiori di `analytics.html` (`Distribuzione per Tipo`, `AI Analytics`, `Storage & Database`, `Workspace Activity`, `Top Endpoint`) sono ora incluse nel refresh reattivo ogni 5s con patch mirata della sezione bottom e dati reali da IndexedDB/runtime.
+- I donut `Distribuzione per Tipo` e `Storage & Database` usano ora gradienti conic calcolati dai valori correnti, non piu segmenti CSS statici.
 - Questi interventi non cambiano la visione strategica in `docs/new_vision.md`; consolidano l'ergonomia locale di editor, library, Flow Map e Connections dentro la direzione runtime operating environment.
 
 ## Milestone consigliate

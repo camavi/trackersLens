@@ -235,6 +235,26 @@ Runtime Notes:
 - 2026-05-18: Analytics reads persisted performance records when available.
 - 2026-05-19: boxLens delivery now records performance samples with latency/error health, and Flow Map displays performance badges from `tl_box_performance`.
 - 2026-05-19: added local health thresholds with override support via `tl_perf_thresholds`.
+- 2026-05-21: `analytics.html` metric cards were compacted, icon treatment was reduced from button-like tiles to small indicators, and each KPI now shows its data source (`IndexedDB`, `Performance`, `Storage API`, `Stimato`, `idle` or `demo`).
+- 2026-05-21: `analytics.html` KPI metadata now stacks value context and data source on two lines, with the sparkline anchored as a bottom bar.
+- 2026-05-21: `analytics.html` Live Activity stream now uses a CMSwift reactive signal and refreshes only the event list every 5s from `tl_events` / `tl_flow_logs`, falling back to connection/tracker activity.
+- 2026-05-21: `analytics.html` KPI cards now use a CMSwift reactive signal and patch only the metric grid every 5s together with the live stream, avoiding a full page remount for small runtime changes.
+- 2026-05-21: `analytics.html` request/endpoint/error chart cards and System Health now use a chart/services signal and patch only their local containers every 5s; the health gauge now uses the real score as a CSS conic value.
+- 2026-05-21: `analytics.html` realtime chart cards now render SVG series from runtime buckets (`tl_events`, `tl_flow_logs`, `tl_box_performance`) and show an explicit empty telemetry state instead of decorative CSS-only lines/bars.
+- 2026-05-21: `analytics.html` realtime chart empty states were constrained inside the chart surface so fallback messages no longer overflow the card bottom.
+- 2026-05-21: `analytics.html` dashboard layout was reorganized into a 5-column operational grid: Live Activity spans the left side, realtime charts sit on the first row, System Health spans the right side, boxTracker monitoring fills the second row, and distribution/AI/storage/workspace/top-endpoint cards occupy the lower rows.
+- 2026-05-21: `analytics.html` lower row proportions were tuned so Storage & Database spans two columns, Workspace Activity stays as a compact single card and Top Endpoint becomes a narrow right-side card.
+- 2026-05-21: `analytics.html` Top Endpoint card now uses a single-line title/filter header and compact workspace-style rows with endpoint label, count and progress bar.
+- 2026-05-21: `analytics.html` Top Endpoint preview was limited to the top 3 endpoints and each row now separates label/count from the progress bar to avoid overlap in the narrow card.
+- 2026-05-21: `analytics.html` Top Endpoint rows now align endpoint text, count and progress bar on one line, matching the Workspace Activity item layout.
+- 2026-05-21: `analytics.html` Workspace Activity rows now split label and progress bar evenly at 50/50 for better visual consistency.
+- 2026-05-21: `analytics.html` AI Analytics card gained a subtle CSS neural-network background and slow staggered floating stat labels, with reduced-motion support.
+- 2026-05-21: `analytics.html` AI Analytics neural background animation was made more dynamic with shorter loops, opacity pulses, intermediate drift points and subtle rotation.
+- 2026-05-21: `analytics.html` AI Analytics stat labels now render as CMSwift `_.Chip` elements with a lightweight glass/neural treatment while keeping the floating animation.
+- 2026-05-21: `analytics.html` Storage & Database card now places its sparkline in the right-side available column instead of below the donut/details, preventing bottom overflow.
+- 2026-05-21: `analytics.html` Storage & Database sparkline was removed because it was decorative noise; the card now keeps only donut and storage details.
+- 2026-05-21: `analytics.html` bottom analytics cards (`Distribuzione per Tipo`, `AI Analytics`, `Storage & Database`, `Workspace Activity`, `Top Endpoint`) now participate in the 5s reactive refresh with a targeted bottom-section DOM replacement fed by real IndexedDB/runtime data.
+- 2026-05-21: `analytics.html` distribution/storage donut charts now use computed conic gradients from current real values instead of static CSS segments, so the pie graphics update with the reactive bottom refresh.
 - Remaining: optional visual threshold editor and worker runtime for metrics while workspace is closed.
 
 ## [TASK-009]

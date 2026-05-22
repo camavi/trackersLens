@@ -3643,6 +3643,46 @@ Verifiche previste a fine sessione:
 - `git diff --check`
 - test HTTP/Browser di `database.html`
 
+## Aggiornamento 2026-05-21 - Analytics KPI compact pass
+
+Fatto:
+
+- `js/analyticsView.js`:
+  - le metric card mostrano ora una sorgente esplicita del dato (`IndexedDB`, `Performance`, `Storage API`, `Stimato`, `idle` o `demo`);
+  - i fallback demo non fingono piu variazioni reali ma mostrano `demo`;
+  - il layout interno della card e stato ricomposto in header compatto, valore, meta row e sparkline.
+- `css/analyticsView.css`:
+  - ridotti padding, altezza, font e sparkline delle KPI card;
+  - le icone metriche sono state trasformate in indicatori piccoli, non piu in tile simili a bottoni;
+  - la meta KPI e ora su due righe, con contesto valore sopra e sorgente dato grigia sotto, mentre lo sparkline resta ancorato come barra bottom.
+
+Nota tecnica:
+
+- `analytics.html` legge dati reali da IndexedDB e `tl_box_performance` quando presenti.
+- Le KPI card, i grafici realtime, `System Health` e il box `Flusso Attivita Live` sono stati migrati a refresh mirato: usano signal CMSwift, ricalcolano i dati ogni 5s e rimpiazzano solo `[data-analytics-metrics]`, `[data-analytics-live-events]`, `[data-analytics-charts]` e `[data-analytics-system-health]`, preservando lo scroll della lista eventi. Quando non ci sono eventi runtime il live stream usa fallback da collegamenti/tracker.
+- Il gauge `System Health` usa ora il punteggio reale come variabile CSS conic `--health`, invece di un arco statico.
+- I grafici `Traffico Richieste`, `Endpoint Performance` ed `Errori & Timeout` usano ora SVG generati da serie reali a bucket sugli ultimi 30 minuti. Le richieste/errori leggono da `tl_events` / `tl_flow_logs`, la latency da `tl_box_performance`; quando non c'e telemetria recente viene mostrato uno stato vuoto invece di una curva decorativa.
+- Gli stati vuoti dei grafici realtime sono vincolati alla superficie del grafico, cosi il messaggio fallback non sfonda il bordo inferiore delle card compatte.
+- Il dashboard `analytics.html` ora usa una griglia operativa a 5 colonne: `Flusso Attivita Live` attraversa tutte le righe operative a sinistra, i tre grafici realtime stanno in prima riga, `System Health` attraversa le prime due righe a destra, `Monitoraggio boxTracker` occupa la seconda riga centrale e le card `Distribuzione per Tipo`, `AI Analytics`, `Storage & Database`, `Workspace Activity` e `Top Endpoint` sono distribuite sulle righe inferiori.
+- La riga inferiore e stata rifinita: `Storage & Database` occupa due colonne, `Workspace Activity` resta card singola e `Top Endpoint` e un riepilogo stretto sulla colonna destra.
+- `Top Endpoint` ora ha header titolo/filtro su una sola riga e item compatti in stile `Workspace Activity`, con endpoint, conteggio e barra proporzionale.
+- La preview `Top Endpoint` e limitata ai primi 3 endpoint; ogni item separa endpoint/conteggio dalla barra, evitando sovrapposizioni nel layout stretto.
+- Gli item `Top Endpoint` sono stati riallineati su una singola riga: endpoint, conteggio e barra proporzionale condividono la stessa linea come nel box `Workspace Activity`.
+- `Workspace Activity` usa ora righe 50/50 fra label e barra, rendendo la card piu coerente con `Top Endpoint`.
+- `AI Analytics` usa ora un layer CSS decorativo tipo rete neurale dietro le statistiche e un movimento lento/sfalsato dei label, disattivato quando `prefers-reduced-motion` e attivo.
+- L'animazione del background neurale `AI Analytics` e stata resa piu visibile con loop piu brevi, pulse di opacita, drift multi-step e micro-rotazioni.
+- Le statistiche `AI Analytics` sono renderizzate come chip CMSwift (`_.Chip`) con stile glass/neural e mantengono il movimento flottante.
+- `Storage & Database` posiziona ora la sparkline nella colonna destra del layout interno, accanto a donut e dettagli, evitando overflow sul bordo inferiore.
+- La sparkline decorativa di `Storage & Database` e stata rimossa; la card resta concentrata su donut e dettagli storage.
+- Le card inferiori `Distribuzione per Tipo`, `AI Analytics`, `Storage & Database`, `Workspace Activity` e `Top Endpoint` sono ora collegate al refresh reattivo ogni 5s: `buildAnalyticsData()` ricalcola dati reali da IndexedDB/runtime e `replaceBottomAnalyticsDom()` sostituisce solo la sezione `[data-analytics-bottom]`, senza rimontare la shell.
+- I grafici a torta `Distribuzione per Tipo` e `Storage & Database` non usano piu gradienti statici: `js/analyticsView.js` genera conic-gradient dai valori correnti (`tl_connections` per la distribuzione e percentuale storage per Storage), quindi le grafiche seguono il refresh reattivo della sezione bottom.
+
+Verifiche previste a fine sessione:
+
+- `node --check js/analyticsView.js`
+- `git diff --check`
+- test HTTP/Browser di `analytics.html`
+
 ## Aggiornamento 2026-05-20 - Editor workspace canvas UX
 
 Obiettivo della sessione: rendere piu operativo `editorWorkspace.html` nelle interazioni base di composizione e navigazione canvas.
