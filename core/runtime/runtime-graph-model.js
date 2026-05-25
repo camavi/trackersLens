@@ -1,26 +1,65 @@
 window.TrackerLensRuntimeGraphModel = (() => {
   const paletteVisuals = {
     "REST API": { tone: "green", icon: "api" },
-    WebSocket: { tone: "gold", icon: "settings_input_antenna" },
-    "RSS Feed": { tone: "orange", icon: "rss_feed" },
-    Webhook: { tone: "violet", icon: "webhook" },
-    "Manual JSON": { tone: "cyan", icon: "data_object" },
+    WebSocket: { tone: "green", icon: "settings_input_antenna" },
+    "RSS Feed": { tone: "green", icon: "rss_feed" },
+    Webhook: { tone: "green", icon: "webhook" },
+    "YouTube API": { tone: "green", icon: "smart_display" },
+    "Manual JSON": { tone: "green", icon: "data_object" },
+    "IndexedDB Source": { tone: "cyan", icon: "database" },
     "Box Tracker": { tone: "gold", icon: "storage" },
-    "Existing Tracker": { tone: "green", icon: "dataset_linked" },
+    "Existing Tracker": { tone: "orange", icon: "dataset_linked" },
+    "Realtime Tracker": { tone: "orange", icon: "sync_alt" },
+    "Polling Tracker": { tone: "gold", icon: "update" },
     Filter: { tone: "purple", icon: "filter_alt" },
-    Transform: { tone: "violet", icon: "tune" },
-    Merge: { tone: "pink", icon: "call_merge" },
-    Split: { tone: "red", icon: "call_split" },
-    Condition: { tone: "orange", icon: "rule" },
-    Throttle: { tone: "gold", icon: "timer" },
+    Transform: { tone: "purple", icon: "tune" },
+    Condition: { tone: "purple", icon: "alt_route" },
+    Throttle: { tone: "purple", icon: "speed" },
+    Debounce: { tone: "purple", icon: "timer" },
+    Merge: { tone: "purple", icon: "call_merge" },
+    Split: { tone: "purple", icon: "call_split" },
+    Map: { tone: "purple", icon: "account_tree" },
+    Reduce: { tone: "purple", icon: "functions" },
+    Formatter: { tone: "purple", icon: "format_shapes" },
+    Validator: { tone: "purple", icon: "fact_check" },
+    Aggregator: { tone: "purple", icon: "stacked_bar_chart" },
+    Cache: { tone: "purple", icon: "cached" },
+    Parser: { tone: "purple", icon: "schema" },
     "AI Analyzer": { tone: "violet", icon: "psychology" },
-    "AI Summarizer": { tone: "blue", icon: "summarize" },
-    "AI Sentiment": { tone: "cyan", icon: "mood" },
-    "AI Debugger": { tone: "lime", icon: "bug_report" },
-    "Box Lens": { tone: "pink", icon: "dashboard" },
-    Notification: { tone: "gold", icon: "notifications" },
-    "Save to DB": { tone: "orange", icon: "database" },
-    "Webhook Call": { tone: "teal", icon: "webhook" },
+    "AI Sentiment": { tone: "pink", icon: "mood" },
+    "AI Summarizer": { tone: "violet", icon: "summarize" },
+    "AI Classifier": { tone: "pink", icon: "category" },
+    "AI Predictor": { tone: "violet", icon: "online_prediction" },
+    "AI Memory": { tone: "pink", icon: "memory" },
+    "AI Planner": { tone: "violet", icon: "route" },
+    "AI Router": { tone: "pink", icon: "alt_route" },
+    "AI Debugger": { tone: "violet", icon: "bug_report" },
+    "AI Decision": { tone: "pink", icon: "rule" },
+    "Box Lens": { tone: "blue", icon: "dashboard" },
+    "Chart Lens": { tone: "cyan", icon: "insert_chart" },
+    "Stats Lens": { tone: "blue", icon: "monitoring" },
+    "Feed Lens": { tone: "cyan", icon: "dynamic_feed" },
+    "Table Lens": { tone: "blue", icon: "table_chart" },
+    "Video Lens": { tone: "cyan", icon: "smart_display" },
+    "Terminal Lens": { tone: "blue", icon: "terminal" },
+    "AI Insight Lens": { tone: "cyan", icon: "insights" },
+    "Notification Lens": { tone: "blue", icon: "notifications_active" },
+    Notification: { tone: "orange", icon: "notifications" },
+    "Webhook Call": { tone: "red", icon: "call_made" },
+    "Telegram Action": { tone: "orange", icon: "send" },
+    "Discord Action": { tone: "red", icon: "forum" },
+    "Email Action": { tone: "orange", icon: "mail" },
+    "Sound Alert": { tone: "red", icon: "volume_up" },
+    "Popup Alert": { tone: "orange", icon: "open_in_new" },
+    "Runtime Trigger": { tone: "red", icon: "bolt" },
+    IndexedDB: { tone: "cyan", icon: "database" },
+    "Local Cache": { tone: "green", icon: "cached" },
+    "Runtime Memory": { tone: "cyan", icon: "memory" },
+    Snapshot: { tone: "green", icon: "camera" },
+    "File Export": { tone: "cyan", icon: "file_download" },
+    "JSON Export": { tone: "green", icon: "data_object" },
+    "CSV Export": { tone: "cyan", icon: "table_view" },
+    "History Store": { tone: "green", icon: "history" },
   };
 
   const nodeChannels = (node) =>
@@ -43,9 +82,12 @@ window.TrackerLensRuntimeGraphModel = (() => {
     if (visual.tone) return visual.tone;
     if (type === "boxTracker") return "green";
     if (type === "boxLens") return "blue";
+    if (type === "lens") return "blue";
     if (type === "aiAgent") return "violet";
     if (type === "processor") return "purple";
-    if (type === "action") return "gold";
+    if (type === "action") return "orange";
+    if (type === "storage") return "cyan";
+    if (type === "source") return "green";
     return "cyan";
   };
 
@@ -56,9 +98,12 @@ window.TrackerLensRuntimeGraphModel = (() => {
     if (visual.icon) return visual.icon;
     if (type === "boxTracker") return "storage";
     if (type === "boxLens") return "dashboard";
+    if (type === "lens") return "dashboard";
     if (type === "aiAgent") return "psychology";
     if (type === "processor") return "tune";
     if (type === "action") return "bolt";
+    if (type === "storage") return "database";
+    if (type === "source") return "api";
     return "account_tree";
   };
 

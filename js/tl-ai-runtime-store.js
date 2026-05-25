@@ -253,9 +253,14 @@ window.TrackerLensAiRuntimeStore = (() => {
     const content = contentOf(record);
     return {
       id: normalizeText(record?.id || content.id, `prompt_flow_${index}`),
-      name: normalizeText(content.name || content.title, "Prompt Flow"),
+      name: normalizeText(content.name || content.title, "Prompt"),
+      description: normalizeText(content.description || content.summary || content.meta, "Prompt salvato"),
+      prompt: normalizeText(content.prompt || content.text || content.value || content.content),
+      category: normalizeText(content.category || content.group || content.type, "Generale"),
       status: normalizeText(content.status || content.state, "idle"),
       blocks: Array.isArray(content.blocks) ? content.blocks : [],
+      icon: normalizeText(content.icon, "psychology"),
+      tone: normalizeText(content.tone || content.color, "gold"),
       updatedAt: normalizeText(content.updatedAt || record?.updatedAt || content.createdAt || record?.createdAt),
       raw: record,
     };
@@ -572,10 +577,12 @@ window.TrackerLensAiRuntimeStore = (() => {
     seedLocalProviders,
     upsertProvider: (record) => write(STORES.providers, record),
     upsertAgent: (record) => write(STORES.agents, record),
+    deleteAgent: (id) => deleteRecord(STORES.agents, id),
     upsertJob: (record) => write(STORES.jobs, record),
     upsertLog: (record) => write(STORES.logs, record),
     upsertMemory: remember,
     upsertPromptFlow: (record) => write(STORES.promptFlows, record),
+    deletePromptFlow: (id) => deleteRecord(STORES.promptFlows, id),
     statusTone,
   };
 })();

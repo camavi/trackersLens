@@ -48,21 +48,57 @@ window.TrackerLensRuntimeSnapshotStore = (() => {
       read.onerror = (event) => reject(event.target.error || new Error(`Errore lettura ${storeName}`));
     });
 
-  const load = async ({ includeConnections = true } = {}) => {
+  const readWorkspaceScopedFromDb = (db, storeName, workspaceId = "") =>
+    new Promise((resolve, reject) => {
+      if (!db.objectStoreNames.contains(storeName)) {
+        resolve([]);
+        return;
+      }
+      const store = db.transaction(storeName, "readonly").objectStore(storeName);
+      if (!workspaceId || workspaceId === "all" || !store.indexNames.contains("workspaceId")) {
+        const read = store.getAll();
+        read.onsuccess = (event) => {
+          const records = Array.from(event.target.result || []);
+          resolve(workspaceId && workspaceId !== "all"
+            ? records.filter((record) => (record.workspaceId || "global") === workspaceId)
+            : records);
+        };
+        read.onerror = (event) => reject(event.target.error || new Error(`Errore lettura ${storeName}`));
+        return;
+      }
+      const read = store.index("workspaceId").getAll(workspaceId);
+      read.onsuccess = (event) => {
+        const indexedRecords = Array.from(event.target.result || []);
+        if (indexedRecords.length) {
+          resolve(indexedRecords);
+          return;
+        }
+        const fallbackRead = store.getAll();
+        fallbackRead.onsuccess = (fallbackEvent) => {
+          resolve(Array.from(fallbackEvent.target.result || [])
+            .filter((record) => (record.workspaceId || "global") === workspaceId));
+        };
+        fallbackRead.onerror = (fallbackEvent) => reject(fallbackEvent.target.error || new Error(`Errore fallback lettura ${storeName}`));
+      };
+      read.onerror = (event) => reject(event.target.error || new Error(`Errore lettura ${storeName} per workspace`));
+    });
+
+  const load = async ({ includeConnections = true, workspaceId = "" } = {}) => {
     await ensureRuntimeStores();
     const db = await openDb();
     try {
       const [channels, flows, events, flowLogs, runtimeNodes, runtimeDependencies, connections] = await Promise.all([
-        window.TrackerLensChannelRegistry?.list ? window.TrackerLensChannelRegistry.list() : readAllFromDb(db, STORES.channels),
-        readAllFromDb(db, STORES.flows),
-        window.TrackerLensEventLogStore?.listEvents ? window.TrackerLensEventLogStore.listEvents() : readAllFromDb(db, STORES.events),
-        window.TrackerLensEventLogStore?.listFlowLogs ? window.TrackerLensEventLogStore.listFlowLogs() : readAllFromDb(db, STORES.flowLogs),
-        readAllFromDb(db, STORES.runtimeNodes),
-        readAllFromDb(db, STORES.runtimeDependencies),
-        includeConnections && window.TrackerLensConnectionsStore?.list ? window.TrackerLensConnectionsStore.list() : includeConnections ? readAllFromDb(db, STORES.connections) : Promise.resolve([]),
+        readWorkspaceScopedFromDb(db, STORES.channels, workspaceId),
+        readWorkspaceScopedFromDb(db, STORES.flows, workspaceId),
+        readWorkspaceScopedFromDb(db, STORES.events, workspaceId),
+        readWorkspaceScopedFromDb(db, STORES.flowLogs, workspaceId),
+        readWorkspaceScopedFromDb(db, STORES.runtimeNodes, workspaceId),
+        readWorkspaceScopedFromDb(db, STORES.runtimeDependencies, workspaceId),
+        includeConnections ? readWorkspaceScopedFromDb(db, STORES.connections, workspaceId) : Promise.resolve([]),
       ]);
 
       return {
+        workspaceId: workspaceId || "all",
         channels,
         flows,
         events,

@@ -219,6 +219,10 @@ Nota aggiornata 2026-05-22: il box `AI Agents` di `ai.html` e stato riallineato 
 
 Nota aggiornata 2026-05-22: il layout principale di `ai.html` sotto le KPI e stato riorganizzato in righe operative: `AI Agents` + `Prompt`, `AI Models & Providers` + `AI Memory`, `AI Jobs` + `AI Logs`, poi analytics a quattro card.
 
+Nota aggiornata 2026-05-22: la Flow Map e stata corretta per rispettare la nuova architettura workspace-scoped runtime graph. `flowMap.html` / `js/flowMapView.js` risolvono sempre un workspace corrente, passano `workspaceId` a `TrackerLensGraphEngine.buildGraph()` e a `TrackerLensRuntimeSnapshotStore.load()`, e i fallback leggono solo record runtime dello stesso workspace. La Flow Map non carica piu tutta la Global Library (`tl_widgets`) e non crea piu nodi virtuali `library_local`: un `boxTracker`, `boxLens`, AI agent, processor o action appare nel grafo solo quando esiste come runtime node del workspace. La Global Library resta solo sorgente di inserimento/configurazione, separata dal Runtime Graph.
+
+Nota aggiornata 2026-05-23: le card workspace di `library.html` hanno ora un bottone diretto `Flow` accanto ad `Apri`. `js/library.js` apre `flowMap.html?workspaceId=<id-workspace>`, cosi ogni workspace puo raggiungere il proprio runtime graph workspace-scoped dalla Library senza passare dalla sidebar globale. `css/library.css` aggiunge il trattamento visuale del bottone Flow e consente al footer card di andare a capo in modo controllato su card strette.
+
 Nota aggiornata 2026-05-22: le tre righe operative principali di `ai.html` sotto le KPI ora hanno altezza uniforme di circa 500px, quindi `AI Agents`, `Prompt`, `AI Models & Providers`, `AI Memory`, `AI Jobs` e `AI Logs` condividono la stessa presenza visuale.
 
 Nota aggiornata 2026-05-22: nel box `AI Agents` di `ai.html` filtro stato, ricerca e switch lista/box sono stati allineati su una sola riga come nel box `Prompt`. Le azioni `Aggiungi`, `Aggiungi Agente` e `Visualizza tutti` sono ora operative: scrivono/leggono `tl_ai_agents` tramite `TrackerLensAiRuntimeStore`, con dialog CMSwift per creazione, lista ricercabile, modifica ed eliminazione.
@@ -2940,6 +2944,10 @@ Fatto:
 Verifiche eseguite:
 
 - `node --check js/flowMapView.js`
+- `git diff --check`
+- `curl -I http://127.0.0.1:3031/flowMap.html?workspaceId=workspace_global`
+- `curl -I http://127.0.0.1:3031/js/flowMapView.js`
+- Chrome headless `--dump-dom` su `flowMap.html?workspaceId=workspace_global`
 - `node --check js/connectionsView.js`
 - `node --check js/boxTrackerEditor.js`
 - `node --check js/workspace.js`
@@ -3131,7 +3139,7 @@ Fatto:
     - REST API -> `source=rest&trackerType=rest&runtimeMode=interval`;
     - WebSocket -> `source=websocket&trackerType=websocket&runtimeMode=real-time`;
     - RSS Feed -> `source=rss&trackerType=rss&runtimeMode=interval`;
-  - Existing Tracker apre `library.html`;
+  - Existing Tracker inizialmente apriva `library.html`; dal 2026-05-24 apre invece un dialog Local Library dentro Flow Map e materializza il tracker scelto nel workspace corrente;
   - Box Lens apre `editorBoxLens.html`;
   - AI nodes aprono `ai.html`;
   - Save to DB apre `database.html`;
@@ -3406,7 +3414,7 @@ Fatto:
     - Webhook viola;
   - Trackers:
     - Box Tracker giallo;
-    - Existing Tracker verde;
+    - Existing Tracker arancio;
   - Processors:
     - Filter viola;
     - Transform blu;
@@ -3642,6 +3650,365 @@ Verifiche eseguite:
 - `node --check core/runtime/runtime-graph-model.js`
 - `curl -I http://127.0.0.1:3031/js/flowMapView.js`
 - `curl -I http://127.0.0.1:3031/core/runtime/runtime-graph-model.js`
+
+## Aggiornamento 2026-05-24 - Flow Map Live Test reale
+
+La Flow Map separa ora il test visivo dal test runtime reale:
+
+- `Pulse Test` mantiene la simulazione veloce del grafo/event bus.
+- `Live Test` esegue chiamate reali per nodi Source/Tracker REST e WebSocket.
+- Il play nella footer bar del nodo avvia il Live Test one-shot dal nodo selezionato.
+- REST usa `fetch()` con endpoint/metodo configurati nel nodo e pubblica la risposta sui channel in uscita.
+- WebSocket apre una socket reale, attende il primo messaggio, pubblica il payload sui channel in uscita e chiude la socket.
+- Le fasi `connect`, `open`, `message`, `response`, `timeout` ed `error` vengono registrate nei flow logs.
+- Gli eventi live entrano in `tl_events`/channel registry e animano il percorso downstream.
+- L'animazione live di nodi/edge considera recenti solo gli eventi degli ultimi 3s e forza un refresh di spegnimento poco dopo; un flusso reale resta quindi acceso solo se continua a produrre eventi.
+- I flow log registrati da `recordFlowAction()` vengono inseriti subito in `state.runtime.flowLogs`; Pulse Test e Live Test aprono automaticamente il pannello `Flow logs` nella status bar per mostrare feedback runtime immediato.
+- Pass parziali Flow Map 2026-05-25: i manifest runtime normalizzano ora porte input/output typed, la configurazione runtime aggiorna il manifest del nodo, la compatibilita impedisce link da/a nodi senza porte valide e Pulse/Live Test impostano un filtro `runId` per isolare eventi e flow logs della run corrente.
+- L'attivita live sugli edge Flow Map aggiunge `is-event-active` anche alla porta output sorgente e alla porta input target della dependency, cosi il percorso evento evidenzia linea e porte coinvolte.
+- Node Inspector Flow Map: il tab `Logs` mostra ora card strutturate per eventi/log, con metadata run/node/channel, payload o context JSON espandibile e pulsanti copia per debug.
+- Live Test Flow Map: aggiunto Stop/Cancel con `AbortController` e chiusura socket; i Source WebSocket hanno opzione `Keep WebSocket open` per streaming reale senza timeout, con messaggi pubblicati sul bus finche la socket resta aperta.
+- UI Flow Map: il controllo `Keep WebSocket open` non usa piu checkbox HTML custom; il nodo inline e il dialog config renderizzano `_.Toggle` CMSwift, con input nascosto solo come bridge di serializzazione del form.
+- Debug Flow Map: le card `Runtime Events` nel Node Inspector espongono ora `Replay`; il payload catturato viene ripubblicato sul channel originale con run id `flow_replay_*`, log dedicato e pulse delle route downstream.
+- Debug Flow Map: le card `Runtime Events` mostrano una `Raw preview` sempre aperta del payload/event preview sopra il dettaglio JSON espandibile.
+- Flow Map port compatibility: la validazione link non usa piu fallback silenziosi quando una porta richiesta non esiste. I link bloccati registrano in `tl_flow_logs` source/target port, tipi, motivo e hint operativo.
+- Storage Runtime Flow Map: aggiunto `core/runtime/storage-runtime.js` e caricato in `flowMap.html`. I nodi Storage attivi ascoltano input/dependency del workspace, persistono payload in IndexedDB (`tl_history` o store configurato), emettono `storage.saved` / `storage.error` e scrivono flow log. Limite: gira mentre la Flow Map e' aperta, non ancora background worker.
+- AI Agent Runtime Flow Map: aggiunto `core/runtime/ai-agent-runtime.js` e caricato in `flowMap.html`. I nodi AI Agent attivi ascoltano input/dependency, costruiscono prompt da payload/config/memoria workspace, provano provider locali Ollama/LM Studio, persistono `tl_ai_jobs` / `tl_ai_logs`, emettono `ai_agent_response` e usano fallback deterministico se il provider non e' disponibile.
+
+## Aggiornamento 2026-05-24 - Action Runtime iniziale
+
+Obiettivo della sessione: avviare il runtime reale per i nodi `Actions`, dopo il primo runtime dei `Processors`.
+
+Fatto:
+
+- `core/runtime/action-runtime.js`:
+  - aggiunto `TrackerLensActionRuntime` workspace-scoped;
+  - i nodi `action` attivi si iscrivono ai propri input o alle dependency in ingresso tramite `TrackerLensEventBus`;
+  - supportati `Webhook Call`, `Telegram Action`, `Discord Action`, `Email Action`, `Notification`, `Sound Alert`, `Popup Alert` e `Runtime Trigger`;
+  - i template `{{payload.value}}`, `{{event.channel}}`, `{{node.id}}` e `{{config.key}}` vengono renderizzati prima dell'esecuzione;
+  - le esecuzioni scrivono `tl_events` e `tl_flow_logs`;
+  - gli errori emettono `action.error` e vengono persistiti come flow log.
+- `flowMap.html`:
+  - caricato il runtime Actions insieme al runtime Processors.
+- `js/flowMapView.js`:
+  - aggiunto `syncActionRuntime()` nel caricamento del runtime workspace;
+  - `Runtime Trigger` ora espone un campo `targetChannel` sia nel dialog sia nei settaggi inline.
+
+Nota:
+
+- Questo runtime esegue mentre la Flow Map del workspace e aperta. L'esecuzione background/worker resta un passo successivo.
+
+## Aggiornamento 2026-05-24 - Fix link runtime nodes Flow Map
+
+Problema rilevato: la creazione collegamenti poteva mostrare sempre `Collegamento Library non materializzato nel workspace.` perche il codice usava `workspaceId === "library_local"` come segnale per attivare il vecchio flusso di materializzazione Library.
+
+Fatto:
+
+- `js/flowMapView.js`:
+  - i nuovi draft runtime non possono piu nascere con workspace `all` o `library_local`;
+  - il workspace del collegamento viene normalizzato sul workspace runtime corrente;
+  - il ramo legacy `upsertLibraryTrackerWorkspaceLink()` viene usato solo per nodi marcati esplicitamente `metadata.library`, non per normali nodi runtime/draft.
+
+Aggiornamento successivo:
+
+- i collegamenti tra normali runtime node/draft non passano piu da `ConnectionsStore.upsertAndSyncWorkspace()`, che e pensato per box reali nel contenuto workspace;
+- i link runtime salvano direttamente `tl_connections` e `tl_runtime_dependencies`;
+- il link appena creato viene applicato allo stato locale prima del reload runtime;
+- i fallimenti di drop/compatibilita non restano piu silenziosi e mostrano un errore esplicito nella Flow Map.
+- il target picking del drag-link usa ora `elementsFromPoint()` e un fallback geometrico sulle card nodo, cosi il rilascio sopra un nodo resta rilevabile anche quando `elementFromPoint()` colpisce layer interni o spazio tra porta e card.
+- il runtime snapshot ora usa fallback `getAll()` quando l'indice `workspaceId` non restituisce record; la Flow Map mantiene inoltre `optimisticDependencies` per mostrare subito link appena salvati anche se il reload runtime non li rilegge immediatamente.
+- `flowMap.html` senza `workspaceId` ora normalizza ogni mutazione su uno workspace esplicito prima di creare draft/link. Se esiste uno workspace reale viene usato quello risolto dal loader; altrimenti viene usato `workspace_global` come sandbox esplicita.
+- Il Node/Edge Inspector della Flow Map ora e un overlay `position: fixed` fuori dalla griglia principale, quindi aprire un nodo o collegamento non ridimensiona piu il canvas.
+- Le card Flow Map in modalita collassata non renderizzano piu tutte le porte generate da sample output molto grandi. Quando un nodo ha molti campi, la vista piccola mostra la porta aggregata e le porte gia collegate; il footer continua a mostrare il totale reale degli input/output.
+- `Existing Tracker` e `Existing Lens` della palette Flow Map non aprono piu direttamente pagine esterne e non creano draft generici. Click o drag aprono un dialog CMSwift che legge `tl_widgets` tramite `TrackerLensLocalLibrary`, filtra `boxTracker` o `boxLens`, e inserisce l'asset scelto come runtime node configurato nello workspace corrente.
+- Le card nodo della Flow Map hanno ora un menu contestuale con right-click per Edit, Rename, Duplicate, Pause/Resume, Disable/Enable, Collapse/Expand, View Logs e Delete, riusando le azioni runtime gia presenti nella card e nell'Inspector.
+- La Flow Map ha ora un sistema `Run Test` one-shot: i nodi Source/Tracker mostrano un play nel footer per emettere un evento test marcato `runId` e visualizzare il percorso downstream, mentre la topbar puo lanciare tutti i Source/Tracker testabili dello workspace corrente.
+- Le porte dei nodi Flow Map mostrano ora etichette compatte dentro il punto di connessione stesso, non come tooltip/pill laterale. Le porte crescono verso l'esterno della card, cosi input a sinistra e output a destra non coprono il contenuto del nodo.
+- Durante il drag di un collegamento, la Flow Map mostra la compatibilita delle porte: input compatibili con glow verde, input non compatibili attenuati e hover finale verde/rosso. Le porte usano anche colore/forma per distinguere i tipi runtime principali.
+- Il `Run Test` della Flow Map usa ora input piu realistici: Source/Tracker possono salvare un `Test Payload` JSON, il test preferisce payload configurato o sample output, emette sui canali delle dependency reali in uscita e registra nei flow log canali emessi e preview payload.
+- Corretto lo stato `Testing` bloccato dopo alcuni run: la fine del test rimonta la shell per aggiornare topbar e bottoni nodo, e un timeout di sicurezza rilascia automaticamente il runtime test se una catena resta appesa.
+- Corretto anche il battito permanente dei punti di collegamento dopo il test: il completamento svuota il percorso test evidenziato e le animazioni pulse di nodi/porte sono finite, non infinite.
+- Corretto il salto delle porte durante il pulse live/test: le keyframe input/output preservano il translate esterno, quindi i punti non rientrano piu dentro la card nodo durante l'animazione.
+
+## Aggiornamento 2026-05-23 - Flow Map runtime node milestone 9 punti
+
+Obiettivo della sessione: avviare una milestone concreta sui punti evolutivi della Flow Map: azioni nodo complete, stati runtime persistenti, debug mode, event animation, performance grandi grafi, manifest runtime operativo, inspector profondo e compatibilita porte.
+
+Fatto:
+
+- `js/flowMapView.js`:
+  - aggiunte azioni rapide direttamente sulla card nodo: pause/resume, collapse/expand, duplicate, rename, disable/enable e delete dove consentito;
+  - aggiunte le stesse azioni nel Node Inspector;
+  - gli stati runtime (`active`, `paused`, `disabled`, ecc.) vengono persistiti nel runtime node tramite `TrackerLensRuntimeGraphStore.upsertRuntimeNode()`;
+  - aggiunto Debug Mode persistente in `localStorage` con toggle nei controlli canvas e overlay category/status sul nodo;
+  - aggiunta tab `Compatibility` nell'Inspector con match porta/nodo compatibili;
+  - `Permissions` ora mostra anche una sezione `Runtime Manifest` con type/subtype/input/output/permissions;
+  - aggiunto large-graph mode che alleggerisce le card non selezionate sopra soglie di nodi/edge;
+  - porte e nodi live ricevono una classe di animazione evento.
+- `css/flowMap.css`:
+  - aggiunti stili per quick actions, debug overlay, runtime disabled/collapsed, large-graph mode e pulse animation su nodi/porte.
+- `tasks/active_tasks.md` e `docs/new_vision_progress.md`:
+  - documentata la milestone Flow Map sui 9 punti.
+
+Verifiche eseguite:
+
+- `node --check js/flowMapView.js`
+- `git diff --check`
+- `curl -I http://127.0.0.1:3031/flowMap.html?workspaceId=workspace_global`
+- `curl -I http://127.0.0.1:3031/js/flowMapView.js`
+- `curl -I http://127.0.0.1:3031/css/flowMap.css`
+- Chrome headless `--dump-dom` su `flowMap.html?workspaceId=workspace_global`: shell, palette runtime, controlli debug e canvas renderizzati.
+
+Nota successiva:
+
+- 2026-05-23: l'overlay automatico `Node Groups` e stato rimosso dal canvas perche visivamente distraeva nel lavoro normale. La logica di grouping potra essere ripresa piu avanti solo come modalita debug/large graph esplicita.
+
+## Aggiornamento 2026-05-23 - Processor Runtime iniziale
+
+Obiettivo della sessione: iniziare il primo dei punti mancanti, cioe rendere reali i processor `Condition`, `Filter` e `Transform` invece di lasciarli solo come nodi configurabili.
+
+Fatto:
+
+- `core/runtime/processor-runtime.js`:
+  - aggiunto `TrackerLensProcessorRuntime`;
+  - il runtime si aggancia al `TrackerLensEventBus` del workspace corrente;
+  - registra i processor attivi e non draft/non paused/non disabled;
+  - ascolta solo input dichiarati o dependency in ingresso, evitando di sottoscrivere automaticamente output come `true`/`false`;
+  - `Condition` valuta field/path, operator e valore, poi emette sul canale `trueOutput` o `falseOutput`;
+  - `Filter` valuta la regola e blocca o inoltra il payload;
+  - `Transform`/`Map`/`Formatter` eseguono l'espressione locale configurata e pubblicano il risultato;
+  - ogni emissione passa da Event Bus, Channel Registry e `tl_events`;
+  - esecuzioni, filtri ed errori vengono registrati in `tl_flow_logs`.
+- `flowMap.html`:
+  - caricato il nuovo modulo `core/runtime/processor-runtime.js`.
+- `js/flowMapView.js`:
+  - dopo ogni load runtime workspace-scoped sincronizza il Processor Runtime con nodi e dependency correnti.
+
+Limite attuale:
+
+- Il Processor Runtime gira quando la Flow Map del workspace e aperta. Un worker/background runtime condiviso per workspace chiuso resta un passo successivo.
+
+Verifiche eseguite:
+
+- `node --check core/runtime/processor-runtime.js`
+- `node --check js/flowMapView.js`
+- `git diff --check`
+- `curl -I http://127.0.0.1:3031/flowMap.html?workspaceId=workspace_global`
+- `curl -I http://127.0.0.1:3031/core/runtime/processor-runtime.js`
+- `curl -I http://127.0.0.1:3031/js/flowMapView.js`
+- Chrome headless `--dump-dom` su `flowMap.html?workspaceId=workspace_global`: nuovo modulo caricato e shell renderizzata.
+
+## Aggiornamento 2026-05-23 - Flow Map viewport per workspace
+
+Problema rilevato: il pan/zoom del canvas Flow Map poteva essere recuperato da una chiave globale/origin-based prima della risoluzione del workspace reale. Cambiando workspace, il canvas poteva quindi aprirsi con una posizione non coerente con il runtime graph corrente.
+
+Fatto:
+
+- `js/flowMapView.js`:
+  - la chiave `localStorage` del viewport e ora basata solo sul `workspaceId` effettivo;
+  - il viewport viene caricato quando il workspace viene risolto da `loadRuntime()`;
+  - il cambio workspace carica la posizione salvata di quel workspace o torna al default;
+  - i filtri non-workspace non resettano piu pan/zoom.
+- `tasks/active_tasks.md`:
+  - aggiornata la nota runtime di TASK-019.
+- `docs/new_vision_progress.md`:
+  - aggiunta nota operativa sulla persistenza viewport workspace-scoped.
+
+Verifiche eseguite:
+
+- `node --check js/flowMapView.js`
+
+## Aggiornamento 2026-05-23 - Flow Map inspector chiuso di default
+
+Problema rilevato: `flowMap.html` apriva subito l'aside destro `Node Inspector`, riducendo lo spazio iniziale del canvas anche senza nodo selezionato.
+
+Fatto:
+
+- `js/flowMapView.js`:
+  - `state.inspectorOpen` parte ora da `false`;
+  - `selectNode()` e `selectEdge()` continuano ad aprire l'inspector quando l'utente seleziona esplicitamente un nodo o collegamento.
+- `tasks/active_tasks.md` e `docs/new_vision_progress.md`:
+  - aggiunta nota sul default UI del Flow Map inspector.
+
+Verifiche eseguite:
+
+- `node --check js/flowMapView.js`
+- `git diff --check`
+- `curl -I http://127.0.0.1:3031/flowMap.html?workspaceId=workspace_global`
+- `curl -I http://127.0.0.1:3031/js/flowMapView.js`
+- Chrome headless `--dump-dom` su `flowMap.html?workspaceId=workspace_global`: DOM renderizzato con `tl-flow-grid is-inspector-closed` e senza aside `Node Inspector` iniziale.
+
+## Aggiornamento 2026-05-23 - Flow Map Node Library runtime taxonomy
+
+Obiettivo della sessione: riallineare la Node Library della Flow Map al nuovo modello Trackers Lens come AI Runtime Operating Environment, non workflow/dashboard builder generico.
+
+Fatto:
+
+- `js/flowMapView.js`:
+  - sostituita la categoria `Outputs` con tre categorie distinte: `Lens`, `Actions`, `Storage`;
+  - la palette ora espone la tassonomia runtime:
+    - Sources;
+    - Trackers;
+    - Processors;
+    - AI Agents;
+    - Lens;
+    - Actions;
+    - Storage.
+  - aggiunti i tipi richiesti per Source, Tracker, Processor, AI Agent, Lens, Action e Storage;
+  - introdotti helper `nodeManifest()` e `paletteNode()` per associare a ogni palette item manifest runtime con `type`, `subtype`, `inputs`, `outputs`, `permissions`, `settingsSchema`, `runtime` e metadata;
+  - i draft creati da drag/drop persistono `runtimeType`, `subtype`, `category`, `manifest`, `permissions`, `settingsSchema` e `runtimeMetadata`.
+- `core/runtime/runtime-graph-store.js`:
+  - `createDraftNode()` accetta ora `inputs` e `outputs` espliciti, cosi i nodi creati dalla palette mantengono porte coerenti con il manifest.
+- `core/runtime/runtime-graph-model.js`:
+  - aggiornata la mappa visuale dei nodi per la nuova tassonomia runtime;
+  - aggiunti fallback per `lens`, `storage` e `source`.
+- `css/flowMap.css`:
+  - aggiunto supporto palette `is-purple`;
+  - riallineati violet/purple a colori reali per AI Agents e Processors.
+- `tasks/active_tasks.md` e `docs/new_vision_progress.md`:
+  - documentata la nuova tassonomia Node Library.
+
+Verifiche eseguite:
+
+- `node --check js/flowMapView.js`
+- `node --check core/runtime/runtime-graph-store.js`
+- `node --check core/runtime/runtime-graph-model.js`
+- `git diff --check`
+- `curl -I http://127.0.0.1:3031/flowMap.html?workspaceId=workspace_global`
+- `curl -I http://127.0.0.1:3031/js/flowMapView.js`
+- `curl -I http://127.0.0.1:3031/core/runtime/runtime-graph-model.js`
+- Chrome headless `--dump-dom` su `flowMap.html?workspaceId=workspace_global`.
+
+## Aggiornamento 2026-05-23 - Runtime Node Architecture base
+
+Obiettivo della sessione: iniziare la trasformazione dei nodi Flow Map da blocchi UI draggable a runtime component strutturati, visuali, ispezionabili e reattivi.
+
+Fatto:
+
+- `js/flowMapView.js`:
+  - introdotto `runtimeNodeBase()` come base comune per ogni nodo renderizzato, con `id`, `workspaceId`, `flowId`, `category`, `subtype`, `title`, `description`, `inputs`, `outputs`, `channels`, `runtime`, `metrics`, `permissions`, `position`, `style`, `createdAt` e `updatedAt`;
+  - aggiunti helper per `nodeRuntimeStatus()`, `nodeCategory()`, `nodeSubtype()` e descrizione runtime per categoria;
+  - le card del canvas espongono ora struttura header/body/status-footer: icona, titolo, categoria/subtype/channel, descrizione runtime, metriche, porte e stato runtime;
+  - aggiunto runtime status dot con stati `idle`, `active`, `running`, `warning`, `paused`, `error`, `disconnected`;
+  - il Node Inspector usa ora tab: `General`, `Inputs`, `Outputs`, `Runtime`, `Logs`, `Metrics`, `Permissions`;
+  - aggiunti renderer dedicati per porte input/output, runtime, metrics e permissions/settings schema.
+- `css/flowMap.css`:
+  - aggiunti stili per runtime status dot, corpo nodo e metriche compatte su card.
+- `tasks/active_tasks.md` e `docs/new_vision_progress.md`:
+  - documentata la base Runtime Node Architecture.
+
+Verifiche eseguite:
+
+- `node --check js/flowMapView.js`
+- `node --check core/runtime/runtime-graph-store.js`
+- `node --check core/runtime/runtime-graph-model.js`
+- `git diff --check`
+- `curl -I http://127.0.0.1:3031/flowMap.html?workspaceId=workspace_global`
+- `curl -I http://127.0.0.1:3031/js/flowMapView.js`
+- `curl -I http://127.0.0.1:3031/css/flowMap.css`
+- Chrome headless `--dump-dom` su `flowMap.html?workspaceId=workspace_global`: render della palette runtime e del canvas completato.
+
+## Aggiornamento 2026-05-23 - Runtime node config subtype-aware
+
+Problema rilevato: i nodi della Flow Map erano configurabili solo tramite un form generico o rimandi ad altre pagine. Per nodi come `Condition` mancava una configurazione operativa in stile blueprint/Unreal, con regola e porte di uscita dedicate.
+
+Fatto:
+
+- `js/flowMapView.js`:
+  - `configureNode()` apre ora il dialog interno per tutti i runtime node non-library;
+  - `isInlineConfigNode()` copre `source`, `boxTracker`, `processor`, `aiAgent`, `boxLens`, `lens`, `action` e `storage`;
+  - aggiunti `configFieldDefinitions()` e `readConfigMap()` per costruire form subtype-aware;
+  - `Condition` espone campi dedicati:
+    - `Field / Path`;
+    - `Operator`;
+    - `Compare Value`;
+    - `True output port`;
+    - `False output port`.
+  - source/tracker/filter/transform/throttle/merge/split/validator/AI/lens/action/storage hanno campi coerenti con il loro ruolo runtime;
+  - `persistRuntimeNodeConfig()` salva configurazione strutturata in `metadata.config`, aggiorna `runtime.status`, `metadata.runtimeStatus`, inputs, outputs e channels.
+- `css/flowMap.css`:
+  - aggiunti layout e stili per form configurazione a griglia, select e sezioni runtime settings.
+- `tasks/active_tasks.md` e `docs/new_vision_progress.md`:
+  - documentato il passaggio a configurazione nodi subtype-aware.
+
+Verifiche eseguite:
+
+- `node --check js/flowMapView.js`
+- `git diff --check`
+- `curl -I http://127.0.0.1:3031/flowMap.html?workspaceId=workspace_global`
+- `curl -I http://127.0.0.1:3031/js/flowMapView.js`
+- Chrome headless `--dump-dom` su `flowMap.html?workspaceId=workspace_global`: render completato.
+
+## Aggiornamento 2026-05-23 - Settings blueprint sulle card Flow Map
+
+Obiettivo della sessione: rendere la configurazione accessibile direttamente dal box nodo, come nei Blueprint di Unreal, senza obbligare l'utente a passare solo dall'Inspector.
+
+Fatto:
+
+- `js/flowMapView.js`:
+  - aggiunto bottone settings nel header di ogni nodo canvas;
+  - il bottone blocca `pointerdown`/`click` per non avviare drag o selezioni indesiderate;
+  - per i runtime node apre il dialog subtype-aware esistente;
+  - per `boxTracker` apre `editorBoxTracker.html` con contesto `workspaceId`, `runtimeNodeId`, `draftNodeId` e channel quando disponibili;
+  - per `boxLens` apre `editorBoxLens.html` con lo stesso contesto runtime.
+- `css/flowMap.css`:
+  - aggiunto trattamento visuale blueprint-style del bottone settings: piccolo, nel node header, visibile su hover/selezione, con glow coerente col colore categoria.
+- `tasks/active_tasks.md` e `docs/new_vision_progress.md`:
+  - documentato il controllo settings direttamente sulle card nodo.
+
+Verifiche eseguite:
+
+- `node --check js/flowMapView.js`
+- `git diff --check`
+- `curl -I http://127.0.0.1:3031/flowMap.html?workspaceId=workspace_global`
+- `curl -I http://127.0.0.1:3031/js/flowMapView.js`
+- Chrome headless `--dump-dom` su `flowMap.html?workspaceId=workspace_global`: render completato.
+
+## Aggiornamento 2026-05-23 - Settings sempre visibile sulle card Flow Map
+
+Problema rilevato: il controllo settings nel node header era visibile solo su hover/selezione, quindi sui nodi non selezionati sembrava assente.
+
+Fatto:
+
+- `css/flowMap.css`:
+  - il bottone `.tl-flow-node-settings` e ora sempre visibile su ogni node card;
+  - aumentato contrasto, bordo e background per renderlo leggibile anche senza hover;
+  - hover/selezione aggiungono solo enfasi glow, non determinano piu la visibilita.
+- `tasks/active_tasks.md` e `docs/new_vision_progress.md`:
+  - documentata la modifica di discoverability.
+
+Verifiche eseguite:
+
+- `git diff --check`
+- `curl -I http://127.0.0.1:3031/flowMap.html?workspaceId=workspace_global`
+- `curl -I http://127.0.0.1:3031/css/flowMap.css`
+
+## Aggiornamento 2026-05-23 - Inline settings Blueprint sulle card Flow Map
+
+Obiettivo della sessione: velocizzare la configurazione dei nodi runtime mettendo i settaggi principali direttamente dentro la card, in stile Blueprint/Unreal, senza obbligare sempre l'apertura del dialog completo.
+
+Fatto:
+
+- `js/flowMapView.js`:
+  - aggiunto renderer `renderInlineNodeSettings()` dentro il body del nodo;
+  - i nodi `Condition`, `Filter`, `Transform`, source, tracker, AI agent, lens, action e storage mostrano campi inline coerenti con subtype/categoria;
+  - i controlli inline bloccano drag/selezione accidentale e salvano in `metadata.config` sul cambio valore;
+  - il salvataggio dialog e inline condividono la stessa normalizzazione runtime node, aggiornando `inputs`, `outputs`, `channels`, `runtime.status` e Channel Registry;
+  - `boxTracker` e `boxLens` restano eccezioni: nella card mostrano un bottone compatto verso gli editor dedicati.
+- `css/flowMap.css`:
+  - le card nodo sono state leggermente allargate e alzate;
+  - aggiunti controlli inline scuri, compatti e colorati dal tono categoria, con input/select focus e bottone editor esterno.
+- `tasks/active_tasks.md` e `docs/new_vision_progress.md`:
+  - documentato il passaggio a configurazione inline sulle node card.
+
+Verifiche eseguite:
+
+- `node --check js/flowMapView.js`
+- `git diff --check`
+- `curl -I http://127.0.0.1:3031/flowMap.html?workspaceId=workspace_global`
+- `curl -I http://127.0.0.1:3031/js/flowMapView.js`
+- `curl -I http://127.0.0.1:3031/css/flowMap.css`
+- Chrome headless `--dump-dom` su `flowMap.html?workspaceId=workspace_global`: shell, palette runtime e canvas renderizzati.
 
 ## Aggiornamento 2026-05-21 - Connections analytics Top Endpoint
 

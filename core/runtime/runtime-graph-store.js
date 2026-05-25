@@ -291,6 +291,8 @@ window.TrackerLensRuntimeGraphStore = (() => {
     label = "Draft Node",
     flowPosition = null,
     channels = [],
+    inputs = null,
+    outputs = null,
     metadata = {},
   } = {}) => {
     const db = await ensureStores();
@@ -303,8 +305,8 @@ window.TrackerLensRuntimeGraphStore = (() => {
       label,
       sourceRef: id,
       assetId: "",
-      inputs: type === "boxLens" || type === "processor" || type === "aiAgent" || type === "action" ? channels : [],
-      outputs: type === "boxTracker" || type === "source" || type === "processor" || type === "aiAgent" ? channels : [],
+      inputs: Array.isArray(inputs) ? inputs : type === "boxLens" || type === "lens" || type === "processor" || type === "aiAgent" || type === "action" || type === "storage" ? channels : [],
+      outputs: Array.isArray(outputs) ? outputs : type === "boxTracker" || type === "source" || type === "processor" || type === "aiAgent" ? channels : [],
       channels,
       status: "draft",
       position: { x: 1, y: 1 },

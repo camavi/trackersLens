@@ -56,6 +56,10 @@ const openWorkspaceView = (workspaceId) => {
   openChromePage(`workspace.html?workspaceId=${encodeURIComponent(workspaceId)}`);
 };
 
+const openWorkspaceFlowMap = (workspaceId) => {
+  openChromePage(`flowMap.html?workspaceId=${encodeURIComponent(workspaceId)}`);
+};
+
 const exportLibraryItem = async (item, event = null) => {
   event?.stopPropagation?.();
   try {
@@ -539,21 +543,36 @@ const renderBoxCard = (box) =>
           ? _.div({ class: "tl-card-warning" }, `${box.trust.runtime.violations.length} runtime issue`)
           : null
       ),
-      box.type === "workspace"
-        ? btn(
-          {
-            class: "tl-workspace-open",
-            onclick: (event) => {
-              event.stopPropagation();
-              openWorkspaceView(box.id);
-            },
-          },
-          icon("open_in_new", "sm"),
-          "Apri"
-        )
-        : btn({ class: "tl-card-more", "aria-label": `Azioni ${box.name}`, onclick: (event) => event.stopPropagation() }, icon("more_horiz", "sm"))
-      ,
-      btn({ class: "tl-card-more", "aria-label": `Export ${box.name}`, onclick: (event) => exportLibraryItem(box, event) }, icon("download", "sm"))
+      _.Row(
+        { class: "tl-card-actions", align: "center", gap: 8 },
+        box.type === "workspace"
+          ? [
+            btn(
+              {
+                class: "tl-workspace-open",
+                onclick: (event) => {
+                  event.stopPropagation();
+                  openWorkspaceView(box.id);
+                },
+              },
+              icon("open_in_new", "sm"),
+              "Apri"
+            ),
+            btn(
+              {
+                class: "tl-workspace-flow",
+                onclick: (event) => {
+                  event.stopPropagation();
+                  openWorkspaceFlowMap(box.id);
+                },
+              },
+              icon("account_tree", "sm"),
+              "Flow"
+            ),
+          ]
+          : btn({ class: "tl-card-more", "aria-label": `Azioni ${box.name}`, onclick: (event) => event.stopPropagation() }, icon("more_horiz", "sm")),
+        btn({ class: "tl-card-more", "aria-label": `Export ${box.name}`, onclick: (event) => exportLibraryItem(box, event) }, icon("download", "sm"))
+      )
     )
   );
 

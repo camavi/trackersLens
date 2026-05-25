@@ -244,7 +244,10 @@ window.TrackerLensGraphEngine = (() => {
   const shortestPath = (options = {}) => findPaths(options)[0] || null;
 
   const buildGraph = async ({ filters = {}, includeConnections = true } = {}) => {
-    const runtime = await loadRuntime({ includeConnections });
+    const runtime = await loadRuntime({
+      includeConnections,
+      workspaceId: filters.workspaceId && filters.workspaceId !== "all" ? filters.workspaceId : "",
+    });
     const graph = window.TrackerLensRuntimeGraphModel?.build
       ? window.TrackerLensRuntimeGraphModel.build({ runtime, filters })
       : { nodes: runtime.runtimeNodes || [], dependencies: runtime.runtimeDependencies || [], channelsByName: new Map() };

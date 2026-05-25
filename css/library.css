@@ -454,8 +454,8 @@ body {
   min-height: 0;
   padding: 18px;
   display: grid;
-  grid-template-rows: auto minmax(58px, 1fr) auto;
-  gap: 16px;
+  grid-template-rows: auto minmax(50px, 1fr) auto;
+  gap: 10px;
 }
 
 .tl-card-head {}
@@ -578,6 +578,7 @@ body {
 .tl-card-foot {
   min-width: 0;
   align-self: end;
+  flex-wrap: wrap;
 }
 
 .tl-card-category {
@@ -608,6 +609,13 @@ body {
   font-weight: 800;
 }
 
+.tl-card-actions {
+  flex: 0 0 auto;
+  margin-left: auto;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
 .tl-card-more.cms-btn {
   width: 30px;
   min-width: 30px;
@@ -619,12 +627,27 @@ body {
 }
 
 .tl-workspace-open.cms-btn {
-  min-width: 86px;
+  min-width: 68px;
   color: #dff6ff;
   border-color: rgba(86, 191, 245, 0.34);
   border-radius: 8px;
   background: rgba(86, 191, 245, 0.12);
   font-weight: 800;
+}
+
+.tl-workspace-flow.cms-btn {
+  min-width: 68px;
+  color: #fff2c8;
+  border-color: rgba(255, 199, 44, 0.34);
+  border-radius: 8px;
+  background: rgba(255, 199, 44, 0.11);
+  font-weight: 800;
+}
+
+.tl-workspace-flow.cms-btn:hover {
+  color: #161000;
+  border-color: rgba(255, 199, 44, 0.52);
+  background: linear-gradient(180deg, #ffd84f, #d99a00);
 }
 
 .tl-library-list .tl-box-card.cms-card,
