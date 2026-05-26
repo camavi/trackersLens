@@ -1,5 +1,65 @@
 # Active Tasks
 
+## [TASK-021]
+
+Title: Flow Map Runtime Worker, Live Verification, Timeline and Large Graph Pass
+
+Priority: Critical
+
+Status: Complete
+
+Files:
+
+- `core/runtime/runtime-worker.js`
+- `core/runtime/runtime-worker-controller.js`
+- `core/runtime/runtime-manifest.js`
+- `flowMap.html`
+- `workspace.html`
+- `devtools.html`
+- `js/flowMapView.js`
+- `js/workspaceView.js`
+- `css/flowMap.css`
+- `docs/runtime-manifest.md`
+
+Dependencies:
+
+- `TrackerLensEventBus`
+- `TrackerLensRuntimeSnapshotStore`
+- `TrackerLensProcessorRuntime`
+- `TrackerLensActionRuntime`
+- `TrackerLensStorageRuntime`
+- `TrackerLensAiAgentRuntime`
+- `CMSwift`
+
+Regression Risk:
+
+High
+
+Description:
+
+Move Processor, Action, Storage and AI Agent runtime orchestration out of Flow Map-only page ownership, add deeper Live Test verification, expose channel timeline and improve large graph rendering.
+
+Runtime Notes:
+
+- 2026-05-26: added `TrackerLensRuntimeWorker` with SharedWorker/Dedicated Worker fallback. The worker loads runtime stores, subscribes Processor/Action/Storage/AI Agent runtimes for a workspace and refreshes the runtime snapshot every 5s.
+- 2026-05-26: `flowMap.html` starts the background runtime and falls back to in-page runtimes only when the worker cannot be started, avoiding duplicate runtime execution in the normal path.
+- 2026-05-26: `workspace.html` starts the same background graph runtime after mounting tracker runtimes, so downstream Processor/Action/Storage/AI nodes can continue while the workspace viewer is open even if Flow Map is closed.
+- 2026-05-26: Flow Map status bar now includes Runtime Worker and Channel Timeline panels. The timeline merges runtime events and flow logs ordered by time and scoped by channel/run filters.
+- 2026-05-26: Live Test now waits for downstream runtime execution and reports targeted verification for Processor, AI, Storage and Action nodes with final `ok`, `no signal` or `absent` states.
+- 2026-05-26: AI Agent nodes are now directly live-testable without an upstream Source/Tracker. The node play button emits a direct test payload on the AI input channel and verifies the AI job created for the same `runId`.
+- 2026-05-26: AI test verification now supports configured assertions (`expectedOutput`, `assertPath`, `assertOperator`, `assertValue`), compares expected vs actual response content, and marks AI checks as `ok`, `assert failed`, `no signal` or `absent`.
+- 2026-05-26: AI runtime jobs now persist `runId`, final prompt, memory context, provider, model, token usage and estimated cost. Flow Map shows these values with raw response, prompt and memory in the Live Test verification panel.
+- 2026-05-26: Flow Map source nodes were corrected for manual workflows. `Manual JSON` no longer asks for an endpoint URL and now exposes JSON payload + emit channel controls; `Text Input` was added as a simple Source node for passing plain text into the graph.
+- 2026-05-26: Added the `Dev` palette group with a `Preview` node. Preview nodes are sink/probe nodes with input only; they display the latest raw/JSON payload received through connected channels directly on the card and in the Node Inspector.
+- 2026-05-26: Preview nodes now ignore synthetic route/test pulse events (`flow_live_pulse`, `flow_test_pulse`) so the card is updated only by real data payloads from WebSocket/REST/manual/processor/AI events.
+- 2026-05-26: Preview nodes now include a Clear action next to Copy. Clear empties the displayed payload and ignores older events for that node, leaving the Preview ready for the next test payload.
+- 2026-05-26: Fixed Chrome unpacked extension reload failure by renaming `_cmswift-fe/` to `cmswift-fe/`; Chrome reserves paths starting with `_`. Updated `js/library.js` image path detection accordingly.
+- 2026-05-26: Manual JSON source now accepts both strict JSON (`{"mela":"prova"}`) and quick object notation (`{mela:'prova'}`) without falling back to the generated demo payload.
+- 2026-05-26: Pulse Test, Live Test and runtime replay no longer auto-open the Flow Logs status panel. Logs stay available from the status bar, while Play keeps the current canvas focus.
+- 2026-05-26: large graphs now use lazy node DOM rendering with a minimap. Canvas edges remain drawn from the graph model while only viewport/selected/live/test nodes are materialized as node cards.
+- 2026-05-26: added `TrackerLensRuntimeManifest` as the stable manifest normalizer/validator for runtime node contracts and documented it in `docs/runtime-manifest.md`.
+- Remaining: service-worker/extension background persistence after every Trackers Lens tab is closed remains future hardening; current worker lifetime is browser-page scoped.
+
 ## [TASK-020]
 
 Title: Settings Control Panel Layout

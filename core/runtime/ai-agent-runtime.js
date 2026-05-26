@@ -153,6 +153,20 @@ window.TrackerLensAiAgentRuntime = (() => {
     }
   };
 
+  const estimateCost = ({ usage = {}, provider = {}, config = {} } = {}) => {
+    const inputRate = Number(config.inputCostPer1k || provider.inputCostPer1k || provider.promptCostPer1k || 0);
+    const outputRate = Number(config.outputCostPer1k || provider.outputCostPer1k || provider.completionCostPer1k || 0);
+    const promptTokens = Number(usage.promptTokens || usage.prompt_tokens || 0);
+    const completionTokens = Number(usage.completionTokens || usage.completion_tokens || 0);
+    const total = ((promptTokens / 1000) * inputRate) + ((completionTokens / 1000) * outputRate);
+    return {
+      currency: config.costCurrency || provider.costCurrency || "USD",
+      inputCostPer1k: inputRate,
+      outputCostPer1k: outputRate,
+      estimated: Math.round(total * 1000000) / 1000000,
+    };
+  };
+
   class AiAgentRuntime {
     constructor({ workspaceId = "workspace_global" } = {}) {
       this.workspaceId = workspaceId;
@@ -248,13 +262,16 @@ window.TrackerLensAiAgentRuntime = (() => {
       }).catch(() => "");
       const prompt = buildPrompt({ node, payload, event, memory });
       const jobId = `ai_job_${node.id}_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
+      const runId = event.meta?.runId || payload?.runId || "";
       await window.TrackerLensAiRuntimeStore?.upsertJob?.({
         id: jobId,
         workspaceId: this.workspaceId,
+        runId,
         agentId: node.id,
         agent: node.label || node.id,
         task: event.channel || "runtime event",
         prompt,
+        memoryContext: memory,
         status: "running",
         provider: provider?.name || provider?.provider || "fallback",
         model,
@@ -280,12 +297,16 @@ window.TrackerLensAiAgentRuntime = (() => {
           response: parseAiText(ai.text),
           text: ai.text,
           usage: ai.usage || {},
+          cost: estimateCost({ usage: ai.usage || {}, provider, config }),
           latencyMs,
           inputChannel: event.channel || "",
+          prompt,
+          memoryContext: memory,
         };
         await window.TrackerLensAiRuntimeStore?.upsertJob?.({
           id: jobId,
           workspaceId: this.workspaceId,
+          runId,
           agentId: node.id,
           agent: node.label || node.id,
           task: event.channel || "runtime event",
@@ -294,6 +315,9 @@ window.TrackerLensAiAgentRuntime = (() => {
           model,
           durationMs: latencyMs,
           tokens: result.usage.totalTokens || 0,
+          cost: result.cost,
+          prompt,
+          memoryContext: memory,
           result,
           updatedAt: new Date().toISOString(),
         });
@@ -304,6 +328,7 @@ window.TrackerLensAiAgentRuntime = (() => {
         await window.TrackerLensAiRuntimeStore?.upsertJob?.({
           id: jobId,
           workspaceId: this.workspaceId,
+          runId,
           agentId: node.id,
           agent: node.label || node.id,
           task: event.channel || "runtime event",
@@ -312,6 +337,9 @@ window.TrackerLensAiAgentRuntime = (() => {
           model: result.model,
           durationMs: latencyMs,
           tokens: 0,
+          cost: estimateCost({ usage: {}, provider, config }),
+          prompt,
+          memoryContext: memory,
           result,
           error: error?.message || String(error),
           updatedAt: new Date().toISOString(),
@@ -324,6 +352,7 @@ window.TrackerLensAiAgentRuntime = (() => {
       if (!node?.id || event?.sourceNodeId === node.id || event?.meta?.aiAgentRuntime === node.id) return;
       const startedAt = performance.now();
       try {
+        const runId = event.meta?.runId || payload?.runId || "";
         const result = await this.execute({ node, payload, event });
         const latencyMs = Math.round(performance.now() - startedAt);
         const channel = agentOutput(node, nodeConfig(node));
@@ -336,6 +365,7 @@ window.TrackerLensAiAgentRuntime = (() => {
             aiAgentRuntime: node.id,
             inputEventId: event.id || "",
             inputChannel: event.channel || "",
+            runId,
             provider: result.provider || "",
             model: result.model || "",
           },
@@ -343,7 +373,7 @@ window.TrackerLensAiAgentRuntime = (() => {
         await this.log({
           node,
           message: `AI agent emitted ${channel}: ${node.label || node.id}`,
-          context: { inputChannel: event.channel, outputChannel: channel, inputEventId: event.id, result, latencyMs },
+          context: { inputChannel: event.channel, outputChannel: channel, inputEventId: event.id, runId, result, latencyMs },
         });
         if (nodeSubtype(node) === "memory") {
           await window.TrackerLensAiRuntimeStore?.remember?.({

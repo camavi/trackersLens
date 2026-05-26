@@ -97,6 +97,19 @@ const state = {
     lastAt: "",
     lastChannel: "",
   },
+  previewPayloads: {},
+  previewClearedAt: {},
+  runtimeWorker: {
+    available: false,
+    connected: false,
+    mode: "none",
+    status: "idle",
+    error: "",
+    workspaceId: "",
+    nodes: 0,
+    dependencies: 0,
+    lastRefreshAt: "",
+  },
   lastInteractionAt: 0,
   updatedAt: new Date(),
   activeStatusPanel: "",
@@ -115,6 +128,7 @@ const state = {
     liveSockets: [],
     keepOpen: false,
     cancelRequested: false,
+    verification: null,
   },
   mounted: false,
 };
@@ -198,6 +212,30 @@ const syncAiAgentRuntime = (workspaceId = state.filters.workspaceId) => {
   } catch (error) {
     console.warn("AI Agent runtime non avviato", error);
   }
+};
+
+const syncBackgroundRuntime = (workspaceId = state.filters.workspaceId) => {
+  if (!window.TrackerLensRuntimeWorker?.start) return false;
+  const id = workspaceId || "workspace_global";
+  const status = window.TrackerLensRuntimeWorker.status?.() || {};
+  const started = window.TrackerLensRuntimeWorker.start({ workspaceId: id, refreshMs: 5000 });
+  state.runtimeWorker = {
+    ...state.runtimeWorker,
+    available: Boolean(status.available || started),
+    connected: Boolean(status.connected || started),
+    mode: status.mode || state.runtimeWorker.mode || "worker",
+    status: started ? "starting" : status.status || "idle",
+    workspaceId: id,
+    error: status.error || "",
+  };
+  return Boolean(started);
+};
+
+const syncPageRuntimes = (workspaceId = state.filters.workspaceId) => {
+  syncProcessorRuntime(workspaceId);
+  syncActionRuntime(workspaceId);
+  syncStorageRuntime(workspaceId);
+  syncAiAgentRuntime(workspaceId);
 };
 
 const setFiltersState = (filters) => {
@@ -466,10 +504,10 @@ const loadRuntime = async (options = {}) => {
     const nodes = enrichNodesWithLibrarySample(runtimeNodes, libraryItems);
     const mergedDependencies = mergeOptimisticDependencies(nodes, mergeConnectionDependencies(nodes, dependencies, connections));
     setRuntimeState({ channels, flows, events, flowLogs, nodes, dependencies: mergedDependencies });
-    syncProcessorRuntime(workspaceId);
-    syncActionRuntime(workspaceId);
-    syncStorageRuntime(workspaceId);
-    syncAiAgentRuntime(workspaceId);
+    rebuildPreviewPayloadsFromEvents();
+    if (!syncBackgroundRuntime(workspaceId)) {
+      syncPageRuntimes(workspaceId);
+    }
     state.graphEngine = engineResult;
     state.libraryItems = libraryItems;
     state.connections = connections;
@@ -543,6 +581,7 @@ const mergeRuntimeEvent = (event = {}) => {
   if (!event.id) return false;
   if (state.runtime.events.some((item) => item.id === event.id)) return false;
   state.runtime.events = [event, ...state.runtime.events].slice(0, 500);
+  updatePreviewPayloads(event);
   state.runtime.channels = state.runtime.channels.map((channel) =>
     channel.workspaceId === event.workspaceId && channel.name === event.channel
       ? { ...channel, lastValue: event.payload, lastEmittedAt: event.createdAt, updatedAt: event.createdAt }
@@ -550,6 +589,55 @@ const mergeRuntimeEvent = (event = {}) => {
   );
   setRuntimeSignal(state.runtime);
   return true;
+};
+
+const isPreviewNode = (node = {}) =>
+  node.type === "devPreview" || nodeSubtype(node) === "preview" || nodeCategory(node) === "dev";
+
+const previewNodesForEvent = (event = {}) => {
+  const nodesById = new Map((state.runtime.nodes || []).map((node) => [node.id, node]));
+  const directTargets = (state.runtime.dependencies || [])
+    .filter((dependency) => dependency.channel === event.channel || dependency.metadata?.targetPort === event.channel || dependency.metadata?.sourcePort === event.channel)
+    .map((dependency) => nodesById.get(dependency.targetNodeId))
+    .filter(isPreviewNode);
+  const inputTargets = (state.runtime.nodes || [])
+    .filter(isPreviewNode)
+    .filter((node) => (node.inputs || []).includes(event.channel) || (node.channels || []).includes(event.channel));
+  return [...new Map([...directTargets, ...inputTargets].filter(Boolean).map((node) => [node.id, node])).values()];
+};
+
+const isPreviewPayloadEvent = (event = {}) => {
+  const type = String(event.eventType || "").toLowerCase();
+  if (!type) return true;
+  if (type.includes("pulse")) return false;
+  if (event.payload?.route && event.payload?.channel && (event.payload?.live || event.payload?.__test)) return false;
+  return true;
+};
+
+const updatePreviewPayloads = (event = {}) => {
+  if (!isPreviewPayloadEvent(event)) return;
+  previewNodesForEvent(event).forEach((node) => {
+    const clearedAt = Date.parse(state.previewClearedAt[node.id] || "");
+    const eventAt = Date.parse(event.createdAt || "");
+    if (clearedAt && eventAt && eventAt <= clearedAt) return;
+    state.previewPayloads[node.id] = {
+      eventId: event.id,
+      channel: event.channel || "default",
+      eventType: event.eventType || "event",
+      sourceNodeId: event.sourceNodeId || "",
+      payload: event.payload,
+      createdAt: event.createdAt || new Date().toISOString(),
+      sizeBytes: event.sizeBytes || 0,
+    };
+  });
+};
+
+const rebuildPreviewPayloadsFromEvents = () => {
+  state.previewPayloads = {};
+  (state.runtime.events || [])
+    .slice()
+    .sort((a, b) => Date.parse(a.createdAt || 0) - Date.parse(b.createdAt || 0))
+    .forEach(updatePreviewPayloads);
 };
 
 const mergeFlowLog = (log = {}) => {
@@ -699,6 +787,7 @@ const nodeRuntimeDescription = (node = {}, live = null) => {
   const category = nodeCategory(node);
   if (node.metadata?.description) return node.metadata.description;
   if (category === "sources") return "Input adapter ingesting raw external data.";
+  if (category === "dev" || node.type === "devPreview") return "Development probe showing raw and JSON payloads passing through the graph.";
   if (category === "trackers" || node.type === "boxTracker") return "Data orchestrator emitting structured runtime channels.";
   if (category === "processors" || node.type === "processor") return "Stateless transformation node for runtime events.";
   if (category === "ai-agents" || node.type === "aiAgent") return "AI decision node for analysis, routing and interpretation.";
@@ -2330,8 +2419,18 @@ const isTestableStarterNode = (node = {}) => {
     (type === "source" || type === "boxtracker" || category === "sources" || category === "trackers");
 };
 
+const isDirectAiTestNode = (node = {}) =>
+  !node.metadata?.library &&
+  node.type === "aiAgent" &&
+    !["paused", "disabled", "disconnected"].includes(String(node.runtime?.status || node.metadata?.runtimeStatus || node.status || "").toLowerCase());
+
+const isManualInputSource = (node = {}) => {
+  const subtype = String(nodeSubtype(node) || "").toLowerCase();
+  return nodeCategory(node) === "sources" && ["manual-json", "text-input", "manual-input"].includes(subtype);
+};
+
 const isLiveTestableStarterNode = (node = {}) =>
-  isTestableStarterNode(node) && Boolean(nodeEndpoint(node));
+  isDirectAiTestNode(node) || isManualInputSource(node) || (isTestableStarterNode(node) && Boolean(nodeEndpoint(node)));
 
 const testRunId = () => `flow_test_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
 
@@ -2352,6 +2451,21 @@ const parseTestPayload = (value) => {
   if (typeof value === "object") return value;
   try {
     return JSON.parse(String(value));
+  } catch (_) {
+    return null;
+  }
+};
+
+const parseManualJsonPayload = (value) => {
+  const parsed = parseTestPayload(value);
+  if (parsed) return parsed;
+  const text = String(value || "").trim();
+  if (!text) return null;
+  try {
+    const normalized = text
+      .replace(/([{,]\s*)([A-Za-z_$][\w$-]*)(\s*:)/g, '$1"$2"$3')
+      .replace(/'([^'\\]*(?:\\.[^'\\]*)*)'/g, (_, inner) => JSON.stringify(inner.replace(/\\'/g, "'")));
+    return JSON.parse(normalized);
   } catch (_) {
     return null;
   }
@@ -2395,7 +2509,22 @@ const parseResponsePayload = (value) => {
 
 const nodeTestPayload = (node = {}, runId = "") => {
   const config = node.metadata?.config || {};
-  const configuredPayload = parseTestPayload(config.testPayload || config.payload || config.manualJson);
+  const manualPayloadSource = config.testPayload || config.payload || config.manualJson || config.json;
+  const configuredPayload = nodeSubtype(node) === "manual-json"
+    ? parseManualJsonPayload(manualPayloadSource)
+    : parseTestPayload(manualPayloadSource);
+  if (!configuredPayload && isManualInputSource(node)) {
+    const text = String(config.text || config.inputText || config.manualText || "").trim();
+    if (text) {
+      return {
+        text,
+        __test: true,
+        runId,
+        sourceNodeId: node.id,
+        emittedAt: new Date().toISOString(),
+      };
+    }
+  }
   const sample = configuredPayload || node.metadata?.sampleOutput || config.sampleOutput;
   if (sample && typeof sample === "object") {
     return {
@@ -2424,6 +2553,67 @@ const nodeTestPayload = (node = {}, runId = "") => {
     source: category === "sources" ? subtype : node.type || category,
     emittedAt: new Date().toISOString(),
   };
+};
+
+const executeManualInputNode = async ({ node, workspaceId, runId, graph } = {}) => {
+  const payload = nodeTestPayload(node, runId);
+  const channels = nodeOutgoingTestChannels(node, graph);
+  const outputChannels = channels.length ? channels : ["raw"];
+  for (const channel of outputChannels) {
+    await emitLiveNodePayload({
+      workspaceId,
+      runId,
+      node,
+      channel,
+      payload,
+      eventType: "flow_live_manual_input",
+      latencyMs: 1,
+    });
+  }
+  await recordFlowAction({
+    workspaceId,
+    nodeId: node.id,
+    message: `Manual input emitted: ${node.label || node.id}`,
+    context: { action: "flow-map-manual-input", runId, channels: outputChannels, payloadPreview: compactPayloadPreview(payload, 220) },
+  });
+  return { channels: outputChannels, payload };
+};
+
+const aiDirectInputChannel = (node = {}, graph = graphModel()) => {
+  const config = nodeRuntimeConfig(node);
+  const incoming = (graph.dependencies || [])
+    .filter((dependency) => dependency.targetNodeId === node.id)
+    .map((dependency) => dependency.channel || dependency.metadata?.targetPort)
+    .filter(Boolean);
+  return incoming[0] || config.input || node.inputs?.[0] || nodeChannels(node)[0] || "input";
+};
+
+const executeDirectAiAgentNode = async ({ node, workspaceId, runId, graph } = {}) => {
+  const channel = aiDirectInputChannel(node, graph);
+  const payload = nodeTestPayload(node, runId);
+  const event = await workspaceEventBus(workspaceId)?.emit?.(channel, payload, {
+    workspaceId,
+    flowId: flowIdForWorkspace(workspaceId),
+    eventType: "flow_live_ai_direct",
+    sourceNodeId: "flow-map-ai-direct-test",
+    targetNodeId: node.id,
+    latencyMs: 1,
+    meta: {
+      live: true,
+      runId,
+      origin: "ai-direct-test",
+      targetNodeId: node.id,
+      inputChannel: channel,
+    },
+  });
+  if (event) mergeRuntimeEvent(event);
+  await recordFlowAction({
+    workspaceId,
+    nodeId: node.id,
+    message: `Direct AI Agent test started: ${node.label || node.id}`,
+    context: { action: "flow-map-ai-direct-test", runId, inputChannel: channel, payloadPreview: compactPayloadPreview(payload, 220) },
+  });
+  return { channels: [channel], payload };
 };
 
 const downstreamTestPath = (graph = {}, starterIds = []) => {
@@ -2580,8 +2770,8 @@ const replayRuntimeEvent = async (event = {}) => {
     liveSockets: [],
     keepOpen: false,
     cancelRequested: false,
+    verification: null,
   };
-  state.activeStatusPanel = "logs";
   setFiltersState({ ...state.filters, runId });
   mount();
 
@@ -2876,6 +3066,9 @@ const executeLiveWebSocketNode = ({ node, workspaceId, runId, graph, signal = nu
   });
 
 const executeLiveNode = async ({ node, workspaceId, runId, graph, signal = null } = {}) => {
+  if (isManualInputSource(node)) {
+    return executeManualInputNode({ node, workspaceId, runId, graph, signal });
+  }
   const endpoint = nodeEndpoint(node);
   const subtype = nodeSubtype(node);
   if (isWebSocketEndpoint(endpoint) || subtype === "websocket") {
@@ -2906,9 +3099,262 @@ const finishFlowMapTestRun = ({ runId = state.testRun.runId, summary = "", error
     liveSockets: [],
     keepOpen: false,
     cancelRequested: false,
+    verification: state.testRun.verification || null,
   };
   if (error) state.error = error;
   return true;
+};
+
+const wait = (ms = 0) => new Promise((resolve) => window.setTimeout(resolve, ms));
+
+const runtimeKindForNode = (node = {}) => {
+  if (node.type === "aiAgent") return "ai";
+  if (node.type === "storage") return "storage";
+  if (node.type === "action") return "action";
+  if (node.type === "processor") return "processor";
+  return "";
+};
+
+const getPathValue = (source, path = "") => {
+  const clean = String(path || "").trim();
+  if (!clean) return source;
+  return clean
+    .replace(/^result\./, "")
+    .replace(/^payload\./, "")
+    .replace(/\[(\d+)\]/g, ".$1")
+    .split(".")
+    .filter(Boolean)
+    .reduce((value, key) => value?.[key], source);
+};
+
+const stringifyForAssert = (value = "") => {
+  if (typeof value === "string") return value;
+  try {
+    return JSON.stringify(value ?? {});
+  } catch (_) {
+    return String(value ?? "");
+  }
+};
+
+const parseExpectedValue = (value = "") => {
+  if (value && typeof value === "object") return value;
+  const text = String(value || "").trim();
+  if (!text) return "";
+  try {
+    return JSON.parse(text);
+  } catch (_) {
+    return text;
+  }
+};
+
+const objectContains = (actual, expected) => {
+  if (!expected || typeof expected !== "object") return stringifyForAssert(actual).includes(String(expected || ""));
+  if (!actual || typeof actual !== "object") return false;
+  return Object.entries(expected).every(([key, value]) => {
+    if (value && typeof value === "object" && !Array.isArray(value)) return objectContains(actual[key], value);
+    return stringifyForAssert(actual[key]) === stringifyForAssert(value);
+  });
+};
+
+const evaluateAiAssertion = ({ node = {}, job = {} } = {}) => {
+  const config = nodeRuntimeConfig(node);
+  const expectedOutput = parseExpectedValue(config.expectedOutput);
+  const assertPath = String(config.assertPath || "").trim();
+  const operator = String(config.assertOperator || (expectedOutput ? "json-contains" : "contains")).trim() || "contains";
+  const expected = parseExpectedValue(config.assertValue || config.expectedOutput);
+  const result = job.result || {};
+  const target = assertPath ? getPathValue(result, assertPath) : result.response || result.text || result;
+  const actualText = stringifyForAssert(target);
+  const expectedText = stringifyForAssert(expected);
+
+  if (!expectedText && !assertPath && !config.expectedOutput) {
+    return { status: "not-configured", ok: true, operator, actual: actualText, expected: "" };
+  }
+  if (operator === "exists") return { status: target !== undefined && target !== null && target !== "" ? "passed" : "failed", ok: target !== undefined && target !== null && target !== "", operator, actual: actualText, expected: assertPath };
+  if (operator === "equals") return { status: actualText === expectedText ? "passed" : "failed", ok: actualText === expectedText, operator, actual: actualText, expected: expectedText };
+  if (operator === "regex") {
+    let ok = false;
+    try {
+      ok = new RegExp(String(expected || ""), "i").test(actualText);
+    } catch (_) {
+      ok = false;
+    }
+    return { status: ok ? "passed" : "failed", ok, operator, actual: actualText, expected: expectedText };
+  }
+  if (operator === "json-contains") {
+    const ok = objectContains(target, expectedOutput || expected);
+    return { status: ok ? "passed" : "failed", ok, operator, actual: actualText, expected: stringifyForAssert(expectedOutput || expected) };
+  }
+  const ok = actualText.toLowerCase().includes(expectedText.toLowerCase());
+  return { status: ok ? "passed" : "failed", ok, operator, actual: actualText, expected: expectedText };
+};
+
+const runRecordMatches = (record = {}, runId = "") =>
+  Boolean(runId) && (
+    record.meta?.runId === runId ||
+    record.context?.runId === runId ||
+    record.payload?.runId === runId
+  );
+
+const loadRunRecords = async ({ workspaceId = "", runId = "" } = {}) => {
+  const [events, flowLogs, aiData] = await Promise.all([
+    window.TrackerLensEventLogStore?.listEvents
+      ? window.TrackerLensEventLogStore.listEvents().catch(() => [])
+      : Promise.resolve([]),
+    window.TrackerLensEventLogStore?.listFlowLogs
+      ? window.TrackerLensEventLogStore.listFlowLogs().catch(() => [])
+      : Promise.resolve([]),
+    window.TrackerLensAiRuntimeStore?.list
+      ? window.TrackerLensAiRuntimeStore.list().catch(() => ({ jobs: [], logs: [], providers: [] }))
+      : Promise.resolve({ jobs: [], logs: [], providers: [] }),
+  ]);
+  return {
+    events: events.filter((event) => (!workspaceId || event.workspaceId === workspaceId) && runRecordMatches(event, runId)),
+    flowLogs: flowLogs.filter((log) => (!workspaceId || log.workspaceId === workspaceId) && runRecordMatches(log, runId)),
+    aiJobs: (aiData.jobs || []).filter((job) => (!workspaceId || job.workspaceId === workspaceId) && (job.runId === runId || job.result?.runId === runId)),
+    aiLogs: (aiData.logs || []).filter((log) => (!workspaceId || log.workspaceId === workspaceId) && runRecordMatches(log, runId)),
+    aiProviders: aiData.providers || [],
+  };
+};
+
+const summarizeLiveVerification = ({ graph, path, starters, events = [], flowLogs = [], aiJobs = [], aiLogs = [] } = {}) => {
+  const pathNodeIds = new Set([...(path?.nodeIds || []), ...(starters || []).map((node) => node.id)]);
+  const nodes = (graph.nodes || []).filter((node) => pathNodeIds.has(node.id));
+  const expected = {
+    processor: nodes.filter((node) => runtimeKindForNode(node) === "processor").length,
+    action: nodes.filter((node) => runtimeKindForNode(node) === "action").length,
+    storage: nodes.filter((node) => runtimeKindForNode(node) === "storage").length,
+    ai: nodes.filter((node) => runtimeKindForNode(node) === "ai").length,
+  };
+  const eventHits = {
+    processor: events.filter((event) => String(event.eventType || "").includes("processor")).length,
+    action: events.filter((event) => String(event.eventType || "").includes("action")).length,
+    storage: events.filter((event) => String(event.eventType || "").includes("storage")).length,
+    ai: events.filter((event) => String(event.eventType || "").includes("ai_agent") || String(event.channel || "").startsWith("ai.")).length,
+  };
+  const logHits = {
+    processor: flowLogs.filter((log) => log.context?.runtime === "processor").length,
+    action: flowLogs.filter((log) => log.context?.runtime === "action").length,
+    storage: flowLogs.filter((log) => log.context?.runtime === "storage").length,
+    ai: flowLogs.filter((log) => log.context?.runtime === "ai-agent").length,
+  };
+  const aiNodes = nodes.filter((node) => runtimeKindForNode(node) === "ai");
+  const aiDetails = aiNodes.map((node) => {
+    const jobs = aiJobs
+      .filter((job) => job.agentId === node.id)
+      .sort((a, b) => Date.parse(b.updatedAt || b.createdAt || 0) - Date.parse(a.updatedAt || a.createdAt || 0));
+    const job = jobs[0] || null;
+    const assertion = job ? evaluateAiAssertion({ node, job }) : { status: "missing", ok: false };
+    const usage = job?.result?.usage || {};
+    const cost = job?.result?.cost || job?.cost || {};
+    return {
+      nodeId: node.id,
+      label: node.label || node.id,
+      status: job ? (assertion.ok ? "passed" : "failed") : "missing",
+      assertion,
+      provider: job?.provider || job?.result?.provider || "N/D",
+      model: job?.model || job?.result?.model || "N/D",
+      tokens: Number(job?.tokens || usage.totalTokens || usage.total_tokens || 0),
+      promptTokens: Number(usage.promptTokens || usage.prompt_tokens || 0),
+      completionTokens: Number(usage.completionTokens || usage.completion_tokens || 0),
+      cost: cost.estimated || 0,
+      currency: cost.currency || "USD",
+      prompt: job?.prompt || job?.result?.prompt || "",
+      memoryContext: job?.memoryContext || job?.result?.memoryContext || "",
+      raw: job?.result || null,
+    };
+  });
+  const makeStatus = (kind) => {
+    const hits = eventHits[kind] + logHits[kind];
+    if (kind === "ai" && aiDetails.some((item) => item.status === "failed")) return { kind, status: "failed", expected: expected[kind], events: eventHits[kind], logs: logHits[kind] };
+    if (kind === "ai" && aiDetails.some((item) => item.status === "passed")) return { kind, status: "passed", expected: expected[kind], events: eventHits[kind], logs: logHits[kind] };
+    if (!expected[kind]) return { kind, status: "not-present", expected: 0, events: eventHits[kind], logs: logHits[kind] };
+    return { kind, status: hits ? "passed" : "missing", expected: expected[kind], events: eventHits[kind], logs: logHits[kind] };
+  };
+  const checks = ["processor", "ai", "storage", "action"].map(makeStatus);
+  return {
+    checks,
+    events: events.length,
+    flowLogs: flowLogs.length,
+    aiJobs: aiJobs.length,
+    aiLogs: aiLogs.length,
+    aiDetails,
+    passed: checks.filter((check) => check.status === "passed").length,
+    failed: checks.filter((check) => check.status === "failed").length + aiDetails.filter((item) => item.status === "failed").length,
+    missing: checks.filter((check) => check.status === "missing").length,
+    notPresent: checks.filter((check) => check.status === "not-present").length,
+  };
+};
+
+const liveVerificationLabel = (check = {}) => {
+  if (check.status === "passed") return `${check.kind}: ok`;
+  if (check.status === "failed") return `${check.kind}: assert failed`;
+  if (check.status === "missing") return `${check.kind}: no signal`;
+  return `${check.kind}: absent`;
+};
+
+const liveVerificationTone = (check = {}) =>
+  check.status === "passed" ? "green" : check.status === "missing" || check.status === "failed" ? "red" : "gold";
+
+const renderAiTestDetails = (verification = state.testRun.verification) => {
+  const details = verification?.aiDetails || [];
+  if (!details.length) return null;
+  return _.div(
+    { class: "tl-flow-ai-test-panel" },
+    _.h3("AI Agent Test"),
+    ...details.map((detail) =>
+      _.section(
+        { class: `tl-flow-ai-test-card is-${detail.status}` },
+        _.div(
+          { class: "tl-flow-ai-test-head" },
+          _.strong(detail.label),
+          _.span({ class: `tl-flow-mini-chip is-${detail.status === "passed" ? "green" : detail.status === "failed" ? "red" : "gold"}` }, detail.status)
+        ),
+        _.div(
+          { class: "tl-flow-ai-test-metrics" },
+          _.span(`Provider: ${detail.provider}`),
+          _.span(`Model: ${detail.model}`),
+          _.span(`Tokens: ${detail.tokens} (${detail.promptTokens}/${detail.completionTokens})`),
+          _.span(`Cost: ${detail.cost} ${detail.currency}`)
+        ),
+        _.div(
+          { class: "tl-flow-ai-assert" },
+          _.strong(`Assert: ${detail.assertion?.operator || "N/D"} · ${detail.assertion?.status || "N/D"}`),
+          _.span(`Expected: ${compactPayloadPreview(detail.assertion?.expected || "", 180)}`),
+          _.span(`Actual: ${compactPayloadPreview(detail.assertion?.actual || "", 220)}`)
+        ),
+        _.details(
+          _.summary("Prompt finale"),
+          _.pre(detail.prompt || "N/D")
+        ),
+        _.details(
+          _.summary("Memoria usata"),
+          _.pre(detail.memoryContext || "N/D")
+        ),
+        _.details(
+          _.summary("Risposta raw"),
+          _.pre(prettyRuntimeValue(detail.raw || {}))
+        )
+      )
+    )
+  );
+};
+
+const renderLiveTestVerification = () => {
+  const verification = state.testRun.verification;
+  if (!verification) return null;
+  return _.div(
+    { class: "tl-flow-run-summary" },
+    _.strong("Live Test verification"),
+    ...verification.checks.map((check) =>
+      _.span({
+        class: `tl-flow-mini-chip is-${liveVerificationTone(check)}`,
+        title: `${check.expected} node target · ${check.events} events · ${check.logs} logs`,
+      }, liveVerificationLabel(check))
+    ),
+    _.span(`${verification.events} events · ${verification.flowLogs} logs · ${verification.aiJobs || 0} ai jobs`),
+    renderAiTestDetails(verification)
+  );
 };
 
 const startTestRunTimeout = (runId) => {
@@ -2952,7 +3398,6 @@ const runFlowMapTest = async (starterNode = null) => {
     : (graph.nodes || []).filter(isTestableStarterNode);
   if (!starters.length) {
     state.error = "Nessun Source o Tracker testabile nel workspace corrente.";
-    state.activeStatusPanel = "logs";
     mount({ preserveScroll: true });
     return;
   }
@@ -2975,10 +3420,10 @@ const runFlowMapTest = async (starterNode = null) => {
     liveSockets: [],
     keepOpen: false,
     cancelRequested: false,
+    verification: null,
   };
   startTestRunTimeout(runId);
   state.error = "";
-  state.activeStatusPanel = "logs";
   setFiltersState({ ...state.filters, runId });
   syncFilterQuery();
   mount({ preserveScroll: true });
@@ -3077,7 +3522,6 @@ const runFlowMapLiveTest = async (starterNode = null) => {
     : (graph.nodes || []).filter(isLiveTestableStarterNode);
   if (!starters.length) {
     state.error = "Nessun Source o Tracker con endpoint configurato nel workspace corrente.";
-    state.activeStatusPanel = "logs";
     mount({ preserveScroll: true });
     return;
   }
@@ -3101,10 +3545,10 @@ const runFlowMapLiveTest = async (starterNode = null) => {
     liveSockets: [],
     keepOpen,
     cancelRequested: false,
+    verification: null,
   };
   if (!keepOpen) startTestRunTimeout(runId);
   state.error = "";
-  state.activeStatusPanel = "logs";
   setFiltersState({ ...state.filters, runId });
   syncFilterQuery();
   mount({ preserveScroll: true });
@@ -3113,7 +3557,9 @@ const runFlowMapLiveTest = async (starterNode = null) => {
     const emittedChannels = new Set();
     for (const node of starters) {
       if (abortController.signal.aborted) return;
-      const result = await executeLiveNode({ node, workspaceId, runId, graph, signal: abortController.signal });
+      const result = isDirectAiTestNode(node)
+        ? await executeDirectAiAgentNode({ node, workspaceId, runId, graph, signal: abortController.signal })
+        : await executeLiveNode({ node, workspaceId, runId, graph, signal: abortController.signal });
       if (abortController.signal.aborted) return;
       (result.channels || []).forEach((channel) => emittedChannels.add(channel));
     }
@@ -3123,14 +3569,40 @@ const runFlowMapLiveTest = async (starterNode = null) => {
       await emitLiveDependencyPulse({ workspaceId, runId, graph, dependency });
     }
 
+    await wait(700);
+    const runRecords = await loadRunRecords({ workspaceId, runId });
+    runRecords.events.forEach(mergeRuntimeEvent);
+    runRecords.flowLogs.forEach(mergeFlowLog);
+    const verification = summarizeLiveVerification({
+      graph,
+      path,
+      starters,
+      events: runRecords.events,
+      flowLogs: runRecords.flowLogs,
+      aiJobs: runRecords.aiJobs,
+      aiLogs: runRecords.aiLogs,
+    });
+    state.testRun.verification = verification;
+    const verificationSummary = verification.checks
+      .map(liveVerificationLabel)
+      .join(" · ");
     const channelSummary = emittedChannels.size ? ` · ${emittedChannels.size} channels` : "";
-    const summary = `Live test completed: ${path.nodeIds.length} nodes · ${path.edgeIds.length} links${channelSummary}`;
+    const summary = `Live test completed: ${path.nodeIds.length} nodes · ${path.edgeIds.length} links${channelSummary} · ${verificationSummary}`;
     finishFlowMapTestRun({ runId, summary });
     await recordFlowAction({
       workspaceId,
-      level: "info",
+      level: verification.missing || verification.failed ? "warning" : "info",
       message: summary,
-      context: { action: "flow-map-live-test-completed", runId, live: true, starters: starters.map((node) => node.id), nodes: path.nodeIds.length, edges: path.edgeIds.length, channels: [...emittedChannels] },
+      context: {
+        action: "flow-map-live-test-completed",
+        runId,
+        live: true,
+        starters: starters.map((node) => node.id),
+        nodes: path.nodeIds.length,
+        edges: path.edgeIds.length,
+        channels: [...emittedChannels],
+        verification,
+      },
     });
     mount({ preserveScroll: true });
   } catch (error) {
@@ -3407,25 +3879,31 @@ const nodeManifest = ({
   render = null,
   execute = null,
   persist = null,
-}) => ({
-  version: "1.0.0",
-  type,
-  subtype,
-  category,
-  inputs: inputs.map((port) => manifestPortDef(port, category === "lens" ? "any" : "object")),
-  outputs: outputs.map((port) => manifestPortDef(port, "object")),
-  permissions,
-  settingsSchema,
-  runtime,
-  metadata: {
-    runtimeType: type,
+}) => {
+  const manifest = {
+    version: "1.0.0",
+    runtimeVersion: window.TrackerLensRuntimeManifest?.RUNTIME_VERSION || "0.1.0",
+    type,
     subtype,
     category,
-  },
-  ...(render ? { render } : {}),
-  ...(execute ? { execute } : {}),
-  ...(persist ? { persist } : {}),
-});
+    inputs: inputs.map((port) => manifestPortDef(port, category === "lens" ? "any" : "object")),
+    outputs: outputs.map((port) => manifestPortDef(port, "object")),
+    permissions,
+    settingsSchema,
+    runtime,
+    metadata: {
+      runtimeType: type,
+      subtype,
+      category,
+    },
+    ...(render ? { render } : {}),
+    ...(execute ? { execute } : {}),
+    ...(persist ? { persist } : {}),
+  };
+  return window.TrackerLensRuntimeManifest?.normalizeManifest
+    ? window.TrackerLensRuntimeManifest.normalizeManifest(manifest)
+    : manifest;
+};
 
 const paletteNode = ({
   label,
@@ -3485,6 +3963,7 @@ const nodePalette = [
     paletteNode({ label: "Webhook", icon: "webhook", tone: "green", nodeType: "source", subtype: "webhook", category: "sources", outputs: ["raw"], permissions: ["webhook.receive"], connectionType: "Webhook" }),
     paletteNode({ label: "YouTube API", icon: "smart_display", tone: "green", nodeType: "source", subtype: "youtube", category: "sources", outputs: ["raw"], permissions: ["network.fetch"], connectionType: "Source: YouTube API" }),
     paletteNode({ label: "Manual JSON", icon: "data_object", tone: "green", nodeType: "source", subtype: "manual-json", category: "sources", outputs: ["raw"], settingsSchema: { json: "object" }, connectionType: "Source: Manual JSON" }),
+    paletteNode({ label: "Text Input", icon: "notes", tone: "green", nodeType: "source", subtype: "text-input", category: "sources", outputs: ["raw"], settingsSchema: { text: "string" }, connectionType: "Source: Text Input" }),
     paletteNode({ label: "IndexedDB Source", icon: "database", tone: "cyan", nodeType: "source", subtype: "indexeddb-source", category: "sources", outputs: ["raw"], permissions: ["indexeddb.read"], connectionType: "Source: IndexedDB" }),
   ]],
   ["Trackers", [
@@ -3553,6 +4032,9 @@ const nodePalette = [
     paletteNode({ label: "CSV Export", icon: "table_view", tone: "cyan", nodeType: "storage", subtype: "csv-export", category: "storage", inputs: ["record"], permissions: ["file.write"], persist: {} }),
     paletteNode({ label: "History Store", icon: "history", tone: "green", nodeType: "storage", subtype: "history-store", category: "storage", inputs: ["event"], permissions: ["history.write"], persist: {} }),
   ]],
+  ["Dev", [
+    paletteNode({ label: "Preview", icon: "visibility", tone: "blue", nodeType: "devPreview", subtype: "preview", category: "dev", inputs: ["raw"], settingsSchema: { mode: "raw|json" } }),
+  ]],
 ];
 
 const flatPalette = () => nodePalette.flatMap(([, items]) => items);
@@ -3568,7 +4050,7 @@ const isDraftNode = (node = {}) =>
   Boolean(node.metadata?.draft || node.status === "draft" || String(node.id || "").startsWith("draft_"));
 
 const isInlineConfigNode = (node = {}) =>
-  ["source", "boxTracker", "processor", "aiAgent", "boxLens", "lens", "action", "storage"].includes(node.type);
+  ["source", "boxTracker", "processor", "aiAgent", "boxLens", "lens", "action", "storage", "devPreview"].includes(node.type);
 
 const nodeBadges = (node = {}, live = null) => {
   const badges = [];
@@ -3694,7 +4176,7 @@ const runtimeNodeUpdateFromValues = ({ node, values = {} }) => {
   const category = nodeCategory(node);
   const outputs = subtype === "condition"
     ? [config.trueOutput || defaults.trueOutput || "true", config.falseOutput || defaults.falseOutput || "false"].filter(Boolean)
-    : category === "actions" || category === "storage" || category === "lens"
+    : category === "actions" || category === "storage" || category === "lens" || category === "dev"
       ? []
       : [output].filter(Boolean);
   const inputs = category === "sources" ? [] : [input].filter(Boolean);
@@ -3791,6 +4273,18 @@ const configFieldDefinitions = (node = {}) => {
     ];
   }
   if (category === "sources") {
+    if (subtype === "manual-json") {
+      return [
+        { key: "json", label: "JSON Payload", type: "textarea", placeholder: "{ \"mela\": \"prova\" } oppure {mela:'prova'}" },
+        { key: "emitChannel", label: "Emit channel", placeholder: "raw" },
+      ];
+    }
+    if (subtype === "text-input" || subtype === "manual-input") {
+      return [
+        { key: "text", label: "Text Payload", type: "textarea", placeholder: "Scrivi qui il dato da passare al flow..." },
+        { key: "emitChannel", label: "Emit channel", placeholder: "raw" },
+      ];
+    }
     const fields = [
       { key: "endpoint", label: "Endpoint / Source", placeholder: "https://api.example.com/data" },
       { key: "method", label: "Method", type: "select", options: ["GET", "POST", "PUT", "PATCH"] },
@@ -3813,6 +4307,13 @@ const configFieldDefinitions = (node = {}) => {
       { key: "provider", label: "Provider", placeholder: "openai/local" },
       { key: "model", label: "Model", placeholder: "gpt-4.1-mini" },
       { key: "prompt", label: "Prompt / Instruction", type: "textarea", placeholder: "Analyze incoming payload and emit a decision." },
+      { key: "testPayload", label: "Direct Test Payload", type: "textarea", placeholder: "{ \"text\": \"Analyze this payload\", \"value\": 42 }" },
+      { key: "expectedOutput", label: "Expected Output", type: "textarea", placeholder: "{ \"decision\": \"ok\" } oppure testo atteso" },
+      { key: "assertPath", label: "Assert path", placeholder: "response.decision" },
+      { key: "assertOperator", label: "Assert operator", type: "select", options: ["contains", "equals", "exists", "json-contains", "regex"] },
+      { key: "assertValue", label: "Assert value", placeholder: "ok" },
+      { key: "inputCostPer1k", label: "Input cost / 1k", placeholder: "0" },
+      { key: "outputCostPer1k", label: "Output cost / 1k", placeholder: "0" },
     ];
   }
   if (category === "lens") {
@@ -3840,6 +4341,12 @@ const configFieldDefinitions = (node = {}) => {
       { key: "storeName", label: "Store / Bucket", placeholder: "tl_history" },
       { key: "keyPath", label: "Key path", placeholder: "id" },
       { key: "retention", label: "Retention", placeholder: "30d" },
+    ];
+  }
+  if (category === "dev") {
+    return [
+      { key: "previewMode", label: "Preview mode", type: "select", options: ["auto", "json", "raw"] },
+      { key: "maxChars", label: "Max chars", placeholder: "2000" },
     ];
   }
   return [
@@ -3883,6 +4390,18 @@ const inlineConfigFields = (node = {}) => {
     ];
   }
   if (category === "sources") {
+    if (subtype === "manual-json") {
+      return [
+        { key: "emitChannel", label: "Emit", placeholder: "raw" },
+        { key: "json", label: "JSON", placeholder: "{mela:'prova'}" },
+      ];
+    }
+    if (subtype === "text-input" || subtype === "manual-input") {
+      return [
+        { key: "emitChannel", label: "Emit", placeholder: "raw" },
+        { key: "text", label: "Text", placeholder: "value" },
+      ];
+    }
     const fields = [
       { key: "method", label: "Method", type: "select", options: ["GET", "POST", "PUT", "PATCH"] },
       { key: "endpoint", label: "URL", placeholder: "https://..." },
@@ -3900,6 +4419,7 @@ const inlineConfigFields = (node = {}) => {
     return [
       { key: "provider", label: "Provider", placeholder: "local" },
       { key: "model", label: "Model", placeholder: "model" },
+      { key: "assertValue", label: "Expect", placeholder: "ok" },
     ];
   }
   if (category === "lens") {
@@ -3923,6 +4443,12 @@ const inlineConfigFields = (node = {}) => {
     return [
       { key: "storeName", label: "Store", placeholder: "tl_history" },
       { key: "retention", label: "Keep", placeholder: "30d" },
+    ];
+  }
+  if (category === "dev") {
+    return [
+      { key: "previewMode", label: "Mode", type: "select", options: ["auto", "json", "raw"] },
+      { key: "maxChars", label: "Max", placeholder: "2000" },
     ];
   }
   return [
@@ -3976,8 +4502,58 @@ const persistInlineRuntimeNodeConfig = async ({ node, patch = {}, values = {} })
   }
 };
 
+const previewRecordForNode = (node = {}) =>
+  state.previewPayloads[node.id] || null;
+
+const clearPreviewNodePayload = (node = {}) => {
+  if (!node.id) return;
+  state.previewClearedAt[node.id] = new Date().toISOString();
+  delete state.previewPayloads[node.id];
+  mount({ preserveScroll: true });
+};
+
+const previewTextForRecord = (record = null, mode = "auto", maxChars = 2000) => {
+  if (!record) return "Nessun payload dati ricevuto.\nI pulse di routing/test sono ignorati dal Preview.";
+  const payload = record.payload;
+  const asRaw = typeof payload === "string" ? payload : prettyRuntimeValue(payload);
+  const text = mode === "raw" && typeof payload !== "string"
+    ? String(payload)
+    : asRaw;
+  return text.length > maxChars ? `${text.slice(0, maxChars)}\n...` : text;
+};
+
+const renderPreviewNodePanel = (node = {}) => {
+  const config = nodeRuntimeConfig(node);
+  const record = previewRecordForNode(node);
+  const mode = String(config.previewMode || "auto").toLowerCase();
+  const maxChars = Math.max(200, Math.min(12000, Number(config.maxChars || 2000)));
+  return _.div(
+    { class: "tl-flow-node-preview" },
+    _.div(
+      { class: "tl-flow-node-preview-head" },
+      _.span(record ? `${record.channel} · ${record.eventType} · ${formatShortDate(record.createdAt)}` : "Waiting for data payload"),
+      _.span(
+        { class: "tl-flow-node-preview-actions" },
+        record ? copyRuntimeButton(record.payload, "Copy preview payload") : null,
+        record ? btn({
+          class: "tl-flow-copy-btn is-clear",
+          title: "Clear preview payload",
+          onPointerDown: stopNodeControlEvent,
+          onclick: (event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            clearPreviewNodePayload(node);
+          },
+        }, icon("delete_sweep", "sm")) : null
+      )
+    ),
+    _.pre(previewTextForRecord(record, mode, maxChars))
+  );
+};
+
 const renderInlineNodeSettings = (node) => {
   if (!isInlineConfigNode(node) || node.metadata?.library) return null;
+  if (isPreviewNode(node)) return renderPreviewNodePanel(node);
   if (node.type === "boxTracker" || node.type === "boxLens") {
     return _.div(
       { class: "tl-flow-node-inline-config is-external" },
@@ -4621,6 +5197,7 @@ const inferPortType = (node = {}, side = "out", name = "") => {
   if (category === "lens") return side === "in" ? "any" : "never";
   if (category === "actions") return side === "in" ? "object" : "never";
   if (category === "storage") return side === "in" ? "object" : "never";
+  if (category === "dev") return side === "in" ? "any" : "never";
   return "any";
 };
 
@@ -4649,6 +5226,7 @@ const sampleOutputFields = (node = {}) => {
 
 const nodePorts = (node = {}, side = "out") => {
   if (!node?.id) return [{ name: "all", type: side === "in" ? "any" : "object" }];
+  if (side === "out" && nodeCategory(node) === "dev") return [];
   if (side === "out") {
     const fields = sampleOutputFields(node);
     if (fields.length) return [{ name: "all", type: "object" }, ...fields];
@@ -4661,7 +5239,7 @@ const nodePorts = (node = {}, side = "out") => {
       : (node.outputs?.length ? node.outputs : nodeChannels(node)))
       .filter(Boolean)
       .map((name) => normalizePortDef(name, inferPortType(node, side, name)));
-  if (!values.length && side === "out" && ["lens", "actions", "storage"].includes(nodeCategory(node))) return [];
+  if (!values.length && side === "out" && ["lens", "actions", "storage", "dev"].includes(nodeCategory(node))) return [];
   if (!values.length && side === "in" && nodeCategory(node) === "sources") return [];
   const ports = values.length ? values : [normalizePortDef(side === "in" ? inputPortLabel(node) : outputPortLabel(node), inferPortType(node, side))];
   const unique = new Map();
@@ -4720,7 +5298,7 @@ const portsAreCompatible = (sourcePort = {}, targetPort = {}, target = {}) => {
   if (sourceType === targetType) return true;
   if (sourceType === "event" && targetType === "object") return true;
   if (sourceType === "object" && targetType === "event") return true;
-  return ["processor", "aiAgent", "action"].includes(target.type) && targetType === "object" && sourceType !== "bool";
+  return ["processor", "aiAgent", "action", "devPreview"].includes(target.type) && targetType !== "never" && sourceType !== "bool";
 };
 
 const connectionValidation = (source, target, sourcePortName = "all", targetPortName = "all") => {
@@ -5747,23 +6325,94 @@ const renderNodeContextMenu = () => {
   );
 };
 
+const isLargeGraphModel = (graph = {}) =>
+  (graph.nodes || []).length > 80 || (graph.dependencies || []).length > 160;
+
+const lazyVisibleNodes = (graph = {}, activity = {}) => {
+  const nodes = graph.nodes || [];
+  if (!isLargeGraphModel(graph)) return nodes;
+  const width = window.innerWidth || 1440;
+  const height = window.innerHeight || 900;
+  const zoom = Math.max(0.1, Number(state.viewport.zoom) || 1);
+  const selected = new Set([
+    state.focus.nodeId,
+    ...state.testRun.nodeIds,
+    ...Array.from(activity.nodeActivity?.keys?.() || []),
+  ].filter(Boolean));
+  const visible = nodes.filter((node, index) => {
+    if (selected.has(node.id)) return true;
+    const pos = nodePosition(node, index);
+    const x = state.viewport.panX + (pos.x / 100) * 2600 * zoom;
+    const y = state.viewport.panY + (pos.y / 100) * 1800 * zoom;
+    return x > -360 && x < width + 360 && y > -260 && y < height + 320;
+  });
+  return visible.length ? visible.slice(0, 180) : nodes.slice(0, 100);
+};
+
+const lazyVisibleGraph = (graph = {}, activity = {}) => {
+  if (!isLargeGraphModel(graph)) return { ...graph, renderedNodes: graph.nodes || [], renderedDependencies: graph.dependencies || [], hiddenNodes: 0, hiddenDependencies: 0 };
+  const renderedNodes = lazyVisibleNodes(graph, activity);
+  const ids = new Set(renderedNodes.map((node) => node.id));
+  const renderedDependencies = (graph.dependencies || []).filter((dependency) => ids.has(dependency.sourceNodeId) && ids.has(dependency.targetNodeId));
+  return {
+    ...graph,
+    renderedNodes,
+    renderedDependencies,
+    hiddenNodes: Math.max(0, (graph.nodes || []).length - renderedNodes.length),
+    hiddenDependencies: Math.max(0, (graph.dependencies || []).length - renderedDependencies.length),
+  };
+};
+
+const renderFlowMinimap = (graph = {}, renderGraph = {}) => {
+  if (!isLargeGraphModel(graph)) return null;
+  const renderedIds = new Set((renderGraph.renderedNodes || []).map((node) => node.id));
+  return _.div(
+    { class: "tl-flow-minimap", title: "Large graph minimap with lazy rendered viewport" },
+    _.div({ class: "tl-flow-minimap-head" },
+      _.strong("Navigator"),
+      _.span(`${renderGraph.hiddenNodes || 0} lazy`)
+    ),
+    _.div(
+      { class: "tl-flow-minimap-canvas" },
+      ...(graph.nodes || []).map((node, index) => {
+        const pos = nodePosition(node, index);
+        return _.span({
+          class: `tl-flow-minimap-node is-${graphTone(node)}${renderedIds.has(node.id) ? " is-visible" : ""}${state.focus.nodeId === node.id ? " is-selected" : ""}`,
+          style: { "--x": `${pos.x}%`, "--y": `${pos.y}%` },
+          title: node.label || node.id,
+        });
+      }),
+      _.span({
+        class: "tl-flow-minimap-viewport",
+        style: {
+          "--x": `${Math.max(0, Math.min(100, -state.viewport.panX / Math.max(1, 2600 * state.viewport.zoom) * 100))}%`,
+          "--y": `${Math.max(0, Math.min(100, -state.viewport.panY / Math.max(1, 1800 * state.viewport.zoom) * 100))}%`,
+          "--w": `${Math.max(12, Math.min(80, (window.innerWidth || 1440) / Math.max(1, 2600 * state.viewport.zoom) * 100))}%`,
+          "--h": `${Math.max(12, Math.min(80, (window.innerHeight || 900) / Math.max(1, 1800 * state.viewport.zoom) * 100))}%`,
+        },
+      })
+    )
+  );
+};
+
 const renderCanvas = () => {
   const baseGraph = graphModel();
   const activity = recentActivity(baseGraph);
   const graph = filterByActivity(baseGraph, activity);
+  const renderGraph = lazyVisibleGraph(graph, activity);
   state.edgeRender = { graph, activity };
   const impact = selectedImpact(graph);
   const validation = graphValidation();
   const liveCount = [...activity.nodeActivity.values()].filter((item) => item.status !== "error").length;
   const errorCount = [...activity.nodeActivity.values()].filter((item) => item.status === "error").length;
-  const largeGraph = graph.nodes.length > 80 || graph.dependencies.length > 160;
+  const largeGraph = isLargeGraphModel(graph);
 
   return _.section(
     { class: `tl-flow-workbench${state.debugMode ? " is-debug-mode" : ""}${largeGraph ? " is-large-graph" : ""}` },
     _.div(
       { class: "tl-flow-canvas-head" },
       _.div(_.h2(selectedNode()?.workspaceId ? `${selectedNode().workspaceId} Flow` : `${state.filters.workspaceId || "Workspace"} Flow`), _.p("workspace runtime graph · tl_runtime_nodes -> tl_runtime_dependencies")),
-      _.span(`${graph.nodes.length} nodes · ${graph.dependencies.length} edges · ${liveCount} live · ${errorCount} errors${state.debugMode ? " · debug" : ""}${largeGraph ? " · large graph" : ""}`)
+      _.span(`${graph.nodes.length} nodes · ${graph.dependencies.length} edges · ${liveCount} live · ${errorCount} errors${state.debugMode ? " · debug" : ""}${largeGraph ? ` · lazy ${renderGraph.renderedNodes.length}/${graph.nodes.length}` : ""}`)
     ),
     renderFilterbar(),
     (validation.issues || []).length ? _.div(
@@ -5782,7 +6431,7 @@ const renderCanvas = () => {
           style: { transform: `translate(${state.viewport.panX}px, ${state.viewport.panY}px) scale(${state.viewport.zoom})` },
         },
         _.canvas({ class: "tl-flow-edge-canvas", "aria-hidden": "true" }),
-        ...graph.dependencies.map((dependency) => {
+        ...renderGraph.renderedDependencies.map((dependency) => {
           const fromIndex = graph.nodes.findIndex((node) => node.id === dependency.sourceNodeId);
           const toIndex = graph.nodes.findIndex((node) => node.id === dependency.targetNodeId);
           if (fromIndex < 0 || toIndex < 0 || !dependency.channel) return null;
@@ -5814,7 +6463,8 @@ const renderCanvas = () => {
             edgeDisplayLabel(dependency)
           );
         }).filter(Boolean),
-        ...graph.nodes.map((node, index) => {
+        ...renderGraph.renderedNodes.map((node) => {
+          const index = graph.nodes.findIndex((item) => item.id === node.id);
           const pos = nodePosition(node, index);
           const channelName = nodeChannels(node)[0] || "";
           const fullInputPorts = nodePorts(node, "in");
@@ -5834,7 +6484,7 @@ const renderCanvas = () => {
           const isLinkTarget = Boolean(linkSource && canConnectNodes(linkSource, node));
           const isLinkHover = state.linkHoverTargetId === node.id;
           const isInTestRun = state.testRun.nodeIds.includes(node.id);
-          const canRunNodeTest = isTestableStarterNode(node);
+          const canRunNodeTest = isLiveTestableStarterNode(node);
           return _.div(
             {
               role: "button",
@@ -5948,7 +6598,8 @@ const renderCanvas = () => {
             )
           );
         })
-      )
+      ),
+      renderFlowMinimap(graph, renderGraph)
     )
   );
 };
@@ -5984,6 +6635,11 @@ const renderInspectorDetails = (node, channels, dependencies) => {
         _.span(label),
         _.strong(value)
       ))
+    ) : null,
+    isPreviewNode(node) ? _.section(
+      { class: "tl-flow-detail-list" },
+      _.h3("Preview Payload"),
+      renderPreviewNodePanel(node)
     ) : null,
     _.section(
       { class: "tl-flow-detail-list" },
@@ -6515,6 +7171,7 @@ const renderEvents = () => {
       state.filters.runId !== "all" ? btn({ class: "is-ghost is-compact", title: state.filters.runId, onclick: () => setFilter("runId", "all") }, "Clear run") : null,
       _.span(`${events.length} live`)
     ),
+    renderLiveTestVerification(),
     _.table(
       _.thead(_.tr(_.th("Time"), _.th("Channel"), _.th("Event"), _.th("Source"), _.th("Payload"), _.th("Size"))),
       _.tbody(
@@ -6608,6 +7265,35 @@ const recentFlowLogs = (level = "all", limit = 8) =>
     .sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt))
     .slice(0, limit);
 
+const channelTimeline = (limit = 32) => {
+  const rows = [
+    ...(state.runtime.events || []).filter(recordMatchesRunFilter).map((event) => ({
+      id: event.id,
+      createdAt: event.createdAt,
+      channel: event.channel || "default",
+      type: event.eventType || "event",
+      nodeId: event.sourceNodeId || event.targetNodeId || "runtime",
+      status: event.status || "ok",
+      detail: event.payloadPreview || compactPayloadPreview(event.payload, 120),
+    })),
+    ...(state.runtime.flowLogs || []).filter(recordMatchesRunFilter).map((log) => ({
+      id: log.id,
+      createdAt: log.createdAt,
+      channel: log.context?.inputChannel || log.context?.outputChannel || log.context?.channel || "runtime",
+      type: log.context?.runtime || log.context?.action || "flow-log",
+      nodeId: log.nodeId || log.context?.sourceNodeId || "runtime",
+      status: log.level || "info",
+      detail: log.message || log.context?.action || "runtime log",
+    })),
+  ].filter((row) => {
+    if (state.filters.channel !== "all" && row.channel !== state.filters.channel) return false;
+    return true;
+  });
+  return rows
+    .sort((a, b) => Date.parse(a.createdAt) - Date.parse(b.createdAt))
+    .slice(-limit);
+};
+
 const statusItems = () => {
   const stats = runtimeOverviewStats();
   const filteredEventCount = filteredRuntimeEvents().length;
@@ -6618,6 +7304,8 @@ const statusItems = () => {
     { id: "runtime", icon: "account_tree", label: `${state.runtime.nodes.length} nodes`, title: "Runtime" },
     { id: "channels", icon: "hub", label: `${state.runtime.channels.length} channels`, title: "Channels" },
     { id: "bus", icon: "settings_input_antenna", label: state.liveBus.connected ? `${state.liveBus.count} live bus` : "bus offline", title: "Live Bus", tone: state.liveBus.connected ? "green" : "gold" },
+    { id: "worker", icon: "memory", label: state.runtimeWorker.connected ? `worker ${state.runtimeWorker.status}` : "worker off", title: "Runtime Worker", tone: state.runtimeWorker.connected ? "green" : "gold" },
+    { id: "timeline", icon: "timeline", label: `${channelTimeline(100).length} timeline`, title: "Channel Timeline" },
     { id: "events", icon: "bolt", label: eventLabel, title: "Events" },
     { id: "logs", icon: "subject", label: `${state.runtime.flowLogs?.length || 0} logs`, title: "Flow logs" },
     { id: "warning", icon: "warning", label: `${stats.warningLogs} warning`, title: "Warnings", tone: "gold" },
@@ -6668,6 +7356,40 @@ const renderStatusBusPanel = () =>
       ["Transport", typeof BroadcastChannel === "undefined" ? "local only" : "BroadcastChannel"],
     ].map(([label, value]) => _.div(_.span(label), _.strong(String(value))))
   );
+
+const renderStatusWorkerPanel = () =>
+  _.div(
+    { class: "tl-flow-status-grid" },
+    ...[
+      ["Available", state.runtimeWorker.available ? "yes" : "no"],
+      ["Connected", state.runtimeWorker.connected ? "yes" : "no"],
+      ["Mode", state.runtimeWorker.mode || "none"],
+      ["Status", state.runtimeWorker.status || "idle"],
+      ["Workspace", state.runtimeWorker.workspaceId || state.filters.workspaceId || "workspace_global"],
+      ["Worker nodes", state.runtimeWorker.nodes || 0],
+      ["Worker edges", state.runtimeWorker.dependencies || 0],
+      ["Last refresh", state.runtimeWorker.lastRefreshAt ? formatShortDate(state.runtimeWorker.lastRefreshAt) : "N/D"],
+      ["Error", state.runtimeWorker.error || "none"],
+    ].map(([label, value]) => _.div(_.span(label), _.strong(String(value))))
+  );
+
+const renderStatusTimelinePanel = () => {
+  const rows = channelTimeline(28);
+  return _.div(
+    { class: "tl-flow-timeline" },
+    ...(rows.length ? rows.map((row) =>
+      _.div(
+        { class: `tl-flow-timeline-row is-${String(row.status || "ok").toLowerCase()}` },
+        _.span({ class: "tl-flow-timeline-time" }, formatShortDate(row.createdAt)),
+        _.span({ class: "tl-flow-timeline-dot" }),
+        _.div(
+          _.strong(`${row.channel} · ${row.type}`),
+          _.span(`${row.nodeId} · ${row.detail || "N/D"}`)
+        )
+      )
+    ) : [_.p({ class: "tl-flow-muted" }, "Nessun evento o flow log per la timeline corrente.")])
+  );
+};
 
 const renderStatusRuntimePanel = () => {
   const stats = runtimeOverviewStats();
@@ -6742,8 +7464,10 @@ const renderStatusPopover = () => {
     active.id === "runtime" ? renderStatusRuntimePanel()
       : active.id === "channels" ? renderStatusChannelsPanel()
         : active.id === "bus" ? renderStatusBusPanel()
-          : active.id === "events" ? renderStatusEventsPanel()
-            : renderStatusLogsPanel(level)
+          : active.id === "worker" ? renderStatusWorkerPanel()
+            : active.id === "timeline" ? renderStatusTimelinePanel()
+              : active.id === "events" ? renderStatusEventsPanel()
+                : renderStatusLogsPanel(level)
   );
 };
 
@@ -6815,6 +7539,22 @@ const mount = (options = {}) => {
     requestAnimationFrame(renderFlowEdges);
   });
 };
+
+window.TrackerLensRuntimeWorker?.subscribe?.((status = {}) => {
+  const active = (status.workspaces || []).find((workspace) => workspace.workspaceId === (state.filters.workspaceId || "workspace_global"));
+  state.runtimeWorker = {
+    available: Boolean(status.available),
+    connected: Boolean(status.connected),
+    mode: status.mode || "none",
+    status: active?.status || status.status || "idle",
+    error: active?.error || status.error || "",
+    workspaceId: active?.workspaceId || status.workspaceId || state.filters.workspaceId || "",
+    nodes: active?.nodes || status.nodes || 0,
+    dependencies: active?.dependencies || status.dependencies || 0,
+    lastRefreshAt: active?.lastRefreshAt || "",
+  };
+  if (state.mounted) refreshLiveBusDom();
+});
 
 mount();
 loadRuntime();

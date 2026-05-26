@@ -474,7 +474,7 @@ const setView = (view) => {
   mountLibrary();
 };
 
-const looksLikeImage = (value) => /^(https?:|data:image|\.{0,2}\/|icons\/|_cmswift-fe\/)/i.test(value);
+const looksLikeImage = (value) => /^(https?:|data:image|\.{0,2}\/|icons\/|cmswift-fe\/)/i.test(value);
 
 const renderBoxIcon = (box) => {
   const className = `tl-card-icon${box.type === "boxTracker" ? " is-tracker" : ""}${box.type === "workspace" ? " is-workspace" : ""}`;

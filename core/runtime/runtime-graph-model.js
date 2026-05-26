@@ -6,6 +6,7 @@ window.TrackerLensRuntimeGraphModel = (() => {
     Webhook: { tone: "green", icon: "webhook" },
     "YouTube API": { tone: "green", icon: "smart_display" },
     "Manual JSON": { tone: "green", icon: "data_object" },
+    "Text Input": { tone: "green", icon: "notes" },
     "IndexedDB Source": { tone: "cyan", icon: "database" },
     "Box Tracker": { tone: "gold", icon: "storage" },
     "Existing Tracker": { tone: "orange", icon: "dataset_linked" },
@@ -60,6 +61,7 @@ window.TrackerLensRuntimeGraphModel = (() => {
     "JSON Export": { tone: "green", icon: "data_object" },
     "CSV Export": { tone: "cyan", icon: "table_view" },
     "History Store": { tone: "green", icon: "history" },
+    Preview: { tone: "blue", icon: "visibility" },
   };
 
   const nodeChannels = (node) =>
@@ -88,6 +90,7 @@ window.TrackerLensRuntimeGraphModel = (() => {
     if (type === "action") return "orange";
     if (type === "storage") return "cyan";
     if (type === "source") return "green";
+    if (type === "devPreview") return "blue";
     return "cyan";
   };
 
@@ -104,6 +107,7 @@ window.TrackerLensRuntimeGraphModel = (() => {
     if (type === "action") return "bolt";
     if (type === "storage") return "database";
     if (type === "source") return "api";
+    if (type === "devPreview") return "visibility";
     return "account_tree";
   };
 

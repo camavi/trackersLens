@@ -219,6 +219,32 @@ Nota aggiornata 2026-05-22: il box `AI Agents` di `ai.html` e stato riallineato 
 
 Nota aggiornata 2026-05-22: il layout principale di `ai.html` sotto le KPI e stato riorganizzato in righe operative: `AI Agents` + `Prompt`, `AI Models & Providers` + `AI Memory`, `AI Jobs` + `AI Logs`, poi analytics a quattro card.
 
+Nota aggiornata 2026-05-26: la Flow Map ha ricevuto il primo runtime worker condiviso. `core/runtime/runtime-worker.js` carica Event Bus, Runtime Snapshot Store, Channel Registry, Event Log Store e i runtime Processor/Action/Storage/AI Agent; `core/runtime/runtime-worker-controller.js` espone `TrackerLensRuntimeWorker` con SharedWorker e fallback Dedicated Worker. `flowMap.html` avvia il worker per lo workspace corrente e usa i runtime in pagina solo come fallback, mentre `workspace.html` avvia lo stesso worker dopo il mount dei tracker cosi Processor/Action/Storage/AI possono reagire agli eventi anche con Flow Map chiusa ma workspace viewer aperto. La persistenza dopo la chiusura di tutte le pagine richiedera un service worker/contesto estensione.
+
+Nota aggiornata 2026-05-26: il `Live Test` della Flow Map e ora piu leggibile e mirato. Dopo l'esecuzione reale REST/WebSocket aspetta i runtime downstream, legge eventi e flow log per `runId` e mostra verifica finale per `processor`, `ai`, `storage` e `action` con stati `ok`, `no signal` o `absent`. La verifica viene anche salvata nel flow log conclusivo.
+
+Nota aggiornata 2026-05-26: il test degli AI Agent in Flow Map ora supporta anche il lancio diretto del singolo nodo AI senza Source/Tracker a monte. Il play button del nodo AI emette un payload configurabile sul suo input channel, associa gli eventi e i job AI al `runId`, e mostra nel riepilogo Live Test gli assert su contenuto risposta, expected vs actual, provider, modello, token, costo stimato, prompt finale, memoria usata e risposta raw.
+
+Nota aggiornata 2026-05-26: la palette Flow Map e' stata corretta sui nodi manuali. `Manual JSON` non usa piu controlli REST (`Method`/`URL`) ma campi manuali JSON payload + emit channel; e' stato aggiunto anche il Source `Text Input` per inviare testo libero nel grafo. Il Live Test tratta questi nodi come sorgenti manuali e pubblica direttamente il payload sui channel in uscita.
+
+Nota aggiornata 2026-05-26: aggiunto il gruppo `Dev` nella Node Library della Flow Map con il nodo `Preview`. Il Preview e' un nodo di sviluppo senza output: riceve payload via dependency/channel e mostra la preview raw/JSON piu recente direttamente nella card e nel Node Inspector, utile per verificare ad esempio `REST API -> Preview`.
+
+Nota aggiornata 2026-05-26: il nodo `Preview` della Flow Map ignora ora i pulse sintetici di routing/test (`flow_live_pulse`, `flow_test_pulse`). Questo evita che il Preview mostri il payload `route` del collegamento quando non e' arrivato nessun dato reale; resta in attesa finche riceve un payload effettivo da REST/WebSocket/manual/processor/AI.
+
+Nota aggiornata 2026-05-26: il nodo `Preview` della Flow Map include ora un'azione Clear accanto a Copy. Clear svuota il payload mostrato e registra un timestamp locale di reset, cosi gli eventi precedenti non vengono ripristinati dal rebuild preview e la card resta pronta per il prossimo test.
+
+Nota aggiornata 2026-05-26: il nodo `Manual JSON` della Flow Map accetta ora sia JSON rigoroso (`{"mela":"prova"}`) sia notazione rapida da inserimento manuale (`{mela:'prova'}`), normalizzandola senza `eval`. Questo evita il fallback al payload demo quando l'utente inserisce un oggetto semplice non strettamente JSON.
+
+Nota aggiornata 2026-05-26: il Play della Flow Map non apre piu automaticamente il pannello `Flow logs`. Pulse Test, Live Test e Replay mantengono il focus sul canvas; i log runtime restano disponibili manualmente dalla status bar.
+
+Nota aggiornata 2026-05-26: corretto un blocco di caricamento dell'estensione Chrome unpacked. La cartella `_cmswift-fe/` e' stata rinominata in `cmswift-fe/` perche Chrome riserva file e directory che iniziano con `_`; `js/library.js` e' stato aggiornato per riconoscere il nuovo path immagini.
+
+Nota aggiornata 2026-05-26: la Flow Map include ora un pannello `Channel Timeline` nella status bar. La timeline fonde `tl_events` e `tl_flow_logs`, ordinati temporalmente e filtrati per channel/run, per seguire il passaggio end-to-end tra evento, processor, AI, storage e action senza aprire ogni raw card.
+
+Nota aggiornata 2026-05-26: per i grafi grandi la Flow Map usa lazy rendering delle card nodo e una minimap. Il grafo completo resta nel modello/canvas, ma il DOM materializza solo nodi in viewport, selezionati, live o coinvolti nel test, riducendo il costo visuale su workspace grandi.
+
+Nota aggiornata 2026-05-26: aggiunto il contratto manifest runtime stabile in `core/runtime/runtime-manifest.js` e documentato in `docs/runtime-manifest.md`. Flow Map usa il normalizzatore per manifest di Source, Tracker, Processor, AI Agent, Lens, Action e Storage, con `contractVersion`, `runtimeVersion`, porte tipizzate, permessi, settings schema e validazione condivisa.
+
 Nota aggiornata 2026-05-22: la Flow Map e stata corretta per rispettare la nuova architettura workspace-scoped runtime graph. `flowMap.html` / `js/flowMapView.js` risolvono sempre un workspace corrente, passano `workspaceId` a `TrackerLensGraphEngine.buildGraph()` e a `TrackerLensRuntimeSnapshotStore.load()`, e i fallback leggono solo record runtime dello stesso workspace. La Flow Map non carica piu tutta la Global Library (`tl_widgets`) e non crea piu nodi virtuali `library_local`: un `boxTracker`, `boxLens`, AI agent, processor o action appare nel grafo solo quando esiste come runtime node del workspace. La Global Library resta solo sorgente di inserimento/configurazione, separata dal Runtime Graph.
 
 Nota aggiornata 2026-05-23: le card workspace di `library.html` hanno ora un bottone diretto `Flow` accanto ad `Apri`. `js/library.js` apre `flowMap.html?workspaceId=<id-workspace>`, cosi ogni workspace puo raggiungere il proprio runtime graph workspace-scoped dalla Library senza passare dalla sidebar globale. `css/library.css` aggiunge il trattamento visuale del bottone Flow e consente al footer card di andare a capo in modo controllato su card strette.
@@ -3663,7 +3689,7 @@ La Flow Map separa ora il test visivo dal test runtime reale:
 - Le fasi `connect`, `open`, `message`, `response`, `timeout` ed `error` vengono registrate nei flow logs.
 - Gli eventi live entrano in `tl_events`/channel registry e animano il percorso downstream.
 - L'animazione live di nodi/edge considera recenti solo gli eventi degli ultimi 3s e forza un refresh di spegnimento poco dopo; un flusso reale resta quindi acceso solo se continua a produrre eventi.
-- I flow log registrati da `recordFlowAction()` vengono inseriti subito in `state.runtime.flowLogs`; Pulse Test e Live Test aprono automaticamente il pannello `Flow logs` nella status bar per mostrare feedback runtime immediato.
+- I flow log registrati da `recordFlowAction()` vengono inseriti subito in `state.runtime.flowLogs`; Pulse Test e Live Test non aprono piu automaticamente il pannello `Flow logs`, che resta consultabile manualmente dalla status bar.
 - Pass parziali Flow Map 2026-05-25: i manifest runtime normalizzano ora porte input/output typed, la configurazione runtime aggiorna il manifest del nodo, la compatibilita impedisce link da/a nodi senza porte valide e Pulse/Live Test impostano un filtro `runId` per isolare eventi e flow logs della run corrente.
 - L'attivita live sugli edge Flow Map aggiunge `is-event-active` anche alla porta output sorgente e alla porta input target della dependency, cosi il percorso evento evidenzia linea e porte coinvolte.
 - Node Inspector Flow Map: il tab `Logs` mostra ora card strutturate per eventi/log, con metadata run/node/channel, payload o context JSON espandibile e pulsanti copia per debug.

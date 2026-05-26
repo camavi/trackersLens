@@ -203,12 +203,21 @@ window.TrackerLensAiRuntimeStore = (() => {
     const content = contentOf(record);
     return {
       id: normalizeText(record?.id || content.id, `job_${index}`),
+      workspaceId: normalizeText(content.workspaceId || record?.workspaceId),
+      runId: normalizeText(content.runId || record?.runId),
+      agentId: normalizeText(content.agentId || record?.agentId),
       agent: normalizeText(content.agent || content.agentName || content.source || content.name, "Runtime AI"),
       task: normalizeText(content.task || content.title || content.prompt || content.description, "Job AI"),
       status: normalizeText(content.status || content.state, "queued"),
+      provider: normalizeText(content.provider || content.result?.provider),
+      model: normalizeText(content.model || content.result?.model),
+      prompt: normalizeText(content.prompt || content.result?.prompt),
+      memoryContext: normalizeText(content.memoryContext || content.result?.memoryContext),
       startedAt: normalizeText(content.startedAt || content.createdAt || record?.createdAt || content.updatedAt || record?.updatedAt),
       durationMs: Number(content.durationMs || content.duration || 0),
-      tokens: Number(content.tokens || content.tokenCount || content.usage?.total_tokens || 0),
+      tokens: Number(content.tokens || content.tokenCount || content.usage?.total_tokens || content.result?.usage?.totalTokens || 0),
+      cost: content.cost || content.result?.cost || null,
+      result: content.result || null,
       updatedAt: normalizeText(content.updatedAt || record?.updatedAt || content.startedAt || record?.createdAt),
       raw: record,
     };

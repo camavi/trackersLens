@@ -1925,6 +1925,13 @@ const startTrackerRuntimes = () => {
   trackers.forEach(startTrackerRuntime);
 };
 
+const startBackgroundGraphRuntime = () => {
+  const workspaceId = workspaceViewState.workspace.id || "workspace_global";
+  if (!workspaceId || !window.TrackerLensRuntimeWorker?.start) return;
+  window.TrackerLensRuntimeWorker.start({ workspaceId, refreshMs: 5000 });
+  runtimeDebug("runtime-worker-start", { workspaceId, source: "workspace-view" });
+};
+
 const mountWorkspaceView = () => {
   const root = document.getElementById("tl-workspace-view-root");
   cleanupWorkspaceRuntime();
@@ -1944,6 +1951,7 @@ const mountWorkspaceView = () => {
 
   mountRuntimeBoxes();
   startTrackerRuntimes();
+  startBackgroundGraphRuntime();
 };
 
 const loadWorkspaceView = async () => {
