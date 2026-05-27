@@ -219,6 +219,10 @@ Nota aggiornata 2026-05-22: il box `AI Agents` di `ai.html` e stato riallineato 
 
 Nota aggiornata 2026-05-22: il layout principale di `ai.html` sotto le KPI e stato riorganizzato in righe operative: `AI Agents` + `Prompt`, `AI Models & Providers` + `AI Memory`, `AI Jobs` + `AI Logs`, poi analytics a quattro card.
 
+Nota aggiornata 2026-05-27: il settings dei nodi `aiAgent` in `flowMap.html` non usa piu il vecchio form compatto dei runtime node e non duplica piu il dialog di `ai.html`. L'editor e stato estratto in `js/tl-ai-agent-editor.js` come `TrackerLensAiAgentEditor`, con stili condivisi in `css/tl-ai-agent-editor.css`; `ai.html` e `flowMap.html` chiamano lo stesso dialog CMSwift con tab General, Runtime, AI Provider, Inputs, Prompt, Memory, Outputs, Permissions e Debug. `flowMapView.js` resta responsabile solo di adattare/salvare il nodo del runtime graph, i canali e la Runtime Agent Instance workspace-scoped in `tl_ai_runtime`. Questo mantiene coerente Flow Map con l'AI Runtime Center e rafforza il concetto di agenti AI come runtime intelligence workers, non chatbot.
+
+Nota aggiornata 2026-05-27: la Flow Map distingue meglio porte di configurazione e porte dati per i Source. Il fallback che mostrava i channel output anche sul lato IN e stato corretto; per esempio WebSocket ora espone input di configurazione `url`, `params`, `protocols`, `headers`, mentre il lato OUT resta il payload runtime (`raw`/`all`). In browser i custom header WebSocket non sono impostabili direttamente dall'API standard: il pin `headers` rappresenta configurazione disponibile solo tramite proxy/server connector.
+
 Nota aggiornata 2026-05-26: la Flow Map ha ricevuto il primo runtime worker condiviso. `core/runtime/runtime-worker.js` carica Event Bus, Runtime Snapshot Store, Channel Registry, Event Log Store e i runtime Processor/Action/Storage/AI Agent; `core/runtime/runtime-worker-controller.js` espone `TrackerLensRuntimeWorker` con SharedWorker e fallback Dedicated Worker. `flowMap.html` avvia il worker per lo workspace corrente e usa i runtime in pagina solo come fallback, mentre `workspace.html` avvia lo stesso worker dopo il mount dei tracker cosi Processor/Action/Storage/AI possono reagire agli eventi anche con Flow Map chiusa ma workspace viewer aperto. La persistenza dopo la chiusura di tutte le pagine richiedera un service worker/contesto estensione.
 
 Nota aggiornata 2026-05-26: il `Live Test` della Flow Map e ora piu leggibile e mirato. Dopo l'esecuzione reale REST/WebSocket aspetta i runtime downstream, legge eventi e flow log per `runId` e mostra verifica finale per `processor`, `ai`, `storage` e `action` con stati `ok`, `no signal` o `absent`. La verifica viene anche salvata nel flow log conclusivo.
@@ -3676,6 +3680,102 @@ Verifiche eseguite:
 - `node --check core/runtime/runtime-graph-model.js`
 - `curl -I http://127.0.0.1:3031/js/flowMapView.js`
 - `curl -I http://127.0.0.1:3031/core/runtime/runtime-graph-model.js`
+
+## Aggiornamento 2026-05-26 - Attivazione controlli AI Runtime Center
+
+Obiettivo della sessione: rendere `ai.html` piu operativa collegando azioni rimaste placeholder, senza duplicare gli store AI gia introdotti.
+
+Fatto:
+
+- `js/tl-ai-runtime-store.js`:
+  - esposto `deleteProvider()` per completare il CRUD locale dei provider AI.
+- `js/aiRuntimeCenter.js`:
+  - `AI Models & Providers` ora permette aggiunta, modifica, eliminazione, probe singolo e dialog `Gestisci modelli` ricercabile su `tl_ai_providers`;
+  - la search topbar filtra agenti, prompt, provider, jobs, logs e memory;
+  - `AI Jobs`, `AI Logs` e `AI Memory` aprono dialog CMSwift ricercabili con azione dettagli JSON/copia;
+  - la topbar sostituisce i placeholder `Edit`/menu con azioni concrete `Provider` e `Impostazioni AI`.
+- `css/aiRuntimeCenter.css`:
+  - aggiunti layout e controlli compatti per azioni provider, dialog tabellari/log/memory e preview JSON.
+- `tasks/active_tasks.md`:
+  - aggiunto `TASK-022` come task completo.
+- `docs/new_vision_progress.md`:
+  - aggiornata la Milestone E Local AI Runtime con lo stato operativo di `ai.html`.
+
+Verifiche eseguite:
+
+- `node --check js/aiRuntimeCenter.js`
+- `node --check js/tl-ai-runtime-store.js`
+- `curl -I http://127.0.0.1:8765/ai.html`
+
+Cosa manca / prossimi passi:
+
+- Esecuzione cloud provider reale e router completions/chat restano nella roadmap runtime AI; questa sessione ha attivato gestione locale e ispezione UI.
+
+## Aggiornamento 2026-05-27 - AI Runtime Intelligence Architecture
+
+Obiettivo della sessione: far evolvere gli AI Agents da record/prompt semplici a runtime intelligence workers event-driven, coerenti con Flow Map, Runtime Channels, Event Bus, Runtime Graph e workspace isolation.
+
+Fatto:
+
+- `js/tl-ai-runtime-store.js`:
+  - aggiunti store supportati:
+    - `tl_ai_runtime`;
+    - `tl_ai_prompts`;
+    - `tl_ai_metrics`;
+  - mantenuta compatibilita in lettura con `tl_ai_prompt_flows`;
+  - introdotta distinzione fra agent template globale (`tl_ai_agents`) e runtime instance workspace-scoped (`tl_ai_runtime`);
+  - normalizzazione agenti estesa con runtime, provider, channels, promptConfig, memory, permissions, debug e metrics.
+- `js/TlConfig.js`:
+  - registrate le nuove tabelle AI runtime in `tlConfig.TABLES`.
+- `js/aiRuntimeCenter.js`:
+  - il vecchio popup `Nuovo agente` e stato sostituito da `AI Runtime Agent Editor`;
+  - l'editor usa `_.Dialog` e `_.TabPanel` CMSwift con tab:
+    - General;
+    - Runtime;
+    - AI Provider;
+    - Inputs;
+    - Prompt;
+    - Memory;
+    - Outputs;
+    - Permissions;
+    - Debug;
+  - il salvataggio ora produce un contratto agente completo con:
+    - scope `template` o `runtime`;
+    - agent type;
+    - execution mode;
+    - input/output channels;
+    - payload mapping;
+    - provider profile e modello;
+    - prompt strategy;
+    - memory mode;
+    - sandbox permissions;
+    - debug flags;
+    - runtime manifest;
+    - metriche seed.
+  - le card agenti mostrano ora scope, agent type e output channel, rafforzando la lettura come nodi runtime e non chatbot.
+  - le azioni agente includono `Flow Map`, che apre il grafo dello workspace quando l'agente e' una runtime instance con `workspaceId`.
+  - correzione visuale successiva: nel tab `AI Provider` il select `Auto / local-first` non sovrappone piu label e valore; il tab `Prompt` usa ora un'icona supportata; gli accenti viola residui dell'editor AI sono stati sostituiti con `#ffc72c80` e `#ffe27a`.
+  - le card AI Agents in modalita grid mostrano ora le stesse azioni Flow/Edit/Delete della lista; le preferenze list/grid di AI Agents e Prompt vengono salvate localmente e ripristinate al reload.
+  - la modalita grid di AI Agents ora usa vere card verticali, piu alte, con badge runtime separati e azioni nel footer; la modalita list resta una riga compatta.
+- `css/aiRuntimeCenter.css`:
+  - aggiunto layout premium per editor runtime: hero agente, tab orizzontali, badge runtime, griglie compatte, preview channel e pulse AI sui nodi attivi.
+- `tasks/active_tasks.md`:
+  - aggiunto `TASK-023` come task completo.
+- `docs/new_vision_progress.md`:
+  - aggiornata la roadmap con la nuova architettura AI Runtime Agent.
+
+Verifiche eseguite:
+
+- `node --check js/aiRuntimeCenter.js`
+- `node --check js/tl-ai-runtime-store.js`
+- `node --check js/TlConfig.js`
+- `curl -I http://127.0.0.1:8765/ai.html`
+
+Cosa manca / prossimi passi:
+
+- Materializzare direttamente da `ai.html` un Library Agent Template dentro la Flow Map come runtime node workspace-scoped.
+- Collegare `tl_ai_metrics` a metriche runtime reali aggregate dagli eventi/job, non solo seed/config.
+- Migrare gradualmente i vecchi prompt da `tl_ai_prompt_flows` a `tl_ai_prompts` se si vuole rimuovere lo store legacy.
 
 ## Aggiornamento 2026-05-24 - Flow Map Live Test reale
 

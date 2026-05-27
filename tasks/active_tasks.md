@@ -1,5 +1,108 @@
 # Active Tasks
 
+## [TASK-023]
+
+Title: AI Runtime Agent Architecture Editor
+
+Priority: Critical
+
+Status: Complete
+
+Files:
+
+- `ai.html`
+- `flowMap.html`
+- `js/tl-ai-agent-editor.js`
+- `js/aiRuntimeCenter.js`
+- `js/tl-ai-runtime-store.js`
+- `js/TlConfig.js`
+- `css/tl-ai-agent-editor.css`
+- `css/aiRuntimeCenter.css`
+- `js/flowMapView.js`
+- `css/flowMap.css`
+- `docs/new_vision_progress.md`
+- `INFO_AI.md`
+- `tasks/active_tasks.md`
+
+Dependencies:
+
+- `TrackerLensAiRuntimeStore`
+- `tl_ai_providers`
+- `tl_ai_agents`
+- `tl_ai_runtime`
+- `tl_ai_jobs`
+- `tl_ai_logs`
+- `tl_ai_memory`
+- `tl_ai_prompts`
+- `tl_ai_metrics`
+- `CMSwift`
+
+Regression Risk:
+
+High
+
+Description:
+
+Evolve AI Agents from simple local records into runtime intelligence workers with template/instance separation, channel contracts, provider profile selection, memory, permissions, debug and metrics configuration.
+
+Runtime Notes:
+
+- 2026-05-27: `TrackerLensAiRuntimeStore` now creates/supports `tl_ai_runtime`, `tl_ai_prompts` and `tl_ai_metrics`, while keeping compatibility with existing `tl_ai_prompt_flows`.
+- 2026-05-27: `TlConfig.TABLES` now includes the new AI runtime stores.
+- 2026-05-27: `AI Agents` creation/editing now opens a CMSwift tabbed `AI Runtime Agent Editor` with tabs General, Runtime, AI Provider, Inputs, Prompt, Memory, Outputs, Permissions and Debug.
+- 2026-05-27: agent records now persist reusable Library Agent Templates in `tl_ai_agents` and workspace-scoped Runtime Agent Instances in `tl_ai_runtime`.
+- 2026-05-27: saved agent contracts include runtime node type, agent type, execution mode, channel inputs/outputs, prompt strategy, memory mode, sandbox permissions, debug settings, runtime manifest and metrics seed.
+- 2026-05-27: agent cards now show runtime/template scope, agent type and output channel, with a subtle active AI pulse.
+- 2026-05-27: agent rows/cards now include a Flow Map action that opens the related workspace graph when a runtime instance has `workspaceId`.
+- 2026-05-27: fixed AI Runtime Agent Editor polish: provider profile select spacing no longer overlaps the `Auto / local-first` label/value, Prompt tab uses a supported icon, and AI editor accents were moved from purple remnants to the gold `#ffc72c80` / `#ffe27a` palette.
+- 2026-05-27: AI Agents grid cards now keep the same Flow/Edit/Delete actions as list rows, and Agents/Prompt list-grid view modes persist via local UI preferences across page refreshes.
+- 2026-05-27: AI Agents grid mode now renders true box cards with taller vertical layout, separated runtime badges and footer actions, while list mode remains a compact row layout.
+- 2026-05-27: Flow Map AI Agent node settings now open a CMSwift tabbed `AI Runtime Agent Editor` instead of the compact generic node form. Saving keeps the runtime graph config and also writes a workspace-scoped Runtime Agent Instance to `tl_ai_runtime`.
+- 2026-05-27: the AI Runtime Agent Editor was extracted to global reusable module `js/tl-ai-agent-editor.js` with shared styles in `css/tl-ai-agent-editor.css`. `ai.html` and `flowMap.html` now call the same editor; page-specific code only handles persistence.
+- Remaining: materializing a saved Library Agent Template directly into a Flow Map runtime node from `ai.html` is still future work; Flow Map already has AI Agent node types and runtime execution.
+
+## [TASK-022]
+
+Title: AI Runtime Center Operational Actions
+
+Priority: High
+
+Status: Complete
+
+Files:
+
+- `ai.html`
+- `js/aiRuntimeCenter.js`
+- `js/tl-ai-runtime-store.js`
+- `css/aiRuntimeCenter.css`
+
+Dependencies:
+
+- `TrackerLensAiRuntimeStore`
+- `tl_ai_providers`
+- `tl_ai_agents`
+- `tl_ai_jobs`
+- `tl_ai_logs`
+- `tl_ai_memory`
+- `tl_ai_prompt_flows`
+- `CMSwift`
+
+Regression Risk:
+
+Medium
+
+Description:
+
+Activate the AI Runtime Center controls that were still UI-only, while keeping the existing IndexedDB stores and CMSwift component patterns.
+
+Runtime Notes:
+
+- 2026-05-26: `AI Models & Providers` now supports add/edit/delete, individual probe, local probe and a searchable management dialog backed by `tl_ai_providers`.
+- 2026-05-26: topbar search now filters agents, prompts, providers, jobs, logs and memory without replacing the existing store model.
+- 2026-05-26: `AI Jobs`, `AI Logs` and `AI Memory` now expose searchable CMSwift dialogs with JSON detail/copy actions for raw runtime records.
+- 2026-05-26: the old topbar `Edit`/menu placeholders were replaced by concrete `Provider` and `Impostazioni AI` actions.
+- Remaining: real cloud provider chat/completions execution is still handled by the runtime roadmap; this task only activates page controls and local store management.
+
 ## [TASK-021]
 
 Title: Flow Map Runtime Worker, Live Verification, Timeline and Large Graph Pass
@@ -58,6 +161,7 @@ Runtime Notes:
 - 2026-05-26: Pulse Test, Live Test and runtime replay no longer auto-open the Flow Logs status panel. Logs stay available from the status bar, while Play keeps the current canvas focus.
 - 2026-05-26: large graphs now use lazy node DOM rendering with a minimap. Canvas edges remain drawn from the graph model while only viewport/selected/live/test nodes are materialized as node cards.
 - 2026-05-26: added `TrackerLensRuntimeManifest` as the stable manifest normalizer/validator for runtime node contracts and documented it in `docs/runtime-manifest.md`.
+- 2026-05-27: Flow Map source-node ports were corrected so source inputs no longer fall back to output data channels. WebSocket IN ports now expose configuration pins (`url`, `params`, `protocols`, `headers`) while OUT remains the emitted runtime payload channel (`raw`/`all`).
 - Remaining: service-worker/extension background persistence after every Trackers Lens tab is closed remains future hardening; current worker lifetime is browser-page scoped.
 
 ## [TASK-020]

@@ -3,10 +3,13 @@ window.TrackerLensAiRuntimeStore = (() => {
   const STORES = {
     providers: "tl_ai_providers",
     agents: "tl_ai_agents",
+    runtime: "tl_ai_runtime",
     jobs: "tl_ai_jobs",
     logs: "tl_ai_logs",
     memory: "tl_ai_memory",
+    prompts: "tl_ai_prompts",
     promptFlows: "tl_ai_prompt_flows",
+    metrics: "tl_ai_metrics",
   };
   const BASE_STORES = ["tl_widgets", "tl_pages", "tl_connections"];
   const MEMORY_SCOPES = ["short", "workspace", "global"];
@@ -44,10 +47,13 @@ window.TrackerLensAiRuntimeStore = (() => {
   const STORE_INDEXES = {
     [STORES.providers]: ["status", "updatedAt"],
     [STORES.agents]: ["status", "updatedAt", "workspaceId"],
+    [STORES.runtime]: ["status", "updatedAt", "workspaceId", "templateId"],
     [STORES.jobs]: ["status", "updatedAt", "workspaceId", "agentId"],
     [STORES.logs]: ["status", "updatedAt", "workspaceId", "agentId"],
     [STORES.memory]: ["status", "updatedAt", "scope", "workspaceId", "agentId", "kind"],
+    [STORES.prompts]: ["status", "updatedAt", "workspaceId"],
     [STORES.promptFlows]: ["status", "updatedAt", "workspaceId"],
+    [STORES.metrics]: ["status", "updatedAt", "workspaceId", "agentId"],
   };
 
   const normalizeText = (value, fallback = "") => {
@@ -188,14 +194,48 @@ window.TrackerLensAiRuntimeStore = (() => {
 
   const normalizeAgent = (record, index) => {
     const content = contentOf(record);
+    const runtime = content.runtime && typeof content.runtime === "object" ? content.runtime : {};
+    const provider = content.provider && typeof content.provider === "object" ? content.provider : {};
+    const channels = content.channels && typeof content.channels === "object" ? content.channels : {};
+    const prompt = content.promptConfig && typeof content.promptConfig === "object" ? content.promptConfig : {};
+    const memory = content.memory && typeof content.memory === "object" ? content.memory : {};
+    const permissions = content.permissions && typeof content.permissions === "object" ? content.permissions : {};
+    const debug = content.debug && typeof content.debug === "object" ? content.debug : {};
+    const metrics = content.metrics && typeof content.metrics === "object" ? content.metrics : {};
     return {
       id: normalizeText(record?.id || content.id, `agent_${index}`),
       name: normalizeText(content.name || content.title, "AI Agent"),
       description: normalizeText(content.description || content.prompt || content.task, "Agente AI locale"),
       status: normalizeText(content.status || content.state, content.active === false ? "idle" : "active"),
       icon: normalizeText(content.icon, "psychology"),
+      color: normalizeText(content.color || content.tone, "violet"),
+      category: normalizeText(content.category, "Runtime Intelligence"),
+      tags: Array.isArray(content.tags) ? content.tags.map(String) : normalizeText(content.tags).split(",").map((item) => item.trim()).filter(Boolean),
+      version: normalizeText(content.version, "1.0.0"),
+      scope: normalizeText(content.scope || content.kind, "template"),
+      workspaceId: normalizeText(content.workspaceId || record?.workspaceId),
+      templateId: normalizeText(content.templateId || record?.templateId),
+      runtime,
+      provider,
+      channels,
+      promptConfig: prompt,
+      memory,
+      permissions,
+      debug,
+      metrics,
       updatedAt: normalizeText(content.updatedAt || record?.updatedAt || content.createdAt || record?.createdAt),
       raw: record,
+    };
+  };
+
+  const normalizeRuntimeAgent = (record, index) => {
+    const normalized = normalizeAgent({ ...record, scope: "runtime" }, index);
+    return {
+      ...normalized,
+      id: normalizeText(record?.id || normalized.id, `runtime_agent_${index}`),
+      scope: "runtime",
+      templateId: normalizeText(record?.templateId || normalized.templateId),
+      workspaceId: normalizeText(record?.workspaceId || normalized.workspaceId, "workspace_global"),
     };
   };
 
@@ -270,6 +310,25 @@ window.TrackerLensAiRuntimeStore = (() => {
       blocks: Array.isArray(content.blocks) ? content.blocks : [],
       icon: normalizeText(content.icon, "psychology"),
       tone: normalizeText(content.tone || content.color, "gold"),
+      updatedAt: normalizeText(content.updatedAt || record?.updatedAt || content.createdAt || record?.createdAt),
+      raw: record,
+    };
+  };
+
+  const normalizeMetric = (record, index) => {
+    const content = contentOf(record);
+    return {
+      id: normalizeText(record?.id || content.id, `ai_metric_${index}`),
+      workspaceId: normalizeText(content.workspaceId || record?.workspaceId),
+      agentId: normalizeText(content.agentId || record?.agentId),
+      executionCount: Number(content.executionCount || content.count || 0),
+      avgResponseTimeMs: Number(content.avgResponseTimeMs || content.latencyMs || 0),
+      tokenUsage: Number(content.tokenUsage || content.tokens || 0),
+      successRate: Number(content.successRate || 0),
+      queueSize: Number(content.queueSize || 0),
+      activeJobs: Number(content.activeJobs || 0),
+      memoryUsage: Number(content.memoryUsage || 0),
+      status: normalizeText(content.status || content.state, "idle"),
       updatedAt: normalizeText(content.updatedAt || record?.updatedAt || content.createdAt || record?.createdAt),
       raw: record,
     };
@@ -521,13 +580,16 @@ window.TrackerLensAiRuntimeStore = (() => {
   const list = async () => {
     const db = await ensureStores();
     try {
-      const [providerRecords, agentRecords, jobRecords, logRecords, memoryRecords, promptFlowRecords, widgetRecords, pageRecords, connectionRecords] = await Promise.all([
+      const [providerRecords, agentRecords, runtimeRecords, jobRecords, logRecords, memoryRecords, promptRecords, promptFlowRecords, metricRecords, widgetRecords, pageRecords, connectionRecords] = await Promise.all([
         readAllFromDb(db, STORES.providers),
         readAllFromDb(db, STORES.agents),
+        readAllFromDb(db, STORES.runtime),
         readAllFromDb(db, STORES.jobs),
         readAllFromDb(db, STORES.logs),
         readAllFromDb(db, STORES.memory),
+        readAllFromDb(db, STORES.prompts),
         readAllFromDb(db, STORES.promptFlows),
+        readAllFromDb(db, STORES.metrics),
         readAllFromDb(db, "tl_widgets"),
         readAllFromDb(db, "tl_pages"),
         window.TrackerLensConnectionsStore?.list?.() || readAllFromDb(db, "tl_connections"),
@@ -537,6 +599,7 @@ window.TrackerLensAiRuntimeStore = (() => {
       const connections = connectionRecords;
       const agents = [
         ...agentRecords.map(normalizeAgent),
+        ...runtimeRecords.map(normalizeRuntimeAgent),
         ...derivedAgents(widgets, pages, connections),
       ];
       const memoryRecordsNormalized = memoryRecords.map(normalizeMemory);
@@ -558,7 +621,9 @@ window.TrackerLensAiRuntimeStore = (() => {
           ...memoryRecordsNormalized.slice(0, 8),
           ...derivedMemory(widgets, pages, connections),
         ],
-        promptFlows: promptFlowRecords.map(normalizePromptFlow),
+        promptFlows: [...promptRecords, ...promptFlowRecords].map(normalizePromptFlow),
+        runtime: runtimeRecords.map(normalizeRuntimeAgent),
+        metrics: metricRecords.map(normalizeMetric),
         widgets,
         pages,
         connections,
@@ -585,13 +650,21 @@ window.TrackerLensAiRuntimeStore = (() => {
     remember,
     seedLocalProviders,
     upsertProvider: (record) => write(STORES.providers, record),
+    deleteProvider: (id) => deleteRecord(STORES.providers, id),
     upsertAgent: (record) => write(STORES.agents, record),
+    upsertRuntimeAgent: (record) => write(STORES.runtime, record),
     deleteAgent: (id) => deleteRecord(STORES.agents, id),
+    deleteRuntimeAgent: (id) => deleteRecord(STORES.runtime, id),
     upsertJob: (record) => write(STORES.jobs, record),
     upsertLog: (record) => write(STORES.logs, record),
     upsertMemory: remember,
-    upsertPromptFlow: (record) => write(STORES.promptFlows, record),
-    deletePromptFlow: (id) => deleteRecord(STORES.promptFlows, id),
+    upsertMetric: (record) => write(STORES.metrics, record),
+    upsertPrompt: (record) => write(STORES.prompts, record),
+    upsertPromptFlow: (record) => write(STORES.prompts, record),
+    deletePromptFlow: async (id) => {
+      await deleteRecord(STORES.prompts, id);
+      return deleteRecord(STORES.promptFlows, id);
+    },
     statusTone,
   };
 })();

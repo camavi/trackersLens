@@ -96,7 +96,8 @@ let workspaceActivity = [
 
 const promptTone = (index = 0, tone = "") => {
   const normalized = String(tone || "").toLowerCase();
-  if (["green", "blue", "purple", "violet", "gold"].includes(normalized)) return normalized;
+  if (["green", "blue", "gold"].includes(normalized)) return normalized;
+  if (["purple", "violet"].includes(normalized)) return "gold";
   return ["gold", "blue", "green", "gold"][index % 4];
 };
 
@@ -132,14 +133,33 @@ const buildPrompts = (flows = []) => {
 };
 
 let prompts = buildPrompts();
+const getStoredAiUiPref = (key, fallback = "") => {
+  try {
+    return localStorage.getItem(`tl_ai_${key}`) || fallback;
+  } catch {
+    return fallback;
+  }
+};
+const setStoredAiUiPref = (key, value) => {
+  try {
+    localStorage.setItem(`tl_ai_${key}`, value);
+  } catch {
+    // Ignore storage restrictions; view state still works for the current session.
+  }
+};
 let promptListSearchQuery = "";
 let promptCategoryFilter = "all";
 let promptSearchQuery = "";
-let promptViewMode = "grid";
+let promptViewMode = getStoredAiUiPref("prompt_view_mode", "grid") === "list" ? "list" : "grid";
 let agentListSearchQuery = "";
 let agentStatusFilter = "all";
 let agentSearchQuery = "";
-let agentViewMode = "grid";
+let agentViewMode = getStoredAiUiPref("agent_view_mode", "grid") === "list" ? "list" : "grid";
+let globalSearchQuery = "";
+let providerListSearchQuery = "";
+let jobListSearchQuery = "";
+let logListSearchQuery = "";
+let memoryListSearchQuery = "";
 
 const buildRuntimeViewModel = (data, queryMs = 0) => {
   const activeProviders = data.providers.filter((item) => statusTone(item.status) === "online").length;
@@ -189,6 +209,14 @@ const buildRuntimeViewModel = (data, queryMs = 0) => {
           state: sourceLabel(item.status),
           status: statusTone(item.status),
           icon: item.icon || "psychology",
+          color: item.color || "gold",
+          category: item.category || "Runtime Intelligence",
+          scope: item.scope || "template",
+          workspaceId: item.workspaceId || "",
+          runtime: item.runtime || {},
+          provider: item.provider || {},
+          channels: item.channels || {},
+          metrics: item.metrics || {},
           raw: item.raw,
           placeholder: false,
         }))
@@ -202,17 +230,31 @@ const buildRuntimeViewModel = (data, queryMs = 0) => {
         placeholder: true,
       }],
     providers: data.providers.length
-      ? data.providers.slice(0, 8).map((item) => [item.name, item.model, sourceLabel(item.status), providerLatency(item.latencyMs), statusTone(item.status), item.icon || "psychology"])
-      : [["Nessun provider configurato", "tl_ai_providers", "Idle", "n/d", "warn", "dns"]],
+      ? data.providers.slice(0, 12).map((item) => ({
+        id: item.id,
+        name: item.name,
+        provider: item.provider,
+        model: item.model,
+        endpoint: item.endpoint,
+        healthPath: item.healthPath,
+        state: sourceLabel(item.status),
+        latency: providerLatency(item.latencyMs),
+        status: statusTone(item.status),
+        icon: item.icon || "psychology",
+        local: Boolean(item.local),
+        raw: item.raw,
+        placeholder: false,
+      }))
+      : [{ id: "", name: "Nessun provider configurato", provider: "custom", model: "tl_ai_providers", endpoint: "", healthPath: "", state: "Idle", latency: "n/d", status: "warn", icon: "dns", local: false, placeholder: true }],
     jobs: data.jobs.length
-      ? data.jobs.slice(0, 12).map((item) => [item.id, item.agent, item.task, sourceLabel(item.status), timeLabel(item.startedAt), durationLabel(item.durationMs), item.tokens ? formatNumber(item.tokens) : "-", statusTone(item.status)])
-      : [["-", "Runtime AI", "Nessun job reale in tl_ai_jobs", "Idle", "Mai", "-", "-", "warn"]],
+      ? data.jobs.slice(0, 50).map((item) => ({ id: item.id, agent: item.agent, task: item.task, state: sourceLabel(item.status), start: timeLabel(item.startedAt), duration: durationLabel(item.durationMs), tokens: item.tokens ? formatNumber(item.tokens) : "-", status: statusTone(item.status), raw: item.raw, result: item.result, provider: item.provider, model: item.model, prompt: item.prompt, memoryContext: item.memoryContext }))
+      : [{ id: "-", agent: "Runtime AI", task: "Nessun job reale in tl_ai_jobs", state: "Idle", start: "Mai", duration: "-", tokens: "-", status: "warn", raw: null }],
     logs: data.logs.length
-      ? data.logs.slice(0, 12).map((item) => [timeLabel(item.time), item.source, item.message, statusTone(item.status)])
-      : [["-", "AI Runtime", "Nessun log reale in tl_ai_logs", "warn"]],
+      ? data.logs.slice(0, 80).map((item) => ({ id: item.id, time: timeLabel(item.time), source: item.source, message: item.message, status: statusTone(item.status), raw: item.raw }))
+      : [{ id: "-", time: "-", source: "AI Runtime", message: "Nessun log reale in tl_ai_logs", status: "warn", raw: null }],
     memory: data.memory.length
-      ? data.memory.slice(0, 8).map((item) => [item.name, item.meta || "Context locale", `${formatNumber(item.count)} items`, item.icon || "database", item.scope || "workspace"])
-      : [["Memoria AI vuota", "tl_ai_memory", "0 items", "database", "workspace"]],
+      ? data.memory.slice(0, 50).map((item) => ({ id: item.id, name: item.name, meta: item.meta || "Context locale", count: `${formatNumber(item.count)} items`, icon: item.icon || "database", scope: item.scope || "workspace", text: item.text || "", raw: item.raw }))
+      : [{ id: "", name: "Memoria AI vuota", meta: "tl_ai_memory", count: "0 items", icon: "database", scope: "workspace", text: "", raw: null }],
     prompts: buildPrompts(data.promptFlows),
     workspaceActivity: data.pages.length
       ? data.pages
@@ -247,14 +289,24 @@ const renderTopbar = () =>
       _.Search({
         class: "tl-ai-search-input",
         label: "Cerca agenti, modelli, prompt, workflow...",
-        value: "",
+        value: globalSearchQuery,
         "aria-label": "Cerca AI Runtime Center",
+        onInput: (event) => {
+          globalSearchQuery = event.target.value;
+          agentSearchQuery = globalSearchQuery;
+          promptSearchQuery = globalSearchQuery;
+          providerListSearchQuery = globalSearchQuery;
+          jobListSearchQuery = globalSearchQuery;
+          logListSearchQuery = globalSearchQuery;
+          memoryListSearchQuery = globalSearchQuery;
+          mountAiRuntime({ focusSelector: ".tl-ai-search-input input" });
+        },
       })
     ),
     _.Toolbar(
       { class: "tl-ai-actions", align: "center", gap: 16 },
-      btn({ class: "tl-ai-edit" }, icon("edit", "sm"), "Edit"),
-      btn({ class: "tl-ai-menu", "aria-label": "Menu AI" }, icon("more_vert"))
+      btn({ class: "tl-ai-edit", onclick: () => openProviderEditorDialog() }, icon("add", "sm"), "Provider"),
+      btn({ class: "tl-ai-menu", "aria-label": "Impostazioni AI", onclick: () => window.location.assign("settings.html#ai") }, icon("settings", "sm"))
     )
   );
 
@@ -336,7 +388,7 @@ const renderAgentSearch = () =>
     "aria-label": "Cerca agenti AI",
     onInput: (event) => {
       agentSearchQuery = event.target.value;
-      mountAiRuntime();
+      mountAiRuntime({ focusSelector: ".tl-ai-agent-search-input input" });
     },
   });
 
@@ -349,79 +401,34 @@ const renderAgentEmptyState = () =>
     btn({ class: "tl-ai-agent-empty-cta", onclick: () => openAgentEditorDialog() }, "Aggiungi Agente")
   );
 
-const agentFormValue = (form, name) => String(new FormData(form).get(name) || "").trim();
-
-const saveAgentFromForm = async (form, close, current = null) => {
-  const name = agentFormValue(form, "name");
-  if (!name) return;
-  await window.TrackerLensAiRuntimeStore?.upsertAgent?.({
-    ...(current?.id ? { id: current.id, createdAt: current.raw?.createdAt } : {}),
-    name,
-    title: name,
-    description: agentFormValue(form, "description") || "Agente AI locale",
-    status: agentFormValue(form, "status") || "active",
-    icon: agentFormValue(form, "icon") || "psychology",
-  });
-  close?.();
-  await refreshAiRuntime();
-};
-
-const openAgentEditorDialog = (agent = null) => {
-  const isEdit = Boolean(agent?.id);
-  const statusValue = agent?.raw?.status || (agent?.status === "online" ? "active" : agent?.status || "active");
-  const dialog = _.Dialog({
-    class: "tl-ai-agent-dialog",
-    panelClass: "tl-ai-prompt-panel",
-    size: "md",
-    title: isEdit ? "Modifica agente" : "Nuovo agente",
-    subtitle: "Agenti salvati localmente in tl_ai_agents.",
-    icon: isEdit ? "edit" : "psychology",
-    closeButton: true,
-    content: ({ close }) => _.form(
-      {
-        class: "tl-ai-prompt-form",
-        onsubmit: (event) => {
-          event.preventDefault();
-          saveAgentFromForm(event.currentTarget, close, agent);
-        },
-      },
-      _.Input({ label: "Nome", name: "name", required: true, value: agent?.name || "", placeholder: "Nome agente" }),
-      _.Input({ label: "Descrizione", name: "description", value: agent?.description || "", placeholder: "Ruolo o contesto operativo" }),
-      _.div(
-        { class: "tl-ai-prompt-form-row" },
-        _.Input({ label: "Icona", name: "icon", value: agent?.icon || "psychology", placeholder: "psychology" }),
-        _.div(
-          { class: "tl-ai-prompt-tone-field" },
-          _.input({ type: "hidden", name: "status", value: statusValue }),
-          _.Select({
-            label: "Stato",
-            value: statusValue,
-            options: [
-              { value: "active", label: "Attivo" },
-              { value: "idle", label: "Idle" },
-              { value: "offline", label: "Offline" },
-            ],
-            slots: { arrow: () => icon("keyboard_arrow_down", "sm") },
-            onChange: (value) => {
-              const input = document.querySelector(".tl-ai-agent-dialog input[name='status']");
-              if (input) input.value = selectValueOf(value);
-            },
-          })
-        )
-      ),
-      _.Toolbar(
-        { align: "end", gap: 8 },
-        btn({ onclick: close }, "Annulla"),
-        btn({ class: "tl-ai-save-btn", type: "submit" }, icon("save", "sm"), "Salva")
-      )
-    ),
-  });
-  dialog.open();
-};
+const openAgentEditorDialog = (agent = null) => window.TrackerLensAiAgentEditor.open({
+  agent,
+  providers: providers.map(providerOf).filter((item) => !item.placeholder),
+  onSave: async ({ payload, close }) => {
+    if (payload.scope === "runtime") {
+      await window.TrackerLensAiRuntimeStore?.upsertRuntimeAgent?.(payload);
+    } else {
+      await window.TrackerLensAiRuntimeStore?.upsertAgent?.(payload);
+    }
+    await window.TrackerLensAiRuntimeStore?.upsertMetric?.({
+      id: `metric_${payload.id || payload.name.replace(/\W+/g, "_").toLowerCase()}`,
+      workspaceId: payload.workspaceId || "global",
+      agentId: payload.id || payload.name,
+      ...payload.metrics,
+      status: payload.status,
+    });
+    close?.();
+    await refreshAiRuntime();
+  },
+});
 
 const deleteAgent = async (agent, close = null) => {
   if (!agent?.id) return;
-  await window.TrackerLensAiRuntimeStore?.deleteAgent?.(agent.id);
+  if ((agent.scope || agent.raw?.scope || agent.raw?.kind) === "runtime") {
+    await window.TrackerLensAiRuntimeStore?.deleteRuntimeAgent?.(agent.id);
+  } else {
+    await window.TrackerLensAiRuntimeStore?.deleteAgent?.(agent.id);
+  }
   close?.();
   await refreshAiRuntime();
 };
@@ -452,6 +459,7 @@ const openAgentDeleteDialog = (agent) => {
 const renderAgentActions = (agent) =>
   _.Toolbar(
     { class: "tl-ai-agent-row-actions", gap: 6 },
+    btn({ "aria-label": "Apri Flow Map", title: "Flow Map", disabled: agent.placeholder, onclick: () => window.location.assign(`flowMap.html${agent.workspaceId ? `?workspaceId=${encodeURIComponent(agent.workspaceId)}` : ""}`) }, icon("account_tree", "sm")),
     btn({ "aria-label": "Modifica agente", title: "Modifica", disabled: agent.placeholder, onclick: () => openAgentEditorDialog(agent) }, icon("edit", "sm")),
     btn({ "aria-label": "Elimina agente", title: "Elimina", disabled: agent.placeholder, onclick: () => openAgentDeleteDialog(agent) }, icon("delete", "sm"))
   );
@@ -459,19 +467,28 @@ const renderAgentActions = (agent) =>
 const renderAgentCard = (agent, compact = false) =>
   agent.placeholder ? renderAgentEmptyState() :
   _.div(
-    { class: `tl-ai-agent is-${agent.status}` },
+    { class: `tl-ai-agent is-${agent.status} is-ai-runtime is-${agent.color || "gold"}` },
     _.span({ class: "tl-ai-agent-icon" }, icon(agent.icon, "sm")),
-    _.div(_.strong(agent.name), _.p(agent.description)),
+    _.div(
+      _.strong(agent.name),
+      _.p(agent.description),
+      _.div(
+        { class: "tl-ai-agent-mini-runtime" },
+        _.span(agent.scope === "runtime" ? "Runtime Instance" : "Library Template"),
+        _.span(agent.runtime?.agentType || "agent"),
+        agent.channels?.outputChannel ? _.span(agent.channels.outputChannel) : null
+      )
+    ),
     _.span({ class: `tl-ai-status is-${agent.status}` }, dot(agent.status), agent.state),
-    compact ? renderAgentActions(agent) : null
+    renderAgentActions(agent)
   );
 
 const renderAgentListItem = (agent) =>
   agent.placeholder ? renderAgentEmptyState() :
   _.div(
-    { class: `tl-ai-agent-row is-${agent.status}` },
+    { class: `tl-ai-agent-row is-${agent.status} is-ai-runtime is-${agent.color || "gold"}` },
     _.span({ class: "tl-ai-agent-row-icon" }, icon(agent.icon, "sm")),
-    _.div({ class: "tl-ai-agent-row-copy" }, _.strong(agent.name), _.p(agent.description)),
+    _.div({ class: "tl-ai-agent-row-copy" }, _.strong(agent.name), _.p(agent.description), _.small(`${agent.scope === "runtime" ? "Runtime Instance" : "Library Template"} · ${agent.runtime?.agentType || "agent"} · ${agent.channels?.outputChannel || "no output channel"}`)),
     _.span({ class: `tl-ai-status is-${agent.status}` }, dot(agent.status), agent.state),
     renderAgentActions(agent)
   );
@@ -558,8 +575,8 @@ const renderAgents = () =>
         renderAgentSearch(),
         _.div(
           { class: "tl-ai-agent-view-switch", role: "group", "aria-label": "Cambia visualizzazione agenti" },
-          btn({ class: agentViewMode === "list" ? "is-active" : "", "aria-label": "Lista", onclick: () => { agentViewMode = "list"; mountAiRuntime(); } }, icon("view_list", "sm")),
-          btn({ class: agentViewMode === "grid" ? "is-active" : "", "aria-label": "Box", onclick: () => { agentViewMode = "grid"; mountAiRuntime(); } }, icon("grid_view", "sm"))
+          btn({ class: agentViewMode === "list" ? "is-active" : "", "aria-label": "Lista", onclick: () => setAgentViewMode("list") }, icon("view_list", "sm")),
+          btn({ class: agentViewMode === "grid" ? "is-active" : "", "aria-label": "Box", onclick: () => setAgentViewMode("grid") }, icon("grid_view", "sm"))
         )
       ),
     _.div(
@@ -569,18 +586,249 @@ const renderAgents = () =>
   );
   };
 
-const renderProviders = () =>
-  _.aside(
-    { class: "tl-ai-providers" },
-    _.Row({ justify: "space-between", align: "center" }, _.h3("AI Models & Providers"), btn({ class: "tl-ai-ghost-btn", onclick: probeLocalAiProviders }, icon("radar", "sm"), "Probe Local")),
-    _.div(
-      { class: "tl-ai-provider-list" },
-      ...providers.map(([name, model, state, latency, status, iconName]) =>
-        _.div({ class: "tl-ai-provider" }, _.span(icon(iconName, "sm"), name), _.em(model), _.strong({ class: `is-${status}` }, state), _.small(latency))
+const providerOf = (provider = {}) => Array.isArray(provider)
+  ? {
+    id: "",
+    name: provider[0],
+    model: provider[1],
+    state: provider[2],
+    latency: provider[3],
+    status: provider[4],
+    icon: provider[5],
+    provider: provider[0],
+    endpoint: "",
+    healthPath: "",
+    placeholder: provider[0]?.startsWith?.("Nessun"),
+  }
+  : provider;
+
+const providerMatches = (provider, query = "") => {
+  const item = providerOf(provider);
+  const q = String(query || "").trim().toLowerCase();
+  if (!q) return true;
+  return [item.name, item.provider, item.model, item.endpoint, item.state].filter(Boolean).join(" ").toLowerCase().includes(q);
+};
+
+const providerFormValue = (form, name) => String(new FormData(form).get(name) || "").trim();
+
+const saveProviderFromForm = async (form, close, current = null) => {
+  const name = providerFormValue(form, "name");
+  if (!name) return;
+  await window.TrackerLensAiRuntimeStore?.upsertProvider?.({
+    ...(current?.id ? { id: current.id, createdAt: current.raw?.createdAt } : {}),
+    name,
+    provider: providerFormValue(form, "provider") || "custom",
+    model: providerFormValue(form, "model") || "local-model",
+    endpoint: providerFormValue(form, "endpoint"),
+    healthPath: providerFormValue(form, "healthPath"),
+    status: providerFormValue(form, "status") || "idle",
+    icon: providerFormValue(form, "icon") || "psychology",
+    local: providerFormValue(form, "local") === "true",
+    priority: Number(providerFormValue(form, "priority") || 100),
+  });
+  close?.();
+  await refreshAiRuntime();
+};
+
+const openProviderEditorDialog = (provider = null) => {
+  const current = provider ? providerOf(provider) : null;
+  const isEdit = Boolean(current?.id);
+  const dialog = _.Dialog({
+    class: "tl-ai-provider-dialog",
+    panelClass: "tl-ai-prompt-panel",
+    size: "md",
+    title: isEdit ? "Modifica provider" : "Nuovo provider",
+    subtitle: "Provider salvati localmente in tl_ai_providers.",
+    icon: isEdit ? "edit" : "dns",
+    closeButton: true,
+    content: ({ close }) => _.form(
+      {
+        class: "tl-ai-prompt-form",
+        onsubmit: (event) => {
+          event.preventDefault();
+          saveProviderFromForm(event.currentTarget, close, current);
+        },
+      },
+      _.Input({ label: "Nome", name: "name", required: true, value: current?.name || "", placeholder: "Ollama" }),
+      _.div(
+        { class: "tl-ai-prompt-form-row" },
+        _.Input({ label: "Provider", name: "provider", value: current?.provider || "custom", placeholder: "ollama" }),
+        _.Input({ label: "Modello", name: "model", value: current?.model || "", placeholder: "llama3.1" })
+      ),
+      _.Input({ label: "Endpoint", name: "endpoint", value: current?.endpoint || "", placeholder: "http://127.0.0.1:11434" }),
+      _.div(
+        { class: "tl-ai-prompt-form-row" },
+        _.Input({ label: "Health path", name: "healthPath", value: current?.healthPath || "", placeholder: "/api/tags" }),
+        _.Input({ label: "Icona", name: "icon", value: current?.icon || "psychology", placeholder: "memory" })
+      ),
+      _.div(
+        { class: "tl-ai-prompt-form-row" },
+        _.div(
+          { class: "tl-ai-prompt-tone-field" },
+          _.input({ type: "hidden", name: "status", value: current?.raw?.status || "idle" }),
+          _.Select({
+            label: "Stato",
+            value: current?.raw?.status || "idle",
+            options: [
+              { value: "idle", label: "Idle" },
+              { value: "online", label: "Online" },
+              { value: "offline", label: "Offline" },
+            ],
+            slots: { arrow: () => icon("keyboard_arrow_down", "sm") },
+            onChange: (value) => {
+              const input = document.querySelector(".tl-ai-provider-dialog input[name='status']");
+              if (input) input.value = selectValueOf(value);
+            },
+          })
+        ),
+        _.div(
+          { class: "tl-ai-prompt-tone-field" },
+          _.input({ type: "hidden", name: "local", value: current?.local ? "true" : "false" }),
+          _.Select({
+            label: "Tipo",
+            value: current?.local ? "true" : "false",
+            options: [{ value: "true", label: "Locale" }, { value: "false", label: "Cloud/Custom" }],
+            slots: { arrow: () => icon("keyboard_arrow_down", "sm") },
+            onChange: (value) => {
+              const input = document.querySelector(".tl-ai-provider-dialog input[name='local']");
+              if (input) input.value = selectValueOf(value);
+            },
+          })
+        ),
+        _.Input({ label: "Priorita", name: "priority", type: "number", value: current?.raw?.priority || (current?.local ? 10 : 100) })
+      ),
+      _.Toolbar(
+        { align: "end", gap: 8 },
+        btn({ onclick: close }, "Annulla"),
+        btn({ class: "tl-ai-save-btn", type: "submit" }, icon("save", "sm"), "Salva")
       )
     ),
-    _.Toolbar({ class: "tl-ai-provider-actions", gap: 8 }, btn({ class: "tl-ai-link-btn" }, "Aggiungi provider"), btn({ class: "tl-ai-link-btn" }, "Gestisci modelli", icon("arrow_forward", "sm")))
+  });
+  dialog.open();
+};
+
+const probeProvider = async (provider) => {
+  const current = providerOf(provider);
+  if (!current?.id || current.placeholder) return;
+  aiRuntimeMeta = { ...aiRuntimeMeta, indexedDb: `Probe ${current.name}` };
+  mountAiRuntime();
+  await window.TrackerLensAiRuntimeStore?.probeProvider?.(current.raw || current);
+  await refreshAiRuntime();
+};
+
+const deleteProvider = async (provider, close = null) => {
+  const current = providerOf(provider);
+  if (!current?.id || current.placeholder) return;
+  await window.TrackerLensAiRuntimeStore?.deleteProvider?.(current.id);
+  close?.();
+  await refreshAiRuntime();
+};
+
+const openProviderDeleteDialog = (provider) => {
+  const current = providerOf(provider);
+  if (!current?.id || current.placeholder) return;
+  const dialog = _.Dialog({
+    class: "tl-ai-provider-delete-dialog",
+    panelClass: "tl-ai-prompt-delete-panel",
+    size: "sm",
+    title: "Elimina provider",
+    subtitle: current.name,
+    icon: "delete",
+    closeButton: true,
+    content: () => _.div({ class: "tl-ai-prompt-delete-body" }, _.p("Questa azione rimuove il provider da tl_ai_providers.")),
+    actions: ({ close }) => _.Toolbar(
+      { align: "end", gap: 8 },
+      btn({ onclick: close }, "Annulla"),
+      btn({ class: "tl-ai-danger-btn", onclick: () => deleteProvider(current, close) }, icon("delete", "sm"), "Elimina")
+    ),
+  });
+  dialog.open();
+};
+
+const renderProviderRow = (provider, compact = false) => {
+  const item = providerOf(provider);
+  const isDefaultLocal = ["local_ollama", "local_lm_studio"].includes(item.id);
+  return _.div(
+    { class: `tl-ai-provider is-${item.status}${item.placeholder ? " is-empty" : ""}` },
+    _.span(icon(item.icon || "psychology", "sm"), item.name),
+    _.em(item.model || "modello non configurato"),
+    _.strong({ class: `is-${item.status}` }, item.state || sourceLabel(item.status)),
+    _.small(item.latency || "n/d"),
+    item.placeholder ? null : _.Toolbar(
+      { class: "tl-ai-provider-row-actions", gap: 6 },
+      btn({ "aria-label": "Probe provider", title: "Probe", onclick: () => probeProvider(item) }, icon("radar", "sm")),
+      btn({ "aria-label": "Modifica provider", title: "Modifica", onclick: () => openProviderEditorDialog(item) }, icon("edit", "sm")),
+      btn({ "aria-label": "Elimina provider", title: isDefaultLocal ? "Provider locale default" : "Elimina", disabled: isDefaultLocal, onclick: () => openProviderDeleteDialog(item) }, icon("delete", "sm"))
+    ),
+    compact && item.endpoint ? _.pre({ class: "tl-ai-prompt-preview" }, item.endpoint) : null
   );
+};
+
+const renderProviderDialogList = (query = "") => {
+  const filtered = providers.map(providerOf).filter((provider) => !provider.placeholder && providerMatches(provider, query));
+  return _.div(
+    { class: "tl-ai-prompt-dialog-list tl-ai-provider-dialog-list" },
+    ...(filtered.length
+      ? filtered.map((provider) => renderProviderRow(provider, true))
+      : [_.div({ class: "tl-ai-prompt-empty" }, icon("search_off", "sm"), _.strong("Nessun provider trovato"), _.p("Aggiungi un provider o modifica la ricerca."))])
+  );
+};
+
+const refreshProviderDialogList = (query = "") => {
+  providerListSearchQuery = query;
+  const host = document.querySelector("[data-ai-provider-dialog-list]");
+  if (!host) return;
+  host.replaceChildren(renderProviderDialogList(query));
+};
+
+const openProviderListDialog = () => {
+  const dialog = _.Dialog({
+    class: "tl-ai-provider-list-dialog",
+    panelClass: "tl-ai-prompt-list-panel",
+    size: "lg",
+    title: "AI Models & Providers",
+    subtitle: "Provider locali e custom in tl_ai_providers.",
+    icon: "dns",
+    closeButton: true,
+    scrollable: true,
+    bodyMaxHeight: "68vh",
+    content: () => _.div(
+      { class: "tl-ai-prompt-list-body" },
+      _.div(
+        { class: "tl-ai-prompt-search" },
+        icon("search", "sm"),
+        _.input({
+          type: "search",
+          value: providerListSearchQuery,
+          placeholder: "Cerca provider...",
+          oninput: (event) => refreshProviderDialogList(event.currentTarget.value),
+        })
+      ),
+      _.div({ "data-ai-provider-dialog-list": "true" }, renderProviderDialogList(providerListSearchQuery))
+    ),
+    actions: ({ close }) => _.Toolbar(
+      { align: "end", gap: 8 },
+      btn({ onclick: probeLocalAiProviders }, icon("radar", "sm"), "Probe Local"),
+      btn({ onclick: () => openProviderEditorDialog() }, icon("add", "sm"), "Aggiungi"),
+      btn({ onclick: close }, "Chiudi")
+    ),
+  });
+  dialog.open();
+};
+
+const renderProviders = () =>
+  {
+    const visibleProviders = providers.map(providerOf).filter((provider) => provider.placeholder || providerMatches(provider, providerListSearchQuery)).slice(0, 8);
+    return _.aside(
+      { class: "tl-ai-providers" },
+      _.Row({ justify: "space-between", align: "center" }, _.h3("AI Models & Providers"), btn({ class: "tl-ai-ghost-btn", onclick: probeLocalAiProviders }, icon("radar", "sm"), "Probe Local")),
+      _.div(
+        { class: "tl-ai-provider-list" },
+        ...visibleProviders.map((provider) => renderProviderRow(provider))
+      ),
+      _.Toolbar({ class: "tl-ai-provider-actions", gap: 8 }, btn({ class: "tl-ai-link-btn", onclick: () => openProviderEditorDialog() }, "Aggiungi provider"), btn({ class: "tl-ai-link-btn", onclick: openProviderListDialog }, "Gestisci modelli", icon("arrow_forward", "sm")))
+    );
+  };
 
 const selectValueOf = (value) => value?.target?.value ?? value;
 
@@ -601,7 +849,7 @@ const renderPromptSearch = () =>
     "aria-label": "Cerca prompt",
     onInput: (event) => {
       promptSearchQuery = event.target.value;
-      mountAiRuntime();
+      mountAiRuntime({ focusSelector: ".tl-ai-prompt-search-input input" });
     },
   });
 
@@ -770,6 +1018,12 @@ const filteredPrompts = () =>
     .filter((prompt) => prompt.placeholder || promptCategoryFilter === "all" || prompt.category === promptCategoryFilter)
     .filter((prompt) => prompt.placeholder || promptMatches(prompt, promptSearchQuery));
 
+const setAgentViewMode = (value) => {
+  agentViewMode = value === "list" ? "list" : "grid";
+  setStoredAiUiPref("agent_view_mode", agentViewMode);
+  mountAiRuntime();
+};
+
 const setPromptCategoryFilter = (value) => {
   promptCategoryFilter = value || "all";
   mountAiRuntime();
@@ -777,6 +1031,7 @@ const setPromptCategoryFilter = (value) => {
 
 const setPromptViewMode = (value) => {
   promptViewMode = value === "list" ? "list" : "grid";
+  setStoredAiUiPref("prompt_view_mode", promptViewMode);
   mountAiRuntime();
 };
 
@@ -873,6 +1128,103 @@ const renderPrompts = () => {
   );
 };
 
+const jobOf = (job = {}) => Array.isArray(job)
+  ? { id: job[0], agent: job[1], task: job[2], state: job[3], start: job[4], duration: job[5], tokens: job[6], status: job[7], raw: null }
+  : job;
+const logOf = (log = {}) => Array.isArray(log)
+  ? { time: log[0], source: log[1], message: log[2], status: log[3], raw: null }
+  : log;
+const memoryOf = (item = {}) => Array.isArray(item)
+  ? { name: item[0], meta: item[1], count: item[2], icon: item[3], scope: item[4], raw: null }
+  : item;
+
+const itemMatches = (item, query = "", keys = []) => {
+  const q = String(query || "").trim().toLowerCase();
+  if (!q) return true;
+  return keys.map((key) => item?.[key]).filter(Boolean).join(" ").toLowerCase().includes(q);
+};
+
+const openJsonDialog = ({ title, subtitle, iconName = "data_object", record = null }) => {
+  const dialog = _.Dialog({
+    class: "tl-ai-json-dialog",
+    panelClass: "tl-ai-prompt-list-panel",
+    size: "lg",
+    title,
+    subtitle,
+    icon: iconName,
+    closeButton: true,
+    scrollable: true,
+    bodyMaxHeight: "68vh",
+    content: () => _.pre({ class: "tl-ai-json-preview" }, JSON.stringify(record || {}, null, 2)),
+    actions: ({ close }) => _.Toolbar(
+      { align: "end", gap: 8 },
+      btn({
+        onclick: async () => {
+          try {
+            await navigator.clipboard?.writeText?.(JSON.stringify(record || {}, null, 2));
+          } catch (error) {
+            console.warn("Copia JSON non disponibile:", error);
+          }
+        },
+      }, icon("content_copy", "sm"), "Copia JSON"),
+      btn({ onclick: close }, "Chiudi")
+    ),
+  });
+  dialog.open();
+};
+
+const renderJobRows = (query = "", limit = 12) => jobs
+  .map(jobOf)
+  .filter((job) => itemMatches(job, query, ["id", "agent", "task", "state", "provider", "model"]))
+  .slice(0, limit);
+
+const openJobsDialog = () => {
+  const renderList = (query = "") => _.div(
+    { class: "tl-ai-dialog-table-wrap" },
+    _.table(
+      { class: "tl-ai-table" },
+      _.thead(_.tr(_.th("Job ID"), _.th("Agente"), _.th("Task"), _.th("Stato"), _.th("Provider"), _.th("Tokens"), _.th("Azioni"))),
+      _.tbody(
+        ...renderJobRows(query, 100).map((job) =>
+          _.tr(
+            { class: `is-${job.status}` },
+            _.td(job.id),
+            _.td(_.strong(job.agent)),
+            _.td(job.task),
+            _.td(_.span({ class: `tl-ai-status is-${job.status}` }, dot(job.status), job.state)),
+            _.td(job.provider || "-"),
+            _.td(job.tokens || "-"),
+            _.td(btn({ "aria-label": "Dettagli job", onclick: () => openJsonDialog({ title: job.id, subtitle: job.task, iconName: "radar", record: job.raw || job }) }, icon("data_object", "sm")))
+          )
+        )
+      )
+    )
+  );
+  const refresh = (query = "") => {
+    jobListSearchQuery = query;
+    const host = document.querySelector("[data-ai-job-dialog-list]");
+    if (host) host.replaceChildren(renderList(query));
+  };
+  const dialog = _.Dialog({
+    class: "tl-ai-job-list-dialog",
+    panelClass: "tl-ai-prompt-list-panel",
+    size: "xl",
+    title: "AI Jobs",
+    subtitle: "Coda e storico recente da tl_ai_jobs.",
+    icon: "radar",
+    closeButton: true,
+    scrollable: true,
+    bodyMaxHeight: "68vh",
+    content: () => _.div(
+      { class: "tl-ai-prompt-list-body" },
+      _.div({ class: "tl-ai-prompt-search" }, icon("search", "sm"), _.input({ type: "search", value: jobListSearchQuery, placeholder: "Cerca job...", oninput: (event) => refresh(event.currentTarget.value) })),
+      _.div({ "data-ai-job-dialog-list": "true" }, renderList(jobListSearchQuery))
+    ),
+    actions: ({ close }) => _.Toolbar({ align: "end", gap: 8 }, btn({ onclick: refreshAiRuntime }, icon("refresh", "sm"), "Aggiorna"), btn({ onclick: close }, "Chiudi")),
+  });
+  dialog.open();
+};
+
 const renderJobsTable = () =>
   _.section(
     { class: "tl-ai-jobs" },
@@ -883,24 +1235,61 @@ const renderJobsTable = () =>
         { class: "tl-ai-table" },
         _.thead(_.tr(_.th("Job ID"), _.th("Agente"), _.th("Task"), _.th("Stato"), _.th("Iniziato"), _.th("Durata"), _.th("Tokens"), _.th("Azioni"))),
         _.tbody(
-          ...jobs.map(([id, agent, task, state, start, duration, tokens, status]) =>
+          ...renderJobRows(jobListSearchQuery, 12).map((job) =>
             _.tr(
-              { class: `is-${status}` },
-              _.td(id),
-              _.td(_.strong(agent)),
-              _.td(task),
-              _.td(_.span({ class: `tl-ai-status is-${status}` }, dot(status), state)),
-              _.td(start),
-              _.td(duration),
-              _.td(tokens),
-              _.td(_.div({ class: "tl-ai-row-actions" }, btn({ "aria-label": "Pausa" }, icon("pause", "sm")), btn({ "aria-label": "Stop" }, icon("stop", "sm")), btn({ "aria-label": "Menu" }, icon("more_vert", "sm"))))
+              { class: `is-${job.status}` },
+              _.td(job.id),
+              _.td(_.strong(job.agent)),
+              _.td(job.task),
+              _.td(_.span({ class: `tl-ai-status is-${job.status}` }, dot(job.status), job.state)),
+              _.td(job.start),
+              _.td(job.duration),
+              _.td(job.tokens),
+              _.td(_.div({ class: "tl-ai-row-actions" }, btn({ "aria-label": "Dettagli job", onclick: () => openJsonDialog({ title: job.id, subtitle: job.task, iconName: "radar", record: job.raw || job }) }, icon("data_object", "sm"))))
             )
           )
         )
       )
     ),
-    btn({ class: "tl-ai-link-btn" }, "Visualizza tutti i job", icon("arrow_forward", "sm"))
+    btn({ class: "tl-ai-link-btn", onclick: openJobsDialog }, "Visualizza tutti i job", icon("arrow_forward", "sm"))
   );
+
+const renderLogRows = (query = "", limit = 12) => logs
+  .map(logOf)
+  .filter((log) => itemMatches(log, query, ["time", "source", "message", "status"]))
+  .slice(0, limit);
+
+const openLogsDialog = () => {
+  const renderList = (query = "") => _.div(
+    { class: "tl-ai-log-list tl-ai-dialog-log-list" },
+    ...renderLogRows(query, 100).map((log) =>
+      _.div({ class: `tl-ai-log is-${log.status}` }, _.time(log.time), _.span({ class: "tl-ai-log-icon" }, icon(log.status === "error" ? "report" : log.status === "warn" ? "warning" : "psychology", "sm")), _.div(_.strong(log.source), _.p(log.message)), btn({ "aria-label": "Dettagli log", onclick: () => openJsonDialog({ title: log.source, subtitle: log.time, iconName: "receipt_long", record: log.raw || log }) }, icon("data_object", "sm")))
+    )
+  );
+  const refresh = (query = "") => {
+    logListSearchQuery = query;
+    const host = document.querySelector("[data-ai-log-dialog-list]");
+    if (host) host.replaceChildren(renderList(query));
+  };
+  const dialog = _.Dialog({
+    class: "tl-ai-log-list-dialog",
+    panelClass: "tl-ai-prompt-list-panel",
+    size: "lg",
+    title: "AI Logs",
+    subtitle: "Eventi recenti da tl_ai_logs.",
+    icon: "receipt_long",
+    closeButton: true,
+    scrollable: true,
+    bodyMaxHeight: "68vh",
+    content: () => _.div(
+      { class: "tl-ai-prompt-list-body" },
+      _.div({ class: "tl-ai-prompt-search" }, icon("search", "sm"), _.input({ type: "search", value: logListSearchQuery, placeholder: "Cerca log...", oninput: (event) => refresh(event.currentTarget.value) })),
+      _.div({ "data-ai-log-dialog-list": "true" }, renderList(logListSearchQuery))
+    ),
+    actions: ({ close }) => _.Toolbar({ align: "end", gap: 8 }, btn({ onclick: refreshAiRuntime }, icon("refresh", "sm"), "Aggiorna"), btn({ onclick: close }, "Chiudi")),
+  });
+  dialog.open();
+};
 
 const renderLogs = () =>
   _.aside(
@@ -908,19 +1297,56 @@ const renderLogs = () =>
     _.Row({ justify: "space-between", align: "center" }, _.h3("AI Logs (Live)"), _.span({ class: "tl-ai-live-chip" }, dot("online"), "Live")),
     _.div(
       { class: "tl-ai-log-list" },
-      ...logs.map(([time, source, message, status]) =>
-        _.div({ class: `tl-ai-log is-${status}` }, _.time(time), _.span({ class: "tl-ai-log-icon" }, icon(status === "error" ? "report" : status === "warn" ? "warning" : "psychology", "sm")), _.div(_.strong(source), _.p(message)))
+      ...renderLogRows(logListSearchQuery, 12).map((log) =>
+        _.div({ class: `tl-ai-log is-${log.status}` }, _.time(log.time), _.span({ class: "tl-ai-log-icon" }, icon(log.status === "error" ? "report" : log.status === "warn" ? "warning" : "psychology", "sm")), _.div(_.strong(log.source), _.p(log.message)))
       )
     ),
-    btn({ class: "tl-ai-link-btn" }, "Visualizza tutti i log", icon("arrow_forward", "sm"))
+    btn({ class: "tl-ai-link-btn", onclick: openLogsDialog }, "Visualizza tutti i log", icon("arrow_forward", "sm"))
   );
+
+const renderMemoryRows = (query = "", limit = 8) => memory
+  .map(memoryOf)
+  .filter((item) => itemMatches(item, query, ["name", "meta", "scope", "text"]))
+  .slice(0, limit);
+
+const openMemoryDialog = () => {
+  const renderList = (query = "") => _.div(
+    { class: "tl-ai-memory-scroll" },
+    ...renderMemoryRows(query, 100).map((item) =>
+      _.div({ class: "tl-ai-memory-row" }, _.span(icon(item.icon, "sm")), _.div(_.strong(item.name), _.p(item.meta)), _.em(item.count), _.small(item.scope || "workspace"), btn({ "aria-label": "Dettagli memoria", onclick: () => openJsonDialog({ title: item.name, subtitle: item.scope, iconName: "database", record: item.raw || item }) }, icon("data_object", "sm")))
+    )
+  );
+  const refresh = (query = "") => {
+    memoryListSearchQuery = query;
+    const host = document.querySelector("[data-ai-memory-dialog-list]");
+    if (host) host.replaceChildren(renderList(query));
+  };
+  const dialog = _.Dialog({
+    class: "tl-ai-memory-list-dialog",
+    panelClass: "tl-ai-prompt-list-panel",
+    size: "lg",
+    title: "AI Memory",
+    subtitle: "Memoria locale short/workspace/global.",
+    icon: "database",
+    closeButton: true,
+    scrollable: true,
+    bodyMaxHeight: "68vh",
+    content: () => _.div(
+      { class: "tl-ai-prompt-list-body" },
+      _.div({ class: "tl-ai-prompt-search" }, icon("search", "sm"), _.input({ type: "search", value: memoryListSearchQuery, placeholder: "Cerca memoria...", oninput: (event) => refresh(event.currentTarget.value) })),
+      _.div({ "data-ai-memory-dialog-list": "true" }, renderList(memoryListSearchQuery))
+    ),
+    actions: ({ close }) => _.Toolbar({ align: "end", gap: 8 }, btn({ onclick: refreshAiRuntime }, icon("refresh", "sm"), "Aggiorna"), btn({ onclick: close }, "Chiudi")),
+  });
+  dialog.open();
+};
 
 const renderMemory = () =>
   _.aside(
     { class: "tl-ai-memory" },
-    _.Row({ justify: "space-between", align: "center" }, _.h3("AI Memory (Context)"), btn({ class: "tl-ai-link-btn" }, "Vedi tutto")),
-    ...memory.map(([name, meta, count, iconName, scope]) =>
-      _.div({ class: "tl-ai-memory-row" }, _.span(icon(iconName, "sm")), _.div(_.strong(name), _.p(meta)), _.em(count), _.small(scope || "workspace"))
+    _.Row({ justify: "space-between", align: "center" }, _.h3("AI Memory (Context)"), btn({ class: "tl-ai-link-btn", onclick: openMemoryDialog }, "Vedi tutto")),
+    ...renderMemoryRows(memoryListSearchQuery, 8).map((item) =>
+      _.div({ class: "tl-ai-memory-row" }, _.span(icon(item.icon, "sm")), _.div(_.strong(item.name), _.p(item.meta)), _.em(item.count), _.small(item.scope || "workspace"))
     )
   );
 
@@ -949,7 +1375,7 @@ const renderAnalytics = () =>
     _.Card(
       { class: "tl-ai-analytics-card" },
       _.h3("Storage AI"),
-      _.div({ class: "tl-ai-donut-row" }, renderDonut("is-storage", memory.length, "Blocchi"), _.div(...memory.slice(0, 4).map(([name, meta, count]) => _.p(`${name} ${count}`))))
+      _.div({ class: "tl-ai-donut-row" }, renderDonut("is-storage", memory.length, "Blocchi"), _.div(...memory.map(memoryOf).slice(0, 4).map((item) => _.p(`${item.name} ${item.count}`))))
     ),
     _.Card(
       { class: "tl-ai-analytics-card" },
@@ -1033,10 +1459,22 @@ const probeLocalAiProviders = async () => {
   await refreshAiRuntime();
 };
 
-const mountAiRuntime = () => {
+const mountAiRuntime = ({ focusSelector = "", selectionStart = null } = {}) => {
   const root = document.getElementById("tl-ai-root");
   if (!root) return;
+  const active = document.activeElement;
+  const nextSelectionStart = selectionStart ?? (active && typeof active.selectionStart === "number" ? active.selectionStart : null);
   root.replaceChildren(renderShell());
+  if (focusSelector) {
+    requestAnimationFrame(() => {
+      const input = document.querySelector(focusSelector);
+      if (!input || typeof input.focus !== "function") return;
+      input.focus();
+      if (nextSelectionStart !== null && typeof input.setSelectionRange === "function") {
+        input.setSelectionRange(nextSelectionStart, nextSelectionStart);
+      }
+    });
+  }
 };
 
 mountAiRuntime();

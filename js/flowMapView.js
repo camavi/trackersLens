@@ -3867,6 +3867,31 @@ const manifestPortDef = (port = "", fallbackType = "any") => {
   return { name, type: inferredType, schema: null, required: false };
 };
 
+const sourceConfigInputPorts = (subtype = "") => {
+  const kind = String(subtype || "").toLowerCase();
+  const url = { name: "url", type: "string", required: true, description: "Endpoint URL" };
+  const params = { name: "params", type: "record", description: "Query parameters" };
+  const headers = { name: "headers", type: "record", description: "Request headers" };
+  if (kind === "websocket") {
+    return [
+      { ...url, description: "wss/ws endpoint URL" },
+      params,
+      { name: "protocols", type: "array", description: "WebSocket subprotocols" },
+      { ...headers, description: "Headers only when routed through a server/proxy connector" },
+    ];
+  }
+  if (["rest", "rss", "youtube"].includes(kind)) return [url, params, headers];
+  if (kind === "webhook") return [
+    { name: "secret", type: "string", description: "Webhook signing secret" },
+    headers,
+  ];
+  if (kind === "indexeddb-source") return [
+    { name: "store", type: "string", required: true, description: "IndexedDB store name" },
+    { name: "query", type: "record", description: "Local query/filter" },
+  ];
+  return [];
+};
+
 const nodeManifest = ({
   type,
   subtype,
@@ -3886,7 +3911,8 @@ const nodeManifest = ({
     type,
     subtype,
     category,
-    inputs: inputs.map((port) => manifestPortDef(port, category === "lens" ? "any" : "object")),
+    inputs: (category === "sources" ? sourceConfigInputPorts(subtype) : inputs)
+      .map((port) => manifestPortDef(port, category === "lens" ? "any" : "object")),
     outputs: outputs.map((port) => manifestPortDef(port, "object")),
     permissions,
     settingsSchema,
@@ -4098,6 +4124,10 @@ const configureNode = (node) => {
     openPaletteNode(item, node);
     return;
   }
+  if (node?.type === "aiAgent" && !node.metadata?.library) {
+    requestAiAgentRuntimeConfig(node);
+    return;
+  }
   if (isInlineConfigNode(node) && !node.metadata?.library) {
     requestRuntimeNodeConfig(node);
     return;
@@ -4180,13 +4210,14 @@ const runtimeNodeUpdateFromValues = ({ node, values = {} }) => {
       ? []
       : [output].filter(Boolean);
   const inputs = category === "sources" ? [] : [input].filter(Boolean);
+  const manifestInputs = category === "sources" ? sourceConfigInputPorts(subtype) : inputs;
   const channels = [...new Set([...inputs, ...outputs].filter(Boolean))];
   const previousMetadata = node.metadata || {};
   const manifest = nodeManifest({
     type: node.type === "boxLens" ? "lens" : node.type,
     subtype,
     category,
-    inputs,
+    inputs: manifestInputs,
     outputs,
     permissions: previousMetadata.permissions || previousMetadata.manifest?.permissions || node.permissions || [],
     settingsSchema: previousMetadata.settingsSchema || previousMetadata.manifest?.settingsSchema || {},
@@ -4712,6 +4743,212 @@ const persistRuntimeNodeConfig = async ({ node, form, close, force = false }) =>
   }
 };
 
+const flowAiConfigValue = (value = "") => Array.isArray(value) ? value.join(", ") : String(value || "");
+
+const aiAgentFromRuntimeNode = (node = {}) => {
+  const defaults = runtimeNodeConfigDefaults(node);
+  const config = defaults.configObject || {};
+  const agentType = config.agentType || nodeSubtype(node) || "analyzer";
+  const split = window.TrackerLensAiAgentEditor?.splitList || ((value) => String(value || "").split(/[\n,]+/).map((item) => item.trim()).filter(Boolean));
+  return {
+    id: config.runtimeAgentId || `runtime_agent_${node.workspaceId || state.filters.workspaceId || "workspace_global"}_${node.id}`,
+    scope: "runtime",
+    kind: "runtime",
+    workspaceId: node.workspaceId || state.filters.workspaceId || "workspace_global",
+    templateId: config.templateId || "",
+    name: defaults.label || node.label || "AI Agent",
+    description: config.description || "Flow Map AI runtime worker",
+    icon: config.icon || graphIcon(node) || "psychology",
+    color: config.color || "gold",
+    category: config.category || "Runtime Intelligence",
+    tags: split(config.tags),
+    version: config.version || "1.0.0",
+    status: defaults.runtimeStatus || "active",
+    runtime: {
+      agentType,
+      executionMode: config.executionMode || "on_event",
+      priority: config.priority ?? 5,
+      retryPolicy: config.retryPolicy || "exponential",
+      timeoutMs: config.timeoutMs ?? 30000,
+      cooldownMs: config.cooldownMs ?? 0,
+      queueLimit: config.queueLimit ?? 25,
+      parallelJobs: config.parallelJobs ?? 1,
+    },
+    provider: {
+      profileId: config.providerProfile || "",
+      providerType: config.providerType || config.provider || "ollama",
+      model: config.model || "local-model",
+      temperature: config.temperature ?? 0.2,
+      maxTokens: config.maxTokens ?? 800,
+      topP: config.topP ?? 0.9,
+      streaming: config.streaming === true || config.streaming === "true",
+      responseFormat: config.responseFormat || "json",
+    },
+    channels: {
+      inputs: config.inputChannels ? split(config.inputChannels) : [defaults.input].filter(Boolean),
+      payloadMapping: config.payloadMapping || "btc.price -> market_price\nnews.crypto -> latest_news",
+      requiredInputs: split(config.requiredInputs || defaults.input),
+      contextSources: split(config.contextSources || "workspace, memory, last-event"),
+      eventTriggers: split(config.eventTriggers || defaults.input),
+      outputs: [defaults.output].filter(Boolean),
+      outputChannel: defaults.output || `ai.${agentType}.output`,
+      outputFormat: config.outputFormat || config.responseFormat || "json",
+      emitStrategy: config.emitStrategy || "on_success",
+      eventPriority: config.eventPriority || "normal",
+    },
+    promptConfig: {
+      systemPrompt: config.systemPrompt || "You are a runtime intelligence worker. Analyze events and emit operational output.",
+      template: config.promptTemplate || config.prompt || "Analyze this runtime event:\n\nChannel: {{channel}}\nPayload: {{payload}}\nMemory: {{memory}}",
+      variables: split(config.dynamicVariables || "{{channel}}, {{timestamp}}, {{workspace}}, {{memory}}, {{event}}, {{payload}}"),
+      strategy: config.promptStrategy || "contextual",
+      outputInstructions: config.outputInstructions || "Return structured runtime output ready for channel emission.",
+    },
+    memory: {
+      mode: config.memoryMode || "workspace",
+      size: config.memorySize ?? 20,
+      expiration: config.memoryExpiration || "24h",
+      persistence: config.memoryPersistence || "workspace",
+      compression: config.memoryCompression || "summary",
+      contextWindow: config.contextWindow ?? 6,
+    },
+    permissions: {
+      canAccessWeb: config.canAccessWeb === true || config.canAccessWeb === "true",
+      canAccessMemory: config.canAccessMemory !== "false",
+      canEmitChannels: config.canEmitChannels !== "false",
+      canExecuteActions: config.canExecuteActions === true || config.canExecuteActions === "true",
+      canSaveStorage: config.canSaveStorage === true || config.canSaveStorage === "true",
+      canReadWorkspace: config.canReadWorkspace !== "false",
+      canAccessRuntimeLogs: config.canAccessRuntimeLogs !== "false",
+    },
+    debug: {
+      enableLogs: config.enableLogs !== "false",
+      savePrompts: config.savePrompts !== "false",
+      saveResponses: config.saveResponses !== "false",
+      runtimeMetrics: config.runtimeMetrics !== "false",
+      debugMode: config.debugMode === true || config.debugMode === "true",
+    },
+    metrics: {
+      executionCount: Number(config.executionCount || 0),
+      avgResponseTimeMs: Number(config.avgResponseTimeMs || 0),
+      tokenUsage: Number(config.tokenUsage || 0),
+      successRate: Number(config.successRate || 0),
+      queueSize: Number(config.queueSize || 0),
+      activeJobs: Number(config.activeJobs || 0),
+      memoryUsage: Number(config.memoryUsage || 0),
+    },
+  };
+};
+
+const aiAgentPayloadConfig = (payload = {}) => ({
+  runtimeAgentId: payload.id || "",
+  description: payload.description || "",
+  icon: payload.icon || "psychology",
+  color: payload.color || "gold",
+  category: payload.category || "Runtime Intelligence",
+  tags: flowAiConfigValue(payload.tags),
+  version: payload.version || "1.0.0",
+  templateId: payload.templateId || "",
+  agentType: payload.runtime?.agentType || "analyzer",
+  executionMode: payload.runtime?.executionMode || "on_event",
+  priority: payload.runtime?.priority ?? 5,
+  retryPolicy: payload.runtime?.retryPolicy || "exponential",
+  timeoutMs: payload.runtime?.timeoutMs ?? 30000,
+  cooldownMs: payload.runtime?.cooldownMs ?? 0,
+  queueLimit: payload.runtime?.queueLimit ?? 25,
+  parallelJobs: payload.runtime?.parallelJobs ?? 1,
+  providerProfile: payload.provider?.profileId || "",
+  providerType: payload.provider?.providerType || "ollama",
+  model: payload.provider?.model || "local-model",
+  temperature: payload.provider?.temperature ?? 0.2,
+  maxTokens: payload.provider?.maxTokens ?? 800,
+  topP: payload.provider?.topP ?? 0.9,
+  streaming: String(Boolean(payload.provider?.streaming)),
+  responseFormat: payload.provider?.responseFormat || "json",
+  inputChannels: flowAiConfigValue(payload.channels?.inputs),
+  payloadMapping: payload.channels?.payloadMapping || "",
+  requiredInputs: flowAiConfigValue(payload.channels?.requiredInputs),
+  contextSources: flowAiConfigValue(payload.channels?.contextSources),
+  eventTriggers: flowAiConfigValue(payload.channels?.eventTriggers),
+  outputFormat: payload.channels?.outputFormat || "json",
+  emitStrategy: payload.channels?.emitStrategy || "on_success",
+  eventPriority: payload.channels?.eventPriority || "normal",
+  systemPrompt: payload.promptConfig?.systemPrompt || "",
+  promptTemplate: payload.promptConfig?.template || "",
+  dynamicVariables: flowAiConfigValue(payload.promptConfig?.variables),
+  promptStrategy: payload.promptConfig?.strategy || "contextual",
+  outputInstructions: payload.promptConfig?.outputInstructions || "",
+  memoryMode: payload.memory?.mode || "workspace",
+  memorySize: payload.memory?.size ?? 20,
+  memoryExpiration: payload.memory?.expiration || "24h",
+  memoryPersistence: payload.memory?.persistence || "workspace",
+  memoryCompression: payload.memory?.compression || "summary",
+  contextWindow: payload.memory?.contextWindow ?? 6,
+  ...Object.fromEntries(Object.entries(payload.permissions || {}).map(([key, value]) => [key, String(Boolean(value))])),
+  ...Object.fromEntries(Object.entries(payload.debug || {}).map(([key, value]) => [key, String(Boolean(value))])),
+  ...payload.metrics,
+});
+
+const persistAiAgentEditorPayload = async ({ node, payload, close }) => {
+  const outputChannel = payload.channels?.outputChannel || payload.channels?.outputs?.[0] || `ai.${payload.runtime?.agentType || "agent"}.output`;
+  const inputChannel = payload.channels?.inputs?.[0] || "input";
+  const update = runtimeNodeUpdateFromValues({
+    node,
+    values: {
+      label: payload.name || node.label,
+      input: inputChannel,
+      output: outputChannel,
+      mode: payload.runtime?.agentType || nodeSubtype(node),
+      runtimeStatus: payload.status || "active",
+      config: { ...nodeConfigObject(node), ...aiAgentPayloadConfig(payload) },
+    },
+  });
+  await window.TrackerLensAiRuntimeStore?.upsertRuntimeAgent?.({
+    ...payload,
+    id: payload.id || `runtime_agent_${payload.workspaceId || node.workspaceId || "workspace_global"}_${node.id}`,
+    runtimeNodeId: node.id,
+    scope: "runtime",
+    kind: "runtime",
+    workspaceId: payload.workspaceId || node.workspaceId || state.filters.workspaceId || "workspace_global",
+  });
+  await window.TrackerLensRuntimeGraphStore?.upsertRuntimeNode?.({ node: update.node });
+  if (window.TrackerLensChannelRegistry?.upsertChannelsForRuntimeNode) {
+    await window.TrackerLensChannelRegistry.upsertChannelsForRuntimeNode({ node: update.node });
+  }
+  await recordFlowAction({
+    workspaceId: update.node.workspaceId || "global",
+    nodeId: update.node.id,
+    message: `AI runtime agent configured: ${update.node.label || update.node.id}`,
+    context: { action: "ai-agent-editor-configured", nodeType: "aiAgent", channels: update.channels },
+  });
+  setFocusState({
+    mode: "dependencies",
+    nodeId: update.node.id,
+    edgeId: "",
+    nodeType: update.node.type,
+    channel: update.channels[0] || "",
+    connectionId: "",
+  });
+  close?.();
+  await loadRuntime();
+};
+
+const requestAiAgentRuntimeConfig = async (node) => {
+  if (!node?.id || !window.TrackerLensAiAgentEditor?.open) return;
+  let providers = [];
+  try {
+    providers = (await window.TrackerLensAiRuntimeStore?.list?.())?.providers || [];
+  } catch (error) {
+    console.warn("Provider AI non caricati per Flow Map:", error);
+  }
+  window.TrackerLensAiAgentEditor.open({
+    agent: aiAgentFromRuntimeNode(node),
+    providers,
+    title: "AI Runtime Agent Editor",
+    subtitle: `${node.label || node.id} · Flow Map runtime node`,
+    onSave: ({ payload, close }) => persistAiAgentEditorPayload({ node, payload, close }),
+  });
+};
+
 const requestRuntimeNodeConfig = (node) => {
   if (!node?.id) return;
   const defaults = runtimeNodeConfigDefaults(node);
@@ -5227,6 +5464,15 @@ const sampleOutputFields = (node = {}) => {
 const nodePorts = (node = {}, side = "out") => {
   if (!node?.id) return [{ name: "all", type: side === "in" ? "any" : "object" }];
   if (side === "out" && nodeCategory(node) === "dev") return [];
+  if (side === "in" && nodeCategory(node) === "sources") {
+    const manifestInputs = node.metadata?.manifest?.inputs || [];
+    const legacyDataInputs = new Set(["all", "raw", "input", "output", "channel"]);
+    const declared = manifestInputs
+      .map((port) => normalizePortDef(port, inferPortType(node, "in", typeof port === "object" ? port.name || port.key : port)))
+      .filter((port) => !legacyDataInputs.has(String(port.name || "").toLowerCase()));
+    const ports = declared.length ? declared : sourceConfigInputPorts(nodeSubtype(node));
+    return ports.map((port) => normalizePortDef(port, inferPortType(node, "in", port.name || port.key || port)));
+  }
   if (side === "out") {
     const fields = sampleOutputFields(node);
     if (fields.length) return [{ name: "all", type: "object" }, ...fields];

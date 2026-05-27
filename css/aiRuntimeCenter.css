@@ -593,7 +593,19 @@ body {
   padding-right: 4px;
 }
 
+.tl-ai-agent-list.is-grid {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+@media (max-width: 1320px) {
+  .tl-ai-agent-list.is-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
 .tl-ai-agent-list.is-list {
+  grid-template-columns: 1fr;
   gap: 8px;
 }
 
@@ -724,11 +736,13 @@ body {
 }
 
 .tl-ai-agent {
-  padding: 9px 10px;
+  min-height: 124px;
+  padding: 12px;
   display: grid;
-  grid-template-columns: 34px minmax(0, 1fr) auto;
-  gap: 10px;
-  align-items: center;
+  grid-template-columns: 40px minmax(0, 1fr) auto;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  gap: 10px 11px;
+  align-items: start;
 }
 
 .tl-ai-agent-row {
@@ -746,6 +760,45 @@ body {
 
 .tl-ai-agent-dialog-list .tl-ai-agent {
   grid-template-columns: 34px minmax(0, 1fr) auto auto;
+  grid-template-rows: auto;
+  min-height: 0;
+  align-items: center;
+}
+
+.tl-ai-agent>.tl-ai-agent-icon {
+  grid-row: 1 / 3;
+}
+
+.tl-ai-agent>div {
+  min-width: 0;
+}
+
+.tl-ai-agent>.tl-ai-status {
+  justify-self: end;
+}
+
+.tl-ai-agent>.tl-ai-agent-row-actions {
+  grid-column: 1 / -1;
+  justify-self: end;
+  align-self: end;
+}
+
+.tl-ai-agent-list.is-grid .tl-ai-agent strong,
+.tl-ai-agent-list.is-grid .tl-ai-agent p {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.tl-ai-agent-list.is-grid .tl-ai-agent p {
+  display: -webkit-box;
+  min-height: 30px;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  white-space: normal;
+}
+
+.tl-ai-agent-list.is-grid .tl-ai-agent-mini-runtime span {
+  max-width: 100%;
 }
 
 .tl-ai-agent-row-icon {
@@ -779,6 +832,33 @@ body {
   margin: 3px 0 0;
   color: var(--tl-text-muted);
   font-size: 11px;
+}
+
+.tl-ai-agent-row-copy small,
+.tl-ai-agent-mini-runtime {
+  margin-top: 5px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  color: #aebccd;
+  font-size: 10px;
+}
+
+.tl-ai-agent-mini-runtime span,
+.tl-ai-agent-row-copy small {
+  min-width: 0;
+}
+
+.tl-ai-agent-mini-runtime span {
+  max-width: 140px;
+  overflow: hidden;
+  padding: 3px 6px;
+  color: #ffe27a;
+  border: 1px solid #ffc72c80;
+  border-radius: 7px;
+  background: rgba(255, 199, 44, 0.08);
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .tl-ai-agent-empty-state {
@@ -900,7 +980,7 @@ body {
 .tl-ai-provider {
   padding: 9px 10px;
   display: grid;
-  grid-template-columns: 1fr auto auto;
+  grid-template-columns: minmax(150px, 1fr) minmax(110px, 0.8fr) auto auto auto;
   gap: 8px;
   align-items: center;
 }
@@ -922,11 +1002,35 @@ body {
   margin-top: 8px;
 }
 
+.tl-ai-provider .tl-ai-prompt-preview {
+  grid-column: 1 / -1;
+}
+
+.tl-ai-provider-row-actions.cms-toolbar,
+.tl-ai-agent-row-actions.cms-toolbar {
+  flex-wrap: nowrap;
+}
+
+.tl-ai-provider-row-actions .cms-btn,
+.tl-ai-agent-row-actions .cms-btn,
+.tl-ai-dialog-log-list .cms-btn,
+.tl-ai-memory-scroll .cms-btn {
+  width: 28px;
+  min-width: 28px;
+  height: 28px;
+  min-height: 28px;
+  padding: 0;
+  color: #c7d0dc;
+  border-color: rgba(214, 226, 235, 0.12);
+  border-radius: 7px;
+  background: rgba(255, 255, 255, 0.035);
+}
+
 .tl-ai-memory-row {
   margin-top: 8px;
   padding: 9px 10px;
   display: grid;
-  grid-template-columns: 34px minmax(0, 1fr) auto auto;
+  grid-template-columns: 34px minmax(0, 1fr) auto auto auto;
   gap: 10px;
   align-items: center;
 }
@@ -943,7 +1047,7 @@ body {
 
 .tl-ai-memory-row em {
   padding: 4px 7px;
-  color: #d8c8ff;
+  color: #ffe27a;
   border-radius: 7px;
   background: rgba(255, 199, 44, 0.18);
   font-style: normal;
@@ -1464,13 +1568,6 @@ body {
   gap: 10px;
 }
 
-.tl-ai-save-btn.cms-btn {
-  color: #161000;
-  border-color: rgba(255, 199, 44, 0.52);
-  background: linear-gradient(180deg, #ffd84f, #d99a00);
-  font-weight: 800;
-}
-
 .tl-ai-danger-btn.cms-btn {
   color: #ffe8e8;
   border-color: rgba(255, 81, 79, 0.36);
@@ -1532,6 +1629,38 @@ body {
   grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
   gap: 10px;
   padding-right: 4px;
+}
+
+.tl-ai-provider-dialog-list {
+  grid-template-columns: 1fr;
+}
+
+.tl-ai-dialog-table-wrap,
+.tl-ai-memory-scroll {
+  max-height: 54vh;
+  overflow: auto;
+}
+
+.tl-ai-dialog-log-list {
+  max-height: 54vh;
+}
+
+.tl-ai-dialog-log-list .tl-ai-log {
+  grid-template-columns: 48px 28px minmax(0, 1fr) auto;
+}
+
+.tl-ai-json-preview {
+  max-height: 58vh;
+  margin: 0;
+  overflow: auto;
+  padding: 14px;
+  color: #dbe6ef;
+  border: 1px solid rgba(214, 226, 235, 0.12);
+  border-radius: 8px;
+  background: rgba(3, 9, 14, 0.76);
+  white-space: pre-wrap;
+  word-break: break-word;
+  font: 11px/1.5 ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
 }
 
 .tl-ai-prompt-empty {

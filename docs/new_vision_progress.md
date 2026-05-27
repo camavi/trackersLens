@@ -1,6 +1,6 @@
 # Trackers Lens - Avanzamento nuova visione
 
-Aggiornato il 2026-05-26.
+Aggiornato il 2026-05-27.
 
 Questo documento traduce `docs/new_vision.md` in una mappa operativa. La visione resta: Trackers Lens non deve essere un dashboard builder, ma un AI Runtime Operating Environment locale, event-driven, channel-based e ispezionabile.
 
@@ -220,6 +220,10 @@ Obiettivo: introdurre AI locale reale prima del cloud.
 - 2026-05-26: Aggiunta timeline channel/run end-to-end nella status bar Flow Map. Il pannello `Channel Timeline` fonde `tl_events` e `tl_flow_logs`, ordinati temporalmente e filtrati da channel/run, per seguire il percorso evento -> processor/AI/storage/action senza aprire singole card.
 - 2026-05-26: I grafi grandi in Flow Map ora usano lazy DOM rendering dei nodi con minimap. Il canvas conserva il modello del grafo, mentre le card materializzate sono quelle in viewport piu selezionate/live/test; la testata mostra il rapporto `lazy rendered/total`.
 - 2026-05-26: Aggiunto `core/runtime/runtime-manifest.js` e `docs/runtime-manifest.md`. Il manifest runtime ora ha contratto `1.0.0`, normalizzazione/validazione condivisa, tipi nodo/porta stabili e Flow Map lo usa quando crea o aggiorna manifest per Source, Tracker, Processor, AI Agent, Lens, Action e Storage.
+- 2026-05-27: Corretto il contratto visivo delle porte Source in Flow Map. I source non ereditano piu i channel output come porte IN; WebSocket mostra input di configurazione `url`, `params`, `protocols`, `headers` e output dati `raw`/`all`, rendendo piu chiara la distinzione tra configurazione e runtime payload.
+- 2026-05-26: `ai.html` e' stato attivato oltre prompt/agenti: Provider supporta add/edit/delete/probe su `tl_ai_providers`, la search topbar filtra sezioni operative, e Jobs/Logs/Memory hanno dialog CMSwift ricercabili con dettagli JSON dei record runtime. Questo rafforza la Milestone E Local AI Runtime come control room locale, senza introdurre un secondo store o runtime parallelo.
+- 2026-05-27: L'AI Agent System e' stato riallineato al concetto di Runtime Intelligence Architecture. `ai.html` non crea piu solo agenti semplici: il dialog `AI Runtime Agent Editor` usa tab CMSwift per General, Runtime, AI Provider, Inputs, Prompt, Memory, Outputs, Permissions e Debug. Lo store distingue Library Agent Template (`tl_ai_agents`) e Runtime Agent Instance (`tl_ai_runtime`), aggiunge `tl_ai_prompts` e `tl_ai_metrics`, e ogni agente salva contratto channel-driven, provider profile, prompt strategy, memory mode, sandbox permissions, debug flags, runtime manifest e metriche seed. Flow Map resta la superficie di materializzazione/esecuzione dei nodi AI runtime.
+- 2026-05-27: Il settings dei nodi `aiAgent` in Flow Map ora apre il modulo globale `TrackerLensAiAgentEditor`, lo stesso editor CMSwift usato da `ai.html`. Il dialog vive in `js/tl-ai-agent-editor.js` con stili condivisi in `css/tl-ai-agent-editor.css`; `ai.html` e `flowMap.html` forniscono solo la persistenza specifica, evitando duplicazione di dialog/funzioni.
 
 La sequenza corretta resta:
 
