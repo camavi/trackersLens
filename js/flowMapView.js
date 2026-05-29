@@ -4760,10 +4760,6 @@ const openDevTools = () => {
 };
 
 const openPaletteNode = (item, contextNode = selectedNode()) => {
-  if (isExistingLibraryPaletteItem(item)) {
-    openExistingLibraryDialog(item);
-    return;
-  }
   const query = new URLSearchParams();
   const workspaceId = state.filters.workspaceId || contextNode?.workspaceId || "";
   const contextChannels = nodeChannels(contextNode || {});
@@ -4776,6 +4772,11 @@ const openPaletteNode = (item, contextNode = selectedNode()) => {
 
   if (item.url) {
     window.location.assign(`${item.url}${query.toString() ? `?${query.toString()}` : ""}`);
+    return;
+  }
+
+  if (isExistingLibraryPaletteItem(item)) {
+    openExistingLibraryDialog(item);
     return;
   }
 

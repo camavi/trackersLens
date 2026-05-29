@@ -185,6 +185,7 @@ Runtime Notes:
 - 2026-05-29: Flow Map Node/Edge Inspector now uses persistent collapsible CMSwift-style cards for General, Inputs, Outputs, Runtime, Logs, Metrics, Permissions and Compatibility. The controls card stays fixed first, while detail cards reorder by dragging their header and keep collapse/order preferences in local storage.
 - 2026-05-29: Flow Map Node/Edge Inspector now replaces the textual `Node Inspector` / `Edge Inspector` title with a hero titlebar showing icon, name/type and status. Node and edge actions moved into a compact bottom icon bar with CMSwift tooltips, preserving the active link source chip such as `Source: Preview`.
 - 2026-05-29: Flow Map Node Inspector titlebar now places runtime status beside the subtitle and moves `Rename` beside the node title, removing rename from the controls card action bar.
+- 2026-05-29: Fixed Flow Map external editor routing for materialized `Existing Tracker` / `Existing Lens` nodes. `Open Config`, the node header editor button and the inspector action now navigate to `editorBoxTracker.html` / `editorBoxLens.html` when an explicit editor URL is present instead of reopening the existing-asset picker dialog.
 - Remaining: service-worker/extension background persistence after every Trackers Lens tab is closed remains future hardening; current worker lifetime is browser-page scoped.
 
 ## [TASK-020]

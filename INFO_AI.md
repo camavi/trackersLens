@@ -3708,6 +3708,10 @@ Verifiche eseguite:
 - `node --check js/flowMapView.js`
 - `rg -n "tl-flow-tabs|setInspectorTab|inspectorTab" js/flowMapView.js css/flowMap.css`
 
+Fix successivo:
+
+- 2026-05-29: corretto `openPaletteNode()` per rispettare prima `item.url`. Questo ripristina l'apertura di `editorBoxTracker.html` / `editorBoxLens.html` da nodi materializzati `Existing Tracker` / `Existing Lens`, invece di riaprire il dialog picker degli asset esistenti quando si usa `Open Config`, il bottone editor sulla card o l'azione nell'inspector.
+
 ## Aggiornamento 2026-05-29 - Flow Map File menu nella filterbar
 
 Fatto:

@@ -247,6 +247,7 @@ Obiettivo: introdurre AI locale reale prima del cloud.
 - 2026-05-29: Il Node/Edge Inspector della Flow Map ora usa card collassabili e riordinabili tramite drag sulla header per le sezioni operative, con la card controlli sempre fissa in alto. Le preferenze di ordine/collapse restano locali e l'impostazione sostituisce le vecchie tab dell'inspector.
 - 2026-05-29: Il Node/Edge Inspector sostituisce il titolo testuale `Node Inspector` / `Edge Inspector` con una titlebar hero che mostra icona, nome/tipo e stato. Le azioni sono state spostate in una bottom bar compatta icon-only con tooltip CMSwift, mantenendo il chip del source attivo come `Source: Preview`.
 - 2026-05-29: Nel Node Inspector lo stato runtime ora sta accanto al sottotitolo e `Rename` e' diventato un'azione icon-only accanto al titolo del nodo, rimossa dalla card controlli.
+- 2026-05-29: Corretto il routing editor dei nodi materializzati da `Existing Tracker` / `Existing Lens`: quando e' presente un URL editor esplicito, la Flow Map apre `editorBoxTracker.html` / `editorBoxLens.html` invece di riaprire il picker degli asset esistenti.
 
 La sequenza corretta resta:
 
