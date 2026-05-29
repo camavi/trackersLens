@@ -85,7 +85,6 @@ const state = {
   },
   viewport: { zoom: 1, panX: 0, panY: 0 },
   nodePositions: {},
-  inspectorTab: "details",
   paletteDragItem: null,
   palettePointer: null,
   suppressPaletteClick: false,
@@ -93,6 +92,7 @@ const state = {
   edgeRender: { graph: { nodes: [], dependencies: [] }, activity: { edgeActivity: new Map() } },
   edgePhase: 0,
   edgeAnimation: 0,
+  inspectorPanelDrag: null,
   debugMode: localStorage.getItem("tl_flow_debug_mode") === "true",
   lastDeletedConnection: null,
   lastDeletedNode: null,
@@ -312,6 +312,101 @@ const readScopedRuntimeStore = async (storeName, workspaceId = "") => {
   const records = await readRuntimeStore(storeName);
   if (!workspaceId || workspaceId === "all") return records;
   return records.filter((record) => (record.workspaceId || "global") === workspaceId);
+};
+
+const readRuntimeRecord = async (storeName, id) => {
+  if (!id) return null;
+  if (window.TrackerLensRuntimeGraphStore?.ensureStores) {
+    await window.TrackerLensRuntimeGraphStore.ensureStores().then((db) => db?.close?.());
+  }
+
+  return new Promise((resolve, reject) => {
+    const request = indexedDB.open(tlConfig.DB_NAME);
+    request.onsuccess = (event) => {
+      const db = event.target.result;
+      if (!db.objectStoreNames.contains(storeName)) {
+        db.close();
+        resolve(null);
+        return;
+      }
+      const read = db.transaction(storeName, "readonly").objectStore(storeName).get(id);
+      read.onsuccess = (readEvent) => {
+        db.close();
+        resolve(readEvent.target.result || null);
+      };
+      read.onerror = (readEvent) => {
+        db.close();
+        reject(readEvent.target.error || new Error(`Errore lettura ${storeName}`));
+      };
+    };
+    request.onerror = (event) => reject(event.target.error || new Error(`Errore apertura ${tlConfig.DB_NAME}`));
+  });
+};
+
+const writeRuntimeRecord = async (storeName, record) => {
+  if (!record?.id) return null;
+  if (window.TrackerLensRuntimeGraphStore?.ensureStores) {
+    await window.TrackerLensRuntimeGraphStore.ensureStores().then((db) => db?.close?.());
+  }
+
+  return new Promise((resolve, reject) => {
+    const request = indexedDB.open(tlConfig.DB_NAME);
+    request.onsuccess = (event) => {
+      const db = event.target.result;
+      if (!db.objectStoreNames.contains(storeName)) {
+        db.close();
+        reject(new Error(`Store ${storeName} non disponibile`));
+        return;
+      }
+      const write = db.transaction(storeName, "readwrite").objectStore(storeName).put(record);
+      write.onsuccess = () => {
+        db.close();
+        resolve(record);
+      };
+      write.onerror = (writeEvent) => {
+        db.close();
+        reject(writeEvent.target.error || new Error(`Errore salvataggio ${storeName}`));
+      };
+    };
+    request.onerror = (event) => reject(event.target.error || new Error(`Errore apertura ${tlConfig.DB_NAME}`));
+  });
+};
+
+const deleteWorkspaceScopedRecords = async (storeName, workspaceId = "") => {
+  if (!workspaceId) return [];
+  const records = await readRuntimeStore(storeName).catch(() => []);
+  const ids = records
+    .filter((record) => record.workspaceId === workspaceId || record.id === workspaceId)
+    .map((record) => record.id)
+    .filter(Boolean);
+  if (!ids.length) return [];
+  if (window.TrackerLensRuntimeGraphStore?.ensureStores) {
+    await window.TrackerLensRuntimeGraphStore.ensureStores().then((db) => db?.close?.());
+  }
+
+  return new Promise((resolve, reject) => {
+    const request = indexedDB.open(tlConfig.DB_NAME);
+    request.onsuccess = (event) => {
+      const db = event.target.result;
+      if (!db.objectStoreNames.contains(storeName)) {
+        db.close();
+        resolve([]);
+        return;
+      }
+      const transaction = db.transaction(storeName, "readwrite");
+      const store = transaction.objectStore(storeName);
+      ids.forEach((id) => store.delete(id));
+      transaction.oncomplete = () => {
+        db.close();
+        resolve(ids);
+      };
+      transaction.onerror = (deleteEvent) => {
+        db.close();
+        reject(deleteEvent.target.error || new Error(`Errore cleanup ${storeName}`));
+      };
+    };
+    request.onerror = (event) => reject(event.target.error || new Error(`Errore apertura ${tlConfig.DB_NAME}`));
+  });
 };
 
 const resolveInitialWorkspaceId = async () => {
@@ -1093,6 +1188,16 @@ const ensureRuntimeWorkspaceScope = async () => {
 const workspaceForDraft = () =>
   normalizeRuntimeWorkspaceId(state.filters.workspaceId || selectedNode()?.workspaceId || state.runtime.flows[0]?.workspaceId);
 
+const currentWorkspaceId = () =>
+  normalizeRuntimeWorkspaceId(state.filters.workspaceId || state.runtime.flows[0]?.workspaceId || "workspace_global");
+
+const currentWorkspaceName = () => {
+  const workspaceId = currentWorkspaceId();
+  const flow = state.runtime.flows.find((item) => item.workspaceId === workspaceId || item.id === workspaceId);
+  const option = workspaceOptions().find((item) => item.value === workspaceId);
+  return flow?.name || option?.label || workspaceId;
+};
+
 const channelForDraft = () =>
   (state.filters.channel !== "all"
     ? state.filters.channel
@@ -1116,6 +1221,7 @@ const beginPan = (event) => {
     startY: event.clientY,
     panX: state.viewport.panX,
     panY: state.viewport.panY,
+    moved: false,
   };
   document.addEventListener("pointermove", handlePointerMove);
   document.addEventListener("pointerup", endInteraction, { once: true });
@@ -1965,6 +2071,10 @@ const handlePointerMove = (event) => {
   if (!interaction) return;
 
   if (interaction.type === "pan") {
+    const dx = Math.abs(event.clientX - interaction.startX);
+    const dy = Math.abs(event.clientY - interaction.startY);
+    if (!interaction.moved && dx < 4 && dy < 4) return;
+    interaction.moved = true;
     state.viewport.panX = interaction.panX + event.clientX - interaction.startX;
     state.viewport.panY = interaction.panY + event.clientY - interaction.startY;
     const layer = document.querySelector(".tl-flow-layer");
@@ -2044,7 +2154,14 @@ const endInteraction = (event) => {
     return;
   }
   if (interaction?.type === "node") persistNodePosition(interaction);
-  if (interaction?.type === "pan") saveViewport();
+  if (interaction?.type === "pan") {
+    if (!interaction.moved && state.inspectorOpen) {
+      closeInspector();
+      flushPendingRuntimeRefresh();
+      return;
+    }
+    saveViewport();
+  }
   mount();
   flushPendingRuntimeRefresh();
 };
@@ -2168,7 +2285,6 @@ const selectEdge = (edge) => {
     channel: edge.channel || "",
     connectionId: edge.connectionId || "",
   });
-  state.inspectorTab = "details";
   state.inspectorOpen = true;
   mount();
 };
@@ -2241,7 +2357,8 @@ const runNodeContextAction = async (action, node) => {
       channel: nodeChannels(node)[0] || "",
       connectionId: "",
     });
-    state.inspectorTab = "logs";
+    const prefs = readInspectorPanelPrefs("node");
+    writeInspectorPanelPrefs("node", { ...prefs, collapsed: { ...(prefs.collapsed || {}), logs: false } });
     state.inspectorOpen = true;
     mount({ preserveScroll: true });
   } else if (action === "delete") {
@@ -4359,11 +4476,6 @@ const eventTypeLabel = (event = {}) => ({
 const eventTypeChip = (event = {}) =>
   _.span({ class: `tl-flow-event-type is-${eventTypeTone(event)}` }, eventTypeLabel(event));
 
-const setInspectorTab = (tab) => {
-  state.inspectorTab = tab;
-  mount();
-};
-
 const formatShortDate = (value) => {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return "N/D";
@@ -4406,19 +4518,193 @@ const renderSelect = (className, value, options, onChange) => {
   });
 };
 
+const bindFlowMenu = (trigger, menuProps, content) => {
+  const menu = _.Menu(
+    {
+      trigger: "click",
+      placement: "bottom-start",
+      width: 280,
+      closeOnOutside: true,
+      closeOnEsc: true,
+      panelClass: "tl-flow-dropdown-menu",
+      ...menuProps,
+    },
+    content
+  );
+  queueMicrotask(() => menu.bind(trigger));
+  return trigger;
+};
+
+const readPortableFile = (file) =>
+  new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      try {
+        resolve(JSON.parse(String(reader.result || "{}")));
+      } catch (error) {
+        reject(error);
+      }
+    };
+    reader.onerror = () => reject(reader.error || new Error("Errore lettura workspace"));
+    reader.readAsText(file);
+  });
+
+const cleanupWorkspaceImportTarget = async (workspaceId = "") => {
+  if (!workspaceId) return;
+  const runtimeStores = [
+    runtimeStoreName("TL_CHANNELS", "tl_channels"),
+    runtimeStoreName("TL_FLOWS", "tl_flows"),
+    runtimeStoreName("TL_EVENTS", "tl_events"),
+    runtimeStoreName("TL_FLOW_LOGS", "tl_flow_logs"),
+    runtimeStoreName("TL_RUNTIME_NODES", "tl_runtime_nodes"),
+    runtimeStoreName("TL_RUNTIME_DEPENDENCIES", "tl_runtime_dependencies"),
+  ];
+  await Promise.all(runtimeStores.map((storeName) => deleteWorkspaceScopedRecords(storeName, workspaceId).catch(() => [])));
+  const connectionIds = (await window.TrackerLensConnectionsStore?.list?.() || [])
+    .filter((connection) => connection.workspaceId === workspaceId)
+    .map((connection) => connection.id);
+  await window.TrackerLensConnectionsStore?.removeMany?.(connectionIds);
+};
+
+const downloadCurrentWorkspace = async () => {
+  try {
+    await window.TrackerLensPortableRuntime.exportWorkspaceFile(currentWorkspaceId(), { includeAssets: true, includeRuntimeGraph: true });
+  } catch (error) {
+    state.error = error?.message || "Download workspace non riuscito.";
+    setErrorSignal(state.error);
+    mount({ preserveScroll: true });
+  }
+};
+
+const importWorkspaceFile = () => {
+  const input = document.createElement("input");
+  input.type = "file";
+  input.accept = ".tlworkspace,application/json,.json";
+  input.onchange = async () => {
+    const file = input.files?.[0];
+    if (!file) return;
+    try {
+      const bundle = await readPortableFile(file);
+      const validation = window.TrackerLensPortableRuntime.validateBundle(bundle);
+      if (!validation.ok) throw new Error(validation.errors.join(", "));
+      const workspaceId = normalizeRuntimeWorkspaceId(bundle.workspace?.id || bundle.id || currentWorkspaceId());
+      await cleanupWorkspaceImportTarget(workspaceId);
+      const result = await window.TrackerLensPortableRuntime.importBundle(bundle, { onConflict: "overwrite", includeRuntimeGraph: true });
+      setFiltersState({ ...state.filters, workspaceId: result.id || workspaceId, origin: "runtime" });
+      state.viewport = loadStoredViewport(result.id || workspaceId) || defaultViewport();
+      syncFilterQuery();
+      await loadRuntime({ force: true });
+    } catch (error) {
+      state.error = error?.message || "Import workspace non riuscito.";
+      setErrorSignal(state.error);
+      mount({ preserveScroll: true });
+    }
+  };
+  input.click();
+};
+
+const saveWorkspaceSettings = async ({ close, nameInput, titleInput, descriptionInput, statusInput }) => {
+  try {
+    const workspaceId = currentWorkspaceId();
+    const pageStore = runtimeStoreName("TL_PAGES", "tl_pages");
+    const flowStore = runtimeStoreName("TL_FLOWS", "tl_flows");
+    const now = new Date().toISOString();
+    const record = await readRuntimeRecord(pageStore, workspaceId);
+    const content = record?.content && typeof record.content === "object" ? record.content : { id: workspaceId };
+    const nextContent = {
+      ...content,
+      id: content.id || workspaceId,
+      name: nameInput.value.trim() || content.name || workspaceId,
+      title: titleInput.value.trim() || content.title || "",
+      description: descriptionInput.value.trim(),
+      status: statusInput.value || content.status || "active",
+      updatedAt: now,
+    };
+    await writeRuntimeRecord(pageStore, { ...(record || {}), id: workspaceId, content: nextContent });
+
+    const flow = state.runtime.flows.find((item) => item.workspaceId === workspaceId) || await readRuntimeRecord(flowStore, `flow_${workspaceId.replace(/[^A-Za-z0-9_-]/g, "_")}`);
+    if (flow?.id) {
+      await writeRuntimeRecord(flowStore, {
+        ...flow,
+        workspaceId,
+        name: nextContent.name || nextContent.title || workspaceId,
+        status: nextContent.status || flow.status || "active",
+        updatedAt: now,
+      }).catch(() => null);
+    }
+
+    close?.();
+    await loadRuntime({ force: true });
+  } catch (error) {
+    state.error = error?.message || "Salvataggio settings workspace non riuscito.";
+    setErrorSignal(state.error);
+    mount({ preserveScroll: true });
+  }
+};
+
+const openWorkspaceSettings = async () => {
+  const workspaceId = currentWorkspaceId();
+  const record = await readRuntimeRecord(runtimeStoreName("TL_PAGES", "tl_pages"), workspaceId).catch(() => null);
+  const content = record?.content && typeof record.content === "object" ? record.content : {};
+  const nameInput = _.input({ class: "tl-flow-menu-input", value: content.name || content.title || workspaceId, placeholder: "Workspace name" });
+  const titleInput = _.input({ class: "tl-flow-menu-input", value: content.title || "", placeholder: "Display title" });
+  const descriptionInput = _.textarea({ class: "tl-flow-menu-input", rows: 3, placeholder: "Description" }, content.description || "");
+  const statusInput = _.select(
+    { class: "tl-flow-menu-input" },
+    ...["active", "draft", "paused", "archived"].map((status) => _.option({ value: status, selected: (content.status || "active") === status }, status))
+  );
+  const dialog = _.Dialog({
+    class: "tl-flow-workspace-settings-dialog",
+    panelClass: "tl-flow-edge-delete-panel",
+    size: "md",
+    title: "Workspace settings",
+    subtitle: workspaceId,
+    icon: "settings",
+    closeButton: true,
+    content: () => _.div(
+      { class: "tl-flow-workspace-settings" },
+      _.label(_.span("Name"), nameInput),
+      _.label(_.span("Title"), titleInput),
+      _.label(_.span("Description"), descriptionInput),
+      _.label(_.span("Status"), statusInput)
+    ),
+    actions: ({ close }) => _.Toolbar(
+      { align: "end", gap: 8 },
+      btn({ onclick: close }, "Cancel"),
+      btn({ class: "is-primary", onclick: () => saveWorkspaceSettings({ close, nameInput, titleInput, descriptionInput, statusInput }) }, icon("save", "sm"), "Save")
+    ),
+  });
+  dialog.open();
+};
+
+const renderFileMenuItem = ({ iconName, label, meta = "", onclick }) =>
+  _.button(
+    { type: "button", class: "tl-flow-menu-item", onclick },
+    icon(iconName, "sm"),
+    _.span(_.strong(label), meta ? _.small(meta) : null)
+  );
+
+const renderFileMenu = () =>
+  bindFlowMenu(
+    btn({ class: "tl-flow-menu-trigger is-file" }, icon("folder_open", "sm"), "File", icon("keyboard_arrow_down", "sm")),
+    {},
+    _.div(
+      { class: "tl-flow-menu-content" },
+      renderFileMenuItem({ iconName: "download", label: "Download", meta: ".tlworkspace con asset e runtime graph", onclick: downloadCurrentWorkspace }),
+      renderFileMenuItem({ iconName: "upload_file", label: "Import", meta: "Sostituisce il workspace importato", onclick: importWorkspaceFile }),
+      _.span({ class: "tl-flow-menu-separator" }),
+      renderFileMenuItem({ iconName: "settings", label: "Settings", meta: "Nome, titolo e stato workspace", onclick: openWorkspaceSettings })
+    )
+  );
+
 const renderHeader = () =>
   _.header(
     { class: "tl-flow-topbar" },
     window.TrackerLensSidebar.renderBrand({ className: "tl-flow-brand" }),
     _.div(
-      _.span({ class: "tl-flow-kicker" }, "Runtime"),
-      _.h1("Flow Map")
-    ),
-    _.div(
-      { class: "tl-flow-breadcrumb" },
-      _.span("My Workspaces"),
-      icon("chevron_right", "sm"),
-      _.span(selectedNode()?.workspaceId || "Runtime Graph")
+      { class: "tl-flow-title" },
+      _.h1("Flow Map"),
+      _.span(currentWorkspaceName())
     ),
     _.div(
       { class: "tl-flow-top-actions" },
@@ -6777,7 +7063,7 @@ const renderPalette = () =>
 const renderFilterbar = () =>
   _.div(
     { class: "tl-flow-filterbar" },
-    renderSelect("tl-flow-select", filterModel("workspaceId"), workspaceOptions()),
+    renderFileMenu(),
     renderSelect("tl-flow-select", filterModel("channel"), channelOptions()),
     renderSelect("tl-flow-select is-small", filterModel("type"), typeOptions()),
     renderSelect("tl-flow-select is-small", filterModel("origin"), [
@@ -7515,17 +7801,10 @@ const renderCanvas = () => {
   state.edgeRender = { graph, activity };
   const impact = selectedImpact(graph);
   const validation = graphValidation();
-  const liveCount = [...activity.nodeActivity.values()].filter((item) => item.status !== "error").length;
-  const errorCount = [...activity.nodeActivity.values()].filter((item) => item.status === "error").length;
   const largeGraph = isLargeGraphModel(graph);
 
   return _.section(
     { class: `tl-flow-workbench${state.debugMode ? " is-debug-mode" : ""}${largeGraph ? " is-large-graph" : ""}` },
-    _.div(
-      { class: "tl-flow-canvas-head" },
-      _.div(_.h2(selectedNode()?.workspaceId ? `${selectedNode().workspaceId} Flow` : `${state.filters.workspaceId || "Workspace"} Flow`), _.p("workspace runtime graph · tl_runtime_nodes -> tl_runtime_dependencies")),
-      _.span(`${graph.nodes.length} nodes · ${graph.dependencies.length} edges · ${liveCount} live · ${errorCount} errors${state.debugMode ? " · debug" : ""}${largeGraph ? ` · lazy ${renderGraph.renderedNodes.length}/${graph.nodes.length}` : ""}`)
-    ),
     renderFilterbar(),
     (validation.issues || []).length ? _.div(
       { class: "tl-flow-graph-health" },
@@ -8101,6 +8380,251 @@ const renderImpactSummary = (impact = selectedImpact()) => {
   );
 };
 
+const inspectorPanelPrefsKey = (kind = "node") => `tl_flow_inspector_panels:${kind}`;
+
+const readInspectorPanelPrefs = (kind = "node") => {
+  try {
+    const value = JSON.parse(localStorage.getItem(inspectorPanelPrefsKey(kind)) || "{}");
+    return {
+      order: Array.isArray(value.order) ? value.order : [],
+      collapsed: value.collapsed && typeof value.collapsed === "object" ? value.collapsed : {},
+    };
+  } catch (_) {
+    return { order: [], collapsed: {} };
+  }
+};
+
+const writeInspectorPanelPrefs = (kind = "node", prefs = {}) => {
+  try {
+    localStorage.setItem(inspectorPanelPrefsKey(kind), JSON.stringify({
+      order: Array.isArray(prefs.order) ? prefs.order : [],
+      collapsed: prefs.collapsed && typeof prefs.collapsed === "object" ? prefs.collapsed : {},
+    }));
+  } catch (_) {
+    // localStorage may be unavailable in restricted extension contexts.
+  }
+};
+
+const orderedInspectorPanels = (kind = "node", panels = []) => {
+  const prefs = readInspectorPanelPrefs(kind);
+  const byId = new Map(panels.map((panel) => [panel.id, panel]));
+  const ordered = prefs.order.map((id) => byId.get(id)).filter(Boolean);
+  const missing = panels.filter((panel) => !prefs.order.includes(panel.id));
+  return [...ordered, ...missing];
+};
+
+const toggleInspectorPanel = (kind = "node", panelId = "") => {
+  const prefs = readInspectorPanelPrefs(kind);
+  writeInspectorPanelPrefs(kind, {
+    ...prefs,
+    collapsed: { ...(prefs.collapsed || {}), [panelId]: !prefs.collapsed?.[panelId] },
+  });
+  mount({ preserveScroll: true });
+};
+
+const writeInspectorPanelOrder = (kind = "node", order = []) => {
+  const prefs = readInspectorPanelPrefs(kind);
+  writeInspectorPanelPrefs(kind, { ...prefs, order });
+};
+
+const clearInspectorPanelDragMarks = () => {
+  document.querySelectorAll(".tl-flow-inspector-card.is-dragging, .tl-flow-inspector-card.is-drop-before, .tl-flow-inspector-card.is-drop-after")
+    .forEach((element) => {
+      element.classList.remove("is-dragging", "is-drop-before", "is-drop-after");
+    });
+};
+
+const inspectorPanelCardFromPoint = (event, kind = "node") =>
+  document.elementsFromPoint(event.clientX, event.clientY)
+    .find((element) => element?.dataset?.inspectorKind === kind && element.dataset.inspectorPanelId);
+
+const handleInspectorPanelDragMove = (event) => {
+  const drag = state.inspectorPanelDrag;
+  if (!drag) return;
+  const dx = Math.abs(event.clientX - drag.startX);
+  const dy = Math.abs(event.clientY - drag.startY);
+
+  if (!drag.moved && Math.max(dx, dy) < 4) return;
+  if (!drag.moved) {
+    drag.moved = true;
+    document.body.classList.add("is-flow-inspector-card-dragging");
+    document.querySelector(`[data-inspector-kind="${drag.kind}"][data-inspector-panel-id="${drag.panelId}"]`)?.classList.add("is-dragging");
+  }
+
+  event.preventDefault();
+  clearInspectorPanelDragMarks();
+  document.querySelector(`[data-inspector-kind="${drag.kind}"][data-inspector-panel-id="${drag.panelId}"]`)?.classList.add("is-dragging");
+
+  const target = inspectorPanelCardFromPoint(event, drag.kind);
+  const targetId = target?.dataset?.inspectorPanelId || "";
+  if (!target || targetId === drag.panelId) {
+    drag.targetId = "";
+    drag.placement = "";
+    return;
+  }
+
+  const rect = target.getBoundingClientRect();
+  drag.targetId = targetId;
+  drag.placement = event.clientY < rect.top + rect.height / 2 ? "before" : "after";
+  target.classList.add(drag.placement === "before" ? "is-drop-before" : "is-drop-after");
+
+  const inspector = document.querySelector(".tl-flow-inspector-overlay .tl-flow-inspector");
+  if (inspector) {
+    const inspectorRect = inspector.getBoundingClientRect();
+    if (event.clientY < inspectorRect.top + 36) inspector.scrollTop -= 10;
+    else if (event.clientY > inspectorRect.bottom - 36) inspector.scrollTop += 10;
+  }
+};
+
+const endInspectorPanelDrag = () => {
+  const drag = state.inspectorPanelDrag;
+  document.removeEventListener("pointermove", handleInspectorPanelDragMove);
+  document.removeEventListener("pointerup", endInspectorPanelDrag);
+  document.removeEventListener("pointercancel", cancelInspectorPanelDrag);
+  document.body.classList.remove("is-flow-inspector-card-dragging");
+  clearInspectorPanelDragMarks();
+  state.inspectorPanelDrag = null;
+  if (!drag) return;
+
+  if (!drag.moved) {
+    toggleInspectorPanel(drag.kind, drag.panelId);
+    return;
+  }
+
+  if (!drag.targetId || drag.targetId === drag.panelId) return;
+  const next = drag.panelIds.filter((id) => id !== drag.panelId);
+  const targetIndex = next.indexOf(drag.targetId);
+  if (targetIndex < 0) return;
+  next.splice(drag.placement === "before" ? targetIndex : targetIndex + 1, 0, drag.panelId);
+  writeInspectorPanelOrder(drag.kind, next);
+  mount({ preserveScroll: true });
+};
+
+const cancelInspectorPanelDrag = () => {
+  document.removeEventListener("pointermove", handleInspectorPanelDragMove);
+  document.removeEventListener("pointerup", endInspectorPanelDrag);
+  document.removeEventListener("pointercancel", cancelInspectorPanelDrag);
+  document.body.classList.remove("is-flow-inspector-card-dragging");
+  clearInspectorPanelDragMarks();
+  state.inspectorPanelDrag = null;
+};
+
+const beginInspectorPanelDrag = (event, kind = "node", panels = [], panelId = "") => {
+  if (event.button !== 0) return;
+  event.preventDefault();
+  event.stopPropagation();
+  state.inspectorPanelDrag = {
+    kind,
+    panelId,
+    panelIds: orderedInspectorPanels(kind, panels).map((panel) => panel.id),
+    startX: event.clientX,
+    startY: event.clientY,
+    moved: false,
+    targetId: "",
+    placement: "",
+  };
+  document.addEventListener("pointermove", handleInspectorPanelDragMove);
+  document.addEventListener("pointerup", endInspectorPanelDrag);
+  document.addEventListener("pointercancel", cancelInspectorPanelDrag);
+};
+
+const renderInspectorSectionCard = (kind = "node", panels = [], panel = {}) => {
+  const prefs = readInspectorPanelPrefs(kind);
+  const collapsed = Boolean(prefs.collapsed?.[panel.id]);
+  return _.section(
+    {
+      class: `tl-flow-inspector-card${collapsed ? " is-collapsed" : ""}`,
+      "data-inspector-kind": kind,
+      "data-inspector-panel-id": panel.id,
+    },
+    _.div(
+      {
+        class: "tl-flow-inspector-card-head",
+        role: "button",
+        tabindex: "0",
+        title: "Drag to reorder. Click to collapse.",
+        onPointerDown: (event) => beginInspectorPanelDrag(event, kind, panels, panel.id),
+        onkeydown: (event) => {
+          if (event.key !== "Enter" && event.key !== " ") return;
+          event.preventDefault();
+          toggleInspectorPanel(kind, panel.id);
+        },
+      },
+      _.span(
+        { class: "tl-flow-inspector-card-toggle" },
+        icon(collapsed ? "chevron_right" : "keyboard_arrow_down", "sm"),
+        _.span(panel.title)
+      ),
+      _.span({ class: "tl-flow-inspector-card-grip", "aria-hidden": "true" }, icon("drag_indicator", "sm"))
+    ),
+    collapsed ? null : _.div({ class: "tl-flow-inspector-card-body" }, panel.content)
+  );
+};
+
+const renderInspectorPanelStack = (kind = "node", panels = []) => {
+  const ordered = orderedInspectorPanels(kind, panels);
+  return _.div(
+    { class: "tl-flow-inspector-stack" },
+    ...ordered.map((panel) => renderInspectorSectionCard(kind, ordered, panel))
+  );
+};
+
+const inspectorActionButton = ({ label = "", iconName = "", className = "", ...props } = {}) =>
+  _.Tooltip ? _.Tooltip(btn(
+    {
+      ...props,
+      class: ["tl-flow-inspector-action", className, props.class].filter(Boolean).join(" "),
+      title: label,
+      "aria-label": label,
+    },
+    icon(iconName, "sm")
+  ), label) : btn(
+    {
+      ...props,
+      class: ["tl-flow-inspector-action", className, props.class].filter(Boolean).join(" "),
+      title: label,
+      "aria-label": label,
+    },
+    icon(iconName, "sm")
+  );
+
+const inspectorSourceChip = (linkingSource = {}) => {
+  const label = `Source: ${linkingSource.label || linkingSource.id}`;
+  const chip = _.span(
+    {
+      class: "tl-flow-link-source-chip",
+      title: label,
+      "aria-label": label,
+      role: "img",
+      tabindex: "0",
+    },
+    icon("hub", "sm")
+  );
+  return _.Tooltip ? _.Tooltip(chip, label) : chip;
+};
+
+const renderInspectorTitleHero = ({ tone = "cyan", iconName = "hub", title = "", subtitle = "", status = "active", renameAction = null, closeLabel = "Close Inspector" } = {}) =>
+  _.div(
+    { class: "tl-flow-panel-title is-hero" },
+    _.div(
+      { class: "tl-flow-node-hero tl-flow-inspector-title-hero" },
+      _.span({ class: `tl-flow-node-icon is-${tone}` }, icon(iconName, "md")),
+      _.div(
+        { class: "tl-flow-inspector-title-copy" },
+        _.div(
+          { class: "tl-flow-inspector-title-line" },
+          _.h2(title || "Inspector"),
+          renameAction ? inspectorActionButton({ label: "Rename", iconName: "drive_file_rename_outline", className: "is-title-action", onclick: renameAction }) : null
+        ),
+        _.p(
+          subtitle || "Runtime Graph",
+          _.span({ class: "tl-flow-status", "data-flow-inspector-status": "true" }, dot(), status || "active")
+        )
+      )
+    ),
+    btn({ "aria-label": closeLabel, title: `${closeLabel} (Esc)`, onclick: closeInspector }, icon("close", "sm"))
+  );
+
 const renderEdgeInspector = (edge) => {
   const source = nodeById(edge.sourceNodeId);
   const target = nodeById(edge.targetNodeId);
@@ -8118,69 +8642,87 @@ const renderEdgeInspector = (edge) => {
   const targetPortDef = portByName(target, "in", targetPort);
   const typeCompatible = portsAreCompatible(sourcePortDef, targetPortDef, target || {});
   const lastEvent = events[0];
+  const panels = [
+    {
+      id: "connection",
+      title: "Connection",
+      content: _.section(
+        { class: "tl-flow-detail-list" },
+        ...[
+          ["ID", edge.id],
+          ["Source", source?.label || edge.sourceNodeId || "N/D"],
+          ["Target", target?.label || edge.targetNodeId || "N/D"],
+          ["Channel", edge.channel || "runtime"],
+          ["Source port", `${sourcePort} · ${sourcePortDef.type || "any"}`],
+          ["Target port", `${targetPort} · ${targetPortDef.type || "any"}`],
+          ["Type check", typeCompatible ? "compatible" : `${sourcePortDef.type || "any"} -> ${targetPortDef.type || "any"}`],
+          ["Origin", edge.metadata?.source || (edge.connectionId ? "tl_connections" : "tl_runtime_dependencies")],
+          ["Connection", edge.connectionId || "N/D"],
+        ].map(([label, value]) => _.div(_.span(label), _.strong(value)))
+      ),
+    },
+    {
+      id: "mapping",
+      title: "Mapping",
+      content: _.section(
+        { class: "tl-flow-detail-list" },
+        ...[
+          ["Route", `${source?.label || edge.sourceNodeId || "source"}:${sourcePort} -> ${target?.label || edge.targetNodeId || "target"}:${targetPort}`],
+          ["Payload", sourcePort === "all" ? "full payload" : `field ${sourcePort}`],
+          ["Last value", lastEvent?.payloadPreview || edge.metadata?.lastPayloadPreview || "N/D"],
+        ].map(([label, value]) => _.div(_.span(label), _.strong(value)))
+      ),
+    },
+    { id: "impact", title: "Impact Analysis", content: renderImpactSummary(selectedImpact()) },
+    {
+      id: "events",
+      title: "Recent Events",
+      content: _.section(
+        { class: "tl-flow-detail-list" },
+        ...(events.length ? events.map((event) =>
+          _.div(
+            _.span(eventTypeChip(event), ` ${event.channel || "default"}`),
+            _.strong(`${event.status || "ok"} · ${formatShortDate(event.createdAt)}`)
+          )
+        ) : [_.p({ class: "tl-flow-muted" }, "Nessun evento recente per questo collegamento.")])
+      ),
+    },
+    {
+      id: "logs",
+      title: "Flow Logs",
+      content: _.section(
+        { class: "tl-flow-detail-list" },
+        ...(flowLogs.length ? flowLogs.map((log) =>
+          _.div(
+            _.span(log.message || log.context?.action || "runtime log"),
+            _.strong(`${log.level || "info"} · ${formatShortDate(log.createdAt)}`)
+          )
+        ) : [_.p({ class: "tl-flow-muted" }, "Nessun flow log recente per questo collegamento.")])
+      ),
+    },
+  ];
 
   return _.aside(
     { class: "tl-flow-inspector" },
-    _.div({ class: "tl-flow-panel-title" }, _.strong("Edge Inspector"), btn({ "aria-label": "Close Inspector", title: "Close Inspector (Esc)", onclick: closeInspector }, icon("close", "sm"))),
-    _.div(
-      { class: "tl-flow-node-hero is-edge" },
-      _.span({ class: `tl-flow-node-icon is-${graphTone(source || edge.sourceType || "cyan")}` }, icon("route", "md")),
-      _.div(_.h2(edgeDisplayLabel(edge)), _.p(edge.metadata?.source || edge.connectionId || "runtime dependency")),
-      _.span({ class: "tl-flow-status", "data-flow-inspector-status": "true" }, dot(), edge.status || "active")
-    ),
-    _.div(
-      { class: "tl-flow-node-actions is-edge-actions" },
-      btn({ onclick: () => viewEdgeNode(source), disabled: !source }, icon("input", "sm"), "Source"),
-      btn({ onclick: () => viewEdgeNode(target), disabled: !target }, icon("output", "sm"), "Target"),
-      edge.connectionId
-        ? btn({ class: "is-danger", onclick: () => requestEdgeDelete(edge) }, icon("link_off", "sm"), "Delete Link")
-        : btn({ disabled: true }, icon("lock", "sm"), "Read Only")
-    ),
+    renderInspectorTitleHero({
+      tone: graphTone(source || edge.sourceType || "cyan"),
+      iconName: "route",
+      title: edgeDisplayLabel(edge),
+      subtitle: edge.metadata?.source || edge.connectionId || "runtime dependency",
+      status: edge.status || "active",
+    }),
     _.section(
-      { class: "tl-flow-detail-list" },
-      _.h3("Connection"),
-      ...[
-        ["ID", edge.id],
-        ["Source", source?.label || edge.sourceNodeId || "N/D"],
-        ["Target", target?.label || edge.targetNodeId || "N/D"],
-        ["Channel", edge.channel || "runtime"],
-        ["Source port", `${sourcePort} · ${sourcePortDef.type || "any"}`],
-        ["Target port", `${targetPort} · ${targetPortDef.type || "any"}`],
-        ["Type check", typeCompatible ? "compatible" : `${sourcePortDef.type || "any"} -> ${targetPortDef.type || "any"}`],
-        ["Origin", edge.metadata?.source || (edge.connectionId ? "tl_connections" : "tl_runtime_dependencies")],
-        ["Connection", edge.connectionId || "N/D"],
-      ].map(([label, value]) => _.div(_.span(label), _.strong(value)))
+      { class: "tl-flow-inspector-card is-controls" },
+      _.div(
+        { class: "tl-flow-node-actions is-edge-actions" },
+        inspectorActionButton({ label: "Source", iconName: "input", onclick: () => viewEdgeNode(source), disabled: !source }),
+        inspectorActionButton({ label: "Target", iconName: "output", onclick: () => viewEdgeNode(target), disabled: !target }),
+        edge.connectionId
+          ? inspectorActionButton({ label: "Delete Link", iconName: "link_off", className: "is-danger", onclick: () => requestEdgeDelete(edge) })
+          : inspectorActionButton({ label: "Read Only", iconName: "lock", disabled: true })
+      )
     ),
-    _.section(
-      { class: "tl-flow-detail-list" },
-      _.h3("Mapping"),
-      ...[
-        ["Route", `${source?.label || edge.sourceNodeId || "source"}:${sourcePort} -> ${target?.label || edge.targetNodeId || "target"}:${targetPort}`],
-        ["Payload", sourcePort === "all" ? "full payload" : `field ${sourcePort}`],
-        ["Last value", lastEvent?.payloadPreview || edge.metadata?.lastPayloadPreview || "N/D"],
-      ].map(([label, value]) => _.div(_.span(label), _.strong(value)))
-    ),
-    renderImpactSummary(selectedImpact()),
-    _.section(
-      { class: "tl-flow-detail-list" },
-      _.h3("Recent Events"),
-      ...(events.length ? events.map((event) =>
-        _.div(
-          _.span(eventTypeChip(event), ` ${event.channel || "default"}`),
-          _.strong(`${event.status || "ok"} · ${formatShortDate(event.createdAt)}`)
-        )
-      ) : [_.p({ class: "tl-flow-muted" }, "Nessun evento recente per questo collegamento.")])
-    ),
-    _.section(
-      { class: "tl-flow-detail-list" },
-      _.h3("Flow Logs"),
-      ...(flowLogs.length ? flowLogs.map((log) =>
-        _.div(
-          _.span(log.message || log.context?.action || "runtime log"),
-          _.strong(`${log.level || "info"} · ${formatShortDate(log.createdAt)}`)
-        )
-      ) : [_.p({ class: "tl-flow-muted" }, "Nessun flow log recente per questo collegamento.")])
-    )
+    renderInspectorPanelStack("edge", panels)
   );
 };
 
@@ -8194,7 +8736,6 @@ const renderInspector = () => {
   const flowLogs = selectedFlowLogs(node);
   const channels = node ? nodeChannels(node) : [];
   const channelRecords = selectedChannelRecords(node);
-  const tab = state.inspectorTab;
   const draft = isDraftNode(node || {});
   const canDeleteRuntimeNode = draft || (node && isInlineConfigNode(node) && !node.metadata?.library);
   const linkingSource = nodeById(state.linkingSourceId);
@@ -8202,65 +8743,52 @@ const renderInspector = () => {
   const view = node ? runtimeNodeBase(node, recentActivity(graphModel()).nodeActivity?.get(node.id), nodePerformance(node)) : null;
   const paused = view?.runtime.status === "paused";
   const disabled = view?.runtime.status === "disabled";
+  const panels = node ? [
+    { id: "details", title: "General", content: renderInspectorDetails(node, channels, dependencies) },
+    { id: "inputs", title: "Inputs", content: renderInspectorPorts(node, "in") },
+    {
+      id: "outputs",
+      title: "Outputs",
+      content: _.div(
+        renderInspectorPorts(node, "out"),
+        renderInspectorOutputs(node, channels, channelRecords)
+      ),
+    },
+    { id: "runtime", title: "Runtime", content: renderInspectorRuntime(node, events) },
+    { id: "logs", title: "Logs", content: renderInspectorLogs(events, flowLogs) },
+    { id: "metrics", title: "Metrics", content: renderInspectorMetrics(node, dependencies, events, channelRecords, flowLogs) },
+    { id: "permissions", title: "Permissions", content: renderInspectorPermissions(node) },
+    { id: "compatibility", title: "Compatibility", content: renderInspectorCompatibility(node) },
+  ] : [];
 
   return _.aside(
     { class: "tl-flow-inspector" },
-    _.div({ class: "tl-flow-panel-title" }, _.strong("Node Inspector"), btn({ "aria-label": "Close Inspector", title: "Close Inspector (Esc)", onclick: closeInspector }, icon("close", "sm"))),
-    node ? _.div(
-      { class: "tl-flow-node-hero" },
-      _.span({ class: `tl-flow-node-icon is-${graphTone(node)}` }, icon(graphIcon(node), "md")),
-      _.div(_.h2(node.label || node.id), _.p(node.type || "Runtime Node")),
-      _.span({ class: "tl-flow-status", "data-flow-inspector-status": "true" }, dot(), draft ? "draft" : node.status || "active")
+    node ? renderInspectorTitleHero({
+      tone: graphTone(node),
+      iconName: graphIcon(node),
+      title: node.label || node.id,
+      subtitle: node.type || "Runtime Node",
+      status: draft ? "draft" : node.status || "active",
+      renameAction: () => requestNodeRename(node),
+    }) : _.div({ class: "tl-flow-panel-title" }, _.strong("Inspector"), btn({ "aria-label": "Close Inspector", title: "Close Inspector (Esc)", onclick: closeInspector }, icon("close", "sm"))),
+    node ? _.section(
+      { class: "tl-flow-inspector-card is-controls" },
+      _.div(
+        { class: "tl-flow-node-actions" },
+        linkingSource ? inspectorSourceChip(linkingSource) : null,
+        inspectorActionButton({ label: draft ? "Configure Draft" : "Open Config", iconName: draft ? "edit" : "open_in_new", className: "is-primary", onclick: () => configureNode(node) }),
+        inspectorActionButton({ label: "Duplicate", iconName: "content_copy", onclick: () => duplicateRuntimeNode(node) }),
+        inspectorActionButton({ label: paused || disabled ? "Resume" : "Pause", iconName: paused || disabled ? "play_arrow" : "pause", onclick: () => (paused || disabled ? resumeNodeRuntime(node) : pauseNodeRuntime(node)) }),
+        inspectorActionButton({ label: disabled ? "Enable" : "Disable", iconName: disabled ? "power_settings_new" : "block", onclick: () => (disabled ? resumeNodeRuntime(node) : disableNodeRuntime(node)) }),
+        inspectorActionButton({ label: node.metadata?.collapsed ? "Expand" : "Collapse", iconName: node.metadata?.collapsed ? "unfold_more" : "unfold_less", onclick: () => toggleNodeCollapse(node) }),
+        isLinkTarget
+          ? inspectorActionButton({ label: "Link Here", iconName: "add_link", onclick: () => createLinkToNode(node) })
+          : inspectorActionButton({ label: linkingSource?.id === node.id ? "Linking..." : "Start Link", iconName: "hub", onclick: () => startLinkFromNode(node), disabled: Boolean(linkingSource && linkingSource.id === node.id) }),
+        linkingSource ? inspectorActionButton({ label: "Cancel Link", iconName: "link_off", onclick: cancelLinkMode }) : null,
+        canDeleteRuntimeNode ? inspectorActionButton({ label: draft ? "Delete Draft" : "Delete Node", iconName: "delete", className: "is-danger", onclick: () => requestDraftNodeDelete(node) }) : null
+      )
     ) : _.p({ class: "tl-flow-muted" }, "Nessun nodo selezionato."),
-    node ? _.div(
-      { class: "tl-flow-node-actions" },
-      btn({ class: "is-primary", onclick: () => configureNode(node) }, icon(draft ? "edit" : "open_in_new", "sm"), draft ? "Configure Draft" : "Open Config"),
-      btn({ onclick: () => requestNodeRename(node) }, icon("drive_file_rename_outline", "sm"), "Rename"),
-      btn({ onclick: () => duplicateRuntimeNode(node) }, icon("content_copy", "sm"), "Duplicate"),
-      btn({ onclick: () => (paused || disabled ? resumeNodeRuntime(node) : pauseNodeRuntime(node)) }, icon(paused || disabled ? "play_arrow" : "pause", "sm"), paused || disabled ? "Resume" : "Pause"),
-      btn({ onclick: () => (disabled ? resumeNodeRuntime(node) : disableNodeRuntime(node)) }, icon(disabled ? "power_settings_new" : "block", "sm"), disabled ? "Enable" : "Disable"),
-      btn({ onclick: () => toggleNodeCollapse(node) }, icon(node.metadata?.collapsed ? "unfold_more" : "unfold_less", "sm"), node.metadata?.collapsed ? "Expand" : "Collapse"),
-      isLinkTarget
-        ? btn({ onclick: () => createLinkToNode(node) }, icon("add_link", "sm"), "Link Here")
-        : btn({ onclick: () => startLinkFromNode(node), disabled: Boolean(linkingSource && linkingSource.id === node.id) }, icon("hub", "sm"), linkingSource?.id === node.id ? "Linking..." : "Start Link"),
-      linkingSource ? btn({ onclick: cancelLinkMode }, icon("close", "sm"), "Cancel Link") : null,
-      canDeleteRuntimeNode ? btn({ class: "is-danger", onclick: () => requestDraftNodeDelete(node) }, icon("delete", "sm"), draft ? "Delete Draft" : "Delete Node") : null
-    ) : null,
-    linkingSource ? _.div(
-      { class: "tl-flow-linking-banner" },
-      icon("hub", "sm"),
-      _.span(`Source: ${linkingSource.label || linkingSource.id}`)
-    ) : null,
-    node ? renderImpactSummary(selectedImpact()) : null,
-    node ? _.div(
-      { class: "tl-flow-tabs" },
-      ...[
-        ["details", "General"],
-        ["inputs", "Inputs"],
-        ["outputs", "Outputs"],
-        ["runtime", "Runtime"],
-        ["logs", "Logs"],
-        ["metrics", "Metrics"],
-        ["permissions", "Permissions"],
-        ["compatibility", "Compatibility"],
-      ].map(([id, label]) => _.button({ type: "button", class: tab === id ? "is-active" : "", onclick: () => setInspectorTab(id) }, label))
-    ) : null,
-    !node ? null : tab === "details" ? _.div(
-      renderInspectorDetails(node, channels, dependencies)
-    ) : tab === "inputs" ? _.div(
-      renderInspectorPorts(node, "in")
-    ) : tab === "outputs" ? _.div(
-      renderInspectorPorts(node, "out"),
-      renderInspectorOutputs(node, channels, channelRecords)
-    ) : tab === "runtime" ? _.div(
-      renderInspectorRuntime(node, events)
-    ) : tab === "logs" ? _.div(
-      renderInspectorLogs(events, flowLogs)
-    ) : tab === "permissions" ? _.div(
-      renderInspectorPermissions(node)
-    ) : tab === "compatibility" ? _.div(
-      renderInspectorCompatibility(node)
-    ) : renderInspectorMetrics(node, dependencies, events, channelRecords, flowLogs)
+    node ? renderInspectorPanelStack("node", panels) : null
   );
 };
 
@@ -8418,6 +8946,7 @@ const statusItems = () => {
     : `${filteredEventCount}/${state.runtime.events.length} events`;
   return [
     { id: "runtime", icon: "account_tree", label: `${state.runtime.nodes.length} nodes`, title: "Runtime" },
+    { id: "edges", icon: "route", label: `${state.runtime.dependencies.length} edges`, title: "Edges" },
     { id: "channels", icon: "hub", label: `${state.runtime.channels.length} channels`, title: "Channels" },
     { id: "bus", icon: "settings_input_antenna", label: state.liveBus.connected ? `${state.liveBus.count} live bus` : "bus offline", title: "Live Bus", tone: state.liveBus.connected ? "green" : "gold" },
     { id: "worker", icon: "memory", label: state.runtimeWorker.connected ? `worker ${state.runtimeWorker.status}` : "worker off", title: "Runtime Worker", tone: state.runtimeWorker.connected ? "green" : "gold" },
@@ -8456,6 +8985,33 @@ const renderStatusChannelsPanel = () => {
           )
         );
       }) : [_.tr(_.td({ colspan: 6 }, "Nessun channel runtime registrato."))])
+    )
+  );
+};
+
+const renderStatusEdgesPanel = () => {
+  const graph = state.edgeRender.graph || currentVisibleGraph();
+  const edges = graph.dependencies || state.runtime.dependencies || [];
+  return _.table(
+    _.thead(_.tr(_.th("Source"), _.th("Target"), _.th("Channel"), _.th("Origin"), _.th("Status"))),
+    _.tbody(
+      ...(edges.length ? edges.slice(0, 12).map((edge) => {
+        const source = nodeById(edge.sourceNodeId);
+        const target = nodeById(edge.targetNodeId);
+        return _.tr(
+          _.td(source?.label || edge.sourceNodeId || "N/D"),
+          _.td(target?.label || edge.targetNodeId || "N/D"),
+          _.td(edge.channel || "runtime"),
+          _.td(edge.metadata?.source || (edge.connectionId ? "tl_connections" : "tl_runtime_dependencies")),
+          _.td(
+            _.button({
+              type: "button",
+              class: "tl-flow-channel-link",
+              onclick: () => selectEdge(edge),
+            }, edge.status || "active")
+          )
+        );
+      }) : [_.tr(_.td({ colspan: 5 }, "Nessun edge o collegamento runtime registrato."))])
     )
   );
 };
@@ -8578,12 +9134,13 @@ const renderStatusPopover = () => {
       _.button({ type: "button", "aria-label": "Close", onclick: () => toggleStatusPanel(active.id) }, icon("close", "sm"))
     ),
     active.id === "runtime" ? renderStatusRuntimePanel()
-      : active.id === "channels" ? renderStatusChannelsPanel()
-        : active.id === "bus" ? renderStatusBusPanel()
-          : active.id === "worker" ? renderStatusWorkerPanel()
-            : active.id === "timeline" ? renderStatusTimelinePanel()
-              : active.id === "events" ? renderStatusEventsPanel()
-                : renderStatusLogsPanel(level)
+      : active.id === "edges" ? renderStatusEdgesPanel()
+        : active.id === "channels" ? renderStatusChannelsPanel()
+          : active.id === "bus" ? renderStatusBusPanel()
+            : active.id === "worker" ? renderStatusWorkerPanel()
+              : active.id === "timeline" ? renderStatusTimelinePanel()
+                : active.id === "events" ? renderStatusEventsPanel()
+                  : renderStatusLogsPanel(level)
   );
 };
 

@@ -3681,6 +3681,74 @@ Verifiche eseguite:
 - `curl -I http://127.0.0.1:3031/js/flowMapView.js`
 - `curl -I http://127.0.0.1:3031/core/runtime/runtime-graph-model.js`
 
+## Aggiornamento 2026-05-29 - Inspector Flow Map a card collassabili
+
+Obiettivo della sessione: aggiornare l'aside destro Node/Edge Inspector con una struttura piu compatta e moderna, ispirata a pannelli collassabili, mantenendo i controlli principali sempre in alto.
+
+Fatto:
+
+- `js/flowMapView.js`:
+  - aggiunto stack persistente di card inspector con preferenze locali per ordine e stato collassato;
+  - trasformate le sezioni Node Inspector `General`, `Inputs`, `Outputs`, `Runtime`, `Logs`, `Metrics`, `Permissions` e `Compatibility` in card collassabili;
+  - trasformate anche le sezioni Edge Inspector in card collassabili;
+  - mantenuta la card controlli come primo blocco fisso, non riordinabile;
+  - sostituiti i pulsanti di riordino con drag sulla header della card, con drop indicator e salvataggio ordine;
+  - spostate le azioni Node/Edge Inspector in una bottom bar icon-only con tooltip CMSwift, preservando il chip informativo del link source (`Source: Preview`);
+  - sostituito il titolo testuale `Node Inspector` / `Edge Inspector` con una titlebar hero che mostra icona, nome/tipo e stato del nodo o edge selezionato;
+  - spostato `Rename` fuori dalla card controlli: ora e un'azione icon-only accanto al titolo del nodo, mentre lo stato vive accanto al sottotitolo;
+  - rimosso l'uso delle vecchie tab dell'inspector.
+- `css/flowMap.css`:
+  - aggiunti stili minimali per card, header drag, corpo, stato drag/drop, action bar icon-only e stack inspector;
+  - rimossi gli stili `.tl-flow-tabs` non piu usati.
+- `tasks/active_tasks.md` e `docs/new_vision_progress.md`:
+  - aggiornato lo stato della Flow Map Inspector UI.
+
+Verifiche eseguite:
+
+- `node --check js/flowMapView.js`
+- `rg -n "tl-flow-tabs|setInspectorTab|inspectorTab" js/flowMapView.js css/flowMap.css`
+
+## Aggiornamento 2026-05-29 - Flow Map File menu nella filterbar
+
+Fatto:
+
+- `flowMap.html`:
+  - carica `core/runtime/workspace-portable.js` per riusare export/import workspace esistenti.
+- `js/flowMapView.js`:
+  - rimosso il primo select workspace informativo dalla filterbar;
+  - aggiunto come primo controllo il menu CMSwift `File`;
+  - `Download` esporta il workspace corrente in `.tlworkspace` con asset e runtime graph;
+  - `Import` carica un file `.tlworkspace`, pulisce i record runtime/connection dello workspace importato e importa con strategia `overwrite`;
+  - `Settings` apre un dialog CMSwift per modificare nome, titolo, descrizione e stato workspace, salvando su `tl_pages` e riallineando `tl_flows` quando presente.
+  - topbar semplificata: rimossi kicker `Runtime` e breadcrumb `My Workspaces > Runtime Graph`; il titolo resta `Flow Map` e sotto mostra il nome dello workspace corrente.
+  - i bottoni azione della topbar sono allineati a destra.
+- `css/flowMap.css`:
+  - aggiunti stili mirati per menu File e dialog settings workspace.
+  - rimossi gli stili breadcrumb/kicker non piu usati e aggiunto ellipsis per il titolo workspace.
+  - semplificata la griglia della topbar e forzato il gruppo azioni a destra.
+
+Verifiche eseguite:
+
+- `node --check js/flowMapView.js`
+
+## Aggiornamento 2026-05-29 - Flow Map canvas empty click closes inspector
+
+Fatto:
+
+- `js/flowMapView.js`:
+  - il click sul vuoto del canvas Flow Map chiude il Node/Edge Inspector laterale;
+  - la chiusura usa la stessa interaction di pan, con soglia movimento 4px, cosi un pan reale continua a spostare il canvas;
+  - click su nodi, edge label, controlli, filterbar e pannelli resta escluso dal comportamento di chiusura.
+  - rimossa la testata titolo/subtitle dal canvas operativo;
+  - aggiunta la voce `edges` nella bottom bar con pannello dedicato per i collegamenti runtime, incluso stato vuoto quando non esistono edge;
+- `css/flowMap.css`:
+  - rimossi gli stili non piu usati della testata canvas;
+  - compattata la fascia superiore del workbench allineando filterbar e controlli sulla stessa riga.
+
+Verifiche eseguite:
+
+- `node --check js/flowMapView.js`
+
 ## Aggiornamento 2026-05-27 - Existing Agents nella Flow Map
 
 Obiettivo della sessione: rendere gli AI Agents salvati riutilizzabili direttamente dalla palette della Flow Map, con lo stesso comportamento operativo di `Existing Lens` e `Existing Tracker`.

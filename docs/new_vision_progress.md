@@ -239,6 +239,14 @@ Obiettivo: introdurre AI locale reale prima del cloud.
 - 2026-05-27: Le esecuzioni AI automatiche hanno ora uno stato visuale persistente. Quando un evento entra in un AI Agent, la Flow Map mantiene animati il nodo agente e i suoi link OUT finche arriva `ai_agent_response` o scade il timeout AI.
 - 2026-05-27: Il timeout visuale del processing AI e' separato dal timeout del Live Test e dura fino a 5 minuti. Lo stato visuale viene spento solo da `ai_agent_response` / `ai_agent_error`, evitando spegnimenti su metadata runtime intermedi.
 - 2026-05-27: I Preview panel si aggiornano ora subito quando arrivano eventi runtime/AI, senza richiedere click sul canvas. Il play button degli AI Agent riflette anche il processing automatico con icona busy e stato disabilitato.
+- 2026-05-29: La Flow Map chiude il Node/Edge Inspector quando l'utente clicca sul vuoto del canvas. Il comportamento e' integrato nel ciclo pan con soglia movimento, quindi non interferisce con drag nodi, drag-link, selezione edge o pan reale.
+- 2026-05-29: La testata titolo/subtitle del workbench Flow Map e' stata rimossa. I collegamenti hanno ora una voce `edges` nella bottom bar con pannello runtime dedicato, mantenendo anche lo stato vuoto quando il workspace non ha edge.
+- 2026-05-29: La filterbar Flow Map mantiene i select operativi ma rimuove il select workspace informativo. Il primo controllo e' ora il menu CMSwift `File`, collegato a export `.tlworkspace`, import sostitutivo via `TrackerLensPortableRuntime` e settings workspace.
+- 2026-05-29: La topbar Flow Map non mostra piu `Runtime` ne il breadcrumb `My Workspaces > Runtime Graph`; mantiene `Flow Map` come titolo e mostra sotto il nome dello workspace corrente.
+- 2026-05-29: I bottoni azione della topbar Flow Map sono ora allineati a destra, separati dal titolo workspace.
+- 2026-05-29: Il Node/Edge Inspector della Flow Map ora usa card collassabili e riordinabili tramite drag sulla header per le sezioni operative, con la card controlli sempre fissa in alto. Le preferenze di ordine/collapse restano locali e l'impostazione sostituisce le vecchie tab dell'inspector.
+- 2026-05-29: Il Node/Edge Inspector sostituisce il titolo testuale `Node Inspector` / `Edge Inspector` con una titlebar hero che mostra icona, nome/tipo e stato. Le azioni sono state spostate in una bottom bar compatta icon-only con tooltip CMSwift, mantenendo il chip del source attivo come `Source: Preview`.
+- 2026-05-29: Nel Node Inspector lo stato runtime ora sta accanto al sottotitolo e `Rename` e' diventato un'azione icon-only accanto al titolo del nodo, rimossa dalla card controlli.
 
 La sequenza corretta resta:
 

@@ -177,6 +177,14 @@ Runtime Notes:
 - 2026-05-26: large graphs now use lazy node DOM rendering with a minimap. Canvas edges remain drawn from the graph model while only viewport/selected/live/test nodes are materialized as node cards.
 - 2026-05-26: added `TrackerLensRuntimeManifest` as the stable manifest normalizer/validator for runtime node contracts and documented it in `docs/runtime-manifest.md`.
 - 2026-05-27: Flow Map source-node ports were corrected so source inputs no longer fall back to output data channels. WebSocket IN ports now expose configuration pins (`url`, `params`, `protocols`, `headers`) while OUT remains the emitted runtime payload channel (`raw`/`all`).
+- 2026-05-29: Flow Map empty-canvas click now closes the fixed Node/Edge Inspector while preserving node drag, edge selection, drag-link and real canvas pan behavior through the existing pointer interaction threshold.
+- 2026-05-29: Flow Map workbench title/subtitle chrome was removed, the upper canvas band was compacted, and the bottom status bar now includes an `edges` item with a runtime links panel and empty state.
+- 2026-05-29: Flow Map filterbar now removes the informational workspace select and starts with a CMSwift `File` menu wired to portable workspace download, replacing import and workspace settings persisted in `tl_pages` / `tl_flows`.
+- 2026-05-29: Flow Map topbar now removes the `Runtime` kicker and `My Workspaces > Runtime Graph` breadcrumb; it keeps `Flow Map` as the main title and shows the current workspace name below.
+- 2026-05-29: Flow Map topbar actions are aligned to the right through the header grid, keeping the title block separate from operational buttons.
+- 2026-05-29: Flow Map Node/Edge Inspector now uses persistent collapsible CMSwift-style cards for General, Inputs, Outputs, Runtime, Logs, Metrics, Permissions and Compatibility. The controls card stays fixed first, while detail cards reorder by dragging their header and keep collapse/order preferences in local storage.
+- 2026-05-29: Flow Map Node/Edge Inspector now replaces the textual `Node Inspector` / `Edge Inspector` title with a hero titlebar showing icon, name/type and status. Node and edge actions moved into a compact bottom icon bar with CMSwift tooltips, preserving the active link source chip such as `Source: Preview`.
+- 2026-05-29: Flow Map Node Inspector titlebar now places runtime status beside the subtitle and moves `Rename` beside the node title, removing rename from the controls card action bar.
 - Remaining: service-worker/extension background persistence after every Trackers Lens tab is closed remains future hardening; current worker lifetime is browser-page scoped.
 
 ## [TASK-020]
