@@ -3681,6 +3681,132 @@ Verifiche eseguite:
 - `curl -I http://127.0.0.1:3031/js/flowMapView.js`
 - `curl -I http://127.0.0.1:3031/core/runtime/runtime-graph-model.js`
 
+## Aggiornamento 2026-05-27 - Existing Agents nella Flow Map
+
+Obiettivo della sessione: rendere gli AI Agents salvati riutilizzabili direttamente dalla palette della Flow Map, con lo stesso comportamento operativo di `Existing Lens` e `Existing Tracker`.
+
+Fatto:
+
+- `js/flowMapView.js`:
+  - aggiunto `Existing Agents` come primo item nella sezione `AI Agents`;
+  - il click o drop apre un dialog CMSwift con gli agenti salvati in `tl_ai_agents` e `tl_ai_runtime`;
+  - la selezione materializza l'agente come nodo runtime `aiAgent` nello workspace corrente;
+  - il nodo conserva input/output channel, templateId/runtimeAgentId, provider, prompt, memory, permissions e manifest runtime.
+- `tasks/active_tasks.md` e `docs/new_vision_progress.md` aggiornati con lo stato della nuova integrazione.
+
+Verifiche eseguite:
+
+- `node --check js/flowMapView.js`
+
+## Aggiornamento 2026-05-27 - Fix salvataggio AI Runtime Agent Editor
+
+Problema rilevato: dopo lo spostamento dei bottoni nel footer del dialog, `Salva Runtime Agent` poteva non salvare perche il bottone CMSwift fuori dal form dipendeva dal submit esterno via attributo `form`.
+
+Fatto:
+
+- `js/tl-ai-agent-editor.js`:
+  - introdotto `saveFromForm()` nel dialog condiviso;
+  - il submit del form continua a chiamare lo stesso handler;
+  - il bottone footer `Salva Runtime Agent` ora recupera il form per id e chiama direttamente `onSave`;
+  - il fix vale per `ai.html` e per `flowMap.html`, perche entrambi usano il modulo globale.
+
+Verifiche eseguite:
+
+- `node --check js/tl-ai-agent-editor.js`
+
+## Aggiornamento 2026-05-27 - Alias vs Duplicate per Existing Agents
+
+Obiettivo della sessione: evitare che l'inserimento di un agente salvato nella Flow Map crei sempre una copia, distinguendo tra nodo condiviso e copia indipendente.
+
+Fatto:
+
+- `js/flowMapView.js`:
+  - il picker `Existing Agents` mostra due azioni per ogni record: `Insert Alias` e `Duplicate`;
+  - `Insert Alias` crea un nodo `aiAgent` collegato al record sorgente tramite `aliasSourceAgentId`;
+  - `Duplicate` mantiene il comportamento precedente creando una Runtime Agent Instance indipendente;
+  - i nodi alias mostrano badge `Alias`;
+  - il dialog `AI Runtime Agent Editor` per un nodo alias apre i dati condivisi e salva sul record sorgente;
+  - nel footer dell'editor dei nodi alias e' disponibile `Make Copy`, che scollega il nodo e crea una runtime copy locale.
+- `core/runtime/ai-agent-runtime.js`:
+  - il runtime AI risolve la configurazione degli alias da `tl_ai_agents` / `tl_ai_runtime` durante l'esecuzione, cosi provider, prompt, memory, permissions e output seguono il record condiviso.
+- `css/flowMap.css`:
+  - aggiunti stili per le azioni multiple nel picker degli agenti esistenti.
+
+Verifiche eseguite:
+
+- `node --check js/flowMapView.js`
+- `node --check core/runtime/ai-agent-runtime.js`
+- `node --check js/tl-ai-agent-editor.js`
+
+## Aggiornamento 2026-05-27 - Fix LM Studio runtime model
+
+Problema rilevato: il test Play dei nodi AI poteva cadere sul fallback con `LM Studio HTTP 400` anche se LM Studio era attivo su `http://127.0.0.1:1234/`. La causa era l'uso del placeholder `local-model` come model id e la necessita di normalizzare sempre l'endpoint OpenAI-compatible su `/v1`.
+
+Fatto:
+
+- `core/runtime/ai-agent-runtime.js`:
+  - normalizza LM Studio root endpoint aggiungendo `/v1` quando manca;
+  - se il modello configurato e' vuoto o `local-model`, legge `/v1/models` e sceglie il primo modello non-embedding disponibile;
+  - gli errori HTTP LM Studio includono ora anche una porzione del body per debug leggibile;
+  - il job runtime salva il model effettivo usato dalla risposta.
+
+Verifiche eseguite:
+
+- `curl -sS http://127.0.0.1:1234/v1/models`
+- `curl -sS http://127.0.0.1:1234/v1/chat/completions ...` con model `google/gemma-4-e4b`
+- `node --check core/runtime/ai-agent-runtime.js`
+
+## Aggiornamento 2026-05-27 - Play diretto dei nodi AI in Flow Map
+
+Problema rilevato: premendo Play su un nodo `aiAgent`, l'evento input veniva emesso ma la risposta poteva non arrivare alla Preview se il runtime worker era ancora in stato `starting` o non aveva ancora registrato la subscription aggiornata del nodo.
+
+Fatto:
+
+- `js/flowMapView.js`:
+  - `executeDirectAiAgentNode()` ora esegue direttamente il runtime AI del nodo tramite `TrackerLensAiAgentRuntime.get(workspaceId).execute()`;
+  - dopo l'esecuzione emette un evento `ai_agent_response` sul canale output del nodo, cosi i Preview/Lens collegati ricevono il payload senza aspettare il worker;
+  - registra flow log dedicati per risposta o errore del direct AI play.
+- `core/runtime/ai-agent-runtime.js`:
+  - gli eventi marcati `flowMapDirectAiExecution` vengono ignorati dalle subscription runtime, evitando doppia esecuzione quando anche il worker/page runtime e' attivo.
+
+Verifiche eseguite:
+
+- `node --check js/flowMapView.js`
+- `node --check core/runtime/ai-agent-runtime.js`
+
+## Aggiornamento 2026-05-27 - Persistenza animazione Play AI
+
+Problema rilevato: con provider locali lenti, per esempio LM Studio con risposta in circa 48s, la linea del collegamento perdeva l'evidenza prima della risposta perche il timeout visuale del test era tarato su 12s.
+
+Fatto:
+
+- `js/flowMapView.js`:
+  - aggiunto timeout dedicato per Play diretto dei nodi AI (`AI_DIRECT_TEST_TIMEOUT_MS`, 120s);
+  - le linee e i nodi dentro `state.testRun.edgeIds/nodeIds` vengono trattati come live finche il test AI e' in corso;
+  - il canvas delle connessioni mantiene il tratteggio animato per il path del test anche se non ci sono eventi recenti nella finestra `EDGE_ACTIVITY_WINDOW_MS`.
+
+Verifiche eseguite:
+
+- `node --check js/flowMapView.js`
+
+Nota aggiornata 2026-05-27: il Play AI mantiene ora anche una durata visuale minima di 3s. La linea si spegne dopo la risposta/verifica del server, ma se il provider risponde troppo rapidamente resta comunque visibile abbastanza da essere leggibile.
+
+Nota aggiornata 2026-05-27: corretto il caso Source/Tracker -> AI Agent -> Preview. Il Preview collegato non usa piu `targetPort` come channel globale, quindi una porta locale `raw` non cattura piu payload sorgente non destinati al Preview. I Live Test che includono AI Agent nel path usano la finestra lunga AI e aspettano record job/event/log dell'agente prima della verifica finale.
+
+Nota aggiornata 2026-05-27: chiarito e applicato il contratto di esecuzione AI. Un AI Agent con `Execution Mode = on_event` o `continuous` parte automaticamente quando riceve un evento su un input channel; `manual` non si sottoscrive agli input e resta eseguibile solo dal play/debug. Gli alias AI ereditano questa modalita dal record condiviso quando la Flow Map carica il runtime.
+
+Nota aggiornata 2026-05-27: il nodo Preview ora persiste il comando `Clear preview payload` per workspace/nodo in `localStorage`. Al refresh la Flow Map ricarica il timestamp di clear e non ricostruisce payload cancellati dagli eventi storici; il Preview torna a mostrare dati solo quando arriva un evento successivo.
+
+Nota aggiornata 2026-05-27: l'animazione della Flow Map e' stata resa piu sequenziale. `runtime-graph-model` non considera piu un channel omonimo come motivo sufficiente per accendere qualunque edge: l'edge deve appartenere al source/target dell'evento. Durante Live Test, `flowMapView` evidenzia solo il nodo attualmente in lavoro e i suoi link OUT; nei flow con AI Agent, l'attesa della risposta sposta l'attivita sugli output dell'agente invece di mantenere acceso tutto il path.
+
+Nota aggiornata 2026-05-27: corretto il routing automatico Source/Tracker -> AI Agent. Il bus channel di una dependency ora deriva dall'output sorgente quando il source port e' `all`, mentre `targetPort: input` resta solo mapping locale dell'agente. La Flow Map ripara al load dependency/connection gia salvate con channel uguale alla porta target e il Live Test include un fallback AI in pagina se il background runtime worker non riceve l'evento broadcast.
+
+Nota aggiornata 2026-05-27: aggiunto stato visuale `aiProcessing` nella Flow Map. Quando un evento runtime raggiunge un AI Agent, il nodo agente e i suoi collegamenti OUT restano animati fino alla risposta `ai_agent_response` o al timeout AI, cosi le chiamate lente verso provider locali mostrano chiaramente che l'agente sta lavorando.
+
+Nota aggiornata 2026-05-27: il timeout visuale `aiProcessing` e' ora separato dal timeout del Live Test. Dura fino a 5 minuti e viene spento solo da `ai_agent_response` o `ai_agent_error`, non da eventi intermedi con metadata AI runtime.
+
+Nota aggiornata 2026-05-27: i Preview panel della Flow Map vengono ora ridisegnati dal refresh DOM parziale appena `mergeRuntimeEvent()` riceve nuovi payload, quindi le risposte AI non richiedono piu un click sul canvas per comparire. Il bottone play degli AI Agent riflette anche il processing automatico, passando a `hourglass_top` e disabilitandosi finche l'agente lavora.
+
 ## Aggiornamento 2026-05-26 - Attivazione controlli AI Runtime Center
 
 Obiettivo della sessione: rendere `ai.html` piu operativa collegando azioni rimaste placeholder, senza duplicare gli store AI gia introdotti.

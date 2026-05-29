@@ -179,7 +179,22 @@ window.TrackerLensRuntimeGraphModel = (() => {
     events.forEach((event) => {
       const created = Date.parse(event.createdAt);
       if (Number.isNaN(created) || now - created > windowMs) return;
-      const related = [event.sourceNodeId, event.targetNodeId].filter(Boolean);
+      const eventChannel = event.channel || "";
+      const matchedDependencies = (graph.dependencies || []).filter((dependency) => {
+        if (event.meta?.dependencyId && dependency.id === event.meta.dependencyId) return true;
+        if (event.sourceNodeId && dependency.sourceNodeId === event.sourceNodeId) {
+          return !eventChannel || dependency.channel === eventChannel;
+        }
+        if (event.targetNodeId && dependency.targetNodeId === event.targetNodeId) {
+          return !eventChannel || dependency.channel === eventChannel;
+        }
+        return false;
+      });
+      const related = [
+        event.sourceNodeId,
+        event.targetNodeId,
+        ...matchedDependencies.flatMap((dependency) => [dependency.sourceNodeId, dependency.targetNodeId]),
+      ].filter(Boolean);
 
       (graph.nodes || []).forEach((node) => {
         if (related.includes(node.id) || nodeChannels(node).includes(event.channel)) {
@@ -192,15 +207,13 @@ window.TrackerLensRuntimeGraphModel = (() => {
         }
       });
 
-      (graph.dependencies || []).forEach((dependency) => {
-        if (dependency.sourceNodeId === event.sourceNodeId || dependency.targetNodeId === event.targetNodeId || dependency.channel === event.channel) {
+      matchedDependencies.forEach((dependency) => {
           const current = edgeActivity.get(dependency.id) || { count: 0, status: "ok", lastAt: event.createdAt };
           edgeActivity.set(dependency.id, {
             count: current.count + 1,
             status: event.status === "error" || event.eventType === "error" || current.status === "error" ? "error" : "ok",
             lastAt: Date.parse(current.lastAt) > created ? current.lastAt : event.createdAt,
           });
-        }
       });
     });
 

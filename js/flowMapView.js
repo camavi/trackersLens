@@ -8,6 +8,7 @@ const viewportWorkspaceId = (workspaceId = "") => {
   return candidate && candidate !== "all" ? candidate : "workspace_global";
 };
 const viewportStorageKey = (workspaceId = "") => `tl_flow_viewport:${viewportWorkspaceId(workspaceId)}`;
+const previewClearStorageKey = (workspaceId = "") => `tl_flow_preview_cleared:${viewportWorkspaceId(workspaceId)}`;
 
 const loadStoredViewport = (workspaceId = "") => {
   try {
@@ -26,6 +27,24 @@ const loadStoredViewport = (workspaceId = "") => {
 const saveViewport = (workspaceId = "") => {
   try {
     localStorage.setItem(viewportStorageKey(workspaceId), JSON.stringify(state.viewport));
+  } catch (_) {
+    // localStorage may be unavailable in restricted extension contexts.
+  }
+};
+
+const loadStoredPreviewClears = (workspaceId = "") => {
+  try {
+    const value = JSON.parse(localStorage.getItem(previewClearStorageKey(workspaceId)) || "{}");
+    if (!value || typeof value !== "object" || Array.isArray(value)) return {};
+    return Object.fromEntries(Object.entries(value).filter(([, clearedAt]) => Number.isFinite(Date.parse(clearedAt))));
+  } catch (_) {
+    return {};
+  }
+};
+
+const saveStoredPreviewClears = (workspaceId = "", clears = {}) => {
+  try {
+    localStorage.setItem(previewClearStorageKey(workspaceId), JSON.stringify(clears || {}));
   } catch (_) {
     // localStorage may be unavailable in restricted extension contexts.
   }
@@ -99,6 +118,7 @@ const state = {
   },
   previewPayloads: {},
   previewClearedAt: {},
+  aiProcessing: {},
   runtimeWorker: {
     available: false,
     connected: false,
@@ -120,6 +140,8 @@ const state = {
     runId: "",
     nodeIds: [],
     edgeIds: [],
+    activeNodeIds: [],
+    activeEdgeIds: [],
     startedAt: "",
     completedAt: "",
     summary: "",
@@ -141,6 +163,9 @@ const [getFiltersState, setFiltersSignal] = flowReactive.signal(state.filters);
 const [getFocusState, setFocusSignal] = flowReactive.signal(state.focus);
 const TEST_RUN_TIMEOUT_MS = 12000;
 const LIVE_TEST_TIMEOUT_MS = 10000;
+const AI_DIRECT_TEST_TIMEOUT_MS = 120000;
+const AI_PROCESSING_VISUAL_TIMEOUT_MS = 300000;
+const MIN_TEST_ANIMATION_MS = 3000;
 const EDGE_ACTIVITY_WINDOW_MS = 3000;
 const [getUpdatedAtState, setUpdatedAtSignal] = flowReactive.signal(state.updatedAt);
 const [getLoadingState, setLoadingSignal] = flowReactive.signal(state.loading);
@@ -403,6 +428,47 @@ const mergeOptimisticDependencies = (nodes = [], dependencies = []) => {
   return merged;
 };
 
+const runtimeChannelForDependency = (nodesById = new Map(), dependency = {}) => {
+  const source = nodesById.get(dependency.sourceNodeId);
+  const target = nodesById.get(dependency.targetNodeId);
+  if (!source || !target) return dependency.channel || "runtime";
+  const sourcePort = dependency.metadata?.sourcePort || dependency.sourcePort || "";
+  const targetPort = dependency.metadata?.targetPort || dependency.targetPort || "";
+  const channel = dependency.channel || "";
+  if (normalizePortChannel(sourcePort)) return normalizePortChannel(sourcePort);
+  const naturalChannel = channelForConnection(source, target);
+  if (channel && channel !== targetPort) return channel;
+  return naturalChannel || normalizePortChannel(targetPort) || channel || "runtime";
+};
+
+const normalizeRuntimeDependencyChannels = async (nodes = [], dependencies = [], connections = []) => {
+  const nodesById = new Map(nodes.map((node) => [node.id, node]));
+  const connectionsById = new Map((connections || []).map((connection) => [connection.id, connection]));
+  const changed = [];
+  const normalized = dependencies.map((dependency) => {
+    const channel = runtimeChannelForDependency(nodesById, dependency);
+    if (!channel || channel === dependency.channel) return dependency;
+    const next = { ...dependency, channel, updatedAt: new Date().toISOString() };
+    changed.push(next);
+    return next;
+  });
+  if (changed.length) {
+    await Promise.all(changed.map(async (dependency) => {
+      await window.TrackerLensRuntimeGraphStore?.upsertDependency?.({ dependency }).catch(() => null);
+      const connection = connectionsById.get(dependency.connectionId || "");
+      if (connection && connection.channel !== dependency.channel) {
+        await window.TrackerLensConnectionsStore?.upsert?.({
+          ...connection,
+          channel: dependency.channel,
+          frequency: dependency.channel,
+          updatedAt: new Date().toISOString(),
+        }).catch(() => null);
+      }
+    })).catch((error) => console.warn("Dependency channel repair non persistito", error));
+  }
+  return normalized;
+};
+
 const sortById = (items = []) =>
   [...items].sort((a, b) => String(a.id || a.name || "").localeCompare(String(b.id || b.name || "")));
 
@@ -501,9 +567,14 @@ const loadRuntime = async (options = {}) => {
       return;
     }
 
-    const nodes = enrichNodesWithLibrarySample(runtimeNodes, libraryItems);
-    const mergedDependencies = mergeOptimisticDependencies(nodes, mergeConnectionDependencies(nodes, dependencies, connections));
+    const nodes = await resolveAiAgentAliasNodes(enrichNodesWithLibrarySample(runtimeNodes, libraryItems));
+    const mergedDependencies = await normalizeRuntimeDependencyChannels(
+      nodes,
+      mergeOptimisticDependencies(nodes, mergeConnectionDependencies(nodes, dependencies, connections)),
+      connections
+    );
     setRuntimeState({ channels, flows, events, flowLogs, nodes, dependencies: mergedDependencies });
+    state.previewClearedAt = loadStoredPreviewClears(workspaceId);
     rebuildPreviewPayloadsFromEvents();
     if (!syncBackgroundRuntime(workspaceId)) {
       syncPageRuntimes(workspaceId);
@@ -581,6 +652,7 @@ const mergeRuntimeEvent = (event = {}) => {
   if (!event.id) return false;
   if (state.runtime.events.some((item) => item.id === event.id)) return false;
   state.runtime.events = [event, ...state.runtime.events].slice(0, 500);
+  updateAiProcessingFromEvent(event);
   updatePreviewPayloads(event);
   state.runtime.channels = state.runtime.channels.map((channel) =>
     channel.workspaceId === event.workspaceId && channel.name === event.channel
@@ -588,23 +660,89 @@ const mergeRuntimeEvent = (event = {}) => {
       : channel
   );
   setRuntimeSignal(state.runtime);
+  scheduleRuntimeDomRefresh({ preserveScroll: true });
   return true;
+};
+
+const scheduleRuntimeDomRefresh = ({ preserveScroll = true } = {}) => {
+  requestAnimationFrame(() => {
+    if (!state.mounted || state.interaction) return;
+    const baseGraph = graphModel();
+    const activity = recentActivity(baseGraph);
+    const graph = filterByActivity(baseGraph, activity);
+    state.edgeRender = { graph, activity };
+    refreshRuntimeDom({ preserveScroll });
+  });
 };
 
 const isPreviewNode = (node = {}) =>
   node.type === "devPreview" || nodeSubtype(node) === "preview" || nodeCategory(node) === "dev";
 
+const dependencyChannelForEvent = (dependency = {}) =>
+  dependency.channel || normalizePortChannel(dependency.metadata?.sourcePort || dependency.sourcePort) || "";
+
 const previewNodesForEvent = (event = {}) => {
   const nodesById = new Map((state.runtime.nodes || []).map((node) => [node.id, node]));
+  const previewIncomingDependencies = (state.runtime.dependencies || [])
+    .filter((dependency) => isPreviewNode(nodesById.get(dependency.targetNodeId)));
   const directTargets = (state.runtime.dependencies || [])
-    .filter((dependency) => dependency.channel === event.channel || dependency.metadata?.targetPort === event.channel || dependency.metadata?.sourcePort === event.channel)
+    .filter((dependency) => dependencyChannelForEvent(dependency) === event.channel)
     .map((dependency) => nodesById.get(dependency.targetNodeId))
     .filter(isPreviewNode);
   const inputTargets = (state.runtime.nodes || [])
     .filter(isPreviewNode)
+    .filter((node) => !previewIncomingDependencies.some((dependency) => dependency.targetNodeId === node.id))
     .filter((node) => (node.inputs || []).includes(event.channel) || (node.channels || []).includes(event.channel));
   return [...new Map([...directTargets, ...inputTargets].filter(Boolean).map((node) => [node.id, node])).values()];
 };
+
+const updateAiProcessingFromEvent = (event = {}) => {
+  const graph = state.runtime || { nodes: [], dependencies: [] };
+  const nodesById = new Map((graph.nodes || []).map((node) => [node.id, node]));
+  const runId = event.meta?.runId || event.payload?.runId || "";
+  const inputEventId = event.id || "";
+  const eventType = String(event.eventType || "").toLowerCase();
+
+  if (eventType.includes("ai_agent_response") || eventType.includes("ai_agent_error")) {
+    const nodeId = event.sourceNodeId || event.meta?.aiAgentRuntime || "";
+    if (nodeId && state.aiProcessing[nodeId]) {
+      state.aiProcessing = { ...state.aiProcessing };
+      delete state.aiProcessing[nodeId];
+    }
+    return;
+  }
+
+  const targets = (graph.dependencies || [])
+    .filter((dependency) => dependency.channel === event.channel)
+    .map((dependency) => nodesById.get(dependency.targetNodeId))
+    .filter((node) => runtimeKindForNode(node) === "ai");
+  if (!targets.length) return;
+  const now = new Date().toISOString();
+  state.aiProcessing = {
+    ...state.aiProcessing,
+    ...Object.fromEntries(targets.map((node) => [node.id, {
+      nodeId: node.id,
+      runId,
+      inputEventId,
+      inputChannel: event.channel || "",
+      startedAt: now,
+      expiresAt: new Date(Date.now() + AI_PROCESSING_VISUAL_TIMEOUT_MS).toISOString(),
+    }])),
+  };
+};
+
+const activeAiProcessingNodeIds = () => {
+  const now = Date.now();
+  const entries = Object.entries(state.aiProcessing || {})
+    .filter(([, item]) => Date.parse(item.expiresAt || "") > now);
+  if (entries.length !== Object.keys(state.aiProcessing || {}).length) {
+    state.aiProcessing = Object.fromEntries(entries);
+  }
+  return entries.map(([nodeId]) => nodeId);
+};
+
+const activeProcessingEdgeIds = (graph = state.runtime) =>
+  activeOutgoingDependencyIds(graph, activeAiProcessingNodeIds());
 
 const isPreviewPayloadEvent = (event = {}) => {
   const type = String(event.eventType || "").toLowerCase();
@@ -692,23 +830,30 @@ const updateLiveClasses = (graph, activity) => {
   document.querySelectorAll(".tl-flow-node-port.is-event-active").forEach((port) => {
     port.classList.remove("is-event-active");
   });
+  const processingNodeIds = new Set(activeAiProcessingNodeIds());
+  const processingEdgeIds = new Set(activeProcessingEdgeIds(graph));
 
   (graph.nodes || []).forEach((node) => {
     const element = document.querySelector(`[data-flow-node-id="${escapeSelectorValue(node.id)}"]`);
     const live = activity.nodeActivity?.get(node.id);
+    const activeTestNode = state.testRun.running && (state.testRun.activeNodeIds || []).includes(node.id);
+    const processingNode = processingNodeIds.has(node.id);
     if (!element) return;
-    element.classList.toggle("is-live", Boolean(live));
-    element.classList.toggle("is-event-active", Boolean(live));
+    element.classList.toggle("is-live", Boolean(live) || activeTestNode || processingNode);
+    element.classList.toggle("is-event-active", Boolean(live) || activeTestNode || processingNode);
+    element.classList.toggle("is-ai-processing", processingNode);
     element.classList.toggle("is-error", live?.status === "error");
   });
 
   (graph.dependencies || []).forEach((dependency) => {
     const element = document.querySelector(`.tl-flow-edge-label[data-edge-id="${escapeSelectorValue(dependency.id)}"]`);
     const live = activity.edgeActivity?.get(dependency.id);
+    const activeTestEdge = state.testRun.running && (state.testRun.activeEdgeIds || []).includes(dependency.id);
+    const processingEdge = processingEdgeIds.has(dependency.id);
     if (!element) return;
-    element.classList.toggle("is-live", Boolean(live));
+    element.classList.toggle("is-live", Boolean(live) || activeTestEdge || processingEdge);
     element.classList.toggle("is-error", live?.status === "error");
-    if (live) {
+    if (live || activeTestEdge || processingEdge) {
       [
         [dependency.sourceNodeId, "out", dependencyPort(dependency, "out")],
         [dependency.targetNodeId, "in", dependencyPort(dependency, "in")],
@@ -1064,7 +1209,10 @@ const createDraftNodeAtPoint = async ({ item, canvas, event }) => {
 };
 
 const isExistingLibraryPaletteItem = (item = {}) =>
-  item.subtype === "existing" && ["boxTracker", "boxLens"].includes(item.nodeType);
+  item.subtype === "existing" && ["boxTracker", "boxLens", "aiAgent"].includes(item.nodeType);
+
+const isExistingAiAgentPaletteItem = (item = {}) =>
+  item.subtype === "existing" && item.nodeType === "aiAgent";
 
 const libraryAssetKindForPalette = (item = {}) =>
   item.nodeType === "boxLens" ? "boxLens" : "boxTracker";
@@ -1085,6 +1233,87 @@ const listExistingLibraryAssets = async (kind = "boxTracker") => {
     console.warn("Errore lettura Local Library per Flow Map", error);
   }
   return (state.libraryItems || []).filter((asset) => asset.type === kind);
+};
+
+const listExistingAiAgents = async () => {
+  try {
+    const data = await window.TrackerLensAiRuntimeStore?.list?.();
+    const agents = Array.isArray(data?.agents) ? data.agents : [];
+    return agents.filter((agent) =>
+      agent?.id &&
+      !String(agent.id).startsWith("widget_agent_") &&
+      !String(agent.id).startsWith("connection_agent_") &&
+      !String(agent.id).startsWith("workspace_agent_")
+    );
+  } catch (error) {
+    console.warn("Errore lettura AI Agents per Flow Map", error);
+  }
+  return [];
+};
+
+const resolveAiAgentAliasNodes = async (nodes = []) => {
+  const aliasNodes = nodes.filter((node) => node.type === "aiAgent" && node.metadata?.aiAgentAlias);
+  if (!aliasNodes.length) return nodes;
+  try {
+    const data = await window.TrackerLensAiRuntimeStore?.list?.();
+    const agentsById = new Map((data?.agents || []).map((agent) => [agent.id, agent]));
+    return nodes.map((node) => {
+      if (node.type !== "aiAgent" || !node.metadata?.aiAgentAlias) return node;
+      const sourceId = node.metadata?.aliasSourceAgentId || node.metadata?.config?.aliasSourceAgentId || "";
+      const agent = agentsById.get(sourceId);
+      if (!agent) return node;
+      const { agentType, inputChannels, outputChannel } = aiAgentChannelsForRecord(agent);
+      const agentRuntime = agent.runtime || {};
+      const permissionFlags = normalizeAiAgentPermissionFlags(agent.permissions);
+      const permissions = normalizeAssetPermissions(permissionFlags);
+      return {
+        ...node,
+        label: agent.name || node.label,
+        status: agent.status || node.status || "active",
+        inputs: inputChannels.slice(0, 1),
+        outputs: [outputChannel].filter(Boolean),
+        channels: [...new Set([...inputChannels.slice(0, 1), outputChannel].filter(Boolean))],
+        runtime: {
+          ...(node.runtime || {}),
+          status: agent.status || node.runtime?.status || "active",
+          active: agent.status !== "paused" && agent.status !== "disabled",
+        },
+        metadata: {
+          ...(node.metadata || {}),
+          icon: agent.icon || node.metadata?.icon || "psychology",
+          subtype: agentType,
+          agentRole: agentType,
+          aliasSourceScope: agent.scope || node.metadata?.aliasSourceScope || "template",
+          templateId: agent.scope === "runtime" ? agent.templateId || sourceId : sourceId,
+          runtimeStatus: agent.status || node.metadata?.runtimeStatus || "active",
+          manifest: nodeManifest({
+            type: "aiAgent",
+            subtype: agentType,
+            category: "ai-agents",
+            inputs: inputChannels.slice(0, 1),
+            outputs: [outputChannel].filter(Boolean),
+            permissions,
+            runtime: agent.runtime || {},
+          }),
+          permissions,
+          config: {
+            ...(node.metadata?.config || {}),
+            aliasSourceAgentId: sourceId,
+            aliasSourceScope: agent.scope || node.metadata?.aliasSourceScope || "template",
+            templateId: agent.scope === "runtime" ? agent.templateId || sourceId : sourceId,
+            agentType,
+            executionMode: agentRuntime.executionMode || "on_event",
+            output: outputChannel,
+            inputChannels: inputChannels.join(", "),
+          },
+          runtimeMetadata: agentRuntime,
+        },
+      };
+    });
+  } catch (error) {
+    console.warn("Alias AI Agent non sincronizzati in Flow Map", error);
+    return nodes;
+  }
 };
 
 const safeRuntimeId = (value = "") =>
@@ -1188,7 +1417,220 @@ const materializeLibraryAssetNode = async ({ asset, kind = "boxTracker", flowPos
   await loadRuntime({ force: true });
 };
 
+const normalizeAiAgentPermissionFlags = (permissions = {}) => Array.isArray(permissions)
+  ? Object.fromEntries(permissions.map((key) => [key, true]))
+  : permissions && typeof permissions === "object"
+    ? permissions
+    : {};
+
+const aiAgentChannelsForRecord = (agent = {}) => {
+  const agentType = agent.runtime?.agentType || "analyzer";
+  const inputChannels = Array.isArray(agent.channels?.inputs) && agent.channels.inputs.length
+    ? agent.channels.inputs
+    : ["input"];
+  const outputChannel = agent.channels?.outputChannel || agent.channels?.outputs?.[0] || `ai.${agentType}.output`;
+  return { agentType, inputChannels, outputChannel };
+};
+
+const materializeAiAgentNode = async ({ agent, flowPosition = null, close = null, mode = "alias" } = {}) => {
+  if (!agent?.id) return;
+  const workspaceId = await ensureRuntimeWorkspaceScope();
+  const now = new Date().toISOString();
+  const { agentType, inputChannels, outputChannel } = aiAgentChannelsForRecord(agent);
+  const isAlias = mode !== "duplicate";
+  const runtimeAgentId = isAlias ? "" : `runtime_agent_${safeRuntimeId(workspaceId)}_${safeRuntimeId(agent.id)}_${Date.now()}`;
+  const permissionFlags = normalizeAiAgentPermissionFlags(agent.permissions);
+  const permissions = normalizeAssetPermissions(permissionFlags);
+  const runtimeAgent = !isAlias ? {
+    ...(agent.raw && typeof agent.raw === "object" ? agent.raw : {}),
+    ...agent,
+    id: runtimeAgentId,
+    scope: "runtime",
+    kind: "runtime",
+    workspaceId,
+    templateId: agent.scope === "runtime" ? agent.templateId || agent.id : agent.id,
+    status: agent.status || "active",
+    permissions: permissionFlags,
+  } : null;
+  const node = {
+    id: `aiAgent_${safeRuntimeId(agent.id)}_${Date.now()}`,
+    workspaceId,
+    type: "aiAgent",
+    label: agent.name || "AI Agent",
+    sourceRef: agent.id,
+    assetId: agent.id,
+    inputs: inputChannels.slice(0, 1),
+    outputs: [outputChannel].filter(Boolean),
+    channels: [...new Set([...inputChannels.slice(0, 1), outputChannel].filter(Boolean))],
+    status: agent.status || "active",
+    position: { x: 1, y: 1 },
+    flowPosition: flowPosition || defaultAssetFlowPosition(),
+    runtime: {
+      status: agent.status || "active",
+      active: agent.status !== "paused" && agent.status !== "disabled",
+    },
+    metadata: {
+      configured: true,
+      draft: false,
+      savedAiAgent: true,
+      aiAgentAlias: isAlias,
+      aliasSourceAgentId: isAlias ? agent.id : "",
+      aliasSourceScope: isAlias ? agent.scope || "template" : "",
+      detachedFromAgentId: "",
+      paletteLabel: isAlias ? "Existing Agent Alias" : "Existing Agent Copy",
+      tone: "gold",
+      icon: agent.icon || "psychology",
+      runtimeType: "aiAgent",
+      subtype: agentType,
+      category: "ai-agents",
+      agentRole: agentType,
+      runtimeAgentId: runtimeAgentId || "",
+      templateId: isAlias ? agent.id : runtimeAgent.templateId || "",
+      config: isAlias
+        ? {
+          aliasSourceAgentId: agent.id,
+          aliasSourceScope: agent.scope || "template",
+          templateId: agent.id,
+          linked: "alias",
+          agentType,
+          executionMode: agent.runtime?.executionMode || "on_event",
+          output: outputChannel,
+          inputChannels: inputChannels.join(", "),
+        }
+        : {
+          ...aiAgentPayloadConfig(runtimeAgent),
+          runtimeAgentId,
+          templateId: runtimeAgent.templateId || "",
+        },
+      manifest: nodeManifest({
+        type: "aiAgent",
+        subtype: agentType,
+        category: "ai-agents",
+        inputs: inputChannels.slice(0, 1),
+        outputs: [outputChannel].filter(Boolean),
+        permissions,
+        runtime: agent.runtime || {},
+      }),
+      permissions,
+      runtimeMetadata: agent.runtime || {},
+    },
+    createdAt: now,
+    updatedAt: now,
+  };
+
+  if (runtimeAgent) {
+    await window.TrackerLensAiRuntimeStore?.upsertRuntimeAgent?.({
+      ...runtimeAgent,
+      runtimeNodeId: node.id,
+    });
+  }
+  await window.TrackerLensRuntimeGraphStore?.upsertRuntimeNode?.({ node });
+  if (window.TrackerLensChannelRegistry?.upsertChannelsForRuntimeNode) {
+    await window.TrackerLensChannelRegistry.upsertChannelsForRuntimeNode({ node });
+  }
+  await recordFlowAction({
+    workspaceId,
+    nodeId: node.id,
+    message: `AI agent ${isAlias ? "alias" : "copy"} inserted in Flow Map: ${node.label}`,
+    context: {
+      action: isAlias ? "ai-agent-alias-inserted" : "ai-agent-copy-inserted",
+      agentId: agent.id,
+      runtimeAgentId: runtimeAgentId || "",
+      nodeType: "aiAgent",
+      channels: node.channels,
+    },
+  });
+  close?.();
+  setFocusState({
+    mode: "dependencies",
+    nodeId: node.id,
+    edgeId: "",
+    nodeType: node.type,
+    channel: outputChannel || inputChannels[0] || "",
+    connectionId: "",
+  });
+  await loadRuntime({ force: true });
+};
+
+const openExistingAiAgentsDialog = async (options = {}) => {
+  const agents = await listExistingAiAgents();
+  let dialog = null;
+  dialog = _.Dialog({
+    class: "tl-flow-library-dialog",
+    panelClass: "tl-flow-edge-delete-panel",
+    size: "lg",
+    title: "Existing Agents",
+    subtitle: "Scegli un AI Agent salvato da inserire nel runtime graph.",
+    icon: "psychology",
+    closeButton: true,
+    content: () => _.div(
+      { class: "tl-flow-library-picker" },
+      agents.length
+        ? _.div(
+          { class: "tl-flow-library-list" },
+          ...agents.map((agent) => {
+            const agentType = agent.runtime?.agentType || agent.scope || "agent";
+            const output = agent.channels?.outputChannel || agent.channels?.outputs?.[0] || `ai.${agentType}.output`;
+            return _.div(
+              {
+                class: "tl-flow-library-asset",
+              },
+              _.span({ class: "tl-flow-library-asset-icon" }, icon(agent.icon || "psychology", "sm")),
+              _.span(
+                { class: "tl-flow-library-asset-main" },
+                _.strong(agent.name || agent.id),
+                _.em(`${agent.scope === "runtime" ? "Runtime Instance" : "Library Template"} · ${agentType} · ${output}`),
+                _.small(agent.description || "Agente AI runtime salvato.")
+              ),
+              _.span(
+                { class: "tl-flow-library-asset-actions" },
+                btn({
+                  class: "tl-flow-library-asset-action",
+                  onclick: () => materializeAiAgentNode({
+                    agent,
+                    flowPosition: options.flowPosition || defaultAssetFlowPosition(),
+                    close: () => dialog?.close?.(),
+                    mode: "alias",
+                  }),
+                }, icon("link", "sm"), "Insert Alias"),
+                btn({
+                  class: "tl-flow-library-duplicate",
+                  onclick: (event) => {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    materializeAiAgentNode({
+                      agent,
+                      flowPosition: options.flowPosition || defaultAssetFlowPosition(),
+                      close: () => dialog?.close?.(),
+                      mode: "duplicate",
+                    });
+                  },
+                }, icon("content_copy", "sm"), "Duplicate")
+              )
+            );
+          })
+        )
+        : _.div(
+          { class: "tl-flow-library-empty" },
+          icon("psychology", "md"),
+          _.strong("Nessun AI Agent salvato."),
+          _.span("Crea e salva un agent da AI Runtime Center, poi torna nella Flow Map.")
+        )
+    ),
+    actions: ({ close }) => _.Toolbar(
+      { align: "end", gap: 8 },
+      btn({ onclick: close }, "Close"),
+      btn({ class: "is-primary", onclick: () => window.location.assign("ai.html") }, icon("add", "sm"), "AI Runtime Center")
+    ),
+  });
+  dialog.open();
+};
+
 const openExistingLibraryDialog = async (item, options = {}) => {
+  if (isExistingAiAgentPaletteItem(item)) {
+    openExistingAiAgentsDialog(options);
+    return;
+  }
   const kind = libraryAssetKindForPalette(item);
   const assets = await listExistingLibraryAssets(kind);
   const title = kind === "boxTracker" ? "Existing Trackers" : "Existing Lens";
@@ -2591,7 +3033,8 @@ const aiDirectInputChannel = (node = {}, graph = graphModel()) => {
 const executeDirectAiAgentNode = async ({ node, workspaceId, runId, graph } = {}) => {
   const channel = aiDirectInputChannel(node, graph);
   const payload = nodeTestPayload(node, runId);
-  const event = await workspaceEventBus(workspaceId)?.emit?.(channel, payload, {
+  const bus = workspaceEventBus(workspaceId);
+  const event = await bus?.emit?.(channel, payload, {
     workspaceId,
     flowId: flowIdForWorkspace(workspaceId),
     eventType: "flow_live_ai_direct",
@@ -2604,16 +3047,76 @@ const executeDirectAiAgentNode = async ({ node, workspaceId, runId, graph } = {}
       origin: "ai-direct-test",
       targetNodeId: node.id,
       inputChannel: channel,
+      flowMapDirectAiExecution: true,
     },
   });
   if (event) mergeRuntimeEvent(event);
+  let result = null;
+  let outputChannel = node.outputs?.[0] || node.channels?.find((item) => item !== channel) || `ai.${nodeSubtype(node) || "agent"}.output`;
+  try {
+    const runtime = window.TrackerLensAiAgentRuntime?.get?.(workspaceId);
+    if (runtime?.execute) {
+      result = await runtime.execute({
+        node,
+        payload,
+        event: event || {
+          channel,
+          payload,
+          meta: { runId },
+          sourceNodeId: "flow-map-ai-direct-test",
+          targetNodeId: node.id,
+        },
+      });
+      const latencyMs = Number(result?.latencyMs || 0);
+      const responseEvent = await bus?.emit?.(outputChannel, result, {
+        workspaceId,
+        flowId: flowIdForWorkspace(workspaceId),
+        eventType: "ai_agent_response",
+        sourceNodeId: node.id,
+        latencyMs,
+        meta: {
+          aiAgentRuntime: node.id,
+          inputEventId: event?.id || "",
+          inputChannel: channel,
+          runId,
+          provider: result?.provider || "",
+          model: result?.model || "",
+          flowMapDirectAiExecution: true,
+        },
+      });
+      if (responseEvent) mergeRuntimeEvent(responseEvent);
+      await recordFlowAction({
+        workspaceId,
+        nodeId: node.id,
+        message: `Direct AI Agent emitted ${outputChannel}: ${node.label || node.id}`,
+        context: {
+          action: "flow-map-ai-direct-response",
+          runId,
+          inputChannel: channel,
+          outputChannel,
+          provider: result?.provider || "",
+          model: result?.model || "",
+          payloadPreview: compactPayloadPreview(result, 220),
+        },
+      });
+    }
+  } catch (error) {
+    await recordFlowAction({
+      workspaceId,
+      nodeId: node.id,
+      level: "error",
+      message: `Direct AI Agent error: ${error.message || error}`,
+      context: { action: "flow-map-ai-direct-error", runId, inputChannel: channel, outputChannel, error: error.message || String(error) },
+    });
+    throw error;
+  }
   await recordFlowAction({
     workspaceId,
     nodeId: node.id,
     message: `Direct AI Agent test started: ${node.label || node.id}`,
     context: { action: "flow-map-ai-direct-test", runId, inputChannel: channel, payloadPreview: compactPayloadPreview(payload, 220) },
   });
-  return { channels: [channel], payload };
+  return { channels: [channel, outputChannel].filter(Boolean), payload: result || payload };
 };
 
 const downstreamTestPath = (graph = {}, starterIds = []) => {
@@ -2642,6 +3145,31 @@ const downstreamTestPath = (graph = {}, starterIds = []) => {
     });
   }
   return { nodeIds: [...visitedNodes], edgeIds: [...visitedEdges], edges };
+};
+
+const activeOutgoingDependencyIds = (graph = {}, nodeIds = []) => {
+  const ids = new Set(nodeIds.filter(Boolean));
+  return (graph.dependencies || [])
+    .filter((dependency) => ids.has(dependency.sourceNodeId))
+    .map((dependency) => dependency.id);
+};
+
+const setTestRunActiveNodes = (graph = {}, nodeIds = []) => {
+  state.testRun = {
+    ...state.testRun,
+    activeNodeIds: nodeIds.filter(Boolean),
+    activeEdgeIds: activeOutgoingDependencyIds(graph, nodeIds),
+  };
+  refreshLiveGraphState();
+};
+
+const clearTestRunActiveNodes = () => {
+  state.testRun = {
+    ...state.testRun,
+    activeNodeIds: [],
+    activeEdgeIds: [],
+  };
+  refreshLiveGraphState();
 };
 
 const mergeTestEvent = async (event = {}) => {
@@ -2762,6 +3290,8 @@ const replayRuntimeEvent = async (event = {}) => {
     runId,
     nodeIds: path.nodeIds,
     edgeIds: path.edgeIds,
+    activeNodeIds: [sourceNode.id],
+    activeEdgeIds: activeOutgoingDependencyIds(graph, [sourceNode.id]),
     startedAt: new Date().toISOString(),
     completedAt: "",
     summary: "Replaying inspector event...",
@@ -3092,6 +3622,8 @@ const finishFlowMapTestRun = ({ runId = state.testRun.runId, summary = "", error
     running: false,
     nodeIds: [],
     edgeIds: [],
+    activeNodeIds: [],
+    activeEdgeIds: [],
     completedAt: new Date().toISOString(),
     summary: summary || state.testRun.summary || "Test completed",
     timeoutId: 0,
@@ -3106,6 +3638,13 @@ const finishFlowMapTestRun = ({ runId = state.testRun.runId, summary = "", error
 };
 
 const wait = (ms = 0) => new Promise((resolve) => window.setTimeout(resolve, ms));
+
+const waitForMinimumTestAnimation = async (startedAt = "") => {
+  const started = Date.parse(startedAt || "");
+  if (!Number.isFinite(started)) return;
+  const remaining = MIN_TEST_ANIMATION_MS - (Date.now() - started);
+  if (remaining > 0) await wait(remaining);
+};
 
 const runtimeKindForNode = (node = {}) => {
   if (node.type === "aiAgent") return "ai";
@@ -3215,6 +3754,115 @@ const loadRunRecords = async ({ workspaceId = "", runId = "" } = {}) => {
     aiLogs: (aiData.logs || []).filter((log) => (!workspaceId || log.workspaceId === workspaceId) && runRecordMatches(log, runId)),
     aiProviders: aiData.providers || [],
   };
+};
+
+const aiNodesInPath = (graph = {}, path = {}) => {
+  const pathNodeIds = new Set(path.nodeIds || []);
+  return (graph.nodes || []).filter((node) => pathNodeIds.has(node.id) && runtimeKindForNode(node) === "ai");
+};
+
+const waitForAiPathRecords = async ({ workspaceId = "", runId = "", graph = {}, path = {}, signal = null } = {}) => {
+  const aiNodes = aiNodesInPath(graph, path);
+  if (!aiNodes.length) return loadRunRecords({ workspaceId, runId });
+  const aiNodeIds = new Set(aiNodes.map((node) => node.id));
+  const started = Date.now();
+  let records = await loadRunRecords({ workspaceId, runId });
+  while (!signal?.aborted && Date.now() - started < AI_DIRECT_TEST_TIMEOUT_MS) {
+    const hasAiJob = (records.aiJobs || []).some((job) => aiNodeIds.has(job.agentId));
+    const hasAiEvent = (records.events || []).some((event) =>
+      aiNodeIds.has(event.sourceNodeId) &&
+      (String(event.eventType || "").includes("ai_agent") || String(event.channel || "").startsWith("ai."))
+    );
+    const hasAiLog = (records.flowLogs || []).some((log) =>
+      aiNodeIds.has(log.nodeId) || aiNodeIds.has(log.context?.nodeId)
+    );
+    if (hasAiJob || hasAiEvent || hasAiLog) return records;
+    await wait(500);
+    records = await loadRunRecords({ workspaceId, runId });
+  }
+  return records;
+};
+
+const hasAiPathRecords = (records = {}, graph = {}, path = {}) => {
+  const aiNodeIds = new Set(aiNodesInPath(graph, path).map((node) => node.id));
+  if (!aiNodeIds.size) return true;
+  return (
+    (records.aiJobs || []).some((job) => aiNodeIds.has(job.agentId)) ||
+    (records.events || []).some((event) => aiNodeIds.has(event.sourceNodeId) && String(event.eventType || "").includes("ai_agent")) ||
+    (records.flowLogs || []).some((log) => aiNodeIds.has(log.nodeId) || aiNodeIds.has(log.context?.nodeId))
+  );
+};
+
+const latestAiInputEvent = ({ records = {}, graph = {}, node = {} } = {}) => {
+  const incomingChannels = new Set((graph.dependencies || [])
+    .filter((dependency) => dependency.targetNodeId === node.id)
+    .map((dependency) => dependency.channel || dependency.metadata?.targetPort)
+    .filter(Boolean));
+  return (records.events || [])
+    .filter((event) => incomingChannels.has(event.channel))
+    .sort((a, b) => Date.parse(b.createdAt || 0) - Date.parse(a.createdAt || 0))[0] || null;
+};
+
+const ensureAiPathExecution = async ({ workspaceId = "", runId = "", graph = {}, path = {}, signal = null } = {}) => {
+  const aiNodes = aiNodesInPath(graph, path);
+  if (!aiNodes.length || signal?.aborted) return;
+  await wait(900);
+  let records = await loadRunRecords({ workspaceId, runId });
+  if (hasAiPathRecords(records, graph, path) || signal?.aborted) return;
+  const runtime = window.TrackerLensAiAgentRuntime?.get?.(workspaceId);
+  const bus = workspaceEventBus(workspaceId);
+  if (!runtime?.execute || !bus?.emit) return;
+  for (const node of aiNodes) {
+    if (signal?.aborted) return;
+    const inputEvent = latestAiInputEvent({ records, graph, node });
+    if (!inputEvent) continue;
+    setTestRunActiveNodes(graph, [node.id]);
+    const result = await runtime.execute({
+      node,
+      payload: inputEvent.payload || {},
+      event: {
+        ...inputEvent,
+        meta: {
+          ...(inputEvent.meta || {}),
+          runId,
+          flowMapAiFallbackExecution: true,
+        },
+      },
+    });
+    const outputChannel = node.outputs?.[0] || node.channels?.find((item) => item !== inputEvent.channel) || `ai.${nodeSubtype(node) || "agent"}.output`;
+    const responseEvent = await bus.emit(outputChannel, result, {
+      workspaceId,
+      flowId: flowIdForWorkspace(workspaceId),
+      eventType: "ai_agent_response",
+      sourceNodeId: node.id,
+      latencyMs: Number(result?.latencyMs || 0),
+      meta: {
+        aiAgentRuntime: node.id,
+        inputEventId: inputEvent.id || "",
+        inputChannel: inputEvent.channel || "",
+        runId,
+        provider: result?.provider || "",
+        model: result?.model || "",
+        flowMapAiFallbackExecution: true,
+      },
+    });
+    if (responseEvent) mergeRuntimeEvent(responseEvent);
+    await recordFlowAction({
+      workspaceId,
+      nodeId: node.id,
+      message: `AI Agent fallback emitted ${outputChannel}: ${node.label || node.id}`,
+      context: {
+        action: "flow-map-ai-fallback-response",
+        runId,
+        inputChannel: inputEvent.channel || "",
+        outputChannel,
+        provider: result?.provider || "",
+        model: result?.model || "",
+        payloadPreview: compactPayloadPreview(result, 220),
+      },
+    });
+    records = await loadRunRecords({ workspaceId, runId });
+  }
 };
 
 const summarizeLiveVerification = ({ graph, path, starters, events = [], flowLogs = [], aiJobs = [], aiLogs = [] } = {}) => {
@@ -3357,7 +4005,7 @@ const renderLiveTestVerification = () => {
   );
 };
 
-const startTestRunTimeout = (runId) => {
+const startTestRunTimeout = (runId, timeoutMs = TEST_RUN_TIMEOUT_MS) => {
   clearTestRunTimeout();
   state.testRun.timeoutId = window.setTimeout(() => {
     if (!state.testRun.running || state.testRun.runId !== runId) return;
@@ -3366,7 +4014,7 @@ const startTestRunTimeout = (runId) => {
       summary: "Test timeout: runtime released",
     });
     mount({ preserveScroll: true });
-  }, TEST_RUN_TIMEOUT_MS);
+  }, timeoutMs);
 };
 
 const stopFlowMapTestRun = async () => {
@@ -3412,6 +4060,8 @@ const runFlowMapTest = async (starterNode = null) => {
     runId,
     nodeIds: path.nodeIds,
     edgeIds: path.edgeIds,
+    activeNodeIds: starters.map((node) => node.id),
+    activeEdgeIds: activeOutgoingDependencyIds(graph, starters.map((node) => node.id)),
     startedAt,
     completedAt: "",
     summary: `Running test: ${starters.length} starter${starters.length === 1 ? "" : "s"}`,
@@ -3532,11 +4182,15 @@ const runFlowMapLiveTest = async (starterNode = null) => {
   const path = downstreamTestPath(graph, starters.map((node) => node.id));
   const abortController = new AbortController();
   const keepOpen = starters.some((node) => isWebSocketEndpoint(nodeEndpoint(node)) && isLiveKeepOpenNode(node));
+  const hasDirectAi = starters.some(isDirectAiTestNode);
+  const hasAiInPath = aiNodesInPath(graph, path).length > 0;
   state.testRun = {
     running: true,
     runId,
     nodeIds: path.nodeIds,
     edgeIds: path.edgeIds,
+    activeNodeIds: starters.map((node) => node.id),
+    activeEdgeIds: activeOutgoingDependencyIds(graph, starters.map((node) => node.id)),
     startedAt,
     completedAt: "",
     summary: `${keepOpen ? "Streaming live test" : "Running live test"}: ${starters.length} starter${starters.length === 1 ? "" : "s"}`,
@@ -3547,7 +4201,7 @@ const runFlowMapLiveTest = async (starterNode = null) => {
     cancelRequested: false,
     verification: null,
   };
-  if (!keepOpen) startTestRunTimeout(runId);
+  if (!keepOpen) startTestRunTimeout(runId, hasDirectAi || hasAiInPath ? AI_DIRECT_TEST_TIMEOUT_MS : TEST_RUN_TIMEOUT_MS);
   state.error = "";
   setFiltersState({ ...state.filters, runId });
   syncFilterQuery();
@@ -3557,6 +4211,7 @@ const runFlowMapLiveTest = async (starterNode = null) => {
     const emittedChannels = new Set();
     for (const node of starters) {
       if (abortController.signal.aborted) return;
+      setTestRunActiveNodes(graph, [node.id]);
       const result = isDirectAiTestNode(node)
         ? await executeDirectAiAgentNode({ node, workspaceId, runId, graph, signal: abortController.signal })
         : await executeLiveNode({ node, workspaceId, runId, graph, signal: abortController.signal });
@@ -3564,13 +4219,17 @@ const runFlowMapLiveTest = async (starterNode = null) => {
       (result.channels || []).forEach((channel) => emittedChannels.add(channel));
     }
 
-    for (const dependency of path.edges) {
-      if (abortController.signal.aborted) return;
-      await emitLiveDependencyPulse({ workspaceId, runId, graph, dependency });
+    const activeAiNodeIds = aiNodesInPath(graph, path).map((node) => node.id);
+    if (activeAiNodeIds.length) setTestRunActiveNodes(graph, activeAiNodeIds);
+    else clearTestRunActiveNodes();
+    if (hasAiInPath) {
+      await ensureAiPathExecution({ workspaceId, runId, graph, path, signal: abortController.signal });
     }
 
-    await wait(700);
-    const runRecords = await loadRunRecords({ workspaceId, runId });
+    const runRecords = hasAiInPath
+      ? await waitForAiPathRecords({ workspaceId, runId, graph, path, signal: abortController.signal })
+      : await wait(700).then(() => loadRunRecords({ workspaceId, runId }));
+    if (!state.testRun.running || state.testRun.runId !== runId || abortController.signal.aborted) return;
     runRecords.events.forEach(mergeRuntimeEvent);
     runRecords.flowLogs.forEach(mergeFlowLog);
     const verification = summarizeLiveVerification({
@@ -3588,6 +4247,7 @@ const runFlowMapLiveTest = async (starterNode = null) => {
       .join(" · ");
     const channelSummary = emittedChannels.size ? ` · ${emittedChannels.size} channels` : "";
     const summary = `Live test completed: ${path.nodeIds.length} nodes · ${path.edgeIds.length} links${channelSummary} · ${verificationSummary}`;
+    await waitForMinimumTestAnimation(startedAt);
     finishFlowMapTestRun({ runId, summary });
     await recordFlowAction({
       workspaceId,
@@ -3609,6 +4269,7 @@ const runFlowMapLiveTest = async (starterNode = null) => {
     if (abortController.signal.aborted) return;
     console.error("Flow Map live test error:", error);
     state.error = error?.message || "Errore live test Flow Map";
+    await waitForMinimumTestAnimation(startedAt);
     finishFlowMapTestRun({ runId, summary: `Live test error: ${error.message || error}`, error: state.error });
     await recordFlowAction({
       workspaceId,
@@ -4015,7 +4676,8 @@ const nodePalette = [
     paletteNode({ label: "Parser", icon: "schema", tone: "purple", nodeType: "processor", subtype: "parser", category: "processors", inputs: ["raw"], outputs: ["output"], connectionType: "Processor: Parser" }),
   ]],
   ["AI Agents", [
-    paletteNode({ label: "AI Analyzer", icon: "psychology", tone: "violet", nodeType: "aiAgent", subtype: "analyzer", category: "ai-agents", inputs: ["input"], outputs: ["analysis"], permissions: ["ai.invoke"], url: "ai.html" }),
+    paletteNode({ label: "Existing Agents", icon: "inventory_2", tone: "gold", nodeType: "aiAgent", subtype: "existing", category: "ai-agents", inputs: ["input"], outputs: ["analysis"], permissions: ["ai.invoke"] }),
+    paletteNode({ label: "AI Analyzer", icon: "psychology", tone: "gold", nodeType: "aiAgent", subtype: "analyzer", category: "ai-agents", inputs: ["input"], outputs: ["analysis"], permissions: ["ai.invoke"], url: "ai.html" }),
     paletteNode({ label: "AI Sentiment", icon: "mood", tone: "pink", nodeType: "aiAgent", subtype: "sentiment", category: "ai-agents", inputs: ["input"], outputs: ["sentiment"], permissions: ["ai.invoke"], url: "ai.html" }),
     paletteNode({ label: "AI Summarizer", icon: "summarize", tone: "violet", nodeType: "aiAgent", subtype: "summarizer", category: "ai-agents", inputs: ["input"], outputs: ["summary"], permissions: ["ai.invoke"], url: "ai.html" }),
     paletteNode({ label: "AI Classifier", icon: "category", tone: "pink", nodeType: "aiAgent", subtype: "classifier", category: "ai-agents", inputs: ["input"], outputs: ["class"], permissions: ["ai.invoke"], url: "ai.html" }),
@@ -4084,6 +4746,8 @@ const nodeBadges = (node = {}, live = null) => {
   const perf = nodePerformance(node);
   if (node.metadata?.library) {
     badges.push({ label: "Library", tone: "blue" });
+  } else if (node.metadata?.aiAgentAlias) {
+    badges.push({ label: "Alias", tone: "blue" });
   } else if (isDraftNode(node)) {
     badges.push({ label: "Draft", tone: "gold" });
   } else if (node.metadata?.configured || isInlineConfigNode(node)) {
@@ -4538,7 +5202,12 @@ const previewRecordForNode = (node = {}) =>
 
 const clearPreviewNodePayload = (node = {}) => {
   if (!node.id) return;
-  state.previewClearedAt[node.id] = new Date().toISOString();
+  const workspaceId = node.workspaceId || state.filters.workspaceId || "workspace_global";
+  state.previewClearedAt = {
+    ...loadStoredPreviewClears(workspaceId),
+    [node.id]: new Date().toISOString(),
+  };
+  saveStoredPreviewClears(workspaceId, state.previewClearedAt);
   delete state.previewPayloads[node.id];
   mount({ preserveScroll: true });
 };
@@ -4559,7 +5228,7 @@ const renderPreviewNodePanel = (node = {}) => {
   const mode = String(config.previewMode || "auto").toLowerCase();
   const maxChars = Math.max(200, Math.min(12000, Number(config.maxChars || 2000)));
   return _.div(
-    { class: "tl-flow-node-preview" },
+    { class: "tl-flow-node-preview", "data-flow-preview-panel": node.id },
     _.div(
       { class: "tl-flow-node-preview-head" },
       _.span(record ? `${record.channel} · ${record.eventType} · ${formatShortDate(record.createdAt)}` : "Waiting for data payload"),
@@ -4888,7 +5557,102 @@ const aiAgentPayloadConfig = (payload = {}) => ({
   ...payload.metrics,
 });
 
+const findSavedAiAgent = async (agentId = "") => {
+  if (!agentId) return null;
+  try {
+    const data = await window.TrackerLensAiRuntimeStore?.list?.();
+    return (data?.agents || []).find((agent) => agent.id === agentId) || null;
+  } catch (error) {
+    console.warn("Agente AI condiviso non caricato:", error);
+  }
+  return null;
+};
+
+const aiAgentAliasSourceId = (node = {}) =>
+  node.metadata?.aliasSourceAgentId || node.metadata?.config?.aliasSourceAgentId || "";
+
+const resolveAiAgentEditorRecord = async (node = {}) => {
+  if (!node.metadata?.aiAgentAlias) return aiAgentFromRuntimeNode(node);
+  const source = await findSavedAiAgent(aiAgentAliasSourceId(node));
+  if (!source) return aiAgentFromRuntimeNode(node);
+  return {
+    ...source,
+    workspaceId: source.workspaceId || node.workspaceId || state.filters.workspaceId || "workspace_global",
+  };
+};
+
 const persistAiAgentEditorPayload = async ({ node, payload, close }) => {
+  if (node.metadata?.aiAgentAlias) {
+    if (payload.scope === "runtime") {
+      await window.TrackerLensAiRuntimeStore?.upsertRuntimeAgent?.(payload);
+    } else {
+      await window.TrackerLensAiRuntimeStore?.upsertAgent?.(payload);
+    }
+    const { agentType, inputChannels, outputChannel } = aiAgentChannelsForRecord(payload);
+    const aliasId = aiAgentAliasSourceId(node) || payload.id;
+    const aliasNodes = state.runtime.nodes.filter((item) =>
+      item.type === "aiAgent" &&
+      item.metadata?.aiAgentAlias &&
+      (aiAgentAliasSourceId(item) === aliasId || item.id === node.id)
+    );
+    const permissionFlags = normalizeAiAgentPermissionFlags(payload.permissions);
+    const permissions = normalizeAssetPermissions(permissionFlags);
+    await Promise.all(aliasNodes.map((aliasNode) => window.TrackerLensRuntimeGraphStore?.upsertRuntimeNode?.({
+      node: {
+        ...aliasNode,
+        label: payload.name || aliasNode.label,
+        status: payload.status || aliasNode.status || "active",
+        inputs: inputChannels.slice(0, 1),
+        outputs: [outputChannel].filter(Boolean),
+        channels: [...new Set([...inputChannels.slice(0, 1), outputChannel].filter(Boolean))],
+        runtime: {
+          ...(aliasNode.runtime || {}),
+          status: payload.status || aliasNode.status || "active",
+          active: payload.status !== "paused" && payload.status !== "disabled",
+        },
+        metadata: {
+          ...(aliasNode.metadata || {}),
+          configured: true,
+          aiAgentAlias: true,
+          aliasSourceAgentId: aliasId,
+          aliasSourceScope: payload.scope || aliasNode.metadata?.aliasSourceScope || "template",
+          icon: payload.icon || aliasNode.metadata?.icon || "psychology",
+          subtype: agentType,
+          agentRole: agentType,
+          templateId: payload.scope === "runtime" ? payload.templateId || aliasId : aliasId,
+          runtimeStatus: payload.status || aliasNode.metadata?.runtimeStatus || "active",
+          config: {
+            ...(aliasNode.metadata?.config || {}),
+            aliasSourceAgentId: aliasId,
+            aliasSourceScope: payload.scope || aliasNode.metadata?.aliasSourceScope || "template",
+            templateId: payload.scope === "runtime" ? payload.templateId || aliasId : aliasId,
+            linked: "alias",
+          },
+          manifest: nodeManifest({
+            type: "aiAgent",
+            subtype: agentType,
+            category: "ai-agents",
+            inputs: inputChannels.slice(0, 1),
+            outputs: [outputChannel].filter(Boolean),
+            permissions,
+            runtime: payload.runtime || {},
+          }),
+          permissions,
+          runtimeMetadata: payload.runtime || {},
+        },
+        updatedAt: new Date().toISOString(),
+      },
+    })));
+    await recordFlowAction({
+      workspaceId: node.workspaceId || "global",
+      nodeId: node.id,
+      message: `Shared AI agent updated through alias: ${payload.name || payload.id}`,
+      context: { action: "ai-agent-alias-source-updated", agentId: aliasId, aliasCount: aliasNodes.length },
+    });
+    close?.();
+    await loadRuntime({ force: true });
+    return;
+  }
   const outputChannel = payload.channels?.outputChannel || payload.channels?.outputs?.[0] || `ai.${payload.runtime?.agentType || "agent"}.output`;
   const inputChannel = payload.channels?.inputs?.[0] || "input";
   const update = runtimeNodeUpdateFromValues({
@@ -4932,6 +5696,80 @@ const persistAiAgentEditorPayload = async ({ node, payload, close }) => {
   await loadRuntime();
 };
 
+const detachAiAgentAliasNode = async ({ node, close = null } = {}) => {
+  if (!node?.id || !node.metadata?.aiAgentAlias) return;
+  const source = await findSavedAiAgent(aiAgentAliasSourceId(node));
+  const payload = source || aiAgentFromRuntimeNode(node);
+  const workspaceId = node.workspaceId || state.filters.workspaceId || "workspace_global";
+  const runtimeAgentId = `runtime_agent_${safeRuntimeId(workspaceId)}_${safeRuntimeId(payload.id || node.id)}_${Date.now()}`;
+  const copyPayload = {
+    ...(payload.raw && typeof payload.raw === "object" ? payload.raw : {}),
+    ...payload,
+    id: runtimeAgentId,
+    scope: "runtime",
+    kind: "runtime",
+    workspaceId,
+    templateId: payload.scope === "runtime" ? payload.templateId || payload.id : payload.id,
+    runtimeNodeId: node.id,
+  };
+  const { agentType, inputChannels, outputChannel } = aiAgentChannelsForRecord(copyPayload);
+  const permissionFlags = normalizeAiAgentPermissionFlags(copyPayload.permissions);
+  const permissions = normalizeAssetPermissions(permissionFlags);
+  const nextNode = {
+    ...node,
+    label: copyPayload.name || node.label,
+    status: copyPayload.status || node.status || "active",
+    inputs: inputChannels.slice(0, 1),
+    outputs: [outputChannel].filter(Boolean),
+    channels: [...new Set([...inputChannels.slice(0, 1), outputChannel].filter(Boolean))],
+    metadata: {
+      ...(node.metadata || {}),
+      aiAgentAlias: false,
+      detachedFromAgentId: aiAgentAliasSourceId(node),
+      aliasSourceAgentId: "",
+      aliasSourceScope: "",
+      paletteLabel: "Existing Agent Copy",
+      runtimeAgentId,
+      templateId: copyPayload.templateId || "",
+      subtype: agentType,
+      agentRole: agentType,
+      config: {
+        ...aiAgentPayloadConfig(copyPayload),
+        runtimeAgentId,
+        templateId: copyPayload.templateId || "",
+      },
+      manifest: nodeManifest({
+        type: "aiAgent",
+        subtype: agentType,
+        category: "ai-agents",
+        inputs: inputChannels.slice(0, 1),
+        outputs: [outputChannel].filter(Boolean),
+        permissions,
+        runtime: copyPayload.runtime || {},
+      }),
+      permissions,
+      runtimeMetadata: copyPayload.runtime || {},
+    },
+    updatedAt: new Date().toISOString(),
+  };
+  await window.TrackerLensAiRuntimeStore?.upsertRuntimeAgent?.({
+    ...copyPayload,
+    permissions: permissionFlags,
+  });
+  await window.TrackerLensRuntimeGraphStore?.upsertRuntimeNode?.({ node: nextNode });
+  if (window.TrackerLensChannelRegistry?.upsertChannelsForRuntimeNode) {
+    await window.TrackerLensChannelRegistry.upsertChannelsForRuntimeNode({ node: nextNode });
+  }
+  await recordFlowAction({
+    workspaceId,
+    nodeId: node.id,
+    message: `AI agent alias converted to copy: ${nextNode.label || node.id}`,
+    context: { action: "ai-agent-alias-detached", sourceAgentId: aiAgentAliasSourceId(node), runtimeAgentId },
+  });
+  close?.();
+  await loadRuntime({ force: true });
+};
+
 const requestAiAgentRuntimeConfig = async (node) => {
   if (!node?.id || !window.TrackerLensAiAgentEditor?.open) return;
   let providers = [];
@@ -4941,10 +5779,17 @@ const requestAiAgentRuntimeConfig = async (node) => {
     console.warn("Provider AI non caricati per Flow Map:", error);
   }
   window.TrackerLensAiAgentEditor.open({
-    agent: aiAgentFromRuntimeNode(node),
+    agent: await resolveAiAgentEditorRecord(node),
     providers,
     title: "AI Runtime Agent Editor",
-    subtitle: `${node.label || node.id} · Flow Map runtime node`,
+    subtitle: node.metadata?.aiAgentAlias
+      ? `${node.label || node.id} · Shared alias`
+      : `${node.label || node.id} · Flow Map runtime node`,
+    footerActions: node.metadata?.aiAgentAlias
+      ? ({ close }) => btn({
+        onclick: () => detachAiAgentAliasNode({ node, close }),
+      }, icon("link_off", "sm"), "Make Copy")
+      : null,
     onSave: ({ payload, close }) => persistAiAgentEditorPayload({ node, payload, close }),
   });
 };
@@ -5378,8 +6223,9 @@ const normalizePortChannel = (channel = "") =>
 
 const channelForPortConnection = (source, target, sourcePort = "", targetPort = "") =>
   normalizePortChannel(sourcePort) ||
+  channelForConnection(source, target) ||
   normalizePortChannel(targetPort) ||
-  channelForConnection(source, target);
+  "default";
 
 const bestTargetPortForChannel = (target = {}, channel = "") => {
   if (!target?.id || !channel) return "all";
@@ -5999,10 +6845,14 @@ const isAllEdge = (dependency = {}) =>
 
 const edgeRecentEvent = (dependency = {}) =>
   filteredRuntimeEvents()
-    .filter((event) =>
-      event.channel === dependency.channel ||
-      event.sourceNodeId === dependency.sourceNodeId ||
-      event.targetNodeId === dependency.targetNodeId)
+    .filter((event) => {
+      const created = Date.parse(event.createdAt || "");
+      if (!Number.isFinite(created) || Date.now() - created > EDGE_ACTIVITY_WINDOW_MS) return false;
+      if (event.meta?.dependencyId && event.meta.dependencyId === dependency.id) return true;
+      if (event.sourceNodeId === dependency.sourceNodeId) return !event.channel || event.channel === dependency.channel;
+      if (event.targetNodeId === dependency.targetNodeId) return !event.channel || event.channel === dependency.channel;
+      return false;
+    })
     .sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt))[0] || null;
 
 const edgeDebugTitle = (dependency = {}) => {
@@ -6229,6 +7079,7 @@ const drawFlowEdges = () => {
 
   const graph = state.edgeRender.graph || { nodes: [], dependencies: [] };
   const activity = state.edgeRender.activity || { edgeActivity: new Map() };
+  const processingEdgeIds = new Set(activeProcessingEdgeIds(graph));
   let hasLiveEdge = false;
   graph.dependencies.forEach((dependency) => {
     const fromIndex = graph.nodes.findIndex((node) => node.id === dependency.sourceNodeId);
@@ -6241,8 +7092,10 @@ const drawFlowEdges = () => {
     const from = edgePoint(nodeCanvasPoint({ canvas: { width: rect.width, height: rect.height }, node: sourceNode, index: fromIndex, side: "out", port: dependencyPort(dependency, "out") }), bounds);
     const to = edgePoint(nodeCanvasPoint({ canvas: { width: rect.width, height: rect.height }, node: targetNode, index: toIndex, side: "in", port: dependencyPort(dependency, "in") }), bounds);
     const edge = activity.edgeActivity?.get?.(dependency.id);
+    const isActiveTestEdge = state.testRun.running && (state.testRun.activeEdgeIds || []).includes(dependency.id);
+    const isProcessingEdge = processingEdgeIds.has(dependency.id);
     const isError = edge?.status === "error";
-    const isLive = Boolean(edge);
+    const isLive = Boolean(edge) || isActiveTestEdge || isProcessingEdge;
     const isSelected = state.focus.edgeId === dependency.id;
     const isBus = isAllEdge(dependency);
     const isDimmed = state.hoverNodeId && !edgeMatchesHover(dependency);
@@ -6379,6 +7232,7 @@ const replaceRenderedNode = (selector, nextNode, { preserveScroll = false } = {}
 };
 
 const refreshNodeRuntimeDom = (graph, activity) => {
+  const processingNodeIds = new Set(activeAiProcessingNodeIds());
   (graph.nodes || []).forEach((node) => {
     const live = activity.nodeActivity?.get(node.id);
     const badges = document.querySelector(`[data-flow-node-badges="${escapeSelectorValue(node.id)}"]`);
@@ -6393,6 +7247,18 @@ const refreshNodeRuntimeDom = (graph, activity) => {
       footerInfo.textContent = perf
         ? `${performanceLabel(perf)} · ${perf.health || perf.status || "perf"}`
         : live ? `${live.count} events · ${formatShortDate(live.lastAt)}` : fieldCount ? `${fieldCount} outputs` : node.metadata?.library ? "library" : node.status || "idle";
+    }
+
+    if (isPreviewNode(node)) {
+      replaceRenderedNode(`[data-flow-preview-panel="${escapeSelectorValue(node.id)}"]`, renderPreviewNodePanel(node), { preserveScroll: true });
+    }
+
+    const testButton = document.querySelector(`[data-flow-node-test-btn="${escapeSelectorValue(node.id)}"]`);
+    if (testButton) {
+      const busy = processingNodeIds.has(node.id) || (state.testRun.running && (state.testRun.activeNodeIds || []).includes(node.id));
+      testButton.classList.toggle("is-running", busy);
+      testButton.disabled = state.testRun.running || processingNodeIds.has(node.id);
+      testButton.replaceChildren(icon(busy ? "hourglass_top" : "play_arrow", "sm"));
     }
   });
 };
@@ -6582,7 +7448,7 @@ const lazyVisibleNodes = (graph = {}, activity = {}) => {
   const zoom = Math.max(0.1, Number(state.viewport.zoom) || 1);
   const selected = new Set([
     state.focus.nodeId,
-    ...state.testRun.nodeIds,
+    ...(state.testRun.activeNodeIds || []),
     ...Array.from(activity.nodeActivity?.keys?.() || []),
   ].filter(Boolean));
   const visible = nodes.filter((node, index) => {
@@ -6694,10 +7560,12 @@ const renderCanvas = () => {
             : canvasPoint({ width: 100, height: 100 }, nodePosition(targetNode, toIndex), "in", 0, portPercentForChannel(targetNode, dependencyPort(dependency, "in"), "in"));
           const midpoint = bezierPoint(from, to, 0.52, rect ? offset : offset * 0.12);
           const recentEvent = edgeRecentEvent(dependency);
+          const activeTestEdge = state.testRun.running && (state.testRun.activeEdgeIds || []).includes(dependency.id);
+          const processingEdge = activeProcessingEdgeIds(graph).includes(dependency.id);
           return _.button(
             {
               type: "button",
-              class: `tl-flow-edge-label${state.focus.edgeId === dependency.id ? " is-selected" : ""}${impactClassForEdge(dependency, impact)}${dependency.metadata?.virtual ? " is-virtual" : ""}${isAllEdge(dependency) ? " is-bus" : ""}${recentEvent ? " is-live" : ""}${recentEvent?.status === "error" ? " is-error" : ""}${state.testRun.edgeIds.includes(dependency.id) ? " is-test-path" : ""}`,
+              class: `tl-flow-edge-label${state.focus.edgeId === dependency.id ? " is-selected" : ""}${impactClassForEdge(dependency, impact)}${dependency.metadata?.virtual ? " is-virtual" : ""}${isAllEdge(dependency) ? " is-bus" : ""}${recentEvent || activeTestEdge || processingEdge ? " is-live" : ""}${recentEvent?.status === "error" ? " is-error" : ""}${activeTestEdge || processingEdge ? " is-test-path" : ""}`,
               "data-edge-id": dependency.id,
               title: edgeDebugTitle(dependency),
               style: { "--x": rect ? `${midpoint.x}px` : `${midpoint.x}%`, "--y": rect ? `${midpoint.y}px` : `${midpoint.y}%` },
@@ -6720,6 +7588,7 @@ const renderCanvas = () => {
           const portCount = Math.max(inputPorts.length, outputPorts.length);
           const fieldCount = sampleOutputFields(node).length;
           const live = activity.nodeActivity.get(node.id);
+          const processingNode = activeAiProcessingNodeIds().includes(node.id);
           const perf = nodePerformance(node);
           const view = runtimeNodeBase(node, live, perf);
           const footerInfo = perf
@@ -6729,13 +7598,13 @@ const renderCanvas = () => {
           const linkSource = nodeById(state.linkingSourceId);
           const isLinkTarget = Boolean(linkSource && canConnectNodes(linkSource, node));
           const isLinkHover = state.linkHoverTargetId === node.id;
-          const isInTestRun = state.testRun.nodeIds.includes(node.id);
+          const isInTestRun = state.testRun.running && (state.testRun.activeNodeIds || []).includes(node.id);
           const canRunNodeTest = isLiveTestableStarterNode(node);
           return _.div(
             {
               role: "button",
               tabindex: 0,
-              class: `tl-flow-node is-${graphTone(node)} is-runtime-${view.runtime.status}${node.metadata?.collapsed ? " is-collapsed" : ""}${state.focus.nodeId === node.id ? " is-selected" : ""}${impactClassForNode(node, impact)}${live ? " is-live is-event-active" : ""}${live?.status === "error" ? " is-error" : ""}${isLinkSource ? " is-link-source" : ""}${isLinkTarget ? " is-link-target" : ""}${isLinkHover ? " is-link-hover" : ""}${isInTestRun ? " is-test-path" : ""}`,
+              class: `tl-flow-node is-${graphTone(node)} is-runtime-${view.runtime.status}${node.metadata?.collapsed ? " is-collapsed" : ""}${state.focus.nodeId === node.id ? " is-selected" : ""}${impactClassForNode(node, impact)}${live || processingNode ? " is-live is-event-active" : ""}${processingNode ? " is-ai-processing" : ""}${live?.status === "error" ? " is-error" : ""}${isLinkSource ? " is-link-source" : ""}${isLinkTarget ? " is-link-target" : ""}${isLinkHover ? " is-link-hover" : ""}${isInTestRun ? " is-test-path" : ""}`,
               style: { "--x": pos.x, "--y": pos.y, "--port-count": portCount, minHeight: `${nodeMinHeight(portCount)}px` },
               "data-flow-node-id": node.id,
               "data-input-port-count": fullInputPorts.length,
@@ -6827,9 +7696,10 @@ const renderCanvas = () => {
               _.em({ "data-flow-node-footer-info": "true" }, footerInfo),
               canRunNodeTest ? btn({
                 class: "tl-flow-node-test-btn",
+                "data-flow-node-test-btn": node.id,
                 "aria-label": `Run live test from ${view.title}`,
                 title: "Run real one-shot live test from this node through connected children",
-                disabled: state.testRun.running,
+                disabled: state.testRun.running || processingNode,
                 onPointerDown: (event) => {
                   event.preventDefault();
                   event.stopPropagation();
@@ -6839,7 +7709,7 @@ const renderCanvas = () => {
                   event.stopPropagation();
                   runFlowMapLiveTest(node);
                 },
-              }, icon(state.testRun.running && isInTestRun ? "hourglass_top" : "play_arrow", "sm")) : null,
+              }, icon((state.testRun.running && isInTestRun) || processingNode ? "hourglass_top" : "play_arrow", "sm")) : null,
               _.span({ "data-flow-node-footer-ports": "true" }, `${fullInputPorts.length} in · ${fullOutputPorts.length} out`)
             )
           );

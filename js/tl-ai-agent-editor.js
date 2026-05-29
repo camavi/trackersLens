@@ -173,7 +173,7 @@ window.TrackerLensAiAgentEditor = (() => {
   const agentTextarea = (label, name, value = "", rows = 5, placeholder = "") =>
     _.label({ class: "tl-ai-agent-textarea-field" }, _.span(label), _.textarea({ name, rows, placeholder, value: value || "" }));
 
-  const open = ({ agent = null, providers = [], title = "", subtitle = "", onSave = null } = {}) => {
+  const open = ({ agent = null, providers = [], title = "", subtitle = "", onSave = null, footerActions = null } = {}) => {
     const raw = rawAgent(agent);
     const runtime = agentNested(agent, "runtime");
     const provider = agentNested(agent, "provider");
@@ -207,7 +207,17 @@ window.TrackerLensAiAgentEditor = (() => {
     const formId = `tl-ai-agent-editor-${String(agent?.id || Date.now()).replace(/[^A-Za-z0-9_-]/g, "_")}`;
     const dialogTitle = title || values.name || "Runtime Intelligence Agent";
     const dialogSubtitle = subtitle || values.description || "Event-driven AI node for runtime channels";
-    const dialog = _.Dialog({
+    let dialog = null;
+    const saveFromForm = async ({ form, close }) => {
+      if (!form) return;
+      const payload = contractFromForm(form, agent);
+      if (!payload.name) {
+        form.querySelector("[name='name']")?.focus?.();
+        return;
+      }
+      await onSave?.({ payload, form, close, agent, dialog });
+    };
+    dialog = _.Dialog({
       class: "tl-ai-agent-dialog",
       panelClass: "tl-ai-agent-runtime-panel",
       size: "xl",
@@ -225,10 +235,7 @@ window.TrackerLensAiAgentEditor = (() => {
           class: "tl-ai-agent-runtime-editor",
           onsubmit: async (event) => {
             event.preventDefault();
-            if (event.submitter?.dataset?.aiAgentSave !== "true") return;
-            const payload = contractFromForm(event.currentTarget, agent);
-            if (!payload.name) return;
-            await onSave?.({ payload, form: event.currentTarget, close, agent, dialog });
+            await saveFromForm({ form: event.currentTarget, close });
           },
         },
         _.TabPanel({
@@ -372,8 +379,13 @@ window.TrackerLensAiAgentEditor = (() => {
       ),
       actions: ({ close }) => _.Toolbar(
         { class: "tl-ai-agent-editor-footer", align: "end", gap: 8 },
+        typeof footerActions === "function" ? footerActions({ close, formId, dialog }) : null,
         btn({ onclick: close }, "Annulla"),
-        btn({ class: "tl-ai-save-btn", type: "submit", form: formId, "data-ai-agent-save": "true" }, icon("save", "sm"), "Salva Runtime Agent")
+        btn({
+          class: "tl-ai-save-btn",
+          "data-ai-agent-save": "true",
+          onclick: async () => saveFromForm({ form: document.getElementById(formId), close }),
+        }, icon("save", "sm"), "Salva Runtime Agent")
       ),
     });
     dialog.open();

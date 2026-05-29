@@ -25,6 +25,82 @@ window.TrackerLensAiAgentRuntime = (() => {
       ? node.metadata.config
       : {};
 
+  const agentExecutionMode = (node = {}) =>
+    String(nodeConfig(node).executionMode || node.metadata?.runtimeMetadata?.executionMode || "on_event").toLowerCase();
+
+  const isEventDrivenExecutionMode = (mode = "") =>
+    ["on_event", "continuous"].includes(String(mode || "").toLowerCase());
+
+  const splitList = (value = "") =>
+    Array.isArray(value) ? value.filter(Boolean).map(String) : String(value || "").split(/[\n,]+/).map((item) => item.trim()).filter(Boolean);
+
+  const configFromAgentRecord = (agent = {}) => ({
+    runtimeAgentId: agent.id || "",
+    description: agent.description || "",
+    icon: agent.icon || "psychology",
+    color: agent.color || "gold",
+    category: agent.category || "Runtime Intelligence",
+    tags: Array.isArray(agent.tags) ? agent.tags.join(", ") : String(agent.tags || ""),
+    version: agent.version || "1.0.0",
+    templateId: agent.templateId || "",
+    agentType: agent.runtime?.agentType || "analyzer",
+    executionMode: agent.runtime?.executionMode || "on_event",
+    priority: agent.runtime?.priority ?? 5,
+    retryPolicy: agent.runtime?.retryPolicy || "exponential",
+    timeoutMs: agent.runtime?.timeoutMs ?? 30000,
+    cooldownMs: agent.runtime?.cooldownMs ?? 0,
+    queueLimit: agent.runtime?.queueLimit ?? 25,
+    parallelJobs: agent.runtime?.parallelJobs ?? 1,
+    providerProfile: agent.provider?.profileId || "",
+    provider: agent.provider?.providerType || agent.provider?.provider || "ollama",
+    providerType: agent.provider?.providerType || agent.provider?.provider || "ollama",
+    model: agent.provider?.model || "local-model",
+    temperature: agent.provider?.temperature ?? 0.2,
+    maxTokens: agent.provider?.maxTokens ?? 800,
+    topP: agent.provider?.topP ?? 0.9,
+    streaming: String(Boolean(agent.provider?.streaming)),
+    responseFormat: agent.provider?.responseFormat || "json",
+    inputChannels: splitList(agent.channels?.inputs).join(", "),
+    payloadMapping: agent.channels?.payloadMapping || "",
+    requiredInputs: splitList(agent.channels?.requiredInputs).join(", "),
+    contextSources: splitList(agent.channels?.contextSources).join(", "),
+    eventTriggers: splitList(agent.channels?.eventTriggers).join(", "),
+    output: agent.channels?.outputChannel || agent.channels?.outputs?.[0] || `ai.${agent.runtime?.agentType || "agent"}.output`,
+    outputFormat: agent.channels?.outputFormat || "json",
+    emitStrategy: agent.channels?.emitStrategy || "on_success",
+    eventPriority: agent.channels?.eventPriority || "normal",
+    systemPrompt: agent.promptConfig?.systemPrompt || "",
+    prompt: agent.promptConfig?.template || "",
+    promptTemplate: agent.promptConfig?.template || "",
+    dynamicVariables: splitList(agent.promptConfig?.variables).join(", "),
+    promptStrategy: agent.promptConfig?.strategy || "contextual",
+    outputInstructions: agent.promptConfig?.outputInstructions || "",
+    memoryMode: agent.memory?.mode || "workspace",
+    memorySize: agent.memory?.size ?? 20,
+    memoryExpiration: agent.memory?.expiration || "24h",
+    memoryPersistence: agent.memory?.persistence || "workspace",
+    memoryCompression: agent.memory?.compression || "summary",
+    contextWindow: agent.memory?.contextWindow ?? 6,
+    ...(agent.permissions || {}),
+    ...(agent.debug || {}),
+    ...(agent.metrics || {}),
+  });
+
+  const resolveNodeConfig = async (node = {}) => {
+    const config = nodeConfig(node);
+    if (!node.metadata?.aiAgentAlias) return config;
+    const sourceId = node.metadata?.aliasSourceAgentId || config.aliasSourceAgentId || "";
+    if (!sourceId) return config;
+    try {
+      const data = await window.TrackerLensAiRuntimeStore?.list?.();
+      const agent = (data?.agents || []).find((item) => item.id === sourceId);
+      return agent ? { ...config, ...configFromAgentRecord(agent), aliasSourceAgentId: sourceId } : config;
+    } catch (error) {
+      console.warn("AI alias config non risolto", error);
+      return config;
+    }
+  };
+
   const nodeStatus = (node = {}) =>
     String(node.runtime?.status || node.metadata?.runtimeStatus || node.status || "idle").toLowerCase();
 
@@ -32,6 +108,7 @@ window.TrackerLensAiAgentRuntime = (() => {
     (node.type === "aiAgent" || node.metadata?.category === "ai-agents") &&
     !node.metadata?.library &&
     !node.metadata?.draft &&
+    isEventDrivenExecutionMode(agentExecutionMode(node)) &&
     !["paused", "disabled", "error", "disconnected"].includes(nodeStatus(node));
 
   const agentInputs = (node = {}, dependencies = []) => {
@@ -55,8 +132,7 @@ window.TrackerLensAiAgentRuntime = (() => {
     return text.length > max ? `${text.slice(0, max)}\n...` : text;
   };
 
-  const buildPrompt = ({ node, payload, event, memory = "" }) => {
-    const config = nodeConfig(node);
+  const buildPrompt = ({ node, payload, event, memory = "", config = nodeConfig(node) }) => {
     const subtype = nodeSubtype(node);
     const instruction = String(config.prompt || config.instruction || "").trim() ||
       `Act as a Trackers Lens ${subtype || "AI"} runtime node. Analyze the incoming event and return a compact JSON-like result.`;
@@ -64,7 +140,7 @@ window.TrackerLensAiAgentRuntime = (() => {
       instruction,
       memory ? `\nWorkspace memory:\n${memory}` : "",
       `\nNode: ${node.label || node.id}`,
-      `Role: ${subtype || "agent"}`,
+      `Role: ${config.agentType || subtype || "agent"}`,
       `Input channel: ${event.channel || "default"}`,
       `Payload:\n${compactJson(payload)}`,
     ].filter(Boolean).join("\n");
@@ -119,18 +195,43 @@ window.TrackerLensAiAgentRuntime = (() => {
     };
   };
 
+  const withLmStudioApiBase = (endpoint = "") => {
+    const clean = String(endpoint || "http://127.0.0.1:1234").replace(/\/+$/g, "");
+    return clean.endsWith("/v1") ? clean : `${clean}/v1`;
+  };
+
+  const resolveLmStudioModel = async ({ provider = {}, model = "" } = {}) => {
+    const requested = String(model || provider.model || "").trim();
+    if (requested && requested !== "local-model") return requested;
+    const endpoint = withLmStudioApiBase(provider.endpoint);
+    try {
+      const response = await fetch(`${endpoint}/models`);
+      if (!response.ok) return requested || "local-model";
+      const data = await response.json();
+      const models = Array.isArray(data?.data) ? data.data : [];
+      const chatModel = models.find((item) => !/embed/i.test(String(item.id || ""))) || models[0];
+      return chatModel?.id || requested || "local-model";
+    } catch {
+      return requested || "local-model";
+    }
+  };
+
   const callLmStudio = async ({ provider, model, prompt }) => {
-    const endpoint = String(provider.endpoint || "http://127.0.0.1:1234/v1").replace(/\/+$/g, "");
+    const endpoint = withLmStudioApiBase(provider.endpoint);
+    const resolvedModel = await resolveLmStudioModel({ provider, model });
     const response = await fetch(`${endpoint}/chat/completions`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        model,
+        model: resolvedModel,
         messages: [{ role: "user", content: prompt }],
         temperature: 0.2,
       }),
     });
-    if (!response.ok) throw new Error(`LM Studio HTTP ${response.status}`);
+    if (!response.ok) {
+      const errorText = await response.text().catch(() => "");
+      throw new Error(`LM Studio HTTP ${response.status}${errorText ? `: ${errorText.slice(0, 180)}` : ""}`);
+    }
     const data = await response.json();
     return {
       text: data.choices?.[0]?.message?.content || "",
@@ -139,6 +240,7 @@ window.TrackerLensAiAgentRuntime = (() => {
         completionTokens: data.usage?.completion_tokens || 0,
         totalTokens: data.usage?.total_tokens || 0,
       },
+      model: resolvedModel,
       raw: data,
     };
   };
@@ -173,6 +275,7 @@ window.TrackerLensAiAgentRuntime = (() => {
       this.unsubscribers = [];
       this.signature = "";
       this.bus = null;
+      this.executionKeys = new Set();
     }
 
     stop() {
@@ -251,7 +354,7 @@ window.TrackerLensAiAgentRuntime = (() => {
     }
 
     async execute({ node, payload, event }) {
-      const config = nodeConfig(node);
+      const config = await resolveNodeConfig(node);
       const provider = await pickProvider(config);
       const model = String(config.model || provider?.model || "local-model");
       const memory = await window.TrackerLensAiRuntimeStore?.buildMemoryContext?.({
@@ -260,7 +363,7 @@ window.TrackerLensAiAgentRuntime = (() => {
         query: event.channel || nodeSubtype(node),
         limit: 6,
       }).catch(() => "");
-      const prompt = buildPrompt({ node, payload, event, memory });
+      const prompt = buildPrompt({ node, payload, event, memory, config });
       const jobId = `ai_job_${node.id}_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
       const runId = event.meta?.runId || payload?.runId || "";
       await window.TrackerLensAiRuntimeStore?.upsertJob?.({
@@ -292,7 +395,7 @@ window.TrackerLensAiAgentRuntime = (() => {
         const latencyMs = Math.round(performance.now() - startedAt);
         const result = {
           provider: provider?.name || provider?.provider || "local",
-          model,
+          model: ai.model || model,
           role: nodeSubtype(node),
           response: parseAiText(ai.text),
           text: ai.text,
@@ -349,13 +452,22 @@ window.TrackerLensAiAgentRuntime = (() => {
     }
 
     async handleEvent({ node, payload, event }) {
-      if (!node?.id || event?.sourceNodeId === node.id || event?.meta?.aiAgentRuntime === node.id) return;
+      if (
+        !node?.id ||
+        event?.sourceNodeId === node.id ||
+        event?.meta?.aiAgentRuntime === node.id ||
+        event?.meta?.flowMapDirectAiExecution
+      ) return;
+      const runId = event.meta?.runId || payload?.runId || "";
+      const executionKey = `${node.id}:${runId || "live"}:${event.id || event.channel || Date.now()}`;
+      if (this.executionKeys.has(executionKey)) return;
+      this.executionKeys.add(executionKey);
+      if (this.executionKeys.size > 300) this.executionKeys = new Set([...this.executionKeys].slice(-180));
       const startedAt = performance.now();
       try {
-        const runId = event.meta?.runId || payload?.runId || "";
         const result = await this.execute({ node, payload, event });
         const latencyMs = Math.round(performance.now() - startedAt);
-        const channel = agentOutput(node, nodeConfig(node));
+        const channel = agentOutput(node, await resolveNodeConfig(node));
         await this.bus.emit(channel, result, {
           workspaceId: this.workspaceId,
           eventType: "ai_agent_response",
