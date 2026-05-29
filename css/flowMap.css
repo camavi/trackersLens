@@ -1798,6 +1798,10 @@ body.is-flow-inspector-card-dragging {
   background: rgba(56, 189, 248, 0.08);
 }
 
+.tl-flow-inspector-title-line .cms-tooltip-wrap {
+  height: 15px;
+}
+
 .tl-flow-node-icon {
   width: 38px;
   height: 38px;
@@ -2225,6 +2229,158 @@ body.is-flow-inspector-card-dragging {
 .tl-flow-detail-list div.is-wide {
   display: grid;
   gap: 5px;
+}
+
+.tl-flow-port-manager {
+  gap: 6px;
+}
+
+.tl-flow-port-manager .tl-flow-port-manager-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 0 0 4px;
+}
+
+.tl-flow-port-manager .tl-flow-port-manager-head h3 {
+  margin: 0;
+}
+
+.tl-flow-port-hide-all {
+  min-height: 24px;
+  padding: 0 8px;
+  border-radius: 6px;
+  color: rgba(214, 226, 235, 0.72);
+  background: transparent;
+  border-color: transparent;
+  font-size: 10px;
+}
+
+.tl-flow-port-hide-all:not(:disabled):hover {
+  color: var(--tl-text);
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.tl-flow-detail-list .tl-flow-port-manager-row {
+  position: relative;
+  min-height: 34px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 8px;
+  border: 1px solid rgba(214, 226, 235, 0.07);
+  border-radius: 7px;
+  background: rgba(255, 255, 255, 0.025);
+}
+
+.tl-flow-port-manager-row.is-dragging {
+  opacity: 0.48;
+}
+
+.tl-flow-port-manager-row.is-drop-before::before,
+.tl-flow-port-manager-row.is-drop-after::after {
+  content: "";
+  position: absolute;
+  left: 8px;
+  right: 8px;
+  height: 2px;
+  border-radius: 999px;
+  background: #38bdf8;
+  box-shadow: 0 0 10px rgba(56, 189, 248, 0.55);
+}
+
+.tl-flow-port-manager-row.is-drop-before::before {
+  top: -1px;
+}
+
+.tl-flow-port-manager-row.is-drop-after::after {
+  bottom: -1px;
+}
+
+body.is-flow-inspector-port-dragging,
+body.is-flow-inspector-port-dragging * {
+  cursor: grabbing !important;
+}
+
+body.is-flow-inspector-port-dragging {
+  user-select: none;
+}
+
+.tl-flow-port-manager-row.is-linked {
+  border-color: rgba(56, 189, 248, 0.18);
+  background: rgba(56, 189, 248, 0.045);
+}
+
+.tl-flow-port-manager-row.is-hidden {
+  opacity: 0.58;
+}
+
+.tl-flow-port-manager-copy {
+  min-width: 0;
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.tl-flow-port-manager-copy small {
+  overflow: hidden;
+  min-width: 0;
+  color: rgba(214, 226, 235, 0.34);
+  font-size: 10px;
+  font-style: normal;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tl-flow-port-manager-copy strong {
+  flex: 0 1 auto;
+  overflow: hidden;
+  max-width: 68%;
+  color: var(--tl-text);
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tl-flow-port-manager-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.tl-flow-port-icon {
+  width: 26px;
+  height: 26px;
+  min-height: 26px;
+  padding: 0;
+  border-radius: 6px;
+  color: rgba(214, 226, 235, 0.66);
+  background: transparent;
+  border-color: transparent;
+}
+
+.tl-flow-port-icon.is-linked {
+  color: #38bdf8;
+}
+
+.tl-flow-port-icon.is-hidden {
+  color: rgba(214, 226, 235, 0.32);
+}
+
+.tl-flow-port-icon:not(:disabled):hover {
+  color: var(--tl-text);
+  background: rgba(255, 255, 255, 0.055);
+}
+
+.tl-flow-port-drag {
+  width: 22px;
+  display: grid;
+  place-items: center;
+  color: rgba(214, 226, 235, 0.45);
+  cursor: grab;
+  touch-action: none;
 }
 
 .tl-flow-detail-list .tl-flow-dependency-summary {

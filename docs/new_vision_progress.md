@@ -249,6 +249,10 @@ Obiettivo: introdurre AI locale reale prima del cloud.
 - 2026-05-29: Nel Node Inspector lo stato runtime ora sta accanto al sottotitolo e `Rename` e' diventato un'azione icon-only accanto al titolo del nodo, rimossa dalla card controlli.
 - 2026-05-29: Corretto il routing editor dei nodi materializzati da `Existing Tracker` / `Existing Lens`: quando e' presente un URL editor esplicito, la Flow Map apre `editorBoxTracker.html` / `editorBoxLens.html` invece di riaprire il picker degli asset esistenti.
 - 2026-05-29: Aggiunta la regola root/child per l'avvio runtime in Flow Map: solo i nodi senza parent in ingresso possono avviare Pulse/Live Test direttamente, usando il grafo runtime completo anche quando la vista e' filtrata; i child hanno il play disabilitato con tooltip del parent e partono solo quando ricevono payload dal grafo.
+- 2026-05-29: Il contratto `RuntimeManifest` richiede ora almeno una porta IN e una porta OUT per ogni nodo. Il normalizzatore assegna porte default quando mancano, il graph model include le porte manifest nei canali del nodo, e Flow Map applica la normalizzazione anche ai manifest caricati rendendo esplicite le porte di Lens, Action, Storage e Dev Preview senza duplicare un secondo sistema di porte.
+- 2026-05-29: Inputs/Outputs nel Node Inspector Flow Map ora gestiscono la visibilita delle porte sul nodo con righe compatte nome/tipo, una sola icona di stato e drag: drag per ordinare, toggle visibility per nascondere, `Hide all` per porte libere e blocco automatico sulle porte collegate con icona link. Le preferenze sono UI-only in `metadata.portUi` e non cambiano il manifest runtime.
+- 2026-05-29: Il salvataggio delle preferenze `metadata.portUi` e' ora locale/reattivo: aggiorna `state.runtime.nodes`, persiste il nodo e patcha solo canvas/Inspector preservando lo scroll, senza ricaricare il runtime graph completo.
+- 2026-05-29: Il riordino porte nell'Inspector Flow Map usa ora pointer-drag sul handle `drag_indicator` con indicatori before/after, rendendo funzionante il drag senza dipendere dal drag HTML nativo.
 
 La sequenza corretta resta:
 

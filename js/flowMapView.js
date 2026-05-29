@@ -93,6 +93,7 @@ const state = {
   edgePhase: 0,
   edgeAnimation: 0,
   inspectorPanelDrag: null,
+  inspectorPortDrag: null,
   debugMode: localStorage.getItem("tl_flow_debug_mode") === "true",
   lastDeletedConnection: null,
   lastDeletedNode: null,
@@ -564,6 +565,32 @@ const normalizeRuntimeDependencyChannels = async (nodes = [], dependencies = [],
   return normalized;
 };
 
+const normalizeLoadedNodeManifest = (node = {}) => {
+  const metadata = node.metadata || {};
+  const manifest = window.TrackerLensRuntimeManifest?.normalizeManifest?.({
+    ...(metadata.manifest || {}),
+    type: metadata.manifest?.type || (node.type === "boxLens" ? "lens" : node.type),
+    subtype: metadata.manifest?.subtype || metadata.subtype || nodeSubtype(node),
+    category: metadata.manifest?.category || metadata.category || nodeCategory(node),
+    inputs: metadata.manifest?.inputs || node.inputs || [],
+    outputs: metadata.manifest?.outputs || node.outputs || [],
+    permissions: metadata.manifest?.permissions || metadata.permissions || node.permissions || [],
+    settingsSchema: metadata.manifest?.settingsSchema || metadata.settingsSchema || {},
+    runtime: metadata.manifest?.runtime || metadata.runtimeMetadata || node.runtime || {},
+  });
+  if (!manifest) return node;
+  return {
+    ...node,
+    metadata: {
+      ...metadata,
+      manifest,
+      permissions: manifest.permissions,
+      settingsSchema: manifest.settingsSchema,
+      runtimeMetadata: manifest.runtime,
+    },
+  };
+};
+
 const sortById = (items = []) =>
   [...items].sort((a, b) => String(a.id || a.name || "").localeCompare(String(b.id || b.name || "")));
 
@@ -662,7 +689,7 @@ const loadRuntime = async (options = {}) => {
       return;
     }
 
-    const nodes = await resolveAiAgentAliasNodes(enrichNodesWithLibrarySample(runtimeNodes, libraryItems));
+    const nodes = (await resolveAiAgentAliasNodes(enrichNodesWithLibrarySample(runtimeNodes, libraryItems))).map(normalizeLoadedNodeManifest);
     const mergedDependencies = await normalizeRuntimeDependencyChannels(
       nodes,
       mergeOptimisticDependencies(nodes, mergeConnectionDependencies(nodes, dependencies, connections)),
@@ -6416,6 +6443,44 @@ const persistNodeRuntimePatch = async ({ node, patch = {}, message = "Runtime no
   return nextNode;
 };
 
+const patchRuntimeNodeInMemory = (nextNode = {}) => {
+  if (!nextNode?.id) return null;
+  state.runtime = {
+    ...state.runtime,
+    nodes: (state.runtime.nodes || []).map((node) => node.id === nextNode.id ? nextNode : node),
+  };
+  setRuntimeSignal(state.runtime);
+  return nextNode;
+};
+
+const persistNodeUiPatch = async ({ node, metadata = {}, message = "Runtime node UI updated", action = "runtime-node-ui-updated" } = {}) => {
+  if (!node?.id) return null;
+  const nextNode = {
+    ...node,
+    metadata: {
+      ...(node.metadata || {}),
+      ...metadata,
+    },
+  };
+  patchRuntimeNodeInMemory(nextNode);
+  refreshPortUiDom();
+  try {
+    await window.TrackerLensRuntimeGraphStore?.upsertRuntimeNode?.({ node: nextNode });
+    await recordFlowAction({
+      workspaceId: nextNode.workspaceId || "global",
+      nodeId: nextNode.id,
+      message,
+      context: { action, nodeType: nextNode.type || "" },
+    });
+  } catch (error) {
+    console.error("Errore salvataggio UI runtime node:", error);
+    state.error = error?.message || "Errore salvataggio UI runtime node";
+    setErrorSignal(state.error);
+    mount({ preserveScroll: true });
+  }
+  return nextNode;
+};
+
 const setNodeRuntimeStatus = async (node, status = "idle") => {
   const active = !["paused", "disabled", "disconnected", "error"].includes(status);
   await persistNodeRuntimePatch({
@@ -6625,10 +6690,10 @@ const inferPortType = (node = {}, side = "out", name = "") => {
   if (category === "trackers") return "object";
   if (category === "processors") return subtype === "condition" && side === "out" ? "bool" : "object";
   if (category === "ai-agents") return side === "out" ? "object" : "object";
-  if (category === "lens") return side === "in" ? "any" : "never";
-  if (category === "actions") return side === "in" ? "object" : "never";
-  if (category === "storage") return side === "in" ? "object" : "never";
-  if (category === "dev") return side === "in" ? "any" : "never";
+  if (category === "lens") return side === "in" ? "any" : "object";
+  if (category === "actions") return "object";
+  if (category === "storage") return "object";
+  if (category === "dev") return side === "in" ? "any" : "object";
   return "any";
 };
 
@@ -6657,7 +6722,6 @@ const sampleOutputFields = (node = {}) => {
 
 const nodePorts = (node = {}, side = "out") => {
   if (!node?.id) return [{ name: "all", type: side === "in" ? "any" : "object" }];
-  if (side === "out" && nodeCategory(node) === "dev") return [];
   if (side === "in" && nodeCategory(node) === "sources") {
     const manifestInputs = node.metadata?.manifest?.inputs || [];
     const legacyDataInputs = new Set(["all", "raw", "input", "output", "channel"]);
@@ -6679,8 +6743,6 @@ const nodePorts = (node = {}, side = "out") => {
       : (node.outputs?.length ? node.outputs : nodeChannels(node)))
       .filter(Boolean)
       .map((name) => normalizePortDef(name, inferPortType(node, side, name)));
-  if (!values.length && side === "out" && ["lens", "actions", "storage", "dev"].includes(nodeCategory(node))) return [];
-  if (!values.length && side === "in" && nodeCategory(node) === "sources") return [];
   const ports = values.length ? values : [normalizePortDef(side === "in" ? inputPortLabel(node) : outputPortLabel(node), inferPortType(node, side))];
   const unique = new Map();
   ports.forEach((port) => {
@@ -7241,12 +7303,37 @@ const connectedPortNames = (graph, nodeId = "", side = "out") => {
   return names;
 };
 
+const portUiSide = (side = "in") => side === "out" ? "out" : "in";
+
+const portUiForNode = (node = {}, side = "in") => {
+  const ui = node.metadata?.portUi || {};
+  const section = ui[portUiSide(side)] || {};
+  return {
+    order: Array.isArray(section.order) ? section.order.filter(Boolean).map(String) : [],
+    hidden: Array.isArray(section.hidden) ? section.hidden.filter(Boolean).map(String) : [],
+  };
+};
+
+const orderedNodePorts = (node = {}, side = "in", ports = nodePorts(node, side)) => {
+  const ui = portUiForNode(node, side);
+  const order = new Map(ui.order.map((name, index) => [name, index]));
+  return [...ports].sort((a, b) => {
+    const aIndex = order.has(a.name) ? order.get(a.name) : Number.MAX_SAFE_INTEGER;
+    const bIndex = order.has(b.name) ? order.get(b.name) : Number.MAX_SAFE_INTEGER;
+    if (aIndex !== bIndex) return aIndex - bIndex;
+    return ports.findIndex((port) => port.name === a.name) - ports.findIndex((port) => port.name === b.name);
+  });
+};
+
 const visibleNodePorts = (node = {}, side = "out", ports = [], graph = {}) => {
-  if (!node?.metadata?.collapsed || ports.length <= 8) return ports;
+  const ordered = orderedNodePorts(node, side, ports);
   const connected = connectedPortNames(graph, node.id, side);
-  const visible = ports.filter((port) => port.name === "all" || connected.has(port.name));
+  const hidden = new Set(portUiForNode(node, side).hidden);
+  const eligible = ordered.filter((port) => connected.has(port.name) || !hidden.has(port.name));
+  if (!node?.metadata?.collapsed || eligible.length <= 8) return eligible;
+  const visible = eligible.filter((port) => port.name === "all" || connected.has(port.name));
   if (visible.length > 1) return visible;
-  return ports.slice(0, Math.min(3, ports.length));
+  return eligible.slice(0, Math.min(3, eligible.length));
 };
 
 const nodePortYValue = (portIndex = 0, portCount = 1) => {
@@ -8213,15 +8300,204 @@ const renderInspectorOutputs = (node, channels, channelRecords) => {
   );
 };
 
+const clearInspectorPortDragMarks = () => {
+  document.querySelectorAll(".tl-flow-port-manager-row.is-dragging, .tl-flow-port-manager-row.is-drop-before, .tl-flow-port-manager-row.is-drop-after")
+    .forEach((element) => element.classList.remove("is-dragging", "is-drop-before", "is-drop-after"));
+};
+
+const inspectorPortRowFromPoint = (event, drag = state.inspectorPortDrag) =>
+  document.elementsFromPoint(event.clientX, event.clientY)
+    .find((element) =>
+      element?.dataset?.flowPortRowNode === drag?.nodeId &&
+      element.dataset.flowPortRowSide === drag?.side &&
+      element.dataset.flowPortRowName
+    );
+
+const handleInspectorPortDragMove = (event) => {
+  const drag = state.inspectorPortDrag;
+  if (!drag) return;
+  const dx = Math.abs(event.clientX - drag.startX);
+  const dy = Math.abs(event.clientY - drag.startY);
+  if (!drag.moved && Math.max(dx, dy) < 4) return;
+  if (!drag.moved) {
+    drag.moved = true;
+    document.body.classList.add("is-flow-inspector-port-dragging");
+  }
+
+  event.preventDefault();
+  clearInspectorPortDragMarks();
+  document.querySelector(`[data-flow-port-row-node="${escapeSelectorValue(drag.nodeId)}"][data-flow-port-row-side="${drag.side}"][data-flow-port-row-name="${escapeSelectorValue(drag.portName)}"]`)?.classList.add("is-dragging");
+
+  const target = inspectorPortRowFromPoint(event, drag);
+  const targetName = target?.dataset?.flowPortRowName || "";
+  if (!target || targetName === drag.portName) {
+    drag.targetName = "";
+    drag.placement = "";
+    return;
+  }
+
+  const rect = target.getBoundingClientRect();
+  drag.targetName = targetName;
+  drag.placement = event.clientY < rect.top + rect.height / 2 ? "before" : "after";
+  target.classList.add(drag.placement === "before" ? "is-drop-before" : "is-drop-after");
+
+  const inspector = document.querySelector(".tl-flow-inspector-overlay .tl-flow-inspector");
+  if (inspector) {
+    const inspectorRect = inspector.getBoundingClientRect();
+    if (event.clientY < inspectorRect.top + 36) inspector.scrollTop -= 10;
+    else if (event.clientY > inspectorRect.bottom - 36) inspector.scrollTop += 10;
+  }
+};
+
+const endInspectorPortDrag = () => {
+  const drag = state.inspectorPortDrag;
+  document.removeEventListener("pointermove", handleInspectorPortDragMove);
+  document.removeEventListener("pointerup", endInspectorPortDrag);
+  document.removeEventListener("pointercancel", cancelInspectorPortDrag);
+  document.body.classList.remove("is-flow-inspector-port-dragging");
+  clearInspectorPortDragMarks();
+  state.inspectorPortDrag = null;
+  if (!drag?.moved || !drag.targetName || drag.targetName === drag.portName) return;
+
+  const node = nodeById(drag.nodeId);
+  if (!node) return;
+  const nextOrder = drag.portNames.filter((name) => name !== drag.portName);
+  const targetIndex = nextOrder.indexOf(drag.targetName);
+  if (targetIndex < 0) return;
+  nextOrder.splice(drag.placement === "before" ? targetIndex : targetIndex + 1, 0, drag.portName);
+  const current = node.metadata?.portUi || {};
+  const currentSide = portUiForNode(node, drag.side);
+  persistNodeUiPatch({
+    node,
+    metadata: {
+      portUi: {
+        ...current,
+        [drag.side]: {
+          ...currentSide,
+          order: nextOrder,
+        },
+      },
+    },
+    message: `Runtime node ${drag.side === "out" ? "output" : "input"} ports reordered: ${node.label || node.id}`,
+    action: "runtime-node-port-ui-reorder",
+  });
+};
+
+const cancelInspectorPortDrag = () => {
+  document.removeEventListener("pointermove", handleInspectorPortDragMove);
+  document.removeEventListener("pointerup", endInspectorPortDrag);
+  document.removeEventListener("pointercancel", cancelInspectorPortDrag);
+  document.body.classList.remove("is-flow-inspector-port-dragging");
+  clearInspectorPortDragMarks();
+  state.inspectorPortDrag = null;
+};
+
+const beginInspectorPortDrag = (event, node, side = "in", ports = [], port = {}) => {
+  if (event.button !== 0 || !node?.id || !port?.name) return;
+  event.preventDefault();
+  event.stopPropagation();
+  state.inspectorPortDrag = {
+    nodeId: node.id,
+    side,
+    portName: port.name,
+    portNames: ports.map((item) => item.name),
+    startX: event.clientX,
+    startY: event.clientY,
+    moved: false,
+    targetName: "",
+    placement: "",
+  };
+  document.addEventListener("pointermove", handleInspectorPortDragMove);
+  document.addEventListener("pointerup", endInspectorPortDrag);
+  document.addEventListener("pointercancel", cancelInspectorPortDrag);
+};
+
 const renderInspectorPorts = (node, side = "in") => {
-  const ports = nodePorts(node, side === "out" ? "out" : "in");
+  const normalizedSide = side === "out" ? "out" : "in";
+  const graph = graphModel();
+  const ports = orderedNodePorts(node, normalizedSide, nodePorts(node, normalizedSide));
+  const connected = connectedPortNames(graph, node.id, normalizedSide);
+  const hidden = new Set(portUiForNode(node, normalizedSide).hidden);
+  const hideablePorts = ports.filter((port) => !connected.has(port.name) && !hidden.has(port.name));
+  const updatePortUi = (patch = {}) => {
+    const current = node.metadata?.portUi || {};
+    const currentSide = portUiForNode(node, normalizedSide);
+    return persistNodeUiPatch({
+      node,
+      metadata: {
+        portUi: {
+          ...current,
+          [normalizedSide]: {
+            ...currentSide,
+            ...patch,
+          },
+        },
+      },
+      message: `Runtime node ${normalizedSide === "out" ? "output" : "input"} ports UI updated: ${node.label || node.id}`,
+      action: "runtime-node-port-ui",
+    });
+  };
+  const togglePortVisibility = (port) => {
+    if (connected.has(port.name)) return;
+    const nextHidden = hidden.has(port.name)
+      ? [...hidden].filter((name) => name !== port.name)
+      : [...hidden, port.name];
+    updatePortUi({ hidden: nextHidden });
+  };
+  const hideAll = () => {
+    if (!hideablePorts.length) return;
+    updatePortUi({ hidden: [...new Set([...hidden, ...hideablePorts.map((port) => port.name)])] });
+  };
   return _.section(
-    { class: "tl-flow-detail-list" },
-    _.h3(side === "out" ? "Outputs" : "Inputs"),
-    ...(ports.length ? ports.map((port) => _.div(
-      _.span(portDisplayLabel(port, side, ports)),
-      _.strong(`${port.type || "any"} · ${port.name || "port"}`)
-    )) : [_.p({ class: "tl-flow-muted" }, side === "out" ? "Nessun output dichiarato." : "Nessun input dichiarato.")])
+    { class: "tl-flow-detail-list tl-flow-port-manager" },
+    _.div(
+      { class: "tl-flow-port-manager-head" },
+      _.h3(normalizedSide === "out" ? "Outputs" : "Inputs"),
+      btn({
+        class: "tl-flow-port-hide-all",
+        disabled: !hideablePorts.length,
+        title: hideablePorts.length ? "Hide all unlinked ports on node" : "No unlinked visible ports to hide",
+        onclick: hideAll,
+      }, "Hide all")
+    ),
+    ...(ports.length ? ports.map((port) => {
+      const isConnected = connected.has(port.name);
+      const isHidden = hidden.has(port.name) && !isConnected;
+      const visibilityTitle = isConnected
+        ? "Porta collegata, non può essere nascosta"
+        : isHidden
+          ? "Show port on node"
+          : "Hide port on node";
+      const stateIcon = isConnected ? "link" : isHidden ? "visibility_off" : "visibility";
+      return _.div(
+        {
+          class: `tl-flow-port-manager-row${isConnected ? " is-linked" : ""}${isHidden ? " is-hidden" : ""}`,
+          "data-flow-port-row-node": node.id,
+          "data-flow-port-row-side": normalizedSide,
+          "data-flow-port-row-name": port.name,
+        },
+        _.span(
+          { class: "tl-flow-port-manager-copy" },
+          _.strong(port.name || "port"),
+          _.small(`${port.type || "any"}${port.required ? " · required" : ""}`)
+        ),
+        _.span(
+          { class: "tl-flow-port-manager-actions" },
+          btn({
+            class: `tl-flow-port-icon${isConnected ? " is-linked" : ""}${isHidden ? " is-hidden" : ""}`,
+            disabled: isConnected,
+            "aria-label": visibilityTitle,
+            title: visibilityTitle,
+            onclick: () => togglePortVisibility(port),
+          }, icon(stateIcon, "sm")),
+          _.span({
+            class: "tl-flow-port-drag",
+            title: "Drag to reorder",
+            onPointerDown: (event) => beginInspectorPortDrag(event, node, normalizedSide, ports, port),
+          }, icon("drag_indicator", "sm"))
+        )
+      );
+    }) : [_.p({ class: "tl-flow-muted" }, normalizedSide === "out" ? "Nessun output dichiarato." : "Nessun input dichiarato.")])
   );
 };
 
@@ -9271,6 +9547,20 @@ const restorePanelScroll = (positions = {}) => {
     const panel = document.querySelector(selector);
     if (!panel) return;
     panel.scrollTop = Math.min(positions[selector] || 0, panel.scrollHeight - panel.clientHeight);
+  });
+};
+
+const refreshPortUiDom = () => {
+  const scrollPositions = capturePanelScroll();
+  syncReactiveState();
+  replaceRenderedNode(".tl-flow-center", _.div({ class: "tl-flow-center" }, renderCanvas()));
+  if (state.inspectorOpen) {
+    replaceRenderedNode(".tl-flow-inspector-overlay", _.div({ class: "tl-flow-inspector-overlay" }, renderInspector()));
+  }
+  restorePanelScroll(scrollPositions);
+  requestAnimationFrame(() => {
+    renderFlowEdges();
+    requestAnimationFrame(renderFlowEdges);
   });
 };
 

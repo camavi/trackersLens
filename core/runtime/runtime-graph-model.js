@@ -69,6 +69,8 @@ window.TrackerLensRuntimeGraphModel = (() => {
       .concat(node?.channels || [])
       .concat(node?.inputs || [])
       .concat(node?.outputs || [])
+      .concat((node?.metadata?.manifest?.inputs || []).map((port) => port?.name || port))
+      .concat((node?.metadata?.manifest?.outputs || []).map((port) => port?.name || port))
       .filter(Boolean)
       .map(String);
 

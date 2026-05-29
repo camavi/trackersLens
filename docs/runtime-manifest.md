@@ -11,7 +11,7 @@ Il manifest runtime e il contratto stabile per ogni nodo del Runtime Graph. La n
 - `contractVersion`: versione del contratto manifest, oggi `1.0.0`.
 - `version`: versione del nodo/asset.
 - `runtimeVersion`: runtime minimo atteso dal nodo.
-- `type`: `source`, `boxTracker`, `processor`, `aiAgent`, `boxLens`, `lens`, `action` o `storage`.
+- `type`: `source`, `boxTracker`, `processor`, `aiAgent`, `boxLens`, `lens`, `action`, `storage` o `devPreview`.
 - `subtype`: ruolo operativo concreto del nodo.
 - `category`: famiglia UI/runtime.
 - `inputs`: porte input tipizzate.
@@ -21,6 +21,9 @@ Il manifest runtime e il contratto stabile per ogni nodo del Runtime Graph. La n
 - `runtime`: metadati runtime non visuali.
 
 ## Porte
+
+Ogni manifest deve esporre almeno una porta `inputs` e una porta `outputs`.
+Se il nodo non dichiara una delle due liste, il normalizzatore assegna una porta default per mantenere esplicito il contratto runtime del nodo.
 
 Ogni porta viene normalizzata come:
 
