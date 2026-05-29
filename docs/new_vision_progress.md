@@ -248,6 +248,7 @@ Obiettivo: introdurre AI locale reale prima del cloud.
 - 2026-05-29: Il Node/Edge Inspector sostituisce il titolo testuale `Node Inspector` / `Edge Inspector` con una titlebar hero che mostra icona, nome/tipo e stato. Le azioni sono state spostate in una bottom bar compatta icon-only con tooltip CMSwift, mantenendo il chip del source attivo come `Source: Preview`.
 - 2026-05-29: Nel Node Inspector lo stato runtime ora sta accanto al sottotitolo e `Rename` e' diventato un'azione icon-only accanto al titolo del nodo, rimossa dalla card controlli.
 - 2026-05-29: Corretto il routing editor dei nodi materializzati da `Existing Tracker` / `Existing Lens`: quando e' presente un URL editor esplicito, la Flow Map apre `editorBoxTracker.html` / `editorBoxLens.html` invece di riaprire il picker degli asset esistenti.
+- 2026-05-29: Aggiunta la regola root/child per l'avvio runtime in Flow Map: solo i nodi senza parent in ingresso possono avviare Pulse/Live Test direttamente, usando il grafo runtime completo anche quando la vista e' filtrata; i child hanno il play disabilitato con tooltip del parent e partono solo quando ricevono payload dal grafo.
 
 La sequenza corretta resta:
 

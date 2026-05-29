@@ -2991,6 +2991,45 @@ const isManualInputSource = (node = {}) => {
 const isLiveTestableStarterNode = (node = {}) =>
   isDirectAiTestNode(node) || isManualInputSource(node) || (isTestableStarterNode(node) && Boolean(nodeEndpoint(node)));
 
+const runtimeRuleGraph = () =>
+  graphModelApi().build({
+    runtime: state.runtime,
+    filters: {
+      ...state.filters,
+      channel: "all",
+      type: "all",
+      origin: "all",
+      state: "all",
+      activity: "all",
+      eventType: "all",
+      logLevel: "all",
+      runId: "all",
+    },
+  });
+
+const nodeParentDependencies = (node = {}, graph = runtimeRuleGraph()) =>
+  !node?.id ? [] : (graph.dependencies || [])
+    .filter((dependency) => dependency.targetNodeId === node.id && dependency.sourceNodeId && dependency.sourceNodeId !== node.id);
+
+const isRootRuntimeNode = (node = {}, graph = runtimeRuleGraph()) =>
+  Boolean(node?.id) && !nodeParentDependencies(node, graph).length;
+
+const rootStartBlockedReason = (node = {}, graph = runtimeRuleGraph()) => {
+  const parents = nodeParentDependencies(node, graph)
+    .map((dependency) => (graph.nodes || []).find((item) => item.id === dependency.sourceNodeId))
+    .filter(Boolean)
+    .map((parent) => parent.label || parent.id);
+  return parents.length
+    ? `Parte dal parent: ${parents.slice(0, 2).join(", ")}${parents.length > 2 ? ` +${parents.length - 2}` : ""}`
+    : "Solo i root node possono avviare test";
+};
+
+const isRootTestableStarterNode = (node = {}, graph = runtimeRuleGraph()) =>
+  isRootRuntimeNode(node, graph) && isTestableStarterNode(node);
+
+const isRootLiveTestableStarterNode = (node = {}, graph = runtimeRuleGraph()) =>
+  isRootRuntimeNode(node, graph) && isLiveTestableStarterNode(node);
+
 const testRunId = () => `flow_test_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
 
 const uniqueStrings = (values = []) =>
@@ -4157,12 +4196,23 @@ const stopFlowMapTestRun = async () => {
 
 const runFlowMapTest = async (starterNode = null) => {
   if (state.testRun.running) return;
-  const graph = graphModel();
+  const graph = runtimeRuleGraph();
+  const ruleGraph = graph;
+  if (starterNode?.id && !isRootRuntimeNode(starterNode, ruleGraph)) {
+    state.error = `${starterNode.label || starterNode.id} non parte direttamente. ${rootStartBlockedReason(starterNode, ruleGraph)}.`;
+    mount({ preserveScroll: true });
+    return;
+  }
+  if (starterNode?.id && !isTestableStarterNode(starterNode)) {
+    state.error = `${starterNode.label || starterNode.id} non ha un runtime di avvio Pulse test.`;
+    mount({ preserveScroll: true });
+    return;
+  }
   const starters = starterNode?.id
     ? [starterNode]
-    : (graph.nodes || []).filter(isTestableStarterNode);
+    : (graph.nodes || []).filter((node) => isRootTestableStarterNode(node, ruleGraph));
   if (!starters.length) {
-    state.error = "Nessun Source o Tracker testabile nel workspace corrente.";
+    state.error = "Nessun root Source o Tracker testabile nel workspace corrente.";
     mount({ preserveScroll: true });
     return;
   }
@@ -4283,12 +4333,23 @@ const runFlowMapTest = async (starterNode = null) => {
 
 const runFlowMapLiveTest = async (starterNode = null) => {
   if (state.testRun.running) return;
-  const graph = graphModel();
+  const graph = runtimeRuleGraph();
+  const ruleGraph = graph;
+  if (starterNode?.id && !isRootRuntimeNode(starterNode, ruleGraph)) {
+    state.error = `${starterNode.label || starterNode.id} non parte direttamente. ${rootStartBlockedReason(starterNode, ruleGraph)}.`;
+    mount({ preserveScroll: true });
+    return;
+  }
+  if (starterNode?.id && !isLiveTestableStarterNode(starterNode)) {
+    state.error = `${starterNode.label || starterNode.id} non ha un runtime di avvio Live test configurato.`;
+    mount({ preserveScroll: true });
+    return;
+  }
   const starters = starterNode?.id
     ? [starterNode]
-    : (graph.nodes || []).filter(isLiveTestableStarterNode);
+    : (graph.nodes || []).filter((node) => isRootLiveTestableStarterNode(node, ruleGraph));
   if (!starters.length) {
-    state.error = "Nessun Source o Tracker con endpoint configurato nel workspace corrente.";
+    state.error = "Nessun root Source, Tracker o AI manuale con endpoint/payload configurato nel workspace corrente.";
     mount({ preserveScroll: true });
     return;
   }
@@ -4722,13 +4783,13 @@ const renderHeader = () =>
       btn({ onclick: loadRuntime }, icon("sync", "sm"), "Refresh"),
       btn({
         class: state.testRun.running ? "is-primary is-running" : "",
-        title: state.testRun.summary || "Run graph pulse test from all Sources and Trackers",
+        title: state.testRun.summary || "Run graph pulse test from root Sources and Trackers only; child nodes start from parent payloads",
         disabled: state.testRun.running,
         onclick: () => runFlowMapTest(),
       }, icon(state.testRun.running ? "hourglass_top" : "offline_bolt", "sm"), state.testRun.running ? "Testing" : "Pulse Test"),
       btn({
         class: state.testRun.running ? "is-primary is-running" : "",
-        title: state.testRun.summary || "Run real one-shot REST/WebSocket test from all Sources and Trackers",
+        title: state.testRun.summary || "Run real one-shot test from root nodes only; child nodes start from parent payloads",
         disabled: state.testRun.running,
         onclick: () => runFlowMapLiveTest(),
       }, icon(state.testRun.running ? "hourglass_top" : "play_arrow", "sm"), state.testRun.running ? "Testing" : "Live Test"),
@@ -7520,6 +7581,7 @@ const replaceRenderedNode = (selector, nextNode, { preserveScroll = false } = {}
 
 const refreshNodeRuntimeDom = (graph, activity) => {
   const processingNodeIds = new Set(activeAiProcessingNodeIds());
+  const ruleGraph = runtimeRuleGraph();
   (graph.nodes || []).forEach((node) => {
     const live = activity.nodeActivity?.get(node.id);
     const badges = document.querySelector(`[data-flow-node-badges="${escapeSelectorValue(node.id)}"]`);
@@ -7543,8 +7605,13 @@ const refreshNodeRuntimeDom = (graph, activity) => {
     const testButton = document.querySelector(`[data-flow-node-test-btn="${escapeSelectorValue(node.id)}"]`);
     if (testButton) {
       const busy = processingNodeIds.has(node.id) || (state.testRun.running && (state.testRun.activeNodeIds || []).includes(node.id));
+      const rootBlocked = isLiveTestableStarterNode(node) && !isRootRuntimeNode(node, ruleGraph);
+      testButton.dataset.rootBlocked = rootBlocked ? "true" : "false";
+      testButton.title = rootBlocked
+        ? rootStartBlockedReason(node, ruleGraph)
+        : "Run real one-shot live test from this root node through connected children";
       testButton.classList.toggle("is-running", busy);
-      testButton.disabled = state.testRun.running || processingNodeIds.has(node.id);
+      testButton.disabled = rootBlocked || state.testRun.running || processingNodeIds.has(node.id);
       testButton.replaceChildren(icon(busy ? "hourglass_top" : "play_arrow", "sm"));
     }
   });
@@ -7798,6 +7865,7 @@ const renderCanvas = () => {
   const baseGraph = graphModel();
   const activity = recentActivity(baseGraph);
   const graph = filterByActivity(baseGraph, activity);
+  const ruleGraph = runtimeRuleGraph();
   const renderGraph = lazyVisibleGraph(graph, activity);
   state.edgeRender = { graph, activity };
   const impact = selectedImpact(graph);
@@ -7879,7 +7947,11 @@ const renderCanvas = () => {
           const isLinkTarget = Boolean(linkSource && canConnectNodes(linkSource, node));
           const isLinkHover = state.linkHoverTargetId === node.id;
           const isInTestRun = state.testRun.running && (state.testRun.activeNodeIds || []).includes(node.id);
-          const canRunNodeTest = isLiveTestableStarterNode(node);
+          const canRunNodeTest = isRootLiveTestableStarterNode(node, ruleGraph);
+          const blockedChildTest = isLiveTestableStarterNode(node) && !isRootRuntimeNode(node, ruleGraph);
+          const testButtonTitle = canRunNodeTest
+            ? "Run real one-shot live test from this root node through connected children"
+            : rootStartBlockedReason(node, ruleGraph);
           return _.div(
             {
               role: "button",
@@ -7974,12 +8046,13 @@ const renderCanvas = () => {
             _.span(
               { class: "tl-flow-node-footer", "data-flow-node-footer": node.id },
               _.em({ "data-flow-node-footer-info": "true" }, footerInfo),
-              canRunNodeTest ? btn({
+              canRunNodeTest || blockedChildTest ? btn({
                 class: "tl-flow-node-test-btn",
                 "data-flow-node-test-btn": node.id,
-                "aria-label": `Run live test from ${view.title}`,
-                title: "Run real one-shot live test from this node through connected children",
-                disabled: state.testRun.running || processingNode,
+                "data-root-blocked": blockedChildTest ? "true" : "false",
+                "aria-label": canRunNodeTest ? `Run live test from ${view.title}` : `${view.title} starts from parent`,
+                title: testButtonTitle,
+                disabled: blockedChildTest || state.testRun.running || processingNode,
                 onPointerDown: (event) => {
                   event.preventDefault();
                   event.stopPropagation();
@@ -7987,6 +8060,7 @@ const renderCanvas = () => {
                 onclick: (event) => {
                   event.preventDefault();
                   event.stopPropagation();
+                  if (blockedChildTest) return;
                   runFlowMapLiveTest(node);
                 },
               }, icon((state.testRun.running && isInTestRun) || processingNode ? "hourglass_top" : "play_arrow", "sm")) : null,

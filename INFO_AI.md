@@ -3711,6 +3711,7 @@ Verifiche eseguite:
 Fix successivo:
 
 - 2026-05-29: corretto `openPaletteNode()` per rispettare prima `item.url`. Questo ripristina l'apertura di `editorBoxTracker.html` / `editorBoxLens.html` da nodi materializzati `Existing Tracker` / `Existing Lens`, invece di riaprire il dialog picker degli asset esistenti quando si usa `Open Config`, il bottone editor sulla card o l'azione nell'inspector.
+- 2026-05-29: aggiunta regola root/child per l'avvio test in Flow Map. `runtimeRuleGraph()` calcola starter, parent e path ignorando i filtri visuali; Pulse/Live Test globali selezionano solo root node, il play dei child resta visibile ma disabilitato con tooltip del parent, e `runFlowMapTest()` / `runFlowMapLiveTest()` bloccano chiamate dirette verso child.
 
 ## Aggiornamento 2026-05-29 - Flow Map File menu nella filterbar
 
