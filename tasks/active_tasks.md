@@ -191,6 +191,9 @@ Runtime Notes:
 - 2026-05-29: Flow Map Node Inspector Inputs/Outputs now support UI-only port ordering and visibility with compact rows showing name, muted type, one state icon and drag. Ports can be reordered by drag and hidden from the node card, `Hide all` affects only unlinked ports, and linked ports show a link icon and stay visible. Preferences are stored in `metadata.portUi`, leaving `manifest.inputs/outputs` untouched.
 - 2026-05-29: Flow Map `metadata.portUi` saves no longer reload the full runtime graph. Port visibility/order updates patch `state.runtime.nodes`, persist the node record, and refresh only the canvas/Inspector DOM with preserved inspector scroll.
 - 2026-05-29: Flow Map port reorder drag now uses pointer events on the `drag_indicator` handle with before/after drop markers, replacing the fragile native HTML drag path inside the Inspector.
+- 2026-05-29: Flow Map `Add Node` palette now has local search over node label, type, subtype, category, permissions and metadata. Filtering patches palette DOM visibility directly so typing does not remount the shell or drop input focus.
+- 2026-05-29: Flow Map canvas pan no longer remounts the shell on mouseup after a real pan. The viewport is saved and edges are redrawn in-place, preserving the left Add Node palette scroll.
+- 2026-05-29: Flow Map node cards now come to front on click or drag start through `frontNodeId` / `is-front`, so overlapping nodes keep their controls accessible.
 - Remaining: service-worker/extension background persistence after every Trackers Lens tab is closed remains future hardening; current worker lifetime is browser-page scoped.
 
 ## [TASK-020]

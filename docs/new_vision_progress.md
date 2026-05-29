@@ -253,6 +253,9 @@ Obiettivo: introdurre AI locale reale prima del cloud.
 - 2026-05-29: Inputs/Outputs nel Node Inspector Flow Map ora gestiscono la visibilita delle porte sul nodo con righe compatte nome/tipo, una sola icona di stato e drag: drag per ordinare, toggle visibility per nascondere, `Hide all` per porte libere e blocco automatico sulle porte collegate con icona link. Le preferenze sono UI-only in `metadata.portUi` e non cambiano il manifest runtime.
 - 2026-05-29: Il salvataggio delle preferenze `metadata.portUi` e' ora locale/reattivo: aggiorna `state.runtime.nodes`, persiste il nodo e patcha solo canvas/Inspector preservando lo scroll, senza ricaricare il runtime graph completo.
 - 2026-05-29: Il riordino porte nell'Inspector Flow Map usa ora pointer-drag sul handle `drag_indicator` con indicatori before/after, rendendo funzionante il drag senza dipendere dal drag HTML nativo.
+- 2026-05-29: La palette `Add Node` della Flow Map ora include una search locale che filtra gruppi e nodi per label, tipo, subtype, categoria, permessi e metadata senza rimontare la shell durante la digitazione.
+- 2026-05-29: Corretto il pan del canvas Flow Map: il mouseup dopo pan reale non rimonta piu la shell, evitando il reset dello scroll nella palette `Add Node`.
+- 2026-05-29: Le card nodo della Flow Map ora vengono portate in primo piano su click/drag tramite stato `frontNodeId` e classe `is-front`, evitando che restino sotto altre card sovrapposte.
 
 La sequenza corretta resta:
 

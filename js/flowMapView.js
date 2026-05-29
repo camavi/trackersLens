@@ -85,6 +85,8 @@ const state = {
   },
   viewport: { zoom: 1, panX: 0, panY: 0 },
   nodePositions: {},
+  frontNodeId: params.get("nodeId") || "",
+  paletteSearch: "",
   paletteDragItem: null,
   palettePointer: null,
   suppressPaletteClick: false,
@@ -1232,6 +1234,14 @@ const channelForDraft = () =>
 
 const escapeSelectorValue = (value) => window.CSS?.escape ? window.CSS.escape(value) : String(value).replace(/["\\]/g, "\\$&");
 
+const bringNodeToFront = (nodeId = "") => {
+  const nextId = String(nodeId || "");
+  if (!nextId || state.frontNodeId === nextId) return;
+  state.frontNodeId = nextId;
+  document.querySelectorAll(".tl-flow-node.is-front").forEach((element) => element.classList.remove("is-front"));
+  document.querySelector(`.tl-flow-node[data-flow-node-id="${escapeSelectorValue(nextId)}"]`)?.classList.add("is-front");
+};
+
 const beginPan = (event) => {
   if (event.target.closest?.(".tl-flow-node, .tl-flow-panel, .tl-flow-controls, .tl-flow-filterbar")) return;
   const edge = edgeAtPointer(event);
@@ -1883,6 +1893,7 @@ const cancelPalettePointer = () => {
 const beginNodeDrag = (event, node, index) => {
   event.preventDefault();
   event.stopPropagation();
+  bringNodeToFront(node.id);
   const canvas = event.currentTarget.closest(".tl-flow-canvas");
   const current = nodePosition(node, index);
   const pointer = pointerPercent(event, canvas);
@@ -2187,7 +2198,14 @@ const endInteraction = (event) => {
       flushPendingRuntimeRefresh();
       return;
     }
+    if (!interaction.moved) {
+      flushPendingRuntimeRefresh();
+      return;
+    }
     saveViewport();
+    renderFlowEdges();
+    flushPendingRuntimeRefresh();
+    return;
   }
   mount();
   flushPendingRuntimeRefresh();
@@ -2290,6 +2308,7 @@ const fitVisibleGraph = () => {
 
 const selectNode = (node) => {
   closeContextMenu();
+  bringNodeToFront(node.id);
   setFocusState({
     mode: "dependencies",
     nodeId: node.id,
@@ -7157,12 +7176,101 @@ const requestEdgeDelete = (edge) => {
   dialog.open();
 };
 
+const paletteSearchText = (item = {}, group = "") =>
+  [
+    group,
+    item.label,
+    item.nodeType,
+    item.type,
+    item.subtype,
+    item.category,
+    item.connectionType,
+    item.trackerSource,
+    item.runtimeMode,
+    item.url,
+    ...(item.permissions || []),
+    item.manifest?.type,
+    item.manifest?.subtype,
+    item.manifest?.category,
+  ].filter(Boolean).join(" ").toLowerCase();
+
+const filteredNodePalette = () => {
+  const query = String(state.paletteSearch || "").trim().toLowerCase();
+  if (!query) return nodePalette;
+  return nodePalette
+    .map(([title, items]) => [title, items.filter((item) => paletteSearchText(item, title).includes(query))])
+    .filter(([, items]) => items.length);
+};
+
+const paletteItemMatchesSearch = (item = {}, group = "", query = String(state.paletteSearch || "").trim().toLowerCase()) =>
+  !query || paletteSearchText(item, group).includes(query);
+
+const applyPaletteSearchDom = () => {
+  const query = String(state.paletteSearch || "").trim().toLowerCase();
+  let visibleSections = 0;
+  document.querySelectorAll("[data-flow-palette-section]").forEach((section) => {
+    let visibleItems = 0;
+    section.querySelectorAll("[data-flow-palette-item]").forEach((item) => {
+      const matched = !query || String(item.dataset.flowPaletteSearch || "").includes(query);
+      item.hidden = !matched;
+      if (matched) visibleItems += 1;
+    });
+    section.hidden = visibleItems === 0;
+    if (visibleItems) visibleSections += 1;
+  });
+  const empty = document.querySelector("[data-flow-palette-empty]");
+  if (empty) empty.hidden = visibleSections > 0;
+  const clear = document.querySelector("[data-flow-palette-search-clear]");
+  if (clear) clear.hidden = !query;
+};
+
+const setPaletteSearch = (value = "") => {
+  state.paletteSearch = value;
+  applyPaletteSearchDom();
+};
+
 const renderPalette = () =>
+  (() => {
+    const visiblePalette = filteredNodePalette();
+    return (
   _.aside(
     { class: "tl-flow-palette" },
     _.div({ class: "tl-flow-panel-title" }, _.strong("Add Node"), btn({ "aria-label": "Collapse" }, icon("keyboard_arrow_up", "sm"))),
-    ...nodePalette.map(([title, items]) =>
+    _.label(
+      { class: "tl-flow-palette-search" },
+      icon("search", "sm"),
+      _.input({
+        type: "search",
+        value: state.paletteSearch,
+        placeholder: "Search nodes",
+        "aria-label": "Search nodes",
+        autocomplete: "off",
+        oninput: (event) => setPaletteSearch(event.currentTarget.value),
+        onkeydown: (event) => event.stopPropagation(),
+        onclick: (event) => event.stopPropagation(),
+        onPointerDown: (event) => event.stopPropagation(),
+      }),
+      btn({
+        class: "tl-flow-palette-search-clear",
+        "data-flow-palette-search-clear": "true",
+        "aria-label": "Clear node search",
+        title: "Clear search",
+        hidden: !state.paletteSearch,
+        onclick: (event) => {
+          event.preventDefault();
+          event.stopPropagation();
+          setPaletteSearch("");
+          const input = document.querySelector(".tl-flow-palette-search input");
+          if (input) input.value = "";
+          input?.focus?.();
+        },
+      }, icon("close", "sm"))
+    ),
+    ...nodePalette.map(([title, items]) => {
+      const hasVisibleItems = items.some((item) => paletteItemMatchesSearch(item, title));
+      return (
       _.section(
+        { "data-flow-palette-section": title, hidden: !hasVisibleItems },
         _.h3(title),
         ...items.map((item) =>
           _.button(
@@ -7170,6 +7278,9 @@ const renderPalette = () =>
               type: "button",
               class: `tl-flow-palette-item is-draggable is-${item.tone || "cyan"}`,
               title: item.url || item.trackerSource || item.connectionType || item.label,
+              "data-flow-palette-item": item.label,
+              "data-flow-palette-search": paletteSearchText(item, title),
+              hidden: !paletteItemMatchesSearch(item, title),
               onPointerDown: (event) => beginPalettePointer(event, item),
               onclick: () => {
                 if (state.suppressPaletteClick) return;
@@ -7181,8 +7292,17 @@ const renderPalette = () =>
           )
         )
       )
+      );
+    }),
+    _.div(
+      { class: "tl-flow-palette-empty", "data-flow-palette-empty": "true", hidden: visiblePalette.length > 0 },
+      icon("search_off", "sm"),
+      _.strong("No nodes found"),
+      _.span("Try another name, type or category.")
     )
-  );
+  )
+    );
+  })();
 
 const renderFilterbar = () =>
   _.div(
@@ -8043,7 +8163,7 @@ const renderCanvas = () => {
             {
               role: "button",
               tabindex: 0,
-              class: `tl-flow-node is-${graphTone(node)} is-runtime-${view.runtime.status}${node.metadata?.collapsed ? " is-collapsed" : ""}${state.focus.nodeId === node.id ? " is-selected" : ""}${impactClassForNode(node, impact)}${live || processingNode ? " is-live is-event-active" : ""}${processingNode ? " is-ai-processing" : ""}${live?.status === "error" ? " is-error" : ""}${isLinkSource ? " is-link-source" : ""}${isLinkTarget ? " is-link-target" : ""}${isLinkHover ? " is-link-hover" : ""}${isInTestRun ? " is-test-path" : ""}`,
+              class: `tl-flow-node is-${graphTone(node)} is-runtime-${view.runtime.status}${node.metadata?.collapsed ? " is-collapsed" : ""}${state.frontNodeId === node.id ? " is-front" : ""}${state.focus.nodeId === node.id ? " is-selected" : ""}${impactClassForNode(node, impact)}${live || processingNode ? " is-live is-event-active" : ""}${processingNode ? " is-ai-processing" : ""}${live?.status === "error" ? " is-error" : ""}${isLinkSource ? " is-link-source" : ""}${isLinkTarget ? " is-link-target" : ""}${isLinkHover ? " is-link-hover" : ""}${isInTestRun ? " is-test-path" : ""}`,
               style: { "--x": pos.x, "--y": pos.y, "--port-count": portCount, minHeight: `${nodeMinHeight(portCount)}px` },
               "data-flow-node-id": node.id,
               "data-input-port-count": fullInputPorts.length,

@@ -3681,6 +3681,13 @@ Verifiche eseguite:
 - `curl -I http://127.0.0.1:3031/js/flowMapView.js`
 - `curl -I http://127.0.0.1:3031/core/runtime/runtime-graph-model.js`
 
+## Aggiornamento 2026-05-29 - Flow Map node layering
+
+Fatto:
+
+- `js/flowMapView.js`: le card nodo mantengono uno stato `frontNodeId` e vengono portate in primo piano su click o avvio drag.
+- `css/flowMap.css`: aggiunta la classe `is-front` con z-index dedicato, lasciando gli stati selected/link-source coerenti.
+
 ## Aggiornamento 2026-05-29 - Inspector Flow Map a card collassabili
 
 Obiettivo della sessione: aggiornare l'aside destro Node/Edge Inspector con una struttura piu compatta e moderna, ispirata a pannelli collassabili, mantenendo i controlli principali sempre in alto.
@@ -3716,6 +3723,8 @@ Fix successivo:
 - 2026-05-29: aggiornato l'Inspector Flow Map per Inputs/Outputs con gestione "shown on node": ogni riga mostra nome, tipo opaco, una sola icona di stato e drag; le porte si possono riordinare via drag, nascondere singolarmente o con Hide all, mentre le porte gia collegate mostrano icona link e non possono essere nascoste. Le preferenze restano in `node.metadata.portUi` e non modificano il contratto `manifest.inputs/outputs`.
 - 2026-05-29: corretto il salvataggio `portUi` dell'Inspector Flow Map per non passare piu da `loadRuntime({ force: true })`. Le preferenze UI delle porte aggiornano il nodo in memoria, salvano su IndexedDB e patchano solo canvas/inspector con scroll preservato, evitando reset dell'aside e reload completo del runtime graph.
 - 2026-05-29: reso operativo il drag delle porte Inputs/Outputs nell'Inspector Flow Map. Il riordino ora usa pointer events sul handle `drag_indicator`, indicatori before/after e salvataggio mirato di `metadata.portUi.order`, evitando il drag HTML nativo fragile dentro l'aside.
+- 2026-05-29: aggiunta search alla palette `Add Node` della Flow Map. La ricerca filtra gruppi e node item per nome, tipo, subtype, categoria, permessi e action metadata direttamente nel DOM della palette, senza rimontare la shell o interrompere il focus dell'input.
+- 2026-05-29: corretto il reset scroll della palette dopo pan canvas. `endInteraction()` non rimonta piu la shell su mouseup quando il pan e' reale: il layer e' gia aggiornato durante pointermove, quindi ora salva solo viewport, ridisegna edge e preserva lo scroll dell'aside sinistro.
 
 ## Aggiornamento 2026-05-29 - Flow Map File menu nella filterbar
 
