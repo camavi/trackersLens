@@ -605,15 +605,18 @@ body {
   text-transform: uppercase;
 }
 
-.tl-flow-node-builder-general input {
-  min-height: 34px;
-  padding: 0 10px;
-  border: 1px solid rgba(214, 226, 235, 0.12);
-  border-radius: 7px;
-  background: rgba(1, 6, 10, 0.58);
-  color: var(--tl-text);
-  font: inherit;
-  font-size: 12px;
+.tl-flow-node-builder-general-control,
+.tl-flow-node-builder-general-control.cms-field {
+  min-width: 0;
+}
+
+.tl-flow-node-builder-general-control .cms-label,
+.tl-flow-node-builder-general-control label,
+.tl-flow-node-builder-general-control>label {
+  color: rgba(214, 226, 235, 0.62);
+  font-size: 10px;
+  font-weight: 800;
+  text-transform: uppercase;
 }
 
 .tl-flow-node-builder-rows,
@@ -966,15 +969,6 @@ body {
   text-transform: uppercase;
 }
 
-.tl-flow-node-builder-live-field {
-  min-width: 0;
-}
-
-.tl-flow-node-builder-live-field .cms-field,
-.tl-flow-node-builder-live-field.cms-field {
-  gap: 4px;
-}
-
 .tl-flow-node-builder-live-field label,
 .tl-flow-node-builder-live-field .cms-label {
   font-size: 9px;
@@ -998,6 +992,32 @@ body {
   font-weight: 800;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.tl-flow-node-builder-live-check {
+  min-height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 0 7px;
+  border: 1px solid rgba(214, 226, 235, 0.09);
+  border-radius: 7px;
+}
+
+.tl-flow-node-builder-live-check>span {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--tl-text);
+  font-size: 10px;
+  font-weight: 800;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tl-flow-node-builder-live-check-control {
+  flex: 0 0 auto;
+  margin-left: auto;
 }
 
 .tl-flow-node-builder-live-slider {
@@ -3055,6 +3075,32 @@ body.is-flow-inspector-card-dragging {
 .tl-flow-config-toggle-row>span {
   color: var(--tl-text-muted);
   font-size: 11px;
+}
+
+.tl-flow-config-check-row {
+  min-height: 42px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 0 10px;
+  border: 1px solid rgba(214, 226, 235, 0.1);
+  border-radius: 7px;
+  background: rgba(5, 10, 15, 0.42);
+}
+
+.tl-flow-config-check-row>span {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--tl-text-muted);
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tl-flow-config-check-control {
+  flex: 0 0 auto;
+  margin-left: auto;
 }
 
 .tl-flow-config-field input,

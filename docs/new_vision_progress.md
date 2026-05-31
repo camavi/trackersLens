@@ -274,6 +274,14 @@ Obiettivo: introdurre AI locale reale prima del cloud.
 - 2026-05-30: I controlli custom renderizzati sulla card reale del canvas sono ora interattivi: input/select/slider aggiornano `metadata.config` con salvataggio mirato, toggle/checkbox salvano subito e gli eventi pointer restano isolati dal drag del nodo.
 - 2026-05-30: Il dialog `Custom Node Settings` aggiunge nel footer `Customize Node`, che riapre il Node Builder in modalita modifica sullo stesso nodo custom. Layout, porte e metadata vengono precaricati e `Save Node` aggiorna il record esistente senza duplicarlo.
 - 2026-05-31: I controlli CMSwift nel Node Builder/custom node ora usano `size: "sm"` anche per Slider nei contesti preview, canvas e settings, dopo la correzione CMSwift dell'`IndexSizeError` sul range input nativo.
+- 2026-05-31: I componenti custom `Checkbox` del Node Builder ora usano `_.Checkbox` CMSwift in preview, canvas e settings, separando visivamente e funzionalmente checkbox e toggle.
+- 2026-05-31: Il layout dei `Checkbox` custom e' stato rifinito come riga compatta con label a sinistra e controllo a destra, coerente con il pattern dei toggle.
+- 2026-05-31: Il catalogo `Components` del Node Builder aggiunge `Radio`, `Rating`, `Date` e `Time`, renderizzati con componenti CMSwift nei contesti preview, canvas e settings.
+- 2026-05-31: `Field Settings` del Node Builder ora persiste impostazioni per componente dentro `formLayout`: visible on node, auto porte IN/OUT, icon/color, default value/state, options per Select/Radio e min/max/step per Slider/Rating.
+- 2026-05-31: L'impostazione `Icon` dei componenti custom ora e' vuota di default, cosi i controlli CMSwift mantengono il loro default interno finche l'utente non specifica un'icona.
+- 2026-05-31: Il blocco `General` del Node Builder usa ora select CMSwift per Category, Icon e Tone, alimentati da liste globali riusabili per mantenere coerenti categorie, icone e toni dei nodi.
+- 2026-05-31: Il blocco `General` del Node Builder usa ora `_.Input` anche per Name e Subtype, e il dialog non si chiude piu da outside/backdrop quando si interagisce con dropdown CMSwift.
+- 2026-05-31: La Flow Map include ora una lista Material Icons locale (`data/material-icons-list.json` + `js/tl-material-icon-options.js`); i picker icone del Node Builder usano `_.Select` filterable su quella lista locale, documentata in `docs/icon-selects.md`.
 
 La sequenza corretta resta:
 

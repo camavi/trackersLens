@@ -1117,6 +1117,80 @@ const toneRgb = (tone = "cyan") => ({
   teal: [20, 184, 166],
 }[tone] || [34, 211, 238]);
 
+const FLOW_NODE_CATEGORY_OPTIONS = [
+  { value: "custom", label: "Custom" },
+  { value: "sources", label: "Sources" },
+  { value: "trackers", label: "Trackers" },
+  { value: "processors", label: "Processors" },
+  { value: "ai-agents", label: "AI Agents" },
+  { value: "lens", label: "Lens" },
+  { value: "actions", label: "Actions" },
+  { value: "storage", label: "Storage" },
+  { value: "dev", label: "Dev" },
+];
+
+const FLOW_NODE_ICON_FALLBACK_OPTIONS = [
+  { value: "extension", label: "Extension" },
+  { value: "add_box", label: "Add Box" },
+  { value: "api", label: "API" },
+  { value: "settings_input_antenna", label: "WebSocket" },
+  { value: "rss_feed", label: "RSS Feed" },
+  { value: "webhook", label: "Webhook" },
+  { value: "data_object", label: "JSON" },
+  { value: "notes", label: "Notes" },
+  { value: "storage", label: "Storage" },
+  { value: "inventory_2", label: "Inventory" },
+  { value: "sync_alt", label: "Realtime" },
+  { value: "update", label: "Polling" },
+  { value: "filter_alt", label: "Filter" },
+  { value: "tune", label: "Tune" },
+  { value: "alt_route", label: "Route" },
+  { value: "psychology", label: "AI" },
+  { value: "memory", label: "Memory" },
+  { value: "dashboard", label: "Dashboard" },
+  { value: "visibility", label: "Preview" },
+  { value: "database", label: "Database" },
+  { value: "notifications", label: "Notification" },
+  { value: "bolt", label: "Trigger" },
+];
+
+const FLOW_NODE_ICON_OPTIONS = (() => {
+  const values = new Map();
+  const addOption = (option = {}) => {
+    const value = String(option.value || "").trim();
+    if (!value || values.has(value)) return;
+    values.set(value, {
+      value,
+      label: option.label || value.replace(/_/g, " ").replace(/\b\w/g, (letter) => letter.toUpperCase()),
+      icon: value,
+      category: option.category || "",
+      keywords: option.keywords || "",
+    });
+  };
+  FLOW_NODE_ICON_FALLBACK_OPTIONS.forEach(addOption);
+  (window.TrackerLensMaterialIconOptions || []).forEach(addOption);
+  return Array.from(values.values());
+})();
+
+const FLOW_COMPONENT_ICON_OPTIONS = [
+  { value: "", label: "CMSwift default", icon: "auto_awesome" },
+  ...FLOW_NODE_ICON_OPTIONS,
+];
+
+const FLOW_NODE_TONE_OPTIONS = [
+  { value: "gold", label: "Gold" },
+  { value: "green", label: "Green" },
+  { value: "blue", label: "Blue" },
+  { value: "cyan", label: "Cyan" },
+  { value: "violet", label: "Violet" },
+  { value: "purple", label: "Purple" },
+  { value: "pink", label: "Pink" },
+  { value: "orange", label: "Orange" },
+  { value: "red", label: "Red" },
+  { value: "lime", label: "Lime" },
+  { value: "teal", label: "Teal" },
+];
+
 const rgba = ([r, g, b], alpha = 1) => `rgba(${r}, ${g}, ${b}, ${alpha})`;
 
 const workspaceOptions = () => {
@@ -5199,6 +5273,10 @@ const nodeBuilderCmswiftComponents = [
   { label: "Toggle", type: "form", icon: "toggle_on", description: "Boolean switch" },
   { label: "Checkbox", type: "form", icon: "check_box", description: "Check control" },
   { label: "Slider", type: "form", icon: "tune", description: "Numeric range" },
+  { label: "Radio", type: "form", icon: "radio_button_checked", description: "Single choice" },
+  { label: "Rating", type: "form", icon: "star", description: "Star rating" },
+  { label: "Date", type: "form", icon: "calendar_today", description: "Date picker" },
+  { label: "Time", type: "form", icon: "schedule", description: "Time picker" },
 ];
 
 const normalizeNodeBuilderPorts = (ports = [], side = "in") => {
@@ -5206,6 +5284,7 @@ const normalizeNodeBuilderPorts = (ports = [], side = "in") => {
   return values.map((port) => {
     if (typeof port === "object" && port) {
       return {
+        ...port,
         name: port.name || port.key || port.label || (side === "in" ? "input" : "output"),
         type: port.type || "object",
         visible: port.visible !== false,
@@ -5222,7 +5301,7 @@ const defaultNodeBuilderTemplate = () =>
   nodeBuilderTemplateGroups()[0]?.[1]?.[0] || blankNodeTemplate();
 
 const NODE_BUILDER_CONTAINER_TYPES = new Set(["card", "row", "col"]);
-const NODE_BUILDER_DATA_COMPONENT_TYPES = new Set(["input", "select", "toggle", "checkbox", "slider", "string", "number", "boolean", "object", "array", "textarea"]);
+const NODE_BUILDER_DATA_COMPONENT_TYPES = new Set(["input", "select", "toggle", "checkbox", "slider", "radio", "rating", "date", "time", "string", "number", "boolean", "object", "array", "textarea"]);
 
 const nodeBuilderComponentSchemaType = (type = "input") => ({
   input: "string",
@@ -5231,6 +5310,10 @@ const nodeBuilderComponentSchemaType = (type = "input") => ({
   toggle: "toggle",
   checkbox: "boolean",
   slider: "number",
+  radio: "radio",
+  rating: "number",
+  date: "date",
+  time: "time",
   string: "string",
   number: "number",
   boolean: "boolean",
@@ -5251,9 +5334,83 @@ const nodeBuilderComponentIcon = (type = "input") => ({
   checkbox: "check_box",
   select: "arrow_drop_down_circle",
   slider: "tune",
+  radio: "radio_button_checked",
+  rating: "star",
+  date: "calendar_today",
+  time: "schedule",
   badge: "label",
   chip: "sell",
 }[type] || "dynamic_form");
+
+const NODE_BUILDER_COLOR_OPTIONS = ["primary", "secondary", "success", "warning", "danger", "info", "light", "dark"];
+
+const nodeBuilderDefaultComponentSettings = (type = "input") => ({
+  visibleOnNode: true,
+  exposeInput: false,
+  exposeOutput: false,
+  icon: null,
+  color: type === "slider" || type === "rating" ? "primary" : "success",
+  defaultValue: type === "select" || type === "radio" ? "option-1" : "",
+  defaultChecked: false,
+  min: 0,
+  max: type === "rating" ? 5 : 100,
+  step: 1,
+  options: [
+    { value: "option-1", label: "Option 1" },
+    { value: "option-2", label: "Option 2" },
+  ],
+});
+
+const normalizeNodeBuilderOptions = (options = []) => {
+  const values = Array.isArray(options) ? options : String(options || "").split(",");
+  const normalized = values
+    .map((option, index) => {
+      if (typeof option === "object" && option) {
+        const value = String(option.value || option.label || `option-${index + 1}`).trim();
+        return value ? { value, label: String(option.label || value).trim() || value } : null;
+      }
+      const value = String(option || "").trim();
+      return value ? { value, label: value } : null;
+    })
+    .filter(Boolean);
+  return normalized.length ? normalized : nodeBuilderDefaultComponentSettings("select").options;
+};
+
+const nodeBuilderOptionsText = (options = []) =>
+  normalizeNodeBuilderOptions(options).map((option) => option.label === option.value ? option.value : `${option.label}:${option.value}`).join(", ");
+
+const nodeBuilderOptionsFromText = (value = "") =>
+  normalizeNodeBuilderOptions(String(value || "").split(",").map((entry, index) => {
+    const [label, optionValue] = String(entry || "").split(":").map((part) => part.trim());
+    const resolvedValue = optionValue || label || `option-${index + 1}`;
+    return { label: label || resolvedValue, value: resolvedValue };
+  }));
+
+const normalizeNodeBuilderSettings = (type = "input", settings = {}) => {
+  const defaults = nodeBuilderDefaultComponentSettings(type);
+  const next = { ...defaults, ...(settings || {}) };
+  next.visibleOnNode = settings.visibleOnNode !== false;
+  next.exposeInput = Boolean(settings.exposeInput);
+  next.exposeOutput = Boolean(settings.exposeOutput);
+  next.icon = next.icon ? String(next.icon).trim() : null;
+  next.color = String(next.color || defaults.color || "success").trim();
+  next.defaultValue = next.defaultValue ?? defaults.defaultValue ?? "";
+  next.defaultChecked = Boolean(next.defaultChecked);
+  next.min = Number.isFinite(Number(next.min)) ? Number(next.min) : defaults.min;
+  next.max = Number.isFinite(Number(next.max)) ? Number(next.max) : defaults.max;
+  next.step = Number.isFinite(Number(next.step)) ? Number(next.step) : defaults.step;
+  next.options = normalizeNodeBuilderOptions(next.options);
+  return next;
+};
+
+const nodeBuilderComponentSettings = (node = {}) =>
+  normalizeNodeBuilderSettings(node.type || "input", node.settings || {});
+
+const nodeBuilderFieldOptions = (node = {}) =>
+  normalizeNodeBuilderOptions(nodeBuilderComponentSettings(node).options);
+
+const nodeBuilderPortNameForField = (field = {}) =>
+  String(field.key || field.label || field.id || "field").replace(/[^A-Za-z0-9_.-]/g, "_");
 
 const nodeBuilderId = (prefix = "item") =>
   `${prefix}_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
@@ -5278,6 +5435,7 @@ const normalizeNodeBuilderLayout = (nodes = []) =>
       label: node?.label || node?.key || (NODE_BUILDER_CONTAINER_TYPES.has(type) ? type.toUpperCase() : "Field"),
       key: node?.key || "",
       required: Boolean(node?.required),
+      settings: normalizeNodeBuilderSettings(type, node?.settings || {}),
     };
     if (NODE_BUILDER_CONTAINER_TYPES.has(type)) {
       normalized.children = normalizeNodeBuilderLayout(node?.children || []);
@@ -5296,6 +5454,7 @@ const nodeBuilderLayoutFromFields = (fields = []) =>
         type,
         label: field.label || type.toUpperCase(),
         key: field.key || "",
+        settings: normalizeNodeBuilderSettings(type, field.settings || {}),
         children: normalizeNodeBuilderLayout(field.children || []),
       };
     }
@@ -5305,6 +5464,7 @@ const nodeBuilderLayoutFromFields = (fields = []) =>
       label: field.label || field.key || "Field",
       key: field.key || "field",
       required: Boolean(field.required),
+      settings: normalizeNodeBuilderSettings(type, field.settings || {}),
     };
   }));
 
@@ -5334,6 +5494,30 @@ const removeNodeBuilderLayoutNode = (nodes = [], nodeId = "") => {
   return true;
 };
 
+const syncNodeBuilderComponentPort = (builder = {}, field = {}, side = "in", enabled = false) => {
+  const listKey = side === "in" ? "inputs" : "outputs";
+  const ports = normalizeNodeBuilderPorts(builder[listKey] || [], side);
+  const sourceId = field.id || "";
+  const name = nodeBuilderPortNameForField(field);
+  const type = nodeBuilderComponentSchemaType(field.type || "input");
+  const existingIndex = ports.findIndex((port) => port.sourceComponentId === sourceId);
+  if (enabled) {
+    const nextPort = {
+      ...(existingIndex >= 0 ? ports[existingIndex] : {}),
+      name,
+      type,
+      visible: true,
+      sourceComponentId: sourceId,
+      sourceComponentKey: field.key || name,
+    };
+    if (existingIndex >= 0) ports[existingIndex] = nextPort;
+    else ports.push(nextPort);
+  } else if (existingIndex >= 0) {
+    ports.splice(existingIndex, 1);
+  }
+  builder[listKey] = ports.length ? ports : normalizeNodeBuilderPorts([], side);
+};
+
 const collectNodeBuilderDataFields = (layout = []) => {
   const fields = [];
   walkNodeBuilderLayout(layout, (node) => {
@@ -5345,6 +5529,7 @@ const collectNodeBuilderDataFields = (layout = []) => {
         type: nodeBuilderComponentSchemaType(node.type),
         component: node.type,
         required: Boolean(node.required),
+        settings: nodeBuilderComponentSettings(node),
       });
     }
   });
@@ -5353,6 +5538,9 @@ const collectNodeBuilderDataFields = (layout = []) => {
 
 const nodeBuilderSettingsSchemaFromLayout = (layout = []) =>
   Object.fromEntries(collectNodeBuilderDataFields(layout).map((field) => [field.key || field.label || "field", field.type || "string"]));
+
+const nodeBuilderDefaultConfigFromLayout = (layout = []) =>
+  Object.fromEntries(collectNodeBuilderDataFields(layout).map((field) => [field.key || field.label || "field", customConfigValue({}, field)]));
 
 const nodeBuilderStateFromTemplate = (template = {}, group = "Custom") => {
   const fields = nodeBuilderFieldsFromTemplate(template);
@@ -5386,8 +5574,18 @@ const nodeBuilderStateToTemplate = (builder = {}) => {
     nodeType: builder.nodeType || "custom",
     subtype: builder.subtype || "custom",
     category: builder.category || "custom",
-    inputs: (builder.inputs || []).map((port) => ({ name: port.name || "input", type: port.type || "object" })),
-    outputs: (builder.outputs || []).map((port) => ({ name: port.name || "output", type: port.type || "object" })),
+    inputs: (builder.inputs || []).map((port) => ({
+      name: port.name || "input",
+      type: port.type || "object",
+      visible: port.visible !== false,
+      ...(port.sourceComponentId ? { sourceComponentId: port.sourceComponentId, sourceComponentKey: port.sourceComponentKey || "" } : {}),
+    })),
+    outputs: (builder.outputs || []).map((port) => ({
+      name: port.name || "output",
+      type: port.type || "object",
+      visible: port.visible !== false,
+      ...(port.sourceComponentId ? { sourceComponentId: port.sourceComponentId, sourceComponentKey: port.sourceComponentKey || "" } : {}),
+    })),
     permissions: Array.isArray(builder.permissions) ? [...builder.permissions] : [],
     runtimeMode: builder.runtimeMode || "manual / on event",
     connectionType: builder.connectionType || "",
@@ -5398,8 +5596,8 @@ const nodeBuilderStateToTemplate = (builder = {}) => {
       type: builder.nodeType || "custom",
       subtype: builder.subtype || "custom",
       category: builder.category || "custom",
-      inputs: (builder.inputs || []).map((port) => ({ name: port.name || "input", type: port.type || "object" })),
-      outputs: (builder.outputs || []).map((port) => ({ name: port.name || "output", type: port.type || "object" })),
+      inputs: (builder.inputs || []).map((port) => ({ name: port.name || "input", type: port.type || "object", visible: port.visible !== false })),
+      outputs: (builder.outputs || []).map((port) => ({ name: port.name || "output", type: port.type || "object", visible: port.visible !== false })),
       permissions: Array.isArray(builder.permissions) ? [...builder.permissions] : [],
       settingsSchema,
     },
@@ -5407,8 +5605,13 @@ const nodeBuilderStateToTemplate = (builder = {}) => {
 };
 
 const renderNodeBuilderPreviewComponent = (node = {}) => {
+  const settings = nodeBuilderComponentSettings(node);
+  if (settings.visibleOnNode === false) return null;
   const label = node.label || node.key || node.type || "Component";
   if (NODE_BUILDER_CONTAINER_TYPES.has(node.type)) {
+    const children = node.children?.length
+      ? node.children.map((child) => renderNodeBuilderPreviewComponent(child)).filter(Boolean)
+      : [];
     return _.div(
       { class: `tl-flow-node-builder-preview-form-node is-${node.type}` },
       _.div(
@@ -5419,58 +5622,139 @@ const renderNodeBuilderPreviewComponent = (node = {}) => {
       ),
       _.div(
         { class: "tl-flow-node-builder-preview-form-children" },
-        ...(node.children?.length
-          ? node.children.map((child) => renderNodeBuilderPreviewComponent(child))
-          : [_.span({ class: "tl-flow-node-builder-preview-empty" }, "Empty container")])
+        ...(children.length ? children : [_.span({ class: "tl-flow-node-builder-preview-empty" }, "Empty container")])
       )
     );
   }
   if (node.type === "badge" || node.type === "chip") {
     return _.span(
       { class: `tl-flow-node-builder-live-token is-${node.type}` },
-      icon(nodeBuilderComponentIcon(node.type), "sm"),
+      icon(settings.icon || nodeBuilderComponentIcon(node.type), "sm"),
       label
     );
   }
   if (node.type === "select") {
+    const options = nodeBuilderFieldOptions(node);
     return _.Select({
       class: "tl-flow-node-builder-live-field",
       size: "sm",
       label,
-      value: "preview",
+      value: settings.defaultValue || options[0]?.value || "",
       disabled: true,
-      options: [{ value: "preview", label: "Preview option" }],
+      options,
       slots: { arrow: () => icon("keyboard_arrow_down", "sm") },
     });
   }
-  if (node.type === "toggle" || node.type === "checkbox" || node.type === "boolean") {
+  if (node.type === "checkbox") {
+    return _.div(
+      { class: "tl-flow-node-builder-live-check" },
+      _.span(label),
+      _.Checkbox({
+        class: "tl-flow-node-builder-live-check-control",
+        size: "sm",
+        checked: Boolean(settings.defaultChecked),
+        title: label,
+        disabled: true,
+        color: settings.color || "success",
+        outline: true,
+        ...(settings.icon ? { checkedIcon: settings.icon } : {}),
+      })
+    );
+  }
+  if (node.type === "radio") {
+    return _.div(
+      { class: "tl-flow-node-builder-live-check" },
+      _.span(label),
+      _.Radio({
+        class: "tl-flow-node-builder-live-check-control",
+        size: "sm",
+        checked: Boolean(settings.defaultValue),
+        title: label,
+        disabled: true,
+        color: settings.color || "success",
+        outline: true,
+        ...(settings.icon ? { checkedIcon: settings.icon } : {}),
+      })
+    );
+  }
+  if (node.type === "toggle" || node.type === "boolean") {
     return _.div(
       { class: "tl-flow-node-builder-live-toggle" },
       _.span(label),
-      _.Toggle({ class: "tl-flow-node-builder-live-toggle-control", size: "sm", checked: true, color: "success", disabled: true })
+      _.Toggle({
+        class: "tl-flow-node-builder-live-toggle-control",
+        size: "sm",
+        checked: Boolean(settings.defaultChecked),
+        color: settings.color || "success",
+        disabled: true,
+        ...(settings.icon ? { iconOn: settings.icon, checkedIcon: settings.icon } : {}),
+      })
     );
+  }
+  if (node.type === "rating") {
+    return _.div(
+      { class: "tl-flow-node-builder-live-field" },
+      _.span(label),
+      _.Rating ? _.Rating({
+        size: "sm",
+        value: Number(settings.defaultValue) || 0,
+        max: Number(settings.max) || 5,
+        readonly: true,
+        colorSelected: settings.color || "primary",
+      }) : _.span(`${Number(settings.defaultValue) || 0} / ${Number(settings.max) || 5}`)
+    );
+  }
+  if (node.type === "date") {
+    return _.Date ? _.Date({
+      class: "tl-flow-node-builder-live-field",
+      size: "sm",
+      label,
+      value: String(settings.defaultValue || ""),
+      disabled: true,
+      ...(settings.icon ? { icon: settings.icon } : {}),
+    }) : _.Input({ class: "tl-flow-node-builder-live-field", size: "sm", label, value: String(settings.defaultValue || ""), disabled: true });
+  }
+  if (node.type === "time") {
+    return _.Time ? _.Time({
+      class: "tl-flow-node-builder-live-field",
+      size: "sm",
+      label,
+      value: String(settings.defaultValue || ""),
+      disabled: true,
+      ...(settings.icon ? { icon: settings.icon } : {}),
+    }) : _.Input({ class: "tl-flow-node-builder-live-field", size: "sm", label, value: String(settings.defaultValue || ""), disabled: true });
   }
   if (node.type === "slider" || node.type === "number") {
     return _.div(
       { class: "tl-flow-node-builder-live-field" },
       _.span(label),
-      _.Slider ? _.Slider({ size: "sm", value: 42, min: 0, max: 100, disabled: true }) : _.div({ class: "tl-flow-node-builder-live-slider" })
+      _.Slider ? _.Slider({
+        size: "sm",
+        value: Number(settings.defaultValue) || Number(settings.min) || 0,
+        min: Number(settings.min) || 0,
+        max: Number(settings.max) || 100,
+        step: Number(settings.step) || 1,
+        color: settings.color || "primary",
+        disabled: true,
+        showValue: true,
+      }) : _.div({ class: "tl-flow-node-builder-live-slider" })
     );
   }
   return _.Input({
     class: "tl-flow-node-builder-live-field",
     size: "sm",
     label,
-    value: node.type === "textarea" ? "Preview text" : "",
+    value: node.type === "textarea" ? (settings.defaultValue || "Preview text") : String(settings.defaultValue || ""),
     placeholder: node.key || label,
     disabled: true,
+    ...(settings.icon ? { icon: settings.icon } : {}),
   });
 };
 
 const renderNodeBuilderPreviewFormNodes = (layout = []) => {
   const nodes = normalizeNodeBuilderLayout(layout);
   return nodes.length
-    ? nodes.map((node) => renderNodeBuilderPreviewComponent(node))
+    ? nodes.map((node) => renderNodeBuilderPreviewComponent(node)).filter(Boolean)
     : [
       _.div(
         { class: "tl-flow-node-builder-preview-form-empty is-inline" },
@@ -5537,6 +5821,15 @@ const renderNodeBuilderFormLayout = (layout = [], depth = 0) => {
   }
   return nodes.map((node, index) => {
     const isContainer = NODE_BUILDER_CONTAINER_TYPES.has(node.type);
+    const settings = nodeBuilderComponentSettings(node);
+    const statusParts = isContainer
+      ? [`${node.type} container`]
+      : [
+        `${node.type} · ${node.key || "display"}`,
+        settings.visibleOnNode === false ? "hidden" : "visible",
+        settings.exposeInput ? "IN" : "",
+        settings.exposeOutput ? "OUT" : "",
+      ].filter(Boolean);
     const childActions = isContainer ? _.span(
       { class: "tl-flow-node-builder-row-actions" },
       btn({ title: "Add Row", "aria-label": "Add Row", "data-node-builder-add-child": `${node.id}:row` }, icon("view_stream", "sm")),
@@ -5557,7 +5850,7 @@ const renderNodeBuilderFormLayout = (layout = [], depth = 0) => {
         _.span(
           { class: "tl-flow-node-builder-row-main" },
           _.strong(node.label || node.key || node.type),
-          _.em(isContainer ? `${node.type} container` : `${node.type} · ${node.key || "display"}`)
+          _.em(statusParts.join(" · "))
         ),
         node.key && !isContainer ? _.code(node.key) : null,
         childActions,
@@ -5626,9 +5919,9 @@ const openNodeBuilderDialog = (options = {}) => {
   const readBuilderGeneral = (root) => {
     if (!root) return;
     builder.label = root.querySelector("[data-node-builder-field='label']")?.value?.trim() || builder.label || "Custom Node";
-    builder.category = root.querySelector("[data-node-builder-field='category']")?.value?.trim() || "custom";
-    builder.icon = root.querySelector("[data-node-builder-field='icon']")?.value?.trim() || "extension";
-    builder.tone = root.querySelector("[data-node-builder-field='tone']")?.value?.trim() || "gold";
+    builder.category = root.querySelector("[data-node-builder-field='category']")?.value?.trim() || builder.category || "custom";
+    builder.icon = root.querySelector("[data-node-builder-field='icon']")?.value?.trim() || builder.icon || "extension";
+    builder.tone = root.querySelector("[data-node-builder-field='tone']")?.value?.trim() || builder.tone || "gold";
     builder.subtype = root.querySelector("[data-node-builder-field='subtype']")?.value?.trim() || builder.subtype || "custom";
   };
 
@@ -5714,9 +6007,141 @@ const openNodeBuilderDialog = (options = {}) => {
     let keyValue = field.key || "field";
     let typeValue = field.type || "string";
     let requiredValue = Boolean(field.required);
+    const settingsValue = { ...nodeBuilderComponentSettings(field) };
+    let optionsValue = nodeBuilderOptionsText(settingsValue.options);
     const readCmsValue = (value) => value?.target?.value ?? value;
-    const typeOptions = (isContainer ? ["card", "row", "col"] : ["input", "string", "number", "boolean", "object", "array", "toggle", "checkbox", "select", "slider", "textarea", "badge", "chip"])
+    const typeOptions = (isContainer ? ["card", "row", "col"] : ["input", "string", "number", "boolean", "object", "array", "toggle", "checkbox", "radio", "select", "slider", "rating", "date", "time", "textarea", "badge", "chip"])
       .map((type) => ({ value: type, label: type }));
+    const colorOptions = NODE_BUILDER_COLOR_OPTIONS.map((color) => ({ value: color, label: color }));
+    const renderSettingToggle = (label, checked, onChange) => _.div(
+      { class: "tl-flow-config-toggle-row" },
+      _.span(label),
+      _.Toggle({
+        size: "sm",
+        checked,
+        color: "success",
+        onChange,
+      })
+    );
+    const renderComponentSettings = () => {
+      if (isContainer) return null;
+      const currentType = String(typeValue || field.type || "input");
+      const optionTypes = new Set(["select", "radio"]);
+      const booleanTypes = new Set(["checkbox", "toggle", "boolean"]);
+      const rangedTypes = new Set(["slider", "number", "rating"]);
+      const dateTimeTypes = new Set(["date", "time"]);
+      return _.div(
+        { class: "tl-flow-config-section" },
+        _.h3("Component"),
+        _.div(
+          { class: "tl-flow-config-grid" },
+          _.Select({
+            size: "sm",
+            label: "Icon",
+            value: settingsValue.icon || "",
+            options: FLOW_COMPONENT_ICON_OPTIONS,
+            filterable: true,
+            clearable: true,
+            filterPlaceholder: "Search icon",
+            icon: settingsValue.icon || "auto_awesome",
+            slots: { arrow: () => icon("keyboard_arrow_down", "sm") },
+            onChange: (value) => {
+              settingsValue.icon = String(readCmsValue(value) || "").trim() || null;
+            },
+          }),
+          _.Select({
+            size: "sm",
+            label: "Color",
+            value: settingsValue.color || "success",
+            options: colorOptions,
+            slots: { arrow: () => icon("keyboard_arrow_down", "sm") },
+            onChange: (value) => {
+              settingsValue.color = String(readCmsValue(value) || "success");
+            },
+          })
+        ),
+        renderSettingToggle("Visible on node", settingsValue.visibleOnNode !== false, (checked) => {
+          settingsValue.visibleOnNode = Boolean(checked);
+        }),
+        renderSettingToggle("Expose as IN port", Boolean(settingsValue.exposeInput), (checked) => {
+          settingsValue.exposeInput = Boolean(checked);
+        }),
+        renderSettingToggle("Expose as OUT port", Boolean(settingsValue.exposeOutput), (checked) => {
+          settingsValue.exposeOutput = Boolean(checked);
+        }),
+        booleanTypes.has(currentType) ? renderSettingToggle("Default state", Boolean(settingsValue.defaultChecked), (checked) => {
+          settingsValue.defaultChecked = Boolean(checked);
+        }) : null,
+        optionTypes.has(currentType) ? _.Input({
+          size: "sm",
+          label: "Options",
+          value: optionsValue,
+          placeholder: "Option 1:option-1, Option 2:option-2",
+          autocomplete: "off",
+          onInput: (event) => {
+            optionsValue = String(readCmsValue(event) || "");
+          },
+        }) : null,
+        optionTypes.has(currentType) ? _.Input({
+          size: "sm",
+          label: "Default",
+          value: String(settingsValue.defaultValue || ""),
+          placeholder: "option-1",
+          autocomplete: "off",
+          onInput: (event) => {
+            settingsValue.defaultValue = String(readCmsValue(event) || "");
+          },
+        }) : null,
+        rangedTypes.has(currentType) ? _.div(
+          { class: "tl-flow-config-grid" },
+          _.Input({
+            size: "sm",
+            label: "Min",
+            value: String(settingsValue.min ?? 0),
+            autocomplete: "off",
+            onInput: (event) => {
+              settingsValue.min = Number(readCmsValue(event)) || 0;
+            },
+          }),
+          _.Input({
+            size: "sm",
+            label: "Max",
+            value: String(settingsValue.max ?? (currentType === "rating" ? 5 : 100)),
+            autocomplete: "off",
+            onInput: (event) => {
+              settingsValue.max = Number(readCmsValue(event)) || (currentType === "rating" ? 5 : 100);
+            },
+          }),
+          _.Input({
+            size: "sm",
+            label: "Step",
+            value: String(settingsValue.step ?? 1),
+            autocomplete: "off",
+            onInput: (event) => {
+              settingsValue.step = Number(readCmsValue(event)) || 1;
+            },
+          }),
+          _.Input({
+            size: "sm",
+            label: "Default",
+            value: String(settingsValue.defaultValue ?? ""),
+            autocomplete: "off",
+            onInput: (event) => {
+              settingsValue.defaultValue = Number(readCmsValue(event)) || 0;
+            },
+          })
+        ) : null,
+        dateTimeTypes.has(currentType) || ["input", "string", "textarea"].includes(currentType) ? _.Input({
+          size: "sm",
+          label: "Default value",
+          value: String(settingsValue.defaultValue || ""),
+          autocomplete: "off",
+          onInput: (event) => {
+            settingsValue.defaultValue = String(readCmsValue(event) || "");
+          },
+        }) : null
+      );
+    };
     const saveFieldSettings = () => {
       const label = String(labelValue || "").trim() || field.label || field.key || "Field";
       field.label = label;
@@ -5725,6 +6150,12 @@ const openNodeBuilderDialog = (options = {}) => {
       if (NODE_BUILDER_CONTAINER_TYPES.has(field.type) && !Array.isArray(field.children)) field.children = [];
       if (!NODE_BUILDER_CONTAINER_TYPES.has(field.type)) delete field.children;
       field.required = Boolean(requiredValue);
+      field.settings = normalizeNodeBuilderSettings(field.type, {
+        ...settingsValue,
+        options: nodeBuilderOptionsFromText(optionsValue),
+      });
+      syncNodeBuilderComponentPort(builder, field, "in", Boolean(field.settings.exposeInput));
+      syncNodeBuilderComponentPort(builder, field, "out", Boolean(field.settings.exposeOutput));
       builder.fields = collectNodeBuilderDataFields(builder.formLayout || []);
       fieldDialog.close();
       refreshNodeBuilder(root, { full: true });
@@ -5785,7 +6216,8 @@ const openNodeBuilderDialog = (options = {}) => {
               requiredValue = Boolean(checked);
             },
           })
-        )
+        ),
+        renderComponentSettings()
       ),
       actions: ({ close }) => _.Toolbar(
         { align: "end", gap: 8 },
@@ -5829,6 +6261,13 @@ const openNodeBuilderDialog = (options = {}) => {
   };
 
   const deleteBuilderField = (fieldId = "", root = null) => {
+    const found = findNodeBuilderLayoutNode(builder.formLayout || [], fieldId);
+    if (found?.node) {
+      walkNodeBuilderLayout([found.node], (node) => {
+        syncNodeBuilderComponentPort(builder, node, "in", false);
+        syncNodeBuilderComponentPort(builder, node, "out", false);
+      });
+    }
     if (!removeNodeBuilderLayoutNode(builder.formLayout || [], fieldId)) return;
     builder.fields = collectNodeBuilderDataFields(builder.formLayout || []);
     refreshNodeBuilder(root, { full: true });
@@ -5848,6 +6287,7 @@ const openNodeBuilderDialog = (options = {}) => {
       id: nodeBuilderId(componentType),
       type: componentType,
       label,
+      settings: normalizeNodeBuilderSettings(componentType, {}),
       ...(isContainer
         ? { children: [] }
         : {
@@ -6069,7 +6509,7 @@ const openNodeBuilderDialog = (options = {}) => {
         node,
         label: item.label || "Custom Node",
         runtimeStatus: "idle",
-        config: {},
+        config: nodeBuilderDefaultConfigFromLayout(item.formLayout || []),
       });
       node = await window.TrackerLensRuntimeGraphStore?.upsertRuntimeNode?.({ node });
       if (node?.id && window.TrackerLensChannelRegistry?.upsertChannelsForRuntimeNode) {
@@ -6137,7 +6577,7 @@ const openNodeBuilderDialog = (options = {}) => {
       node: baseNode,
       label: item.label || current.label,
       runtimeStatus: current.metadata?.runtimeStatus || current.runtime?.status || current.status || "idle",
-      config: nodeConfigObject(current),
+      config: { ...nodeBuilderDefaultConfigFromLayout(item.formLayout || []), ...nodeConfigObject(current) },
     });
     try {
       await window.TrackerLensRuntimeGraphStore?.upsertRuntimeNode?.({ node: nextNode });
@@ -6175,6 +6615,8 @@ const openNodeBuilderDialog = (options = {}) => {
     class: "tl-flow-node-builder-dialog",
     panelClass: "tl-flow-node-builder-panel",
     size: "xl",
+    closeOnOutside: false,
+    closeOnBackdrop: false,
     title: editMode ? "Edit Custom Node" : "Create Node",
     subtitle: editMode ? "Continue customizing this node form, ports and runtime contract." : "Search a node template, load it, then customize form, ports and runtime contract.",
     icon: editMode ? "edit_note" : "add_box",
@@ -6303,11 +6745,72 @@ const openNodeBuilderDialog = (options = {}) => {
           ),
           _.div(
             { class: "tl-flow-node-builder-general" },
-            _.label(_.span("Name"), _.input({ "data-node-builder-field": "label", value: builder.label || "Custom Node", autocomplete: "off", oninput: (event) => { readBuilderGeneral(rootFor(event)); refreshNodeBuilder(rootFor(event)); } })),
-            _.label(_.span("Category"), _.input({ "data-node-builder-field": "category", value: builder.category || "custom", autocomplete: "off", oninput: (event) => { readBuilderGeneral(rootFor(event)); refreshNodeBuilder(rootFor(event)); } })),
-            _.label(_.span("Subtype"), _.input({ "data-node-builder-field": "subtype", value: builder.subtype || "custom", autocomplete: "off", oninput: (event) => { readBuilderGeneral(rootFor(event)); refreshNodeBuilder(rootFor(event)); } })),
-            _.label(_.span("Icon"), _.input({ "data-node-builder-field": "icon", value: builder.icon || "extension", autocomplete: "off", oninput: (event) => { readBuilderGeneral(rootFor(event)); refreshNodeBuilder(rootFor(event)); } })),
-            _.label(_.span("Tone"), _.input({ "data-node-builder-field": "tone", value: builder.tone || "gold", autocomplete: "off", oninput: (event) => { readBuilderGeneral(rootFor(event)); refreshNodeBuilder(rootFor(event)); } }))
+            _.Input({
+              class: "tl-flow-node-builder-general-control",
+              size: "sm",
+              label: "Name",
+              value: builder.label || "Custom Node",
+              autocomplete: "off",
+              "data-node-builder-field": "label",
+              onInput: (event) => {
+                readBuilderGeneral(rootFor(event));
+                refreshNodeBuilder(rootFor(event));
+              },
+            }),
+            _.Select({
+              class: "tl-flow-node-builder-general-control",
+              size: "sm",
+              label: "Category",
+              value: builder.category || "custom",
+              options: FLOW_NODE_CATEGORY_OPTIONS,
+              "data-node-builder-field": "category",
+              slots: { arrow: () => icon("keyboard_arrow_down", "sm") },
+              onChange: (value) => {
+                builder.category = value?.target?.value || value || "custom";
+                refreshNodeBuilder(rootFor(document.querySelector(".tl-flow-node-builder")));
+              },
+            }),
+            _.Input({
+              class: "tl-flow-node-builder-general-control",
+              size: "sm",
+              label: "Subtype",
+              value: builder.subtype || "custom",
+              autocomplete: "off",
+              "data-node-builder-field": "subtype",
+              onInput: (event) => {
+                readBuilderGeneral(rootFor(event));
+                refreshNodeBuilder(rootFor(event));
+              },
+            }),
+            _.Select({
+              class: "tl-flow-node-builder-general-control",
+              size: "sm",
+              label: "Icon",
+              value: builder.icon || "extension",
+              options: FLOW_NODE_ICON_OPTIONS,
+              filterable: true,
+              filterPlaceholder: "Search icon",
+              "data-node-builder-field": "icon",
+              icon: builder.icon || "extension",
+              slots: { arrow: () => icon("keyboard_arrow_down", "sm") },
+              onChange: (value) => {
+                builder.icon = value?.target?.value || value || "extension";
+                refreshNodeBuilder(rootFor(document.querySelector(".tl-flow-node-builder")));
+              },
+            }),
+            _.Select({
+              class: "tl-flow-node-builder-general-control",
+              size: "sm",
+              label: "Tone",
+              value: builder.tone || "gold",
+              options: FLOW_NODE_TONE_OPTIONS,
+              "data-node-builder-field": "tone",
+              slots: { arrow: () => icon("keyboard_arrow_down", "sm") },
+              onChange: (value) => {
+                builder.tone = value?.target?.value || value || "gold";
+                refreshNodeBuilder(rootFor(document.querySelector(".tl-flow-node-builder")));
+              },
+            })
           )
         ),
         _.section(
@@ -7020,8 +7523,12 @@ const renderInlineNodeSettings = (node) => {
 const customConfigValue = (config = {}, field = {}) => {
   const value = config[field.key];
   if (value !== undefined && value !== null) return value;
-  if (field.type === "toggle" || field.type === "checkbox" || field.type === "boolean") return false;
-  if (field.type === "number" || field.type === "slider") return 0;
+  const settings = nodeBuilderComponentSettings(field);
+  if (field.type === "toggle" || field.type === "checkbox" || field.type === "boolean") return Boolean(settings.defaultChecked);
+  if (field.type === "radio") return settings.defaultValue || nodeBuilderFieldOptions(field)[0]?.value || "option-1";
+  if (field.type === "select") return settings.defaultValue || nodeBuilderFieldOptions(field)[0]?.value || "";
+  if (field.type === "number" || field.type === "slider" || field.type === "rating") return Number(settings.defaultValue) || 0;
+  if (settings.defaultValue !== undefined && settings.defaultValue !== null) return settings.defaultValue;
   return "";
 };
 
@@ -7061,8 +7568,13 @@ const persistCustomInlineValue = ({ node = {}, key = "", value = "", debounce = 
 };
 
 const renderCustomRuntimeNodeInlineComponent = (node = {}, layoutNode = {}, config = {}) => {
+  const settings = nodeBuilderComponentSettings(layoutNode);
+  if (settings.visibleOnNode === false) return null;
   const label = layoutNode.label || layoutNode.key || layoutNode.type || "Field";
   if (NODE_BUILDER_CONTAINER_TYPES.has(layoutNode.type)) {
+    const children = layoutNode.children?.length
+      ? layoutNode.children.map((child) => renderCustomRuntimeNodeInlineComponent(node, child, config)).filter(Boolean)
+      : [];
     return _.div(
       { class: `tl-flow-node-builder-preview-form-node is-${layoutNode.type}` },
       _.div(
@@ -7073,9 +7585,7 @@ const renderCustomRuntimeNodeInlineComponent = (node = {}, layoutNode = {}, conf
       ),
       _.div(
         { class: "tl-flow-node-builder-preview-form-children" },
-        ...(layoutNode.children?.length
-          ? layoutNode.children.map((child) => renderCustomRuntimeNodeInlineComponent(node, child, config))
-          : [_.span({ class: "tl-flow-node-builder-preview-empty" }, "Empty container")])
+        ...(children.length ? children : [_.span({ class: "tl-flow-node-builder-preview-empty" }, "Empty container")])
       )
     );
   }
@@ -7088,40 +7598,135 @@ const renderCustomRuntimeNodeInlineComponent = (node = {}, layoutNode = {}, conf
   }
   const key = layoutNode.key || layoutNode.id;
   const readCmsValue = (nextValue) => nextValue?.target?.value ?? nextValue;
+  const readCmsChecked = (nextValue) => nextValue?.target?.checked ?? nextValue;
+  const readCmsDateValue = (nextValue) => {
+    const raw = readCmsValue(nextValue);
+    if (raw instanceof Date && !Number.isNaN(raw.getTime())) return raw.toISOString().slice(0, 10);
+    return String(raw || "");
+  };
   const stopInlineControlEvent = (event) => {
     event.stopPropagation();
   };
   const value = customConfigValue(config, { ...layoutNode, key });
   if (layoutNode.type === "select") {
+    const options = nodeBuilderFieldOptions(layoutNode);
     return _.Select({
       class: "tl-flow-node-builder-live-field",
       size: "sm",
       label,
-      value: String(value || ""),
-      options: [
-        { value: "", label: "Select option" },
-        { value: "option-1", label: "Option 1" },
-        { value: "option-2", label: "Option 2" },
-      ],
+      value: String(value || settings.defaultValue || options[0]?.value || ""),
+      options,
       slots: { arrow: () => icon("keyboard_arrow_down", "sm") },
       onPointerDown: stopInlineControlEvent,
       onclick: stopInlineControlEvent,
       onChange: (nextValue) => persistCustomInlineValue({ node, key, value: String(readCmsValue(nextValue) || "") }),
     });
   }
-  if (layoutNode.type === "toggle" || layoutNode.type === "checkbox" || layoutNode.type === "boolean") {
+  if (layoutNode.type === "checkbox") {
+    return _.div(
+      { class: "tl-flow-node-builder-live-check", onPointerDown: stopInlineControlEvent, onclick: stopInlineControlEvent },
+      _.span(label),
+      _.Checkbox({
+        class: "tl-flow-node-builder-live-check-control",
+        size: "sm",
+        checked: Boolean(value),
+        title: label,
+        color: settings.color || "success",
+        outline: true,
+        ...(settings.icon ? { checkedIcon: settings.icon } : {}),
+        onChange: (checked) => persistCustomInlineValue({ node, key, value: Boolean(readCmsChecked(checked)) }),
+      })
+    );
+  }
+  if (layoutNode.type === "radio") {
+    return _.div(
+      { class: "tl-flow-node-builder-live-check", onPointerDown: stopInlineControlEvent, onclick: stopInlineControlEvent },
+      _.span(label),
+      _.Radio({
+        class: "tl-flow-node-builder-live-check-control",
+        size: "sm",
+        checked: Boolean(value),
+        title: label,
+        color: settings.color || "success",
+        outline: true,
+        ...(settings.icon ? { checkedIcon: settings.icon } : {}),
+        onChange: () => persistCustomInlineValue({ node, key, value: settings.defaultValue || nodeBuilderFieldOptions(layoutNode)[0]?.value || "option-1" }),
+      })
+    );
+  }
+  if (layoutNode.type === "toggle" || layoutNode.type === "boolean") {
     return _.div(
       { class: "tl-flow-node-builder-live-toggle", onPointerDown: stopInlineControlEvent, onclick: stopInlineControlEvent },
       _.span(label),
       _.Toggle({
         class: "tl-flow-node-builder-live-toggle-control",
         size: "sm",
-
         checked: Boolean(value),
-        color: "success",
-        onChange: (checked) => persistCustomInlineValue({ node, key, value: Boolean(checked) }),
+        color: settings.color || "success",
+        ...(settings.icon ? { iconOn: settings.icon, checkedIcon: settings.icon } : {}),
+        onChange: (checked) => persistCustomInlineValue({ node, key, value: Boolean(readCmsChecked(checked)) }),
       })
     );
+  }
+  if (layoutNode.type === "rating") {
+    return _.div(
+      { class: "tl-flow-node-builder-live-field", onPointerDown: stopInlineControlEvent, onclick: stopInlineControlEvent },
+      _.span(label),
+      _.Rating ? _.Rating({
+        size: "sm",
+        value: Number(value) || 0,
+        max: Number(settings.max) || 5,
+        colorSelected: settings.color || "primary",
+        onChange: (nextValue) => persistCustomInlineValue({ node, key, value: Number(readCmsValue(nextValue)) || 0 }),
+      }) : _.Input({
+        class: "tl-flow-node-builder-live-field",
+        size: "sm",
+        label,
+        value: String(value || "0"),
+        onInput: (event) => persistCustomInlineValue({ node, key, value: Number(readCmsValue(event)) || 0, debounce: 350 }),
+      })
+    );
+  }
+  if (layoutNode.type === "date") {
+    return _.Date ? _.Date({
+      class: "tl-flow-node-builder-live-field",
+      size: "sm",
+      label,
+      value: String(value || ""),
+      ...(settings.icon ? { icon: settings.icon } : {}),
+      onPointerDown: stopInlineControlEvent,
+      onclick: stopInlineControlEvent,
+      onChange: (nextValue) => persistCustomInlineValue({ node, key, value: readCmsDateValue(nextValue) }),
+    }) : _.Input({
+      class: "tl-flow-node-builder-live-field",
+      size: "sm",
+      label,
+      value: String(value || ""),
+      ...(settings.icon ? { icon: settings.icon } : {}),
+      onPointerDown: stopInlineControlEvent,
+      onclick: stopInlineControlEvent,
+      onInput: (event) => persistCustomInlineValue({ node, key, value: String(readCmsValue(event) || ""), debounce: 350 }),
+    });
+  }
+  if (layoutNode.type === "time") {
+    return _.Time ? _.Time({
+      class: "tl-flow-node-builder-live-field",
+      size: "sm",
+      label,
+      value: String(value || ""),
+      ...(settings.icon ? { icon: settings.icon } : {}),
+      onPointerDown: stopInlineControlEvent,
+      onclick: stopInlineControlEvent,
+      onChange: (nextValue) => persistCustomInlineValue({ node, key, value: String(readCmsValue(nextValue) || "") }),
+    }) : _.Input({
+      class: "tl-flow-node-builder-live-field",
+      size: "sm",
+      label,
+      value: String(value || ""),
+      onPointerDown: stopInlineControlEvent,
+      onclick: stopInlineControlEvent,
+      onInput: (event) => persistCustomInlineValue({ node, key, value: String(readCmsValue(event) || ""), debounce: 350 }),
+    });
   }
   if (layoutNode.type === "slider" || layoutNode.type === "number") {
     return _.div(
@@ -7131,8 +7736,10 @@ const renderCustomRuntimeNodeInlineComponent = (node = {}, layoutNode = {}, conf
         size: "sm",
         showValue: true,
         value: Number(value) || 0,
-        min: 0,
-        max: 100,
+        min: Number(settings.min) || 0,
+        max: Number(settings.max) || 100,
+        step: Number(settings.step) || 1,
+        color: settings.color || "primary",
         onChange: (nextValue) => persistCustomInlineValue({ node, key, value: Number(readCmsValue(nextValue)) || 0 }),
       }) : _.Input({
         class: "tl-flow-node-builder-live-field",
@@ -7164,7 +7771,7 @@ const renderCustomRuntimeNodeInlineForm = (node = {}) => {
   const config = nodeConfigObject(node);
   return _.div(
     { class: "tl-flow-node-builder-live-form tl-flow-custom-node-live-form", onPointerDown: stopNodeControlEvent, onclick: stopNodeControlEvent },
-    ...layout.map((layoutNode) => renderCustomRuntimeNodeInlineComponent(node, layoutNode, config))
+    ...layout.map((layoutNode) => renderCustomRuntimeNodeInlineComponent(node, layoutNode, config)).filter(Boolean)
   );
 };
 
@@ -7734,6 +8341,7 @@ const persistCustomRuntimeNodeConfig = async ({ node, draft = {}, close }) => {
 };
 
 const renderCustomConfigComponent = (layoutNode = {}, draft = {}) => {
+  const settings = nodeBuilderComponentSettings(layoutNode);
   const label = layoutNode.label || layoutNode.key || layoutNode.type || "Field";
   if (NODE_BUILDER_CONTAINER_TYPES.has(layoutNode.type)) {
     return _.div(
@@ -7755,36 +8363,134 @@ const renderCustomConfigComponent = (layoutNode = {}, draft = {}) => {
   }
   const key = layoutNode.key || layoutNode.id;
   const readCmsValue = (value) => value?.target?.value ?? value;
+  const readCmsChecked = (nextValue) => nextValue?.target?.checked ?? nextValue;
+  const readCmsDateValue = (nextValue) => {
+    const raw = readCmsValue(nextValue);
+    if (raw instanceof Date && !Number.isNaN(raw.getTime())) return raw.toISOString().slice(0, 10);
+    return String(raw || "");
+  };
   const value = customConfigValue(draft.config, { ...layoutNode, key });
   if (layoutNode.type === "select") {
+    const options = nodeBuilderFieldOptions(layoutNode);
     return _.Select({
       size: "sm",
       label,
-      value: String(value || ""),
-      options: [
-        { value: "", label: "Select option" },
-        { value: "option-1", label: "Option 1" },
-        { value: "option-2", label: "Option 2" },
-      ],
+      value: String(value || settings.defaultValue || options[0]?.value || ""),
+      options,
       slots: { arrow: () => icon("keyboard_arrow_down", "sm") },
       onChange: (nextValue) => {
         draft.config[key] = String(readCmsValue(nextValue) || "");
       },
     });
   }
-  if (layoutNode.type === "toggle" || layoutNode.type === "checkbox" || layoutNode.type === "boolean") {
+  if (layoutNode.type === "checkbox") {
+    return _.div(
+      { class: "tl-flow-config-check-row" },
+      _.span(label),
+      _.Checkbox({
+        class: "tl-flow-config-check-control",
+        size: "sm",
+        checked: Boolean(value),
+        title: label,
+        color: settings.color || "success",
+        outline: true,
+        ...(settings.icon ? { checkedIcon: settings.icon } : {}),
+        onChange: (checked) => {
+          draft.config[key] = Boolean(readCmsChecked(checked));
+        },
+      })
+    );
+  }
+  if (layoutNode.type === "radio") {
+    return _.div(
+      { class: "tl-flow-config-check-row" },
+      _.span(label),
+      _.Radio({
+        class: "tl-flow-config-check-control",
+        size: "sm",
+        checked: Boolean(value),
+        title: label,
+        color: settings.color || "success",
+        outline: true,
+        ...(settings.icon ? { checkedIcon: settings.icon } : {}),
+        onChange: () => {
+          draft.config[key] = settings.defaultValue || nodeBuilderFieldOptions(layoutNode)[0]?.value || "option-1";
+        },
+      })
+    );
+  }
+  if (layoutNode.type === "toggle" || layoutNode.type === "boolean") {
     return _.div(
       { class: "tl-flow-config-toggle-row" },
       _.span(label),
       _.Toggle({
         size: "sm",
         checked: Boolean(value),
-        color: "success",
+        color: settings.color || "success",
+        ...(settings.icon ? { iconOn: settings.icon, checkedIcon: settings.icon } : {}),
         onChange: (checked) => {
-          draft.config[key] = Boolean(checked);
+          draft.config[key] = Boolean(readCmsChecked(checked));
         },
       })
     );
+  }
+  if (layoutNode.type === "rating") {
+    return _.div(
+      { class: "tl-flow-config-slider-row" },
+      _.span(label),
+      _.Rating ? _.Rating({
+        size: "sm",
+        value: Number(value) || 0,
+        max: Number(settings.max) || 5,
+        colorSelected: settings.color || "primary",
+        onChange: (nextValue) => {
+          draft.config[key] = Number(readCmsValue(nextValue)) || 0;
+        },
+      }) : _.Input({
+        size: "sm",
+        label,
+        value: String(value || "0"),
+        onInput: (event) => {
+          draft.config[key] = Number(readCmsValue(event)) || 0;
+        },
+      })
+    );
+  }
+  if (layoutNode.type === "date") {
+    return _.Date ? _.Date({
+      size: "sm",
+      label,
+      value: String(value || ""),
+      ...(settings.icon ? { icon: settings.icon } : {}),
+      onChange: (nextValue) => {
+        draft.config[key] = readCmsDateValue(nextValue);
+      },
+    }) : _.Input({
+      size: "sm",
+      label,
+      value: String(value || ""),
+      onInput: (event) => {
+        draft.config[key] = String(readCmsValue(event) || "");
+      },
+    });
+  }
+  if (layoutNode.type === "time") {
+    return _.Time ? _.Time({
+      size: "sm",
+      label,
+      value: String(value || ""),
+      ...(settings.icon ? { icon: settings.icon } : {}),
+      onChange: (nextValue) => {
+        draft.config[key] = String(readCmsValue(nextValue) || "");
+      },
+    }) : _.Input({
+      size: "sm",
+      label,
+      value: String(value || ""),
+      onInput: (event) => {
+        draft.config[key] = String(readCmsValue(event) || "");
+      },
+    });
   }
   if (layoutNode.type === "slider") {
     return _.div(
@@ -7794,8 +8500,10 @@ const renderCustomConfigComponent = (layoutNode = {}, draft = {}) => {
         size: "sm",
         showValue: true,
         value: Number(value) || 0,
-        min: 0,
-        max: 100,
+        min: Number(settings.min) || 0,
+        max: Number(settings.max) || 100,
+        step: Number(settings.step) || 1,
+        color: settings.color || "primary",
         onChange: (nextValue) => {
           draft.config[key] = Number(readCmsValue(nextValue)) || 0;
         },

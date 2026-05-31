@@ -212,6 +212,14 @@ Runtime Notes:
 - 2026-05-30: Flow Map custom node controls on the actual canvas card are now editable. Text/select/slider changes persist targeted `metadata.config` values, toggle/checkbox changes save immediately, and pointer events are isolated from node drag.
 - 2026-05-30: Flow Map `Custom Node Settings` now has a footer `Customize Node` action that reopens the Node Builder in edit mode for the same custom node. The builder preloads layout, ports and metadata, and `Save Node` updates the existing runtime node instead of creating a duplicate.
 - 2026-05-31: Flow Map Node Builder/custom node CMSwift Input, Select, Toggle and Slider controls now pass `size: "sm"` in preview, canvas and settings contexts after the CMSwift Slider range-input `IndexSizeError` fix.
+- 2026-05-31: Flow Map Node Builder/custom node `Checkbox` components now render with CMSwift `_.Checkbox` in preview, canvas and settings contexts, keeping checkbox behavior visually distinct from `_.Toggle`.
+- 2026-05-31: Flow Map custom `Checkbox` rows now align like toggles, with label text on the left and the checkbox control on the right.
+- 2026-05-31: Flow Map Node Builder `Components` catalog now includes CMSwift `Radio`, `Rating`, `Date` and `Time`, with preview/canvas/settings rendering and custom schema type support.
+- 2026-05-31: Flow Map Node Builder `Field Settings` now persists per-component settings in `formLayout`: node visibility, automatic IN/OUT port exposure, icon/color, default values/states, Select/Radio options, and Slider/Rating min/max/step.
+- 2026-05-31: Flow Map Node Builder component icon settings now default to `null`, allowing CMSwift controls to use their internal default icon until the user provides one.
+- 2026-05-31: Flow Map Node Builder `General` now uses CMSwift Select controls for Category, Icon and Tone, backed by reusable global option lists for node categories/icons/tones.
+- 2026-05-31: Flow Map Node Builder `General` now uses CMSwift Input for Name and Subtype, and the builder dialog disables outside/backdrop close so CMSwift dropdown item clicks do not close the modal.
+- 2026-05-31: Flow Map now stores the Material Icons list locally in `data/material-icons-list.json` and exposes generated `window.TrackerLensMaterialIconOptions` via `js/tl-material-icon-options.js`; Node Builder icon selects are filterable CMSwift Select controls using that local list.
 - Remaining: service-worker/extension background persistence after every Trackers Lens tab is closed remains future hardening; current worker lifetime is browser-page scoped.
 
 ## [TASK-020]
