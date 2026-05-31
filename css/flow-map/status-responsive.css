@@ -1,0 +1,490 @@
+/* Flow Map minimap, events, status bar and responsive rules.
+   Extracted from css/flowMap.css; imported in order. */
+.tl-flow-minimap {
+  position: absolute;
+  right: 18px;
+  bottom: 18px;
+  z-index: 8;
+  width: 190px;
+  padding: 10px;
+  border: 1px solid rgba(148, 163, 184, 0.18);
+  border-radius: 8px;
+  background: rgba(2, 6, 23, 0.82);
+  box-shadow: 0 18px 50px rgba(0, 0, 0, 0.28);
+  backdrop-filter: blur(12px);
+}
+
+.tl-flow-minimap-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 8px;
+  color: rgba(226, 232, 240, 0.82);
+  font-size: 10px;
+}
+
+.tl-flow-minimap-canvas {
+  position: relative;
+  height: 92px;
+  overflow: hidden;
+  border: 1px solid rgba(148, 163, 184, 0.14);
+  border-radius: 6px;
+  background:
+    linear-gradient(rgba(148, 163, 184, 0.08) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(148, 163, 184, 0.08) 1px, transparent 1px),
+    rgba(15, 23, 42, 0.72);
+  background-size: 18px 18px;
+}
+
+.tl-flow-minimap-node {
+  position: absolute;
+  left: var(--x);
+  top: var(--y);
+  width: 5px;
+  height: 5px;
+  border-radius: 999px;
+  background: rgba(var(--node-rgb, 148, 163, 184), 0.28);
+  transform: translate(-50%, -50%);
+}
+
+.tl-flow-minimap-node.is-visible {
+  background: rgba(var(--node-rgb, 148, 163, 184), 0.88);
+}
+
+.tl-flow-minimap-node.is-selected {
+  width: 8px;
+  height: 8px;
+  box-shadow: 0 0 0 3px rgba(250, 204, 21, 0.25);
+}
+
+.tl-flow-minimap-viewport {
+  position: absolute;
+  left: var(--x);
+  top: var(--y);
+  width: var(--w);
+  height: var(--h);
+  min-width: 24px;
+  min-height: 18px;
+  border: 1px solid rgba(250, 204, 21, 0.76);
+  border-radius: 4px;
+  background: rgba(250, 204, 21, 0.08);
+}
+
+.tl-flow-timeline {
+  display: grid;
+  gap: 8px;
+  min-width: 520px;
+}
+
+.tl-flow-timeline-row {
+  display: grid;
+  grid-template-columns: 64px 12px minmax(0, 1fr);
+  align-items: start;
+  gap: 8px;
+  color: rgba(226, 232, 240, 0.84);
+  font-size: 11px;
+}
+
+.tl-flow-timeline-time {
+  color: rgba(148, 163, 184, 0.86);
+  font-variant-numeric: tabular-nums;
+}
+
+.tl-flow-timeline-dot {
+  width: 8px;
+  height: 8px;
+  margin-top: 3px;
+  border-radius: 999px;
+  background: rgba(34, 197, 94, 0.86);
+  box-shadow: 0 0 0 4px rgba(34, 197, 94, 0.12);
+}
+
+.tl-flow-timeline-row.is-error .tl-flow-timeline-dot {
+  background: rgba(248, 113, 113, 0.9);
+  box-shadow: 0 0 0 4px rgba(248, 113, 113, 0.14);
+}
+
+.tl-flow-timeline-row.is-warning .tl-flow-timeline-dot {
+  background: rgba(250, 204, 21, 0.9);
+  box-shadow: 0 0 0 4px rgba(250, 204, 21, 0.14);
+}
+
+.tl-flow-timeline-row strong,
+.tl-flow-timeline-row span {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tl-flow-detail-list div.is-wide strong {
+  max-height: 92px;
+  padding: 7px;
+  border: 1px solid rgba(214, 226, 235, 0.08);
+  border-radius: 7px;
+  background: rgba(255, 255, 255, 0.025);
+  white-space: pre-wrap;
+  overflow: auto;
+}
+
+.tl-flow-events {
+  min-height: 0;
+  overflow: auto;
+}
+
+.tl-flow-events-head {
+  justify-content: space-between;
+  margin-bottom: 10px;
+}
+
+.tl-flow-events-head.is-secondary {
+  margin: 14px 0 8px;
+  padding-top: 10px;
+  border-top: 1px solid rgba(214, 226, 235, 0.06);
+}
+
+.tl-flow-events-head h2,
+.tl-flow-overview h2 {
+  font-size: 13px;
+}
+
+.tl-flow-events-head span {
+  color: var(--tl-success);
+  font-size: 11px;
+}
+
+.tl-flow-events table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 11px;
+}
+
+.tl-flow-events th,
+.tl-flow-events td {
+  padding: 7px 8px;
+  border-bottom: 1px solid rgba(214, 226, 235, 0.06);
+  text-align: left;
+}
+
+.tl-flow-events th {
+  color: var(--tl-text-muted);
+  font-weight: 600;
+}
+
+.tl-flow-log-level {
+  height: 18px;
+  display: inline-flex;
+  align-items: center;
+  padding: 0 7px;
+  border: 1px solid rgba(var(--log-rgb, 56, 189, 248), 0.22);
+  border-radius: 999px;
+  background: rgba(var(--log-rgb, 56, 189, 248), 0.08);
+  color: rgb(var(--log-rgb, 56, 189, 248));
+  font-size: 9px;
+  font-weight: 700;
+  line-height: 1;
+  text-transform: uppercase;
+}
+
+.tl-flow-log-level.is-info {
+  --log-rgb: 56, 189, 248;
+}
+
+.tl-flow-log-level.is-warning {
+  --log-rgb: 250, 204, 21;
+}
+
+.tl-flow-log-level.is-error {
+  --log-rgb: 248, 113, 113;
+}
+
+.tl-flow-event-type {
+  min-width: 46px;
+  height: 18px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 7px;
+  border: 1px solid rgba(var(--event-rgb, 56, 189, 248), 0.22);
+  border-radius: 999px;
+  background: rgba(var(--event-rgb, 56, 189, 248), 0.08);
+  color: rgb(var(--event-rgb, 56, 189, 248));
+  font-size: 9px;
+  font-weight: 700;
+  line-height: 1;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.tl-flow-event-type.is-emitted {
+  --event-rgb: 34, 211, 238;
+}
+
+.tl-flow-event-type.is-received {
+  --event-rgb: 34, 197, 94;
+}
+
+.tl-flow-event-type.is-test {
+  --event-rgb: 250, 204, 21;
+}
+
+.tl-flow-event-type.is-error {
+  --event-rgb: 248, 113, 113;
+}
+
+.tl-flow-event-type.is-event {
+  --event-rgb: 255, 199, 44;
+}
+
+.tl-flow-overview {
+  display: grid;
+  gap: 10px;
+}
+
+.tl-flow-statusbar {
+  position: relative;
+  z-index: 12;
+  grid-area: status;
+  min-width: 0;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 0 8px;
+  border: 1px solid rgba(214, 226, 235, 0.08);
+  border-radius: 6px;
+  background: rgba(7, 13, 19, 0.94);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.03);
+}
+
+.tl-flow-statusbar-items {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.tl-flow-statusbar-items::-webkit-scrollbar {
+  display: none;
+}
+
+.tl-flow-statusbar-btn {
+  height: 22px;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 0 7px;
+  color: rgba(214, 226, 235, 0.82);
+  border: 1px solid transparent;
+  border-radius: 4px;
+  background: transparent;
+  font: inherit;
+  font-size: 10px;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: color 0.14s ease, border-color 0.14s ease, background 0.14s ease;
+  box-sizing: border-box;
+}
+
+.tl-flow-statusbar-btn:hover,
+.tl-flow-statusbar-btn.is-active {
+  color: var(--tl-text);
+  border-color: rgba(var(--status-rgb, 56, 189, 248), 0.24);
+  background: rgba(var(--status-rgb, 56, 189, 248), 0.1);
+}
+
+.tl-flow-statusbar-btn.is-gold {
+  --status-rgb: 250, 204, 21;
+  color: #fde68a;
+}
+
+.tl-flow-statusbar-btn.is-green {
+  --status-rgb: 34, 197, 94;
+  color: #bbf7d0;
+}
+
+.tl-flow-statusbar-btn.is-red {
+  --status-rgb: 248, 113, 113;
+  color: #fecaca;
+}
+
+.tl-flow-statusbar-btn.is-gold.is-active,
+.tl-flow-statusbar-btn.is-gold:hover {
+  border-color: rgba(250, 204, 21, 0.38);
+  background: rgba(250, 204, 21, 0.14);
+}
+
+.tl-flow-statusbar-btn.is-green.is-active,
+.tl-flow-statusbar-btn.is-green:hover {
+  border-color: rgba(34, 197, 94, 0.38);
+  background: rgba(34, 197, 94, 0.14);
+}
+
+.tl-flow-statusbar-btn.is-red.is-active,
+.tl-flow-statusbar-btn.is-red:hover {
+  border-color: rgba(248, 113, 113, 0.38);
+  background: rgba(248, 113, 113, 0.14);
+}
+
+.tl-flow-statusbar-updated {
+  flex: 0 0 auto;
+  color: var(--tl-text-muted);
+  font-size: 10px;
+  white-space: nowrap;
+}
+
+.tl-flow-status-popover {
+  position: absolute;
+  right: 0;
+  bottom: calc(100% + 8px);
+  width: min(760px, calc(100% - 8px));
+  max-height: min(390px, calc(100vh - 150px));
+  padding: 12px;
+  overflow: auto;
+  border: 1px solid rgba(214, 226, 235, 0.12);
+  border-radius: 8px;
+  background: rgba(6, 12, 18, 0.98);
+  box-shadow: 0 18px 52px rgba(0, 0, 0, 0.42), inset 0 1px 0 rgba(255, 255, 255, 0.035);
+}
+
+.tl-flow-status-popover-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+
+.tl-flow-status-popover-head h2 {
+  margin: 0;
+  font-size: 12px;
+}
+
+.tl-flow-status-popover-head button {
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  display: grid;
+  place-items: center;
+  color: var(--tl-text-muted);
+  border: 1px solid transparent;
+  border-radius: 5px;
+  background: transparent;
+  cursor: pointer;
+}
+
+.tl-flow-status-popover-head button:hover {
+  color: var(--tl-text);
+  border-color: rgba(214, 226, 235, 0.12);
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.tl-flow-status-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 6px;
+}
+
+.tl-flow-status-grid div {
+  min-width: 0;
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 7px 8px;
+  border: 1px solid rgba(214, 226, 235, 0.07);
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.025);
+  font-size: 11px;
+}
+
+.tl-flow-status-grid span,
+.tl-flow-status-popover th {
+  color: var(--tl-text-muted);
+}
+
+.tl-flow-status-grid strong,
+.tl-flow-status-popover td {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tl-flow-status-popover table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 11px;
+}
+
+.tl-flow-status-popover th,
+.tl-flow-status-popover td {
+  padding: 7px 8px;
+  border-bottom: 1px solid rgba(214, 226, 235, 0.06);
+  text-align: left;
+}
+
+.tl-flow-error {
+  position: fixed;
+  left: 96px;
+  right: 24px;
+  top: 72px;
+  z-index: 20;
+  padding: 12px;
+  color: #fecaca;
+  border: 1px solid rgba(248, 113, 113, 0.24);
+  border-radius: 8px;
+  background: rgba(127, 29, 29, 0.78);
+}
+
+@media (max-width: 1120px) {
+  body {
+    overflow: auto;
+  }
+
+  .tl-flow-shell {
+    grid-template-columns: 64px minmax(0, 1fr);
+  }
+
+  .tl-flow-topbar,
+  .tl-flow-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .tl-flow-grid {
+    grid-template-rows: auto 680px 28px;
+    grid-template-areas:
+      "palette"
+      "center"
+      "status";
+    overflow: visible;
+  }
+
+  .tl-flow-grid,
+  .tl-flow-center {
+    min-height: auto;
+  }
+
+  .tl-flow-inspector-overlay {
+    top: 78px;
+    right: 12px;
+    bottom: 38px;
+    left: 76px;
+    width: auto;
+  }
+
+  .tl-flow-workbench {
+    height: 680px;
+  }
+
+  .tl-flow-status-popover {
+    left: 0;
+    right: 0;
+    width: auto;
+  }
+
+  .tl-flow-statusbar-updated {
+    display: none;
+  }
+}

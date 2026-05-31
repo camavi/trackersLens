@@ -1,0 +1,2531 @@
+// Flow Map runtime node configuration, custom node forms and graph links.
+// Extracted from js/flowMapView.js; loaded in order by flowMap.html.
+const nodeBadges = (node = {}, live = null) => {
+  const badges = [];
+  const sandbox = nodeSandboxReport(node);
+  const perf = nodePerformance(node);
+  if (node.metadata?.library) {
+    badges.push({ label: "Library", tone: "blue" });
+  } else if (node.metadata?.aiAgentAlias) {
+    badges.push({ label: "Alias", tone: "blue" });
+  } else if (isDraftNode(node)) {
+    badges.push({ label: "Draft", tone: "gold" });
+  } else if (node.metadata?.configured || isInlineConfigNode(node)) {
+    badges.push({ label: node.metadata?.configured ? "Configured" : "Runtime", tone: "violet" });
+  } else {
+    badges.push({ label: node.status || "Active", tone: "green" });
+  }
+
+  if (sandbox.status === "error") badges.push({ label: "Sandbox", tone: "red" });
+  else if (sandbox.status === "policy") badges.push({ label: "Policy", tone: "gold" });
+  if (live?.status === "error") badges.push({ label: "Error", tone: "red" });
+  else if (live) badges.push({ label: "Live", tone: "green" });
+  if (perf) badges.push({ label: performanceLabel(perf), tone: performanceTone(perf) });
+
+  return badges.slice(0, 3);
+};
+
+const runtimeOverviewStats = () => {
+  const nodes = state.runtime.nodes || [];
+  const flowLogs = state.runtime.flowLogs || [];
+  return {
+    runtime: nodes.filter((node) => !node.metadata?.library).length,
+    configured: nodes.filter((node) => node.metadata?.configured || (!node.metadata?.library && !isDraftNode(node))).length,
+    draft: nodes.filter(isDraftNode).length,
+    warningLogs: flowLogs.filter((log) => (log.level || "info") === "warning").length,
+    errorLogs: flowLogs.filter((log) => (log.level || "info") === "error").length,
+  };
+};
+
+const configureNode = (node) => {
+  if (node?.type === "boxTracker" && !node.metadata?.library) {
+    const item = { ...(paletteItemForNode(node) || {}), url: "editorBoxTracker.html" };
+    openPaletteNode(item, node);
+    return;
+  }
+  if (node?.type === "boxLens" && !node.metadata?.library) {
+    const item = { ...(paletteItemForNode(node) || {}), url: "editorBoxLens.html" };
+    openPaletteNode(item, node);
+    return;
+  }
+  if (node?.type === "aiAgent" && !node.metadata?.library) {
+    requestAiAgentRuntimeConfig(node);
+    return;
+  }
+  if (isCustomRuntimeNode(node) && !node.metadata?.library) {
+    requestCustomRuntimeNodeConfig(node);
+    return;
+  }
+  if (isInlineConfigNode(node) && !node.metadata?.library) {
+    requestRuntimeNodeConfig(node);
+    return;
+  }
+  const item = paletteItemForNode(node);
+  if (item) {
+    openPaletteNode(item, node);
+    return;
+  }
+  const query = new URLSearchParams();
+  if (node.workspaceId) query.set("workspaceId", node.workspaceId);
+  if (node.id) query.set("runtimeNodeId", node.id);
+  if (node.type) query.set("type", node.type);
+  window.location.assign(`connections.html?${query.toString()}`);
+};
+
+const nodeConfigObject = (node = {}) => {
+  const config = node.metadata?.config;
+  if (config && typeof config === "object" && !Array.isArray(config)) return config;
+  return {};
+};
+
+const configStringValue = (node = {}) => {
+  const config = node.metadata?.config;
+  if (!config) return "";
+  return typeof config === "string" ? config : JSON.stringify(config, null, 2);
+};
+
+const runtimeNodeConfigDefaults = (node = {}) => {
+  const channels = nodeChannels(node);
+  const metadata = node.metadata || {};
+  const paletteLabel = metadata.paletteLabel || node.label || "";
+  const config = nodeConfigObject(node);
+  const subtype = nodeSubtype(node);
+  const common = {
+    label: node.label || paletteLabel || node.id,
+    input: config.input || node.inputs?.[0] || channels[0] || state.focus.channel || "default",
+    output: config.output || node.outputs?.[0] || channels[0] || state.focus.channel || "default",
+    mode: metadata.mode || metadata.processorType || metadata.actionType || metadata.agentRole || subtype || paletteLabel || node.type || "runtime",
+    config: configStringValue(node),
+    configObject: config,
+    runtimeStatus: metadata.runtimeStatus || node.runtime?.status || node.status || "idle",
+  };
+  if (subtype === "condition") {
+    return {
+      ...common,
+      conditionField: config.conditionField || config.field || "payload.value",
+      conditionOperator: config.conditionOperator || config.operator || ">",
+      conditionValue: config.conditionValue || config.value || "",
+      trueOutput: config.trueOutput || node.outputs?.[0] || "true",
+      falseOutput: config.falseOutput || node.outputs?.[1] || "false",
+    };
+  }
+  if (node.type === "action") return { ...common, output: "", config: metadata.target || common.config };
+  if (node.type === "aiAgent") return { ...common, mode: metadata.agentRole || paletteLabel || "Analyzer" };
+  return common;
+};
+
+const readConfigField = (form, name, fallback = "") =>
+  form?.querySelector?.(`[name="${name}"]`)?.value?.trim?.() || fallback;
+
+const readConfigMap = (form) =>
+  Object.fromEntries(Array.from(form?.querySelectorAll?.("[data-config-key]") || [])
+    .map((field) => [field.dataset.configKey, field.type === "checkbox" ? field.checked : field.value?.trim?.() || ""])
+    .filter(([key]) => key));
+
+const runtimeNodeUpdateFromValues = ({ node, values = {} }) => {
+  const defaults = runtimeNodeConfigDefaults(node);
+  const label = values.label ?? defaults.label;
+  const input = values.input ?? defaults.input;
+  const output = values.output ?? defaults.output;
+  const mode = values.mode ?? defaults.mode;
+  const runtimeStatus = values.runtimeStatus ?? defaults.runtimeStatus;
+  const config = { ...defaults.configObject, ...(values.config || {}) };
+  const subtype = nodeSubtype(node);
+  const category = nodeCategory(node);
+  const outputs = subtype === "condition"
+    ? [config.trueOutput || defaults.trueOutput || "true", config.falseOutput || defaults.falseOutput || "false"].filter(Boolean)
+    : category === "actions" || category === "storage" || category === "lens" || category === "dev"
+      ? []
+      : [output].filter(Boolean);
+  const inputs = category === "sources" ? [] : [input].filter(Boolean);
+  const manifestInputs = category === "sources" ? sourceConfigInputPorts(subtype) : inputs;
+  const channels = [...new Set([...inputs, ...outputs].filter(Boolean))];
+  const previousMetadata = node.metadata || {};
+  const manifest = nodeManifest({
+    type: node.type === "boxLens" ? "lens" : node.type,
+    subtype,
+    category,
+    inputs: manifestInputs,
+    outputs,
+    permissions: previousMetadata.permissions || previousMetadata.manifest?.permissions || node.permissions || [],
+    settingsSchema: previousMetadata.settingsSchema || previousMetadata.manifest?.settingsSchema || {},
+    runtime: previousMetadata.runtimeMetadata || previousMetadata.manifest?.runtime || node.runtime || {},
+    render: previousMetadata.manifest?.render || null,
+    execute: previousMetadata.manifest?.execute || null,
+    persist: previousMetadata.manifest?.persist || null,
+  });
+
+  return {
+    node: {
+      ...node,
+      label,
+      inputs,
+      outputs,
+      channels,
+      status: runtimeStatus,
+      runtime: {
+        ...(node.runtime || {}),
+        status: runtimeStatus,
+        active: runtimeStatus !== "paused" && runtimeStatus !== "disabled",
+      },
+      metadata: {
+        ...previousMetadata,
+        draft: false,
+        configured: true,
+        mode,
+        config,
+        runtimeStatus,
+        subtype,
+        category,
+        manifest,
+        permissions: manifest.permissions,
+        settingsSchema: manifest.settingsSchema,
+        runtimeMetadata: manifest.runtime,
+        processorType: node.type === "processor" ? subtype : previousMetadata.processorType,
+        actionType: node.type === "action" ? subtype : previousMetadata.actionType,
+        agentRole: node.type === "aiAgent" ? subtype : previousMetadata.agentRole,
+      },
+    },
+    channels,
+  };
+};
+
+const configFieldDefinitions = (node = {}) => {
+  const subtype = nodeSubtype(node);
+  const category = nodeCategory(node);
+  if (subtype === "condition") {
+    return [
+      { key: "conditionField", label: "Field / Path", placeholder: "payload.price" },
+      { key: "conditionOperator", label: "Operator", type: "select", options: [">", ">=", "<", "<=", "==", "!=", "contains", "exists"] },
+      { key: "conditionValue", label: "Compare Value", placeholder: "100000" },
+      { key: "trueOutput", label: "True output port", placeholder: "true" },
+      { key: "falseOutput", label: "False output port", placeholder: "false" },
+    ];
+  }
+  if (subtype === "filter") {
+    return [
+      { key: "filterPath", label: "Field / Path", placeholder: "payload.status" },
+      { key: "filterOperator", label: "Operator", type: "select", options: ["==", "!=", ">", ">=", "<", "<=", "contains", "exists"] },
+      { key: "filterValue", label: "Value", placeholder: "active" },
+    ];
+  }
+  if (subtype === "transform" || subtype === "map" || subtype === "formatter") {
+    return [
+      { key: "expression", label: "Transform Expression", type: "textarea", placeholder: "return { ...payload, normalized: true }" },
+    ];
+  }
+  if (["throttle", "debounce"].includes(subtype)) {
+    return [
+      { key: "windowMs", label: "Window (ms)", placeholder: "1000" },
+      { key: "strategy", label: "Strategy", type: "select", options: ["leading", "trailing", "latest"] },
+    ];
+  }
+  if (["merge", "split", "reduce", "aggregator"].includes(subtype)) {
+    return [
+      { key: "strategy", label: "Strategy", placeholder: subtype === "split" ? "by path / predicate" : "merge by timestamp" },
+      { key: "windowSize", label: "Window size", placeholder: "100" },
+    ];
+  }
+  if (subtype === "validator") {
+    return [
+      { key: "schema", label: "Validation Schema", type: "textarea", placeholder: "{ \"required\": [\"price\"] }" },
+    ];
+  }
+  if (category === "sources") {
+    if (subtype === "manual-json") {
+      return [
+        { key: "json", label: "JSON Payload", type: "textarea", placeholder: "{ \"mela\": \"prova\" } oppure {mela:'prova'}" },
+        { key: "emitChannel", label: "Emit channel", placeholder: "raw" },
+      ];
+    }
+    if (subtype === "text-input" || subtype === "manual-input") {
+      return [
+        { key: "text", label: "Text Payload", type: "textarea", placeholder: "Scrivi qui il dato da passare al flow..." },
+        { key: "emitChannel", label: "Emit channel", placeholder: "raw" },
+      ];
+    }
+    const fields = [
+      { key: "endpoint", label: "Endpoint / Source", placeholder: "https://api.example.com/data" },
+      { key: "method", label: "Method", type: "select", options: ["GET", "POST", "PUT", "PATCH"] },
+      { key: "intervalMs", label: "Poll interval (ms)", placeholder: "5000" },
+      { key: "testPayload", label: "Test Payload", type: "textarea", placeholder: "{ \"value\": 100, \"status\": \"active\" }" },
+    ];
+    if (subtype === "websocket") fields.splice(2, 0, { key: "keepWebSocketOpen", label: "Keep WebSocket open", type: "checkbox" });
+    return fields;
+  }
+  if (category === "trackers") {
+    return [
+      { key: "emitChannel", label: "Emit channel", placeholder: "btc.price" },
+      { key: "parser", label: "Parser path", placeholder: "payload.data" },
+      { key: "retryPolicy", label: "Retry policy", type: "select", options: ["none", "linear", "exponential"] },
+      { key: "testPayload", label: "Test Payload", type: "textarea", placeholder: "{ \"price\": 100000, \"status\": \"active\" }" },
+    ];
+  }
+  if (category === "ai-agents") {
+    return [
+      { key: "provider", label: "Provider", placeholder: "openai/local" },
+      { key: "model", label: "Model", placeholder: "gpt-4.1-mini" },
+      { key: "prompt", label: "Prompt / Instruction", type: "textarea", placeholder: "Analyze incoming payload and emit a decision." },
+      { key: "testPayload", label: "Direct Test Payload", type: "textarea", placeholder: "{ \"text\": \"Analyze this payload\", \"value\": 42 }" },
+      { key: "expectedOutput", label: "Expected Output", type: "textarea", placeholder: "{ \"decision\": \"ok\" } oppure testo atteso" },
+      { key: "assertPath", label: "Assert path", placeholder: "response.decision" },
+      { key: "assertOperator", label: "Assert operator", type: "select", options: ["contains", "equals", "exists", "json-contains", "regex"] },
+      { key: "assertValue", label: "Assert value", placeholder: "ok" },
+      { key: "inputCostPer1k", label: "Input cost / 1k", placeholder: "0" },
+      { key: "outputCostPer1k", label: "Output cost / 1k", placeholder: "0" },
+    ];
+  }
+  if (category === "lens") {
+    return [
+      { key: "viewMode", label: "View mode", type: "select", options: ["chart", "stat", "table", "feed", "terminal"] },
+      { key: "refreshMs", label: "Refresh (ms)", placeholder: "1000" },
+      { key: "displayPath", label: "Display path", placeholder: "payload.value" },
+    ];
+  }
+  if (category === "actions") {
+    if (subtype === "runtime-trigger") {
+      return [
+        { key: "targetChannel", label: "Target channel", placeholder: "alerts.price" },
+        { key: "template", label: "Payload Template", type: "textarea", placeholder: "{ \"triggered\": true, \"value\": \"{{payload.value}}\" }" },
+      ];
+    }
+    return [
+      { key: "target", label: "Target", placeholder: "webhook/chat/email" },
+      { key: "template", label: "Payload Template", type: "textarea", placeholder: "{ \"text\": \"{{payload.value}}\" }" },
+      { key: "retryPolicy", label: "Retry policy", type: "select", options: ["none", "linear", "exponential"] },
+    ];
+  }
+  if (category === "storage") {
+    return [
+      { key: "storeName", label: "Store / Bucket", placeholder: "tl_history" },
+      { key: "keyPath", label: "Key path", placeholder: "id" },
+      { key: "retention", label: "Retention", placeholder: "30d" },
+    ];
+  }
+  if (category === "dev") {
+    return [
+      { key: "previewMode", label: "Preview mode", type: "select", options: ["auto", "json", "raw"] },
+      { key: "maxChars", label: "Max chars", placeholder: "2000" },
+    ];
+  }
+  return [
+    { key: "config", label: "Runtime Config", type: "textarea", placeholder: "JSON, rule, target or prompt" },
+  ];
+};
+
+const channelSetKey = (values = []) =>
+  [...new Set(values.filter(Boolean).map(String))].sort().join("|");
+
+const stopNodeControlEvent = (event) => {
+  event.stopPropagation();
+};
+
+const inlineConfigFields = (node = {}) => {
+  const subtype = nodeSubtype(node);
+  const category = nodeCategory(node);
+  if (subtype === "condition") {
+    return [
+      { key: "conditionField", label: "Field", placeholder: "payload.value" },
+      { key: "conditionOperator", label: "Op", type: "select", options: [">", ">=", "<", "<=", "==", "!=", "contains", "exists"] },
+      { key: "conditionValue", label: "Value", placeholder: "100000" },
+    ];
+  }
+  if (subtype === "filter") {
+    return [
+      { key: "filterPath", label: "Path", placeholder: "payload.status" },
+      { key: "filterOperator", label: "Op", type: "select", options: ["==", "!=", ">", ">=", "<", "<=", "contains", "exists"] },
+      { key: "filterValue", label: "Value", placeholder: "active" },
+    ];
+  }
+  if (subtype === "transform" || subtype === "map" || subtype === "formatter") {
+    return [
+      { key: "expression", label: "Expr", placeholder: "payload.value" },
+    ];
+  }
+  if (["throttle", "debounce"].includes(subtype)) {
+    return [
+      { key: "windowMs", label: "ms", placeholder: "1000" },
+      { key: "strategy", label: "Mode", type: "select", options: ["leading", "trailing", "latest"] },
+    ];
+  }
+  if (category === "sources") {
+    if (subtype === "manual-json") {
+      return [
+        { key: "emitChannel", label: "Emit", placeholder: "raw" },
+        { key: "json", label: "JSON", placeholder: "{mela:'prova'}" },
+      ];
+    }
+    if (subtype === "text-input" || subtype === "manual-input") {
+      return [
+        { key: "emitChannel", label: "Emit", placeholder: "raw" },
+        { key: "text", label: "Text", placeholder: "value" },
+      ];
+    }
+    const fields = [
+      { key: "method", label: "Method", type: "select", options: ["GET", "POST", "PUT", "PATCH"] },
+      { key: "endpoint", label: "URL", placeholder: "https://..." },
+    ];
+    if (subtype === "websocket") fields.push({ key: "keepWebSocketOpen", label: "Keep", type: "checkbox" });
+    return fields;
+  }
+  if (category === "trackers") {
+    return [
+      { key: "emitChannel", label: "Emit", placeholder: "btc.price" },
+      { key: "parser", label: "Path", placeholder: "payload.data" },
+    ];
+  }
+  if (category === "ai-agents") {
+    return [
+      { key: "provider", label: "Provider", placeholder: "local" },
+      { key: "model", label: "Model", placeholder: "model" },
+      { key: "assertValue", label: "Expect", placeholder: "ok" },
+    ];
+  }
+  if (category === "lens") {
+    return [
+      { key: "viewMode", label: "View", type: "select", options: ["chart", "stat", "table", "feed", "terminal"] },
+      { key: "displayPath", label: "Path", placeholder: "payload.value" },
+    ];
+  }
+  if (category === "actions") {
+    if (subtype === "runtime-trigger") {
+      return [
+        { key: "targetChannel", label: "Emit", placeholder: "alerts.price" },
+      ];
+    }
+    return [
+      { key: "target", label: "Target", placeholder: "webhook/chat" },
+      { key: "retryPolicy", label: "Retry", type: "select", options: ["none", "linear", "exponential"] },
+    ];
+  }
+  if (category === "storage") {
+    return [
+      { key: "storeName", label: "Store", placeholder: "tl_history" },
+      { key: "retention", label: "Keep", placeholder: "30d" },
+    ];
+  }
+  if (category === "dev") {
+    return [
+      { key: "previewMode", label: "Mode", type: "select", options: ["auto", "json", "raw"] },
+      { key: "maxChars", label: "Max", placeholder: "2000" },
+    ];
+  }
+  return [
+    { key: "config", label: "Config", placeholder: "value" },
+  ];
+};
+
+const persistInlineRuntimeNodeConfig = async ({ node, patch = {}, values = {} }) => {
+  if (!node?.id || node.metadata?.library) return;
+  const defaults = runtimeNodeConfigDefaults(node);
+  const update = runtimeNodeUpdateFromValues({
+    node,
+    values: {
+      label: values.label ?? defaults.label,
+      input: values.input ?? defaults.input,
+      output: values.output ?? defaults.output,
+      mode: values.mode ?? defaults.mode,
+      runtimeStatus: values.runtimeStatus ?? defaults.runtimeStatus,
+      config: { ...defaults.configObject, ...patch },
+    },
+  });
+
+  try {
+    await window.TrackerLensRuntimeGraphStore?.upsertRuntimeNode?.({ node: update.node });
+    if (window.TrackerLensChannelRegistry?.upsertChannelsForRuntimeNode) {
+      await window.TrackerLensChannelRegistry.upsertChannelsForRuntimeNode({ node: update.node });
+    }
+    await recordFlowAction({
+      workspaceId: update.node.workspaceId || "global",
+      nodeId: update.node.id,
+      message: `Runtime node inline setting updated: ${update.node.label || update.node.id}`,
+      context: {
+        action: "runtime-node-inline-configured",
+        nodeType: update.node.type || "",
+        changed: Object.keys(patch),
+      },
+    });
+    setFocusState({
+      mode: "dependencies",
+      nodeId: update.node.id,
+      edgeId: "",
+      nodeType: update.node.type,
+      channel: update.channels[0] || "",
+      connectionId: "",
+    });
+    await loadRuntime({ force: true, silent: true });
+  } catch (error) {
+    console.error("Errore configurazione inline runtime node:", error);
+    state.error = error?.message || "Errore configurazione inline runtime node";
+    mount();
+  }
+};
+
+const previewRecordForNode = (node = {}) =>
+  state.previewPayloads[node.id] || null;
+
+const clearPreviewNodePayload = (node = {}) => {
+  if (!node.id) return;
+  const workspaceId = node.workspaceId || state.filters.workspaceId || "workspace_global";
+  state.previewClearedAt = {
+    ...loadStoredPreviewClears(workspaceId),
+    [node.id]: new Date().toISOString(),
+  };
+  saveStoredPreviewClears(workspaceId, state.previewClearedAt);
+  delete state.previewPayloads[node.id];
+  mount({ preserveScroll: true });
+};
+
+const previewTextForRecord = (record = null, mode = "auto", maxChars = 2000) => {
+  if (!record) return "Nessun payload dati ricevuto.\nI pulse di routing/test sono ignorati dal Preview.";
+  const payload = record.payload;
+  const asRaw = typeof payload === "string" ? payload : prettyRuntimeValue(payload);
+  const text = mode === "raw" && typeof payload !== "string"
+    ? String(payload)
+    : asRaw;
+  return text.length > maxChars ? `${text.slice(0, maxChars)}\n...` : text;
+};
+
+const renderPreviewNodePanel = (node = {}) => {
+  const config = nodeRuntimeConfig(node);
+  const record = previewRecordForNode(node);
+  const mode = String(config.previewMode || "auto").toLowerCase();
+  const maxChars = Math.max(200, Math.min(12000, Number(config.maxChars || 2000)));
+  return _.div(
+    { class: "tl-flow-node-preview", "data-flow-preview-panel": node.id },
+    _.div(
+      { class: "tl-flow-node-preview-head" },
+      _.span(record ? `${record.channel} · ${record.eventType} · ${formatShortDate(record.createdAt)}` : "Waiting for data payload"),
+      _.span(
+        { class: "tl-flow-node-preview-actions" },
+        record ? copyRuntimeButton(record.payload, "Copy preview payload") : null,
+        record ? btn({
+          class: "tl-flow-copy-btn is-clear",
+          title: "Clear preview payload",
+          onPointerDown: stopNodeControlEvent,
+          onclick: (event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            clearPreviewNodePayload(node);
+          },
+        }, icon("delete_sweep", "sm")) : null
+      )
+    ),
+    _.pre(previewTextForRecord(record, mode, maxChars))
+  );
+};
+
+const renderInlineNodeSettings = (node) => {
+  if (!isInlineConfigNode(node) || node.metadata?.library) return null;
+  if (isCustomRuntimeNode(node)) return renderCustomRuntimeNodeInlineForm(node);
+  if (isPreviewNode(node)) return renderPreviewNodePanel(node);
+  if (node.type === "boxTracker" || node.type === "boxLens") {
+    return _.div(
+      { class: "tl-flow-node-inline-config is-external" },
+      btn({
+        class: "tl-flow-inline-editor-btn",
+        onPointerDown: stopNodeControlEvent,
+        onclick: (event) => {
+          event.preventDefault();
+          event.stopPropagation();
+          configureNode(node);
+        },
+      }, icon("open_in_new", "sm"), node.type === "boxTracker" ? "Tracker Editor" : "Lens Editor")
+    );
+  }
+
+  const defaults = runtimeNodeConfigDefaults(node);
+  const config = defaults.configObject || {};
+  const fields = inlineConfigFields(node).slice(0, 3);
+  const saveField = (definition, event) => {
+    const value = definition.type === "checkbox" ? event.currentTarget.checked : event.currentTarget.value;
+    persistInlineRuntimeNodeConfig({ node, patch: { [definition.key]: value } });
+  };
+  const control = (definition) => {
+    const value = config[definition.key] ?? defaults[definition.key] ?? "";
+    const common = {
+      "aria-label": definition.label,
+      title: definition.label,
+      onPointerDown: stopNodeControlEvent,
+      onclick: stopNodeControlEvent,
+      onchange: (event) => saveField(definition, event),
+    };
+    if (definition.type === "select") {
+      return _.select(
+        { ...common, class: "tl-flow-inline-select", value },
+        ...(definition.options || []).map((option) => _.option({ value: option, selected: option === value }, option))
+      );
+    }
+    if (definition.type === "checkbox") {
+      return _.Toggle({
+        class: "tl-flow-inline-toggle",
+        checked: Boolean(value),
+        color: "success",
+        dense: true,
+        onPointerDown: stopNodeControlEvent,
+        onclick: stopNodeControlEvent,
+        onChange: (checked) => persistInlineRuntimeNodeConfig({ node, patch: { [definition.key]: Boolean(checked) } }),
+      });
+    }
+    return _.input({
+      ...common,
+      class: "tl-flow-inline-input",
+      value,
+      placeholder: definition.placeholder || "",
+      autocomplete: "off",
+      onkeydown: (event) => {
+        event.stopPropagation();
+        if (event.key === "Enter") event.currentTarget.blur();
+      },
+    });
+  };
+
+  return _.div(
+    { class: "tl-flow-node-inline-config", onPointerDown: stopNodeControlEvent, onclick: stopNodeControlEvent },
+    ...fields.map((definition) => _.label(
+      { class: `tl-flow-inline-row is-${definition.type || "text"}` },
+      _.span({ class: "tl-flow-inline-label" }, definition.label),
+      control(definition)
+    ))
+  );
+};
+
+const customConfigValue = (config = {}, field = {}) => {
+  const value = config[field.key];
+  if (value !== undefined && value !== null) return value;
+  const settings = nodeBuilderComponentSettings(field);
+  if (field.type === "toggle" || field.type === "checkbox" || field.type === "boolean") return Boolean(settings.defaultChecked);
+  if (field.type === "radio") return settings.defaultValue || nodeBuilderFieldOptions(field)[0]?.value || "option-1";
+  if (field.type === "select") return settings.defaultValue || nodeBuilderFieldOptions(field)[0]?.value || "";
+  if (field.type === "number" || field.type === "slider" || field.type === "rating") return Number(settings.defaultValue) || 0;
+  if (settings.defaultValue !== undefined && settings.defaultValue !== null) return settings.defaultValue;
+  return "";
+};
+
+const customInlineSaveTimers = new Map();
+
+const persistCustomInlineValue = ({ node = {}, key = "", value = "", debounce = 0 } = {}) => {
+  if (!node?.id || !key) return;
+  const timerKey = `${node.id}:${key}`;
+  if (customInlineSaveTimers.has(timerKey)) window.clearTimeout(customInlineSaveTimers.get(timerKey));
+  const run = async () => {
+    customInlineSaveTimers.delete(timerKey);
+    const current = nodeById(node.id) || node;
+    const nextConfig = {
+      ...nodeConfigObject(current),
+      [key]: value,
+    };
+    const nextNode = customRuntimeNodeUpdate({
+      node: current,
+      label: current.label || node.label,
+      runtimeStatus: current.metadata?.runtimeStatus || current.runtime?.status || current.status || "idle",
+      config: nextConfig,
+    });
+    state.runtime.nodes = (state.runtime.nodes || []).map((item) => item.id === nextNode.id ? nextNode : item);
+    try {
+      await window.TrackerLensRuntimeGraphStore?.upsertRuntimeNode?.({ node: nextNode });
+    } catch (error) {
+      console.error("Errore salvataggio campo custom runtime node:", error);
+      state.error = error?.message || "Errore salvataggio campo custom runtime node";
+      setErrorSignal(state.error);
+    }
+  };
+  if (debounce > 0) {
+    customInlineSaveTimers.set(timerKey, window.setTimeout(run, debounce));
+  } else {
+    run();
+  }
+};
+
+const renderCustomRuntimeNodeInlineComponent = (node = {}, layoutNode = {}, config = {}) => {
+  const settings = nodeBuilderComponentSettings(layoutNode);
+  if (settings.visibleOnNode === false) return null;
+  const label = layoutNode.label || layoutNode.key || layoutNode.type || "Field";
+  if (NODE_BUILDER_CONTAINER_TYPES.has(layoutNode.type)) {
+    const children = layoutNode.children?.length
+      ? layoutNode.children.map((child) => renderCustomRuntimeNodeInlineComponent(node, child, config)).filter(Boolean)
+      : [];
+    return _.div(
+      { class: `tl-flow-node-builder-preview-form-node is-${layoutNode.type}` },
+      _.div(
+        { class: "tl-flow-node-builder-preview-form-head" },
+        icon(nodeBuilderComponentIcon(layoutNode.type), "sm"),
+        _.strong(label),
+        _.em(layoutNode.type)
+      ),
+      _.div(
+        { class: "tl-flow-node-builder-preview-form-children" },
+        ...(children.length ? children : [_.span({ class: "tl-flow-node-builder-preview-empty" }, "Empty container")])
+      )
+    );
+  }
+  if (layoutNode.type === "badge" || layoutNode.type === "chip") {
+    return _.span(
+      { class: `tl-flow-node-builder-live-token is-${layoutNode.type}` },
+      icon(nodeBuilderComponentIcon(layoutNode.type), "sm"),
+      label
+    );
+  }
+  const key = layoutNode.key || layoutNode.id;
+  const readCmsValue = (nextValue) => nextValue?.target?.value ?? nextValue;
+  const readCmsChecked = (nextValue) => nextValue?.target?.checked ?? nextValue;
+  const readCmsDateValue = (nextValue) => {
+    const raw = readCmsValue(nextValue);
+    if (raw instanceof Date && !Number.isNaN(raw.getTime())) return raw.toISOString().slice(0, 10);
+    return String(raw || "");
+  };
+  const stopInlineControlEvent = (event) => {
+    event.stopPropagation();
+  };
+  const value = customConfigValue(config, { ...layoutNode, key });
+  if (layoutNode.type === "select") {
+    const options = nodeBuilderFieldOptions(layoutNode);
+    return _.Select({
+      class: "tl-flow-node-builder-live-field",
+      size: "sm",
+      label,
+      value: String(value || settings.defaultValue || options[0]?.value || ""),
+      options,
+      slots: { arrow: () => icon("keyboard_arrow_down", "sm") },
+      onPointerDown: stopInlineControlEvent,
+      onclick: stopInlineControlEvent,
+      onChange: (nextValue) => persistCustomInlineValue({ node, key, value: String(readCmsValue(nextValue) || "") }),
+    });
+  }
+  if (layoutNode.type === "checkbox") {
+    return _.div(
+      { class: "tl-flow-node-builder-live-check", onPointerDown: stopInlineControlEvent, onclick: stopInlineControlEvent },
+      _.span(label),
+      _.Checkbox({
+        class: "tl-flow-node-builder-live-check-control",
+        size: "sm",
+        checked: Boolean(value),
+        title: label,
+        color: settings.color || "success",
+        outline: true,
+        ...(settings.icon ? { checkedIcon: settings.icon } : {}),
+        onChange: (checked) => persistCustomInlineValue({ node, key, value: Boolean(readCmsChecked(checked)) }),
+      })
+    );
+  }
+  if (layoutNode.type === "radio") {
+    return _.div(
+      { class: "tl-flow-node-builder-live-check", onPointerDown: stopInlineControlEvent, onclick: stopInlineControlEvent },
+      _.span(label),
+      _.Radio({
+        class: "tl-flow-node-builder-live-check-control",
+        size: "sm",
+        checked: Boolean(value),
+        title: label,
+        color: settings.color || "success",
+        outline: true,
+        ...(settings.icon ? { checkedIcon: settings.icon } : {}),
+        onChange: () => persistCustomInlineValue({ node, key, value: settings.defaultValue || nodeBuilderFieldOptions(layoutNode)[0]?.value || "option-1" }),
+      })
+    );
+  }
+  if (layoutNode.type === "toggle" || layoutNode.type === "boolean") {
+    return _.div(
+      { class: "tl-flow-node-builder-live-toggle", onPointerDown: stopInlineControlEvent, onclick: stopInlineControlEvent },
+      _.span(label),
+      _.Toggle({
+        class: "tl-flow-node-builder-live-toggle-control",
+        size: "sm",
+        checked: Boolean(value),
+        color: settings.color || "success",
+        ...(settings.icon ? { iconOn: settings.icon, checkedIcon: settings.icon } : {}),
+        onChange: (checked) => persistCustomInlineValue({ node, key, value: Boolean(readCmsChecked(checked)) }),
+      })
+    );
+  }
+  if (layoutNode.type === "rating") {
+    return _.div(
+      { class: "tl-flow-node-builder-live-field", onPointerDown: stopInlineControlEvent, onclick: stopInlineControlEvent },
+      _.span(label),
+      _.Rating ? _.Rating({
+        size: "sm",
+        value: Number(value) || 0,
+        max: Number(settings.max) || 5,
+        colorSelected: settings.color || "primary",
+        onChange: (nextValue) => persistCustomInlineValue({ node, key, value: Number(readCmsValue(nextValue)) || 0 }),
+      }) : _.Input({
+        class: "tl-flow-node-builder-live-field",
+        size: "sm",
+        label,
+        value: String(value || "0"),
+        onInput: (event) => persistCustomInlineValue({ node, key, value: Number(readCmsValue(event)) || 0, debounce: 350 }),
+      })
+    );
+  }
+  if (layoutNode.type === "date") {
+    return _.Date ? _.Date({
+      class: "tl-flow-node-builder-live-field",
+      size: "sm",
+      label,
+      value: String(value || ""),
+      ...(settings.icon ? { icon: settings.icon } : {}),
+      onPointerDown: stopInlineControlEvent,
+      onclick: stopInlineControlEvent,
+      onChange: (nextValue) => persistCustomInlineValue({ node, key, value: readCmsDateValue(nextValue) }),
+    }) : _.Input({
+      class: "tl-flow-node-builder-live-field",
+      size: "sm",
+      label,
+      value: String(value || ""),
+      ...(settings.icon ? { icon: settings.icon } : {}),
+      onPointerDown: stopInlineControlEvent,
+      onclick: stopInlineControlEvent,
+      onInput: (event) => persistCustomInlineValue({ node, key, value: String(readCmsValue(event) || ""), debounce: 350 }),
+    });
+  }
+  if (layoutNode.type === "time") {
+    return _.Time ? _.Time({
+      class: "tl-flow-node-builder-live-field",
+      size: "sm",
+      label,
+      value: String(value || ""),
+      ...(settings.icon ? { icon: settings.icon } : {}),
+      onPointerDown: stopInlineControlEvent,
+      onclick: stopInlineControlEvent,
+      onChange: (nextValue) => persistCustomInlineValue({ node, key, value: String(readCmsValue(nextValue) || "") }),
+    }) : _.Input({
+      class: "tl-flow-node-builder-live-field",
+      size: "sm",
+      label,
+      value: String(value || ""),
+      onPointerDown: stopInlineControlEvent,
+      onclick: stopInlineControlEvent,
+      onInput: (event) => persistCustomInlineValue({ node, key, value: String(readCmsValue(event) || ""), debounce: 350 }),
+    });
+  }
+  if (layoutNode.type === "slider" || layoutNode.type === "number") {
+    return _.div(
+      { class: "tl-flow-node-builder-live-field", onPointerDown: stopInlineControlEvent, onclick: stopInlineControlEvent },
+      _.span(label),
+      _.Slider ? _.Slider({
+        size: "sm",
+        showValue: true,
+        value: Number(value) || 0,
+        min: Number(settings.min) || 0,
+        max: Number(settings.max) || 100,
+        step: Number(settings.step) || 1,
+        color: settings.color || "primary",
+        onChange: (nextValue) => persistCustomInlineValue({ node, key, value: Number(readCmsValue(nextValue)) || 0 }),
+      }) : _.Input({
+        class: "tl-flow-node-builder-live-field",
+        size: "sm",
+        label,
+        value: String(value || "0"),
+        onPointerDown: stopInlineControlEvent,
+        onclick: stopInlineControlEvent,
+        onInput: (event) => persistCustomInlineValue({ node, key, value: Number(readCmsValue(event)) || 0, debounce: 350 }),
+      })
+    );
+  }
+  return _.Input({
+    class: "tl-flow-node-builder-live-field",
+    size: "sm",
+    label,
+    value: String(value || ""),
+    placeholder: layoutNode.key || label,
+    autocomplete: "off",
+    onPointerDown: stopInlineControlEvent,
+    onclick: stopInlineControlEvent,
+    onInput: (event) => persistCustomInlineValue({ node, key, value: String(readCmsValue(event) || ""), debounce: 350 }),
+  });
+};
+
+const renderCustomRuntimeNodeInlineForm = (node = {}) => {
+  const layout = customNodeFormLayout(node);
+  if (!layout.length) return null;
+  const config = nodeConfigObject(node);
+  return _.div(
+    { class: "tl-flow-node-builder-live-form tl-flow-custom-node-live-form", onPointerDown: stopNodeControlEvent, onclick: stopNodeControlEvent },
+    ...layout.map((layoutNode) => renderCustomRuntimeNodeInlineComponent(node, layoutNode, config)).filter(Boolean)
+  );
+};
+
+const requestRuntimeNodeChannelWarning = ({ node, form, close, dependencies }) => {
+  const dialog = _.Dialog({
+    class: "tl-flow-edge-delete-dialog",
+    panelClass: "tl-flow-edge-delete-panel",
+    size: "md",
+    title: "Channel usati nel runtime",
+    subtitle: node.label || node.id,
+    icon: "warning_amber",
+    closeButton: true,
+    content: () => _.div(
+      { class: "tl-flow-edge-delete-body" },
+      _.p("Questo nodo ha collegamenti attivi. Cambiare input/output puo modificare il routing degli eventi."),
+      _.div(_.span("Node"), _.strong(node.label || node.id)),
+      _.div(_.span("Dependencies"), _.strong(String(dependencies.length))),
+      _.div(_.span("Action"), _.strong("Save Anyway aggiornera node e Channel Registry"))
+    ),
+    actions: ({ close: closeWarning }) => _.Toolbar(
+      { align: "end", gap: 8 },
+      btn({ onclick: closeWarning }, "Cancel"),
+      btn({
+        class: "is-danger",
+        onclick: () => {
+          closeWarning();
+          persistRuntimeNodeConfig({ node, form, close, force: true });
+        },
+      }, icon("warning_amber", "sm"), "Save Anyway")
+    ),
+  });
+  dialog.open();
+};
+
+const persistRuntimeNodeConfig = async ({ node, form, close, force = false }) => {
+  const defaults = runtimeNodeConfigDefaults(node);
+  const update = runtimeNodeUpdateFromValues({
+    node,
+    values: {
+      label: readConfigField(form, "label", defaults.label),
+      input: readConfigField(form, "input", defaults.input),
+      output: readConfigField(form, "output", defaults.output),
+      mode: readConfigField(form, "mode", defaults.mode),
+      runtimeStatus: readConfigField(form, "runtimeStatus", defaults.runtimeStatus),
+      config: { ...defaults.configObject, ...readConfigMap(form) },
+    },
+  });
+  const nextNode = update.node;
+  const channels = update.channels;
+  const dependencies = selectedDependencies(node);
+  const previousChannels = channelSetKey([...(node.inputs || []), ...(node.outputs || [])]);
+  const nextChannels = channelSetKey([...(nextNode.inputs || []), ...(nextNode.outputs || [])]);
+  if (!force && dependencies.length && previousChannels !== nextChannels) {
+    requestRuntimeNodeChannelWarning({ node, form, close, dependencies });
+    return;
+  }
+
+  try {
+    await window.TrackerLensRuntimeGraphStore?.upsertRuntimeNode?.({ node: nextNode });
+    if (window.TrackerLensChannelRegistry?.upsertChannelsForRuntimeNode) {
+      await window.TrackerLensChannelRegistry.upsertChannelsForRuntimeNode({ node: nextNode });
+    }
+    await recordFlowAction({
+      workspaceId: nextNode.workspaceId || "global",
+      nodeId: nextNode.id,
+      message: `Runtime node configured: ${nextNode.label || nextNode.id}`,
+      context: {
+        action: "runtime-node-configured",
+        nodeType: nextNode.type || "",
+        channels,
+        forced: Boolean(force),
+      },
+    });
+    setFocusState({
+      mode: "dependencies",
+      nodeId: nextNode.id,
+      edgeId: "",
+      nodeType: nextNode.type,
+      channel: channels[0] || "",
+      connectionId: "",
+    });
+    close?.();
+    await loadRuntime();
+  } catch (error) {
+    console.error("Errore configurazione runtime node:", error);
+    state.error = error?.message || "Errore configurazione runtime node";
+    mount();
+  }
+};
+
+const flowAiConfigValue = (value = "") => Array.isArray(value) ? value.join(", ") : String(value || "");
+
+const aiAgentFromRuntimeNode = (node = {}) => {
+  const defaults = runtimeNodeConfigDefaults(node);
+  const config = defaults.configObject || {};
+  const agentType = config.agentType || nodeSubtype(node) || "analyzer";
+  const split = window.TrackerLensAiAgentEditor?.splitList || ((value) => String(value || "").split(/[\n,]+/).map((item) => item.trim()).filter(Boolean));
+  return {
+    id: config.runtimeAgentId || `runtime_agent_${node.workspaceId || state.filters.workspaceId || "workspace_global"}_${node.id}`,
+    scope: "runtime",
+    kind: "runtime",
+    workspaceId: node.workspaceId || state.filters.workspaceId || "workspace_global",
+    templateId: config.templateId || "",
+    name: defaults.label || node.label || "AI Agent",
+    description: config.description || "Flow Map AI runtime worker",
+    icon: config.icon || graphIcon(node) || "psychology",
+    color: config.color || "gold",
+    category: config.category || "Runtime Intelligence",
+    tags: split(config.tags),
+    version: config.version || "1.0.0",
+    status: defaults.runtimeStatus || "active",
+    runtime: {
+      agentType,
+      executionMode: config.executionMode || "on_event",
+      priority: config.priority ?? 5,
+      retryPolicy: config.retryPolicy || "exponential",
+      timeoutMs: config.timeoutMs ?? 30000,
+      cooldownMs: config.cooldownMs ?? 0,
+      queueLimit: config.queueLimit ?? 25,
+      parallelJobs: config.parallelJobs ?? 1,
+    },
+    provider: {
+      profileId: config.providerProfile || "",
+      providerType: config.providerType || config.provider || "ollama",
+      model: config.model || "local-model",
+      temperature: config.temperature ?? 0.2,
+      maxTokens: config.maxTokens ?? 800,
+      topP: config.topP ?? 0.9,
+      streaming: config.streaming === true || config.streaming === "true",
+      responseFormat: config.responseFormat || "json",
+    },
+    channels: {
+      inputs: config.inputChannels ? split(config.inputChannels) : [defaults.input].filter(Boolean),
+      payloadMapping: config.payloadMapping || "btc.price -> market_price\nnews.crypto -> latest_news",
+      requiredInputs: split(config.requiredInputs || defaults.input),
+      contextSources: split(config.contextSources || "workspace, memory, last-event"),
+      eventTriggers: split(config.eventTriggers || defaults.input),
+      outputs: [defaults.output].filter(Boolean),
+      outputChannel: defaults.output || `ai.${agentType}.output`,
+      outputFormat: config.outputFormat || config.responseFormat || "json",
+      emitStrategy: config.emitStrategy || "on_success",
+      eventPriority: config.eventPriority || "normal",
+    },
+    promptConfig: {
+      systemPrompt: config.systemPrompt || "You are a runtime intelligence worker. Analyze events and emit operational output.",
+      template: config.promptTemplate || config.prompt || "Analyze this runtime event:\n\nChannel: {{channel}}\nPayload: {{payload}}\nMemory: {{memory}}",
+      variables: split(config.dynamicVariables || "{{channel}}, {{timestamp}}, {{workspace}}, {{memory}}, {{event}}, {{payload}}"),
+      strategy: config.promptStrategy || "contextual",
+      outputInstructions: config.outputInstructions || "Return structured runtime output ready for channel emission.",
+    },
+    memory: {
+      mode: config.memoryMode || "workspace",
+      size: config.memorySize ?? 20,
+      expiration: config.memoryExpiration || "24h",
+      persistence: config.memoryPersistence || "workspace",
+      compression: config.memoryCompression || "summary",
+      contextWindow: config.contextWindow ?? 6,
+    },
+    permissions: {
+      canAccessWeb: config.canAccessWeb === true || config.canAccessWeb === "true",
+      canAccessMemory: config.canAccessMemory !== "false",
+      canEmitChannels: config.canEmitChannels !== "false",
+      canExecuteActions: config.canExecuteActions === true || config.canExecuteActions === "true",
+      canSaveStorage: config.canSaveStorage === true || config.canSaveStorage === "true",
+      canReadWorkspace: config.canReadWorkspace !== "false",
+      canAccessRuntimeLogs: config.canAccessRuntimeLogs !== "false",
+    },
+    debug: {
+      enableLogs: config.enableLogs !== "false",
+      savePrompts: config.savePrompts !== "false",
+      saveResponses: config.saveResponses !== "false",
+      runtimeMetrics: config.runtimeMetrics !== "false",
+      debugMode: config.debugMode === true || config.debugMode === "true",
+    },
+    metrics: {
+      executionCount: Number(config.executionCount || 0),
+      avgResponseTimeMs: Number(config.avgResponseTimeMs || 0),
+      tokenUsage: Number(config.tokenUsage || 0),
+      successRate: Number(config.successRate || 0),
+      queueSize: Number(config.queueSize || 0),
+      activeJobs: Number(config.activeJobs || 0),
+      memoryUsage: Number(config.memoryUsage || 0),
+    },
+  };
+};
+
+const aiAgentPayloadConfig = (payload = {}) => ({
+  runtimeAgentId: payload.id || "",
+  description: payload.description || "",
+  icon: payload.icon || "psychology",
+  color: payload.color || "gold",
+  category: payload.category || "Runtime Intelligence",
+  tags: flowAiConfigValue(payload.tags),
+  version: payload.version || "1.0.0",
+  templateId: payload.templateId || "",
+  agentType: payload.runtime?.agentType || "analyzer",
+  executionMode: payload.runtime?.executionMode || "on_event",
+  priority: payload.runtime?.priority ?? 5,
+  retryPolicy: payload.runtime?.retryPolicy || "exponential",
+  timeoutMs: payload.runtime?.timeoutMs ?? 30000,
+  cooldownMs: payload.runtime?.cooldownMs ?? 0,
+  queueLimit: payload.runtime?.queueLimit ?? 25,
+  parallelJobs: payload.runtime?.parallelJobs ?? 1,
+  providerProfile: payload.provider?.profileId || "",
+  providerType: payload.provider?.providerType || "ollama",
+  model: payload.provider?.model || "local-model",
+  temperature: payload.provider?.temperature ?? 0.2,
+  maxTokens: payload.provider?.maxTokens ?? 800,
+  topP: payload.provider?.topP ?? 0.9,
+  streaming: String(Boolean(payload.provider?.streaming)),
+  responseFormat: payload.provider?.responseFormat || "json",
+  inputChannels: flowAiConfigValue(payload.channels?.inputs),
+  payloadMapping: payload.channels?.payloadMapping || "",
+  requiredInputs: flowAiConfigValue(payload.channels?.requiredInputs),
+  contextSources: flowAiConfigValue(payload.channels?.contextSources),
+  eventTriggers: flowAiConfigValue(payload.channels?.eventTriggers),
+  outputFormat: payload.channels?.outputFormat || "json",
+  emitStrategy: payload.channels?.emitStrategy || "on_success",
+  eventPriority: payload.channels?.eventPriority || "normal",
+  systemPrompt: payload.promptConfig?.systemPrompt || "",
+  promptTemplate: payload.promptConfig?.template || "",
+  dynamicVariables: flowAiConfigValue(payload.promptConfig?.variables),
+  promptStrategy: payload.promptConfig?.strategy || "contextual",
+  outputInstructions: payload.promptConfig?.outputInstructions || "",
+  memoryMode: payload.memory?.mode || "workspace",
+  memorySize: payload.memory?.size ?? 20,
+  memoryExpiration: payload.memory?.expiration || "24h",
+  memoryPersistence: payload.memory?.persistence || "workspace",
+  memoryCompression: payload.memory?.compression || "summary",
+  contextWindow: payload.memory?.contextWindow ?? 6,
+  ...Object.fromEntries(Object.entries(payload.permissions || {}).map(([key, value]) => [key, String(Boolean(value))])),
+  ...Object.fromEntries(Object.entries(payload.debug || {}).map(([key, value]) => [key, String(Boolean(value))])),
+  ...payload.metrics,
+});
+
+const findSavedAiAgent = async (agentId = "") => {
+  if (!agentId) return null;
+  try {
+    const data = await window.TrackerLensAiRuntimeStore?.list?.();
+    return (data?.agents || []).find((agent) => agent.id === agentId) || null;
+  } catch (error) {
+    console.warn("Agente AI condiviso non caricato:", error);
+  }
+  return null;
+};
+
+const aiAgentAliasSourceId = (node = {}) =>
+  node.metadata?.aliasSourceAgentId || node.metadata?.config?.aliasSourceAgentId || "";
+
+const resolveAiAgentEditorRecord = async (node = {}) => {
+  if (!node.metadata?.aiAgentAlias) return aiAgentFromRuntimeNode(node);
+  const source = await findSavedAiAgent(aiAgentAliasSourceId(node));
+  if (!source) return aiAgentFromRuntimeNode(node);
+  return {
+    ...source,
+    workspaceId: source.workspaceId || node.workspaceId || state.filters.workspaceId || "workspace_global",
+  };
+};
+
+const persistAiAgentEditorPayload = async ({ node, payload, close }) => {
+  if (node.metadata?.aiAgentAlias) {
+    if (payload.scope === "runtime") {
+      await window.TrackerLensAiRuntimeStore?.upsertRuntimeAgent?.(payload);
+    } else {
+      await window.TrackerLensAiRuntimeStore?.upsertAgent?.(payload);
+    }
+    const { agentType, inputChannels, outputChannel } = aiAgentChannelsForRecord(payload);
+    const aliasId = aiAgentAliasSourceId(node) || payload.id;
+    const aliasNodes = state.runtime.nodes.filter((item) =>
+      item.type === "aiAgent" &&
+      item.metadata?.aiAgentAlias &&
+      (aiAgentAliasSourceId(item) === aliasId || item.id === node.id)
+    );
+    const permissionFlags = normalizeAiAgentPermissionFlags(payload.permissions);
+    const permissions = normalizeAssetPermissions(permissionFlags);
+    await Promise.all(aliasNodes.map((aliasNode) => window.TrackerLensRuntimeGraphStore?.upsertRuntimeNode?.({
+      node: {
+        ...aliasNode,
+        label: payload.name || aliasNode.label,
+        status: payload.status || aliasNode.status || "active",
+        inputs: inputChannels.slice(0, 1),
+        outputs: [outputChannel].filter(Boolean),
+        channels: [...new Set([...inputChannels.slice(0, 1), outputChannel].filter(Boolean))],
+        runtime: {
+          ...(aliasNode.runtime || {}),
+          status: payload.status || aliasNode.status || "active",
+          active: payload.status !== "paused" && payload.status !== "disabled",
+        },
+        metadata: {
+          ...(aliasNode.metadata || {}),
+          configured: true,
+          aiAgentAlias: true,
+          aliasSourceAgentId: aliasId,
+          aliasSourceScope: payload.scope || aliasNode.metadata?.aliasSourceScope || "template",
+          icon: payload.icon || aliasNode.metadata?.icon || "psychology",
+          subtype: agentType,
+          agentRole: agentType,
+          templateId: payload.scope === "runtime" ? payload.templateId || aliasId : aliasId,
+          runtimeStatus: payload.status || aliasNode.metadata?.runtimeStatus || "active",
+          config: {
+            ...(aliasNode.metadata?.config || {}),
+            aliasSourceAgentId: aliasId,
+            aliasSourceScope: payload.scope || aliasNode.metadata?.aliasSourceScope || "template",
+            templateId: payload.scope === "runtime" ? payload.templateId || aliasId : aliasId,
+            linked: "alias",
+          },
+          manifest: nodeManifest({
+            type: "aiAgent",
+            subtype: agentType,
+            category: "ai-agents",
+            inputs: inputChannels.slice(0, 1),
+            outputs: [outputChannel].filter(Boolean),
+            permissions,
+            runtime: payload.runtime || {},
+          }),
+          permissions,
+          runtimeMetadata: payload.runtime || {},
+        },
+        updatedAt: new Date().toISOString(),
+      },
+    })));
+    await recordFlowAction({
+      workspaceId: node.workspaceId || "global",
+      nodeId: node.id,
+      message: `Shared AI agent updated through alias: ${payload.name || payload.id}`,
+      context: { action: "ai-agent-alias-source-updated", agentId: aliasId, aliasCount: aliasNodes.length },
+    });
+    close?.();
+    await loadRuntime({ force: true });
+    return;
+  }
+  const outputChannel = payload.channels?.outputChannel || payload.channels?.outputs?.[0] || `ai.${payload.runtime?.agentType || "agent"}.output`;
+  const inputChannel = payload.channels?.inputs?.[0] || "input";
+  const update = runtimeNodeUpdateFromValues({
+    node,
+    values: {
+      label: payload.name || node.label,
+      input: inputChannel,
+      output: outputChannel,
+      mode: payload.runtime?.agentType || nodeSubtype(node),
+      runtimeStatus: payload.status || "active",
+      config: { ...nodeConfigObject(node), ...aiAgentPayloadConfig(payload) },
+    },
+  });
+  await window.TrackerLensAiRuntimeStore?.upsertRuntimeAgent?.({
+    ...payload,
+    id: payload.id || `runtime_agent_${payload.workspaceId || node.workspaceId || "workspace_global"}_${node.id}`,
+    runtimeNodeId: node.id,
+    scope: "runtime",
+    kind: "runtime",
+    workspaceId: payload.workspaceId || node.workspaceId || state.filters.workspaceId || "workspace_global",
+  });
+  await window.TrackerLensRuntimeGraphStore?.upsertRuntimeNode?.({ node: update.node });
+  if (window.TrackerLensChannelRegistry?.upsertChannelsForRuntimeNode) {
+    await window.TrackerLensChannelRegistry.upsertChannelsForRuntimeNode({ node: update.node });
+  }
+  await recordFlowAction({
+    workspaceId: update.node.workspaceId || "global",
+    nodeId: update.node.id,
+    message: `AI runtime agent configured: ${update.node.label || update.node.id}`,
+    context: { action: "ai-agent-editor-configured", nodeType: "aiAgent", channels: update.channels },
+  });
+  setFocusState({
+    mode: "dependencies",
+    nodeId: update.node.id,
+    edgeId: "",
+    nodeType: update.node.type,
+    channel: update.channels[0] || "",
+    connectionId: "",
+  });
+  close?.();
+  await loadRuntime();
+};
+
+const detachAiAgentAliasNode = async ({ node, close = null } = {}) => {
+  if (!node?.id || !node.metadata?.aiAgentAlias) return;
+  const source = await findSavedAiAgent(aiAgentAliasSourceId(node));
+  const payload = source || aiAgentFromRuntimeNode(node);
+  const workspaceId = node.workspaceId || state.filters.workspaceId || "workspace_global";
+  const runtimeAgentId = `runtime_agent_${safeRuntimeId(workspaceId)}_${safeRuntimeId(payload.id || node.id)}_${Date.now()}`;
+  const copyPayload = {
+    ...(payload.raw && typeof payload.raw === "object" ? payload.raw : {}),
+    ...payload,
+    id: runtimeAgentId,
+    scope: "runtime",
+    kind: "runtime",
+    workspaceId,
+    templateId: payload.scope === "runtime" ? payload.templateId || payload.id : payload.id,
+    runtimeNodeId: node.id,
+  };
+  const { agentType, inputChannels, outputChannel } = aiAgentChannelsForRecord(copyPayload);
+  const permissionFlags = normalizeAiAgentPermissionFlags(copyPayload.permissions);
+  const permissions = normalizeAssetPermissions(permissionFlags);
+  const nextNode = {
+    ...node,
+    label: copyPayload.name || node.label,
+    status: copyPayload.status || node.status || "active",
+    inputs: inputChannels.slice(0, 1),
+    outputs: [outputChannel].filter(Boolean),
+    channels: [...new Set([...inputChannels.slice(0, 1), outputChannel].filter(Boolean))],
+    metadata: {
+      ...(node.metadata || {}),
+      aiAgentAlias: false,
+      detachedFromAgentId: aiAgentAliasSourceId(node),
+      aliasSourceAgentId: "",
+      aliasSourceScope: "",
+      paletteLabel: "Existing Agent Copy",
+      runtimeAgentId,
+      templateId: copyPayload.templateId || "",
+      subtype: agentType,
+      agentRole: agentType,
+      config: {
+        ...aiAgentPayloadConfig(copyPayload),
+        runtimeAgentId,
+        templateId: copyPayload.templateId || "",
+      },
+      manifest: nodeManifest({
+        type: "aiAgent",
+        subtype: agentType,
+        category: "ai-agents",
+        inputs: inputChannels.slice(0, 1),
+        outputs: [outputChannel].filter(Boolean),
+        permissions,
+        runtime: copyPayload.runtime || {},
+      }),
+      permissions,
+      runtimeMetadata: copyPayload.runtime || {},
+    },
+    updatedAt: new Date().toISOString(),
+  };
+  await window.TrackerLensAiRuntimeStore?.upsertRuntimeAgent?.({
+    ...copyPayload,
+    permissions: permissionFlags,
+  });
+  await window.TrackerLensRuntimeGraphStore?.upsertRuntimeNode?.({ node: nextNode });
+  if (window.TrackerLensChannelRegistry?.upsertChannelsForRuntimeNode) {
+    await window.TrackerLensChannelRegistry.upsertChannelsForRuntimeNode({ node: nextNode });
+  }
+  await recordFlowAction({
+    workspaceId,
+    nodeId: node.id,
+    message: `AI agent alias converted to copy: ${nextNode.label || node.id}`,
+    context: { action: "ai-agent-alias-detached", sourceAgentId: aiAgentAliasSourceId(node), runtimeAgentId },
+  });
+  close?.();
+  await loadRuntime({ force: true });
+};
+
+const requestAiAgentRuntimeConfig = async (node) => {
+  if (!node?.id || !window.TrackerLensAiAgentEditor?.open) return;
+  let providers = [];
+  try {
+    providers = (await window.TrackerLensAiRuntimeStore?.list?.())?.providers || [];
+  } catch (error) {
+    console.warn("Provider AI non caricati per Flow Map:", error);
+  }
+  window.TrackerLensAiAgentEditor.open({
+    agent: await resolveAiAgentEditorRecord(node),
+    providers,
+    title: "AI Runtime Agent Editor",
+    subtitle: node.metadata?.aiAgentAlias
+      ? `${node.label || node.id} · Shared alias`
+      : `${node.label || node.id} · Flow Map runtime node`,
+    footerActions: node.metadata?.aiAgentAlias
+      ? ({ close }) => btn({
+        onclick: () => detachAiAgentAliasNode({ node, close }),
+      }, icon("link_off", "sm"), "Make Copy")
+      : null,
+    onSave: ({ payload, close }) => persistAiAgentEditorPayload({ node, payload, close }),
+  });
+};
+
+const customRuntimeNodeUpdate = ({ node, label, runtimeStatus, config }) => {
+  const previousMetadata = node.metadata || {};
+  const layout = customNodeFormLayout(node);
+  const fields = collectNodeBuilderDataFields(layout);
+  const settingsSchema = nodeBuilderSettingsSchemaFromLayout(layout);
+  const inputs = normalizeNodeBuilderPorts(node.inputs || previousMetadata.manifest?.inputs || ["input"], "in");
+  const outputs = normalizeNodeBuilderPorts(node.outputs || previousMetadata.manifest?.outputs || ["output"], "out");
+  const manifest = nodeManifest({
+    type: "custom",
+    subtype: nodeSubtype(node) || "custom",
+    category: nodeCategory(node) || "custom",
+    inputs,
+    outputs,
+    permissions: previousMetadata.permissions || previousMetadata.manifest?.permissions || node.permissions || [],
+    settingsSchema,
+    runtime: previousMetadata.runtimeMetadata || previousMetadata.manifest?.runtime || node.runtime || {},
+    render: previousMetadata.manifest?.render || null,
+    execute: previousMetadata.execute || previousMetadata.manifest?.execute || null,
+    persist: previousMetadata.manifest?.persist || null,
+  });
+  return {
+    ...node,
+    label: label || node.label || "Custom Node",
+    status: runtimeStatus || node.status || "idle",
+    inputs: inputs.map((port) => port.name || "input"),
+    outputs: outputs.map((port) => port.name || "output"),
+    channels: [...new Set([...inputs, ...outputs].map((port) => port.name).filter(Boolean))],
+    runtime: {
+      ...(node.runtime || {}),
+      status: runtimeStatus || node.runtime?.status || node.status || "idle",
+      active: !["paused", "disabled"].includes(runtimeStatus || node.runtime?.status || node.status || "idle"),
+    },
+    metadata: {
+      ...previousMetadata,
+      draft: false,
+      configured: true,
+      customNode: true,
+      config,
+      runtimeConfig: previousMetadata.runtimeConfig || {},
+      execute: previousMetadata.execute || manifest.execute || null,
+      runtimeStatus: runtimeStatus || previousMetadata.runtimeStatus || node.runtime?.status || node.status || "idle",
+      formLayout: layout,
+      formSchema: {
+        ...(previousMetadata.formSchema || {}),
+        fields,
+        layout,
+      },
+      settingsSchema,
+      manifest: {
+        ...manifest,
+        formLayout: layout,
+      },
+      permissions: manifest.permissions,
+      runtimeMetadata: manifest.runtime,
+    },
+    updatedAt: new Date().toISOString(),
+  };
+};
+
+const persistCustomRuntimeNodeConfig = async ({ node, draft = {}, close }) => {
+  const nextNode = customRuntimeNodeUpdate({
+    node,
+    label: draft.label || node.label,
+    runtimeStatus: draft.runtimeStatus || node.metadata?.runtimeStatus || node.runtime?.status || node.status || "idle",
+    config: draft.config || {},
+  });
+  try {
+    await window.TrackerLensRuntimeGraphStore?.upsertRuntimeNode?.({ node: nextNode });
+    if (window.TrackerLensChannelRegistry?.upsertChannelsForRuntimeNode) {
+      await window.TrackerLensChannelRegistry.upsertChannelsForRuntimeNode({ node: nextNode });
+    }
+    await recordFlowAction({
+      workspaceId: nextNode.workspaceId || "global",
+      nodeId: nextNode.id,
+      message: `Custom runtime node configured: ${nextNode.label || nextNode.id}`,
+      context: {
+        action: "custom-runtime-node-configured",
+        nodeType: nextNode.type || "custom",
+        fields: customNodeDataFields(nextNode).map((field) => field.key),
+      },
+    });
+    setFocusState({
+      mode: "dependencies",
+      nodeId: nextNode.id,
+      edgeId: "",
+      nodeType: nextNode.type,
+      channel: nextNode.channels?.[0] || "",
+      connectionId: "",
+    });
+    close?.();
+    await loadRuntime({ force: true });
+  } catch (error) {
+    console.error("Errore configurazione custom runtime node:", error);
+    state.error = error?.message || "Errore configurazione custom runtime node";
+    mount();
+  }
+};
+
+const renderCustomConfigComponent = (layoutNode = {}, draft = {}) => {
+  const settings = nodeBuilderComponentSettings(layoutNode);
+  const label = layoutNode.label || layoutNode.key || layoutNode.type || "Field";
+  if (NODE_BUILDER_CONTAINER_TYPES.has(layoutNode.type)) {
+    return _.div(
+      { class: `tl-flow-node-builder-preview-form-node tl-flow-custom-config-container is-${layoutNode.type}` },
+      _.div(
+        { class: "tl-flow-node-builder-preview-form-head" },
+        icon(nodeBuilderComponentIcon(layoutNode.type), "sm"),
+        _.strong(label),
+        _.em(layoutNode.type)
+      ),
+      _.div(
+        { class: "tl-flow-node-builder-preview-form-children" },
+        ...(layoutNode.children || []).map((child) => renderCustomConfigComponent(child, draft))
+      )
+    );
+  }
+  if (layoutNode.type === "badge" || layoutNode.type === "chip") {
+    return _.span({ class: `tl-flow-node-builder-live-token is-${layoutNode.type}` }, icon(nodeBuilderComponentIcon(layoutNode.type), "sm"), label);
+  }
+  const key = layoutNode.key || layoutNode.id;
+  const readCmsValue = (value) => value?.target?.value ?? value;
+  const readCmsChecked = (nextValue) => nextValue?.target?.checked ?? nextValue;
+  const readCmsDateValue = (nextValue) => {
+    const raw = readCmsValue(nextValue);
+    if (raw instanceof Date && !Number.isNaN(raw.getTime())) return raw.toISOString().slice(0, 10);
+    return String(raw || "");
+  };
+  const value = customConfigValue(draft.config, { ...layoutNode, key });
+  if (layoutNode.type === "select") {
+    const options = nodeBuilderFieldOptions(layoutNode);
+    return _.Select({
+      size: "sm",
+      label,
+      value: String(value || settings.defaultValue || options[0]?.value || ""),
+      options,
+      slots: { arrow: () => icon("keyboard_arrow_down", "sm") },
+      onChange: (nextValue) => {
+        draft.config[key] = String(readCmsValue(nextValue) || "");
+      },
+    });
+  }
+  if (layoutNode.type === "checkbox") {
+    return _.div(
+      { class: "tl-flow-config-check-row" },
+      _.span(label),
+      _.Checkbox({
+        class: "tl-flow-config-check-control",
+        size: "sm",
+        checked: Boolean(value),
+        title: label,
+        color: settings.color || "success",
+        outline: true,
+        ...(settings.icon ? { checkedIcon: settings.icon } : {}),
+        onChange: (checked) => {
+          draft.config[key] = Boolean(readCmsChecked(checked));
+        },
+      })
+    );
+  }
+  if (layoutNode.type === "radio") {
+    return _.div(
+      { class: "tl-flow-config-check-row" },
+      _.span(label),
+      _.Radio({
+        class: "tl-flow-config-check-control",
+        size: "sm",
+        checked: Boolean(value),
+        title: label,
+        color: settings.color || "success",
+        outline: true,
+        ...(settings.icon ? { checkedIcon: settings.icon } : {}),
+        onChange: () => {
+          draft.config[key] = settings.defaultValue || nodeBuilderFieldOptions(layoutNode)[0]?.value || "option-1";
+        },
+      })
+    );
+  }
+  if (layoutNode.type === "toggle" || layoutNode.type === "boolean") {
+    return _.div(
+      { class: "tl-flow-config-toggle-row" },
+      _.span(label),
+      _.Toggle({
+        size: "sm",
+        checked: Boolean(value),
+        color: settings.color || "success",
+        ...(settings.icon ? { iconOn: settings.icon, checkedIcon: settings.icon } : {}),
+        onChange: (checked) => {
+          draft.config[key] = Boolean(readCmsChecked(checked));
+        },
+      })
+    );
+  }
+  if (layoutNode.type === "rating") {
+    return _.div(
+      { class: "tl-flow-config-slider-row" },
+      _.span(label),
+      _.Rating ? _.Rating({
+        size: "sm",
+        value: Number(value) || 0,
+        max: Number(settings.max) || 5,
+        colorSelected: settings.color || "primary",
+        onChange: (nextValue) => {
+          draft.config[key] = Number(readCmsValue(nextValue)) || 0;
+        },
+      }) : _.Input({
+        size: "sm",
+        label,
+        value: String(value || "0"),
+        onInput: (event) => {
+          draft.config[key] = Number(readCmsValue(event)) || 0;
+        },
+      })
+    );
+  }
+  if (layoutNode.type === "date") {
+    return _.Date ? _.Date({
+      size: "sm",
+      label,
+      value: String(value || ""),
+      ...(settings.icon ? { icon: settings.icon } : {}),
+      onChange: (nextValue) => {
+        draft.config[key] = readCmsDateValue(nextValue);
+      },
+    }) : _.Input({
+      size: "sm",
+      label,
+      value: String(value || ""),
+      onInput: (event) => {
+        draft.config[key] = String(readCmsValue(event) || "");
+      },
+    });
+  }
+  if (layoutNode.type === "time") {
+    return _.Time ? _.Time({
+      size: "sm",
+      label,
+      value: String(value || ""),
+      ...(settings.icon ? { icon: settings.icon } : {}),
+      onChange: (nextValue) => {
+        draft.config[key] = String(readCmsValue(nextValue) || "");
+      },
+    }) : _.Input({
+      size: "sm",
+      label,
+      value: String(value || ""),
+      onInput: (event) => {
+        draft.config[key] = String(readCmsValue(event) || "");
+      },
+    });
+  }
+  if (layoutNode.type === "slider") {
+    return _.div(
+      { class: "tl-flow-config-slider-row" },
+      _.span(label),
+      _.Slider ? _.Slider({
+        size: "sm",
+        showValue: true,
+        value: Number(value) || 0,
+        min: Number(settings.min) || 0,
+        max: Number(settings.max) || 100,
+        step: Number(settings.step) || 1,
+        color: settings.color || "primary",
+        onChange: (nextValue) => {
+          draft.config[key] = Number(readCmsValue(nextValue)) || 0;
+        },
+      }) : _.Input({
+        size: "sm",
+        label,
+        value: String(value || "0"),
+        onInput: (event) => {
+          draft.config[key] = Number(readCmsValue(event)) || 0;
+        },
+      })
+    );
+  }
+  return _.Input({
+    size: "sm",
+    label,
+    value: String(value || ""),
+    autocomplete: "off",
+    onInput: (event) => {
+      draft.config[key] = String(readCmsValue(event) || "");
+    },
+  });
+};
+
+const requestCustomRuntimeNodeConfig = (node) => {
+  if (!node?.id) return;
+  const layout = customNodeFormLayout(node);
+  const readCmsValue = (value) => value?.target?.value ?? value;
+  const draft = {
+    label: node.label || "Custom Node",
+    runtimeStatus: node.metadata?.runtimeStatus || node.runtime?.status || node.status || "idle",
+    config: { ...nodeConfigObject(node) },
+  };
+  const dialog = _.Dialog({
+    class: "tl-flow-config-dialog",
+    panelClass: "tl-flow-config-panel",
+    size: "md",
+    title: "Custom Node Settings",
+    subtitle: `${nodeSubtype(node)} · ${node.label || node.id}`,
+    icon: graphIcon(node),
+    closeButton: true,
+    content: () => _.div(
+      { class: "tl-flow-config-form tl-flow-custom-config-form" },
+      _.p("Modifica i valori del nodo custom usando il layout creato nel Node Builder."),
+      _.div(
+        { class: "tl-flow-config-grid" },
+        _.Input({
+          size: "sm",
+          label: "Node title",
+          value: draft.label,
+          autocomplete: "off",
+          onInput: (event) => {
+            draft.label = String(readCmsValue(event) || "");
+          },
+        }),
+        _.Select({
+          size: "sm",
+          label: "Runtime state",
+          value: draft.runtimeStatus,
+          options: ["idle", "active", "running", "warning", "paused", "error", "disconnected"].map((value) => ({ value, label: value })),
+          slots: { arrow: () => icon("keyboard_arrow_down", "sm") },
+          onChange: (value) => {
+            draft.runtimeStatus = String(readCmsValue(value) || "idle");
+          },
+        })
+      ),
+      _.section(
+        { class: "tl-flow-config-section" },
+        _.h3("Form Layout"),
+        layout.length
+          ? _.div({ class: "tl-flow-node-builder-live-form" }, ...layout.map((layoutNode) => renderCustomConfigComponent(layoutNode, draft)))
+          : _.p("Questo nodo custom non contiene ancora un layout form.")
+      )
+    ),
+    actions: ({ close }) => _.Toolbar(
+      { align: "end", gap: 8 },
+      btn({
+        onclick: () => {
+          close();
+          openNodeBuilderDialog({
+            editNode: nodeById(node.id) || node,
+            nodeTemplate: nodeBuilderTemplateFromCustomNode(nodeById(node.id) || node),
+          });
+        },
+      }, icon("add_box", "sm"), "Customize Node"),
+      btn({ onclick: close }, "Cancel"),
+      btn({ class: "is-primary", onclick: () => persistCustomRuntimeNodeConfig({ node, draft, close }) }, icon("save", "sm"), "Save Node")
+    ),
+  });
+  dialog.open();
+};
+
+const requestRuntimeNodeConfig = (node) => {
+  if (!node?.id) return;
+  const defaults = runtimeNodeConfigDefaults(node);
+  const subtype = nodeSubtype(node);
+  const category = nodeCategory(node);
+  const configFields = configFieldDefinitions(node);
+  const formId = `tl-flow-config-${String(node.id).replace(/[^A-Za-z0-9_-]/g, "_")}`;
+  let formRef = null;
+  const field = (name, label, value, placeholder = "") =>
+    _.label(
+      { class: "tl-flow-config-field" },
+      _.span(label),
+      _.input({ name, value, placeholder, autocomplete: "off" })
+    );
+  const selectField = (name, label, value, options = []) =>
+    _.label(
+      { class: "tl-flow-config-field" },
+      _.span(label),
+      _.select({ name, value }, ...options.map((option) => _.option({ value: option, selected: option === value }, option)))
+    );
+  const configField = (definition) => {
+    const value = defaults[definition.key] ?? defaults.configObject?.[definition.key] ?? "";
+    if (definition.type === "checkbox") {
+      const inputId = `${formId}-${definition.key}`;
+      return _.div(
+        { class: "tl-flow-config-field is-check" },
+        _.span(definition.label),
+        _.fragment(
+          _.input({
+            id: inputId,
+            class: "tl-flow-config-hidden-check",
+            "data-config-key": definition.key,
+            type: "checkbox",
+            checked: Boolean(value),
+            tabindex: "-1",
+            "aria-hidden": "true",
+          }),
+          _.Toggle({
+            checked: Boolean(value),
+            color: "success",
+            onChange: (checked) => {
+              const input = document.getElementById(inputId);
+              if (input) input.checked = Boolean(checked);
+            },
+          })
+        )
+      );
+    }
+    if (definition.type === "select") {
+      return _.label(
+        { class: "tl-flow-config-field" },
+        _.span(definition.label),
+        _.select(
+          { "data-config-key": definition.key, value },
+          ...(definition.options || []).map((option) => _.option({ value: option, selected: option === value }, option))
+        )
+      );
+    }
+    if (definition.type === "textarea") {
+      return _.label(
+        { class: "tl-flow-config-field is-wide" },
+        _.span(definition.label),
+        _.textarea({ "data-config-key": definition.key, rows: 4, placeholder: definition.placeholder || "", value })
+      );
+    }
+    return _.label(
+      { class: "tl-flow-config-field" },
+      _.span(definition.label),
+      _.input({ "data-config-key": definition.key, value, placeholder: definition.placeholder || "", autocomplete: "off" })
+    );
+  };
+  const dialog = _.Dialog({
+    class: "tl-flow-config-dialog",
+    panelClass: "tl-flow-config-panel",
+    size: "md",
+    title: `Configure ${subtype}`,
+    subtitle: `${category} · ${node.label || node.id}`,
+    icon: graphIcon(node),
+    closeButton: true,
+    content: () => _.form(
+      {
+        id: formId,
+        class: "tl-flow-config-form",
+        onsubmit: (event) => {
+          event.preventDefault();
+          persistRuntimeNodeConfig({ node, form: formRef || event.currentTarget, close: () => dialog.close() });
+        },
+      },
+      _.p("Configura il nodo come componente runtime persistente. Le impostazioni vengono salvate nel runtime graph del workspace."),
+      _.div(
+        { class: "tl-flow-config-grid" },
+        field("label", "Node title", defaults.label),
+        selectField("runtimeStatus", "Runtime state", defaults.runtimeStatus, ["idle", "active", "running", "warning", "paused", "error", "disconnected"]),
+        category === "sources" ? null : field("input", "Input port / channel", defaults.input),
+        subtype === "condition"
+          ? null
+          : category === "actions" || category === "storage" || category === "lens"
+            ? null
+            : field("output", "Output port / channel", defaults.output),
+        field("mode", "Runtime mode", defaults.mode)
+      ),
+      _.section(
+        { class: "tl-flow-config-section" },
+        _.h3(`${subtype} settings`),
+        ...configFields.map(configField)
+      )
+    ),
+    actions: ({ close }) => _.Toolbar(
+      { align: "end", gap: 8 },
+      btn({ onclick: close }, "Cancel"),
+      btn({ class: "is-primary", onclick: () => persistRuntimeNodeConfig({ node, form: formRef || document.getElementById(formId), close }) }, icon("save", "sm"), "Save Node")
+    ),
+  });
+  dialog.open();
+  formRef = document.getElementById(formId);
+};
+
+const deletedNodeSnapshot = (node) => {
+  const dependencyIds = new Set();
+  const dependencies = state.runtime.dependencies.filter((dependency) => {
+    const related = dependency.sourceNodeId === node.id || dependency.targetNodeId === node.id;
+    if (related) dependencyIds.add(dependency.id);
+    return related && !dependency.metadata?.virtual;
+  });
+  const channels = state.runtime.channels.filter((channel) =>
+    channel.producerNodeId === node.id ||
+    channel.producerBoxId === node.id ||
+    (Array.isArray(channel.subscribers) && channel.subscribers.includes(node.id)));
+  return {
+    node: JSON.parse(JSON.stringify(node)),
+    dependencies: JSON.parse(JSON.stringify(dependencies)),
+    channels: JSON.parse(JSON.stringify(channels)),
+    dependencyIds: [...dependencyIds],
+    deletedAt: new Date().toISOString(),
+  };
+};
+
+const performDraftNodeDelete = async (node, closeDialog = null) => {
+  if (!node?.id) return;
+  state.lastDeletedNode = deletedNodeSnapshot(node);
+  await window.TrackerLensRuntimeGraphStore?.deleteRuntimeNodeReferences?.({
+    nodeId: node.id,
+    workspaceId: node.workspaceId || "",
+  });
+  await window.TrackerLensEventLogStore?.cleanupNodeReferences?.({
+    nodeIds: [node.id],
+    workspaceId: node.workspaceId || "",
+  });
+  await window.TrackerLensChannelRegistry?.cleanupNodeReferences?.({
+    nodeId: node.id,
+    workspaceId: node.workspaceId || "",
+  });
+  await recordFlowAction({
+    workspaceId: node.workspaceId || "global",
+    nodeId: node.id,
+    level: "warning",
+    message: `Runtime node deleted: ${node.label || node.id}`,
+    context: {
+      action: "runtime-node-deleted",
+      nodeType: node.type || "",
+      dependencies: state.lastDeletedNode?.dependencies?.length || 0,
+    },
+  });
+
+  setFocusState({ mode: "", nodeId: "", edgeId: "", nodeType: "", channel: "", connectionId: "" });
+  closeDialog?.();
+  await loadRuntime();
+};
+
+const restoreLastDeletedNode = async () => {
+  const snapshot = state.lastDeletedNode;
+  if (!snapshot?.node) return;
+  try {
+    await window.TrackerLensRuntimeGraphStore?.upsertRuntimeNode?.({ node: snapshot.node });
+    if (window.TrackerLensRuntimeGraphStore?.upsertDependency) {
+      await Promise.all((snapshot.dependencies || []).map((dependency) =>
+        window.TrackerLensRuntimeGraphStore.upsertDependency({ dependency })));
+    }
+    await window.TrackerLensChannelRegistry?.restoreChannelRecords?.(snapshot.channels || []);
+    setFocusState({
+      mode: "dependencies",
+      nodeId: snapshot.node.id,
+      edgeId: "",
+      nodeType: snapshot.node.type || "",
+      channel: nodeChannels(snapshot.node)[0] || "",
+      connectionId: "",
+    });
+    state.lastDeletedNode = null;
+    await loadRuntime();
+  } catch (error) {
+    console.error("Errore ripristino runtime node:", error);
+    state.error = error?.message || "Errore ripristino runtime node";
+    mount();
+  }
+};
+
+const requestDraftNodeDelete = (node) => {
+  if (!node?.id) return;
+  const dependencies = selectedDependencies(node);
+  const summary = dependencySummary(node, dependencies);
+  const draft = isDraftNode(node);
+  const dialog = _.Dialog({
+    class: "tl-flow-edge-delete-dialog",
+    panelClass: "tl-flow-edge-delete-panel",
+    size: "md",
+    title: dependencies.length
+      ? `${draft ? "Questo draft" : "Questo nodo"} ha dependency runtime`
+      : `Eliminare questo ${draft ? "draft" : "nodo"}?`,
+    subtitle: node.label || node.id,
+    icon: "delete",
+    closeButton: true,
+    content: () => _.div(
+      { class: "tl-flow-edge-delete-body" },
+      _.p(dependencies.length
+        ? "Questo nodo e usato nel runtime. La cancellazione pulira anche dependency, channel registry, flow references ed event logs collegati."
+        : "Il nodo verra rimosso dalla Flow Map."),
+      _.div(_.span("Node"), _.strong(node.label || node.id)),
+      _.div(_.span("Type"), _.strong(node.type || "runtime")),
+      _.div(_.span("Workspace"), _.strong(node.workspaceId || "global")),
+      _.div(_.span("Dependencies"), _.strong(`${dependencies.length} total · ${summary.incoming} in · ${summary.outgoing} out`)),
+      dependencies.length ? _.section(
+        { class: "tl-flow-delete-dependencies" },
+        _.h3("Impacted Links"),
+        ...dependencies.slice(0, 5).map((dependency) => {
+          const row = dependencyRow(node, dependency);
+          return _.div(
+            _.span(`${row.direction} · ${row.peer}`),
+            _.strong(row.channel)
+          );
+        })
+      ) : null
+    ),
+    actions: ({ close }) => _.Toolbar(
+      { align: "end", gap: 8 },
+      btn({ onclick: close }, "Cancel"),
+      btn({ class: "is-danger", onclick: () => performDraftNodeDelete(node, close) }, icon("delete", "sm"), dependencies.length ? "Force Delete" : draft ? "Delete Draft" : "Delete Node")
+    ),
+  });
+  dialog.open();
+};
+
+const persistNodeRuntimePatch = async ({ node, patch = {}, message = "Runtime node updated", action = "runtime-node-updated" } = {}) => {
+  if (!node?.id) return null;
+  const nextNode = {
+    ...node,
+    ...patch,
+    metadata: {
+      ...(node.metadata || {}),
+      ...(patch.metadata || {}),
+    },
+    runtime: {
+      ...(node.runtime || {}),
+      ...(patch.runtime || {}),
+    },
+  };
+  await window.TrackerLensRuntimeGraphStore?.upsertRuntimeNode?.({ node: nextNode });
+  await recordFlowAction({
+    workspaceId: nextNode.workspaceId || "global",
+    nodeId: nextNode.id,
+    message,
+    context: { action, nodeType: nextNode.type || "", status: nextNode.status || "" },
+  });
+  setFocusState({
+    mode: "dependencies",
+    nodeId: nextNode.id,
+    edgeId: "",
+    nodeType: nextNode.type || "",
+    channel: nodeChannels(nextNode)[0] || "",
+    connectionId: "",
+  });
+  await loadRuntime({ force: true });
+  return nextNode;
+};
+
+const patchRuntimeNodeInMemory = (nextNode = {}) => {
+  if (!nextNode?.id) return null;
+  state.runtime = {
+    ...state.runtime,
+    nodes: (state.runtime.nodes || []).map((node) => node.id === nextNode.id ? nextNode : node),
+  };
+  setRuntimeSignal(state.runtime);
+  return nextNode;
+};
+
+const persistNodeUiPatch = async ({ node, metadata = {}, message = "Runtime node UI updated", action = "runtime-node-ui-updated" } = {}) => {
+  if (!node?.id) return null;
+  const nextNode = {
+    ...node,
+    metadata: {
+      ...(node.metadata || {}),
+      ...metadata,
+    },
+  };
+  patchRuntimeNodeInMemory(nextNode);
+  refreshPortUiDom();
+  try {
+    await window.TrackerLensRuntimeGraphStore?.upsertRuntimeNode?.({ node: nextNode });
+    await recordFlowAction({
+      workspaceId: nextNode.workspaceId || "global",
+      nodeId: nextNode.id,
+      message,
+      context: { action, nodeType: nextNode.type || "" },
+    });
+  } catch (error) {
+    console.error("Errore salvataggio UI runtime node:", error);
+    state.error = error?.message || "Errore salvataggio UI runtime node";
+    setErrorSignal(state.error);
+    mount({ preserveScroll: true });
+  }
+  return nextNode;
+};
+
+const setNodeRuntimeStatus = async (node, status = "idle") => {
+  const active = !["paused", "disabled", "disconnected", "error"].includes(status);
+  await persistNodeRuntimePatch({
+    node,
+    patch: {
+      status,
+      runtime: { status, active },
+      metadata: {
+        runtimeStatus: status,
+        disabled: status === "disabled",
+        paused: status === "paused",
+      },
+    },
+    message: `Runtime node status: ${node.label || node.id} -> ${status}`,
+    action: "runtime-node-status",
+  });
+};
+
+const pauseNodeRuntime = (node) => setNodeRuntimeStatus(node, "paused");
+const resumeNodeRuntime = (node) => setNodeRuntimeStatus(node, "active");
+const disableNodeRuntime = (node) => setNodeRuntimeStatus(node, "disabled");
+
+const toggleNodeCollapse = async (node) => {
+  await persistNodeRuntimePatch({
+    node,
+    patch: { metadata: { collapsed: !node.metadata?.collapsed } },
+    message: `Runtime node ${node.metadata?.collapsed ? "expanded" : "collapsed"}: ${node.label || node.id}`,
+    action: "runtime-node-collapse",
+  });
+};
+
+const duplicateRuntimeNode = async (node) => {
+  if (!node?.id) return;
+  const now = Date.now();
+  const position = node.flowPosition || node.position || { x: "42%", y: "42%" };
+  const offsetPercent = (value, offset) => {
+    const numeric = parseFloat(value);
+    if (!Number.isFinite(numeric)) return value;
+    return flowCoordinate(numeric + offset);
+  };
+  const clone = {
+    ...JSON.parse(JSON.stringify(node)),
+    id: `node_${now}`,
+    sourceRef: node.sourceRef || node.id,
+    label: `${node.label || node.id} Copy`,
+    status: "idle",
+    runtime: { ...(node.runtime || {}), status: "idle", active: false },
+    flowPosition: {
+      x: offsetPercent(position.x, 5),
+      y: offsetPercent(position.y, 5),
+    },
+    metadata: {
+      ...(node.metadata || {}),
+      duplicatedFrom: node.id,
+      runtimeStatus: "idle",
+    },
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+  };
+  await window.TrackerLensRuntimeGraphStore?.upsertRuntimeNode?.({ node: clone });
+  await recordFlowAction({
+    workspaceId: clone.workspaceId || "global",
+    nodeId: clone.id,
+    message: `Runtime node duplicated: ${node.label || node.id}`,
+    context: { action: "runtime-node-duplicated", sourceNodeId: node.id, nodeType: node.type || "" },
+  });
+  setFocusState({ mode: "dependencies", nodeId: clone.id, edgeId: "", nodeType: clone.type || "", channel: nodeChannels(clone)[0] || "", connectionId: "" });
+  await loadRuntime({ force: true });
+};
+
+const requestNodeRename = (node) => {
+  if (!node?.id) return;
+  let formRef = null;
+  const formId = `tl-flow-rename-${String(node.id).replace(/[^A-Za-z0-9_-]/g, "_")}`;
+  const save = async (close) => {
+    const label = readConfigField(formRef || document.getElementById(formId), "label", node.label || node.id);
+    await persistNodeRuntimePatch({
+      node,
+      patch: { label },
+      message: `Runtime node renamed: ${label}`,
+      action: "runtime-node-renamed",
+    });
+    close?.();
+  };
+  const dialog = _.Dialog({
+    class: "tl-flow-config-dialog",
+    panelClass: "tl-flow-config-panel",
+    size: "sm",
+    title: "Rename Node",
+    subtitle: node.label || node.id,
+    icon: "drive_file_rename_outline",
+    closeButton: true,
+    content: () => _.form(
+      {
+        id: formId,
+        class: "tl-flow-config-form",
+        onsubmit: (event) => {
+          event.preventDefault();
+          save(() => dialog.close());
+        },
+      },
+      _.label(
+        { class: "tl-flow-config-field" },
+        _.span("Node title"),
+        _.input({ name: "label", value: node.label || node.id, autocomplete: "off" })
+      )
+    ),
+    actions: ({ close }) => _.Toolbar(
+      { align: "end", gap: 8 },
+      btn({ onclick: close }, "Cancel"),
+      btn({ class: "is-primary", onclick: () => save(close) }, icon("save", "sm"), "Rename")
+    ),
+  });
+  dialog.open();
+  formRef = document.getElementById(formId);
+};
+
+const viewEdgeNode = (node) => {
+  if (!node) return;
+  selectNode(node);
+};
+
+const connectionWorkspaceId = (source, target) => {
+  const sourceWorkspace = source?.workspaceId === "library_local" ? "" : source?.workspaceId || "";
+  const targetWorkspace = target?.workspaceId === "library_local" ? "" : target?.workspaceId || "";
+  return normalizeRuntimeWorkspaceId(sourceWorkspace || targetWorkspace || workspaceForDraft());
+};
+
+const isUnmaterializedLibraryNode = (node = {}) =>
+  Boolean(node?.metadata?.library);
+
+const isWorkspaceBoxNode = (node = {}) =>
+  ["boxTracker", "boxLens"].includes(node?.type) &&
+  !isDraftNode(node) &&
+  !node?.metadata?.library &&
+  !String(node?.id || "").startsWith("draft_");
+
+const shouldSyncWorkspaceContentLink = (source = {}, target = {}) =>
+  isWorkspaceBoxNode(source) && isWorkspaceBoxNode(target);
+
+const channelForConnection = (source, target) => {
+  const sourceChannels = nodeChannels(source);
+  const targetChannels = nodeChannels(target);
+  return sourceChannels.find((channel) => targetChannels.includes(channel)) ||
+    sourceChannels[0] ||
+    targetChannels[0] ||
+    (state.filters.channel !== "all" ? state.filters.channel : "") ||
+    "default";
+};
+
+const normalizePortChannel = (channel = "") =>
+  !channel || channel === "all" ? "" : channel;
+
+const channelForPortConnection = (source, target, sourcePort = "", targetPort = "") =>
+  normalizePortChannel(sourcePort) ||
+  channelForConnection(source, target) ||
+  normalizePortChannel(targetPort) ||
+  "default";
+
+const bestTargetPortForChannel = (target = {}, channel = "") => {
+  if (!target?.id || !channel) return "all";
+  const ports = nodePortLabels(target, "in");
+  return ports.includes(channel) ? channel : "all";
+};
+
+const inputPortLabel = (node = {}) =>
+  node?.inputs?.[0] || nodeChannels(node)[0] || "input";
+
+const outputPortLabel = (node = {}) =>
+  node?.outputs?.[0] || nodeChannels(node)[0] || "output";
+
+const valueType = (value) => {
+  if (Array.isArray(value)) return "array";
+  if (value && typeof value === "object") return "object";
+  if (typeof value === "number") return Number.isInteger(value) ? "int" : "float";
+  if (typeof value === "boolean") return "bool";
+  if (typeof value === "string") {
+    const numeric = Number(value);
+    if (value.trim() !== "" && !Number.isNaN(numeric)) return Number.isInteger(numeric) ? "int" : "float";
+    return "string";
+  }
+  return "any";
+};
+
+const normalizePortDef = (port = "", fallbackType = "any") => {
+  if (port && typeof port === "object") {
+    const name = port.name || port.key || port.channel || port.id || "default";
+    return {
+      name: String(name),
+      type: port.type || port.valueType || fallbackType || "any",
+      schema: port.schema || port.payloadSchema || null,
+      required: Boolean(port.required),
+    };
+  }
+  return { name: String(port || "default"), type: fallbackType || "any", schema: null, required: false };
+};
+
+const inferPortType = (node = {}, side = "out", name = "") => {
+  const category = nodeCategory(node);
+  const subtype = nodeSubtype(node);
+  const lowerName = String(name || "").toLowerCase();
+  if (lowerName === "all") return side === "in" ? "any" : "object";
+  if (["true", "false"].includes(lowerName)) return "event";
+  if (lowerName === "event") return "event";
+  if (["input", "output", "raw", "record", "state", "channel"].includes(lowerName)) return "object";
+  if (category === "sources") return side === "out" ? "object" : "never";
+  if (category === "trackers") return "object";
+  if (category === "processors") return subtype === "condition" && side === "out" ? "bool" : "object";
+  if (category === "ai-agents") return side === "out" ? "object" : "object";
+  if (category === "lens") return side === "in" ? "any" : "object";
+  if (category === "actions") return "object";
+  if (category === "storage") return "object";
+  if (category === "dev") return side === "in" ? "any" : "object";
+  return "any";
+};
+
+const declaredPortDefs = (node = {}, side = "out") => {
+  const manifest = node.metadata?.manifest || {};
+  const values = side === "in"
+    ? (manifest.inputs?.length ? manifest.inputs : node.inputs || [])
+    : (manifest.outputs?.length ? manifest.outputs : node.outputs || []);
+  return (values || [])
+    .filter(Boolean)
+    .map((port) => {
+      const normalized = normalizePortDef(port, inferPortType(node, side, typeof port === "object" ? port.name || port.key : port));
+      return {
+        ...normalized,
+        type: normalized.type || inferPortType(node, side, normalized.name),
+      };
+    });
+};
+
+const sampleOutputFields = (node = {}) => {
+  const sample = node?.metadata?.sampleOutput;
+  if (!sample || typeof sample !== "object" || Array.isArray(sample)) return [];
+  return Object.entries(sample)
+    .map(([name, value]) => ({ name, type: valueType(value) }));
+};
+
+const nodePorts = (node = {}, side = "out") => {
+  if (!node?.id) return [{ name: "all", type: side === "in" ? "any" : "object" }];
+  if (side === "in" && nodeCategory(node) === "sources") {
+    const manifestInputs = node.metadata?.manifest?.inputs || [];
+    const legacyDataInputs = new Set(["all", "raw", "input", "output", "channel"]);
+    const declared = manifestInputs
+      .map((port) => normalizePortDef(port, inferPortType(node, "in", typeof port === "object" ? port.name || port.key : port)))
+      .filter((port) => !legacyDataInputs.has(String(port.name || "").toLowerCase()));
+    const ports = declared.length ? declared : sourceConfigInputPorts(nodeSubtype(node));
+    return ports.map((port) => normalizePortDef(port, inferPortType(node, "in", port.name || port.key || port)));
+  }
+  if (side === "out") {
+    const fields = sampleOutputFields(node);
+    if (fields.length) return [{ name: "all", type: "object" }, ...fields];
+  }
+  const declared = declaredPortDefs(node, side);
+  const values = declared.length
+    ? declared
+    : (side === "in"
+      ? (node.inputs?.length ? node.inputs : nodeChannels(node))
+      : (node.outputs?.length ? node.outputs : nodeChannels(node)))
+      .filter(Boolean)
+      .map((name) => normalizePortDef(name, inferPortType(node, side, name)));
+  const ports = values.length ? values : [normalizePortDef(side === "in" ? inputPortLabel(node) : outputPortLabel(node), inferPortType(node, side))];
+  const unique = new Map();
+  ports.forEach((port) => {
+    if (!port.name || unique.has(port.name)) return;
+    unique.set(port.name, { ...port, type: port.type || inferPortType(node, side, port.name) });
+  });
+  return [{ name: "all", type: side === "in" ? "any" : "object" }, ...unique.values()];
+};
+
+const nodePortLabels = (node = {}, side = "out") => {
+  return nodePorts(node, side).map((port) => port.name);
+};
+
+const portDisplayLabel = (port = {}, side = "out", ports = []) => {
+  if (port.name !== "all") return port.name;
+  return side === "in" ? `${ports.length} in` : `${ports.length} out`;
+};
+
+const portInlineLabel = (port = {}, side = "out", ports = []) => {
+  const label = port.name === "all" ? "all" : portDisplayLabel(port, side, ports);
+  return label.length > 12 ? `${label.slice(0, 10)}...` : label;
+};
+
+const portTooltip = (port = {}, side = "out", ports = []) => {
+  const label = port.name === "all" ? "all" : portDisplayLabel(port, side, ports);
+  return label.length > 12 ? `${side === "in" ? "Input" : "Output"}: ${label} (${port.type || "any"})` : "";
+};
+
+const portByName = (node = {}, side = "out", portName = "all") =>
+  nodePorts(node, side).find((port) => port.name === portName) || nodePorts(node, side)[0] || { name: "all", type: "any" };
+
+const connectionValidationMessage = (validation = {}, source = {}, target = {}) => {
+  const reason = validation.reason || "porte non compatibili";
+  const sourcePort = validation.sourcePort;
+  const targetPort = validation.targetPort;
+  const route = `${source?.label || source?.id || "Source"} -> ${target?.label || target?.id || "Target"}`;
+  const ports = sourcePort && targetPort
+    ? ` (${sourcePort.name}:${sourcePort.type || "any"} -> ${targetPort.name}:${targetPort.type || "any"})`
+    : "";
+  const hint = validation.hint ? ` Suggerimento: ${validation.hint}` : "";
+  return `Link non valido: ${route}${ports}. ${reason}.${hint}`;
+};
+
+const normalizedPortType = (type = "any") => {
+  if (["int", "float", "number"].includes(type)) return "number";
+  if (["object", "array"].includes(type)) return "object";
+  return type || "any";
+};
+
+const portsAreCompatible = (sourcePort = {}, targetPort = {}, target = {}) => {
+  const sourceType = normalizedPortType(sourcePort.type);
+  const targetType = normalizedPortType(targetPort.type);
+  if (sourceType === "never" || targetType === "never") return false;
+  if (sourceType === "any" || targetType === "any") return true;
+  if (sourceType === targetType) return true;
+  if (sourceType === "event" && targetType === "object") return true;
+  if (sourceType === "object" && targetType === "event") return true;
+  return ["processor", "aiAgent", "action", "devPreview"].includes(target.type) && targetType !== "never" && sourceType !== "bool";
+};
+
+const connectionValidation = (source, target, sourcePortName = "all", targetPortName = "all") => {
+  if (!source?.id || !target?.id) return { ok: false, reason: "missing node" };
+  if (source.id === target.id) return { ok: false, reason: "same node" };
+  const sourcePorts = nodePorts(source, "out");
+  const targetPorts = nodePorts(target, "in");
+  if (!sourcePorts.length) return { ok: false, reason: `${source.label || source.id} has no output ports`, hint: "usa un nodo Source, Tracker, Processor o AI come sorgente" };
+  if (!targetPorts.length) return { ok: false, reason: `${target.label || target.id} has no input ports`, hint: "collega verso un Processor, AI Agent, Lens, Action o Storage" };
+  const requestedSourcePort = sourcePortName || "all";
+  const requestedTargetPort = targetPortName || "all";
+  const sourcePort = sourcePorts.find((port) => port.name === requestedSourcePort);
+  const targetPort = targetPorts.find((port) => port.name === requestedTargetPort);
+  if (!sourcePort) {
+    return { ok: false, reason: `output port "${requestedSourcePort}" does not exist on ${source.label || source.id}`, hint: "usa una porta output visibile o riconfigura gli outputs del nodo" };
+  }
+  if (!targetPort) {
+    return { ok: false, reason: `input port "${requestedTargetPort}" does not exist on ${target.label || target.id}`, sourcePort, hint: "rilascia su una porta input compatibile o riconfigura gli inputs del nodo" };
+  }
+  if (!portsAreCompatible(sourcePort, targetPort, target)) {
+    return { ok: false, reason: `Incompatible ports: ${sourcePort.name}:${sourcePort.type || "any"} -> ${targetPort.name}:${targetPort.type || "any"}`, sourcePort, targetPort, hint: "usa una porta con tipo compatibile o passa da un Processor Transform/Formatter" };
+  }
+  const channel = channelForPortConnection(source, target, sourcePortName, targetPortName);
+  const duplicate = state.runtime.dependencies.some((dependency) =>
+    dependency.sourceNodeId === source.id &&
+    dependency.targetNodeId === target.id &&
+    (dependency.channel || "runtime") === channel);
+  if (duplicate) return { ok: false, reason: "duplicate link", sourcePort, targetPort, hint: "seleziona il collegamento esistente o usa un channel/porta diversa" };
+  const engineValidation = window.TrackerLensGraphEngine?.validateConnection?.({
+    source,
+    target,
+    channel,
+    dependencies: state.runtime.dependencies || [],
+  });
+  if (engineValidation && !engineValidation.ok) {
+    return { ok: false, reason: engineValidation.errors[0] || "invalid graph link", sourcePort, targetPort, hint: "controlla il tab Compatibility del Node Inspector" };
+  }
+  return { ok: true, reason: "", channel, sourcePort, targetPort };
+};
+
+const startLinkFromNode = (node) => {
+  if (!node?.id) return;
+  state.linkingSourceId = node.id;
+  mount();
+};
+
+const cancelLinkMode = () => {
+  state.linkingSourceId = "";
+  state.linkingPort = "";
+  state.linkHoverTargetId = "";
+  state.linkHoverPort = "";
+  mount();
+};
+
+const createRuntimeLink = async (source, target, options = {}) => {
+  const scopedWorkspaceId = await ensureRuntimeWorkspaceScope();
+  if (!source || !target?.id || source.id === target.id) {
+    state.error = !source
+      ? "Link non creato: nodo sorgente non trovato."
+      : !target?.id
+        ? "Link non creato: rilascia il collegamento sopra un nodo target."
+        : "Link non creato: non puoi collegare un nodo a se stesso.";
+    mount();
+    return;
+  }
+  const sourcePort = options.sourcePort || state.linkingPort || "all";
+  const targetPort = options.targetPort || "all";
+  const now = new Date().toISOString();
+  const workspaceId = normalizeRuntimeWorkspaceId(connectionWorkspaceId(source, target) || scopedWorkspaceId);
+  const channel = channelForPortConnection(source, target, sourcePort, targetPort);
+  const existing = state.runtime.dependencies.find((dependency) =>
+    dependency.sourceNodeId === source.id &&
+    dependency.targetNodeId === target.id &&
+    (dependency.channel || "runtime") === channel);
+  if (existing) {
+    state.linkingSourceId = "";
+    selectEdge(existing);
+    return;
+  }
+  const validation = connectionValidation(source, target, sourcePort, targetPort);
+  if (!validation.ok) {
+    await recordFlowAction({
+      workspaceId,
+      nodeId: target.id,
+      level: "warning",
+      message: connectionValidationMessage(validation, source, target),
+      context: {
+        action: "flow-map-link-blocked",
+        sourceNodeId: source.id,
+        targetNodeId: target.id,
+        sourcePort,
+        targetPort,
+        channel,
+        reason: validation.reason || "",
+        hint: validation.hint || "",
+        sourcePortType: validation.sourcePort?.type || "",
+        targetPortType: validation.targetPort?.type || "",
+      },
+    });
+    state.error = connectionValidationMessage(validation, source, target);
+    state.activeStatusPanel = "logs";
+    mount();
+    return;
+  }
+  const connectionId = `flow_conn_${Date.now()}`;
+  const connection = {
+    id: connectionId,
+    name: `${source.label || source.id} -> ${target.label || target.id}`,
+    type: `${source.type || "node"} -> ${target.type || "node"}`,
+    from: source.label || source.id,
+    fromKind: source.type || "node",
+    to: target.label || target.id,
+    targetMeta: target.sourceRef || target.assetId || target.id,
+    status: "active",
+    lastTest: "Mai",
+    result: "Creato dalla Flow Map",
+    method: "EVENT",
+    frequency: channel,
+    timeout: "10 secondi",
+    retries: 0,
+    createdAt: now,
+    updatedAt: now,
+    endpoint: `flowmap://${workspaceId}/${connectionId}`,
+    workspaceId,
+    workspaceName: workspaceId,
+    fromBoxId: source.id,
+    toBoxId: target.id,
+    sourceNodeId: source.id,
+    targetNodeId: target.id,
+    sourceName: source.label || source.id,
+    targetName: target.label || target.id,
+    channel,
+    mapping: {
+      sourcePort,
+      targetPort,
+    },
+  };
+  let runtimeConnection = connection;
+  let workspaceSync = null;
+
+  try {
+    if (window.TrackerLensConnectionsStore?.upsertLibraryTrackerWorkspaceLink && isUnmaterializedLibraryNode(source)) {
+      workspaceSync = await window.TrackerLensConnectionsStore.upsertLibraryTrackerWorkspaceLink({ source, target, connection });
+      if (!workspaceSync?.connection) {
+        throw new Error("Collegamento Library non materializzato nel workspace.");
+      }
+      runtimeConnection = workspaceSync?.connection || connection;
+    } else if (shouldSyncWorkspaceContentLink(source, target) && window.TrackerLensConnectionsStore?.upsertAndSyncWorkspace) {
+      await window.TrackerLensConnectionsStore.upsertAndSyncWorkspace(connection);
+    } else {
+      await window.TrackerLensConnectionsStore?.upsert?.(connection);
+    }
+    const dependency = {
+      id: `dep_${workspaceId}_${runtimeConnection.id || connectionId}`.replace(/[^A-Za-z0-9_-]/g, "_"),
+      workspaceId,
+      sourceNodeId: runtimeConnection.fromBoxId || source.id,
+      targetNodeId: runtimeConnection.toBoxId || target.id,
+      sourceType: source.type || "node",
+      targetType: target.type || "node",
+      channel: runtimeConnection.channel || channel,
+      connectionId: runtimeConnection.id || connectionId,
+      status: "active",
+      metadata: { source: "flow-map", sourcePort, targetPort },
+      createdAt: now,
+      updatedAt: now,
+    };
+    if (workspaceSync?.workspace && window.TrackerLensRuntimeGraphStore?.syncWorkspaceGraph) {
+      await window.TrackerLensRuntimeGraphStore.syncWorkspaceGraph({
+        workspace: workspaceSync.workspace,
+        boxes: workspaceSync.boxes || [],
+        connections: workspaceSync.connections || [],
+      });
+    }
+    await window.TrackerLensRuntimeGraphStore?.upsertDependency?.({ dependency });
+    state.optimisticDependencies = [
+      dependency,
+      ...(state.optimisticDependencies || []).filter((item) => dependencyKey(item) !== dependencyKey(dependency)),
+    ].slice(0, 20);
+    state.runtime.dependencies = [
+      ...(state.runtime.dependencies || []).filter((item) => item.id !== dependency.id),
+      dependency,
+    ];
+    state.connections = [
+      ...(state.connections || []).filter((item) => item.id !== (runtimeConnection.id || connectionId)),
+      runtimeConnection,
+    ];
+    await recordFlowAction({
+      workspaceId,
+      connectionId: runtimeConnection.id || connectionId,
+      message: `Runtime link created: ${runtimeConnection.name || connection.name}`,
+      context: {
+        action: "runtime-link-created",
+        sourceNodeId: runtimeConnection.fromBoxId || source.id,
+        targetNodeId: runtimeConnection.toBoxId || target.id,
+        sourcePort,
+        targetPort,
+        channel: runtimeConnection.channel || channel,
+      },
+    });
+    state.linkingSourceId = "";
+    state.linkingPort = "";
+    setFocusState({
+      mode: "edge",
+      nodeId: "",
+      edgeId: dependency.id,
+      nodeType: "",
+      channel: runtimeConnection.channel || channel,
+      connectionId: runtimeConnection.id || connectionId,
+    });
+    await loadRuntime({ force: true });
+    const loadedDependency = state.runtime.dependencies.find((item) => item.id === dependency.id);
+    if (!loadedDependency) {
+      state.runtime.dependencies = [
+        ...(state.runtime.dependencies || []),
+        dependency,
+      ];
+      state.connections = [
+        ...(state.connections || []).filter((item) => item.id !== (runtimeConnection.id || connectionId)),
+        runtimeConnection,
+      ];
+      setRuntimeSignal(state.runtime);
+      mount();
+    }
+  } catch (error) {
+    console.error("Errore creazione collegamento Flow Map:", error);
+    state.error = error?.message || "Errore creazione collegamento Flow Map";
+    mount();
+  }
+};

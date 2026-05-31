@@ -135,8 +135,10 @@ Files:
 - `workspace.html`
 - `devtools.html`
 - `js/flowMapView.js`
+- `js/flow-map/*.js`
 - `js/workspaceView.js`
 - `css/flowMap.css`
+- `css/flow-map/*.css`
 - `docs/runtime-manifest.md`
 
 Dependencies:
@@ -227,6 +229,7 @@ Runtime Notes:
 - 2026-05-31: Fixed explicit `runtimeConnector: "form"` custom nodes so the canvas play button appears for root Form-only nodes.
 - 2026-05-31: Flow Map now shows the canvas play button for every root custom node, including REST/WebSocket/RSS nodes without an endpoint yet; missing configuration is reported by the runtime test instead of hiding the action.
 - 2026-05-31: Flow Map Node Builder ports now have `Port Settings`: IN ports define data type, required state, description and schema; OUT ports define data type plus payload source (`runtimeResult`, `formData`, `component`, `static`, `function/mapping`) and live tests resolve per-port payloads before emitting.
+- 2026-05-31: Flow Map UI code was split into ordered partials under `js/flow-map/` (`State`, `Interactions`, `RuntimeTests`, `NodeBuilder`, `RuntimeNodes`, `CanvasInspector`) while `js/flowMapView.js` now only bootstraps the page. Flow Map CSS was also split under `css/flow-map/`, with `css/flowMap.css` kept as the ordered import entrypoint.
 - Remaining: service-worker/extension background persistence after every Trackers Lens tab is closed remains future hardening; current worker lifetime is browser-page scoped.
 
 ## [TASK-020]

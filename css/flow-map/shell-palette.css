@@ -1,0 +1,305 @@
+/* Flow Map shell, topbar and add-node palette.
+   Extracted from css/flowMap.css; imported in order. */
+body {
+  margin: 0;
+  min-height: 100vh;
+  color: var(--tl-text);
+  background:
+    radial-gradient(circle at 24% 0%, rgba(34, 211, 238, 0.1), transparent 28%),
+    linear-gradient(180deg, #05090d 0%, #071017 100%);
+  overflow: hidden;
+}
+
+.tl-flow-map-root,
+.tl-flow-shell {
+  height: 100vh;
+  min-height: 0;
+}
+
+.tl-flow-shell {
+  display: grid;
+  grid-template-rows: 70px minmax(0, 1fr);
+  grid-template-columns: 76px minmax(0, 1fr);
+}
+
+.tl-flow-main {
+  grid-column: 2;
+  grid-row: 2;
+  min-width: 0;
+  min-height: 0;
+  display: grid;
+  grid-template-rows: minmax(0, 1fr);
+  border-left: 1px solid rgba(214, 226, 235, 0.07);
+  overflow: hidden;
+}
+
+.tl-flow-topbar {
+  grid-column: 1 / -1;
+  grid-row: 1;
+  display: grid;
+  grid-template-columns: 256px minmax(120px, 220px) minmax(0, 1fr);
+  align-items: center;
+  gap: 18px;
+  padding: 0 18px 0 0;
+  border-bottom: 1px solid rgba(214, 226, 235, 0.08);
+  background: rgba(5, 10, 15, 0.8);
+  backdrop-filter: blur(14px);
+}
+
+.tl-flow-brand {
+  border-right-color: rgba(214, 226, 235, 0.08);
+}
+
+.tl-flow-topbar h1,
+.tl-flow-topbar h2,
+.tl-flow-events h2,
+.tl-flow-overview h2,
+.tl-flow-inspector h2 {
+  margin: 0;
+  letter-spacing: 0;
+}
+
+.tl-flow-topbar h1 {
+  font-size: 20px;
+}
+
+.tl-flow-muted,
+.tl-flow-panel-title,
+.tl-flow-detail-list span,
+.tl-flow-node-hero p,
+.tl-flow-overview span,
+.tl-flow-overview small {
+  color: var(--tl-text-muted);
+}
+
+.tl-flow-top-actions,
+.tl-flow-live,
+.tl-flow-panel-title,
+.tl-flow-controls,
+.tl-flow-filterbar,
+.tl-flow-events-head {
+  display: flex;
+  align-items: center;
+}
+
+.tl-flow-title {
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+}
+
+.tl-flow-title h1 {
+  max-width: min(36vw, 520px);
+}
+
+.tl-flow-title span {
+  max-width: min(36vw, 520px);
+  color: var(--tl-text-muted);
+  font-size: 11px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tl-flow-top-actions {
+  gap: 10px;
+  justify-self: end;
+  justify-content: flex-end;
+  flex-wrap: nowrap;
+}
+
+.tl-flow-top-actions .cms-btn.is-running {
+  border-color: rgba(34, 197, 94, 0.46);
+  background: rgba(34, 197, 94, 0.12);
+  box-shadow: 0 0 22px rgba(34, 197, 94, 0.16);
+}
+
+.tl-flow-events .cms-btn.is-compact {
+  min-height: 28px;
+  padding: 0 10px;
+  font-size: 11px;
+}
+
+.tl-flow-events .cms-btn.is-ghost {
+  color: var(--tl-text-muted);
+  border-color: rgba(214, 226, 235, 0.12);
+  background: rgba(255, 255, 255, 0.025);
+}
+
+.tl-flow-live {
+  height: 34px;
+  gap: 8px;
+  padding: 0 12px;
+  border: 1px solid rgba(214, 226, 235, 0.1);
+  border-radius: 8px;
+  background: rgba(10, 18, 25, 0.82);
+  font-size: 12px;
+}
+
+.tl-flow-live.is-bus {
+  max-width: 220px;
+  color: var(--tl-text-muted);
+  white-space: nowrap;
+}
+
+.tl-flow-live.is-connected {
+  color: var(--tl-text);
+  border-color: rgba(34, 197, 94, 0.22);
+  background: rgba(11, 23, 18, 0.88);
+}
+
+.tl-flow-live.is-receiving {
+  border-color: rgba(34, 211, 238, 0.28);
+  box-shadow: 0 0 0 1px rgba(34, 211, 238, 0.06);
+}
+
+.tl-flow-live.is-offline {
+  color: rgba(248, 113, 113, 0.88);
+  border-color: rgba(248, 113, 113, 0.22);
+}
+
+.tl-flow-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 999px;
+  background: var(--tl-success);
+  box-shadow: 0 0 12px rgba(34, 197, 94, 0.78);
+}
+
+.tl-flow-dot.is-standby {
+  background: var(--tl-warning, #facc15);
+  box-shadow: 0 0 12px rgba(250, 204, 21, 0.55);
+}
+
+.tl-flow-dot.is-offline {
+  background: var(--tl-danger);
+  box-shadow: 0 0 12px rgba(248, 113, 113, 0.58);
+}
+
+.tl-flow-grid {
+  min-height: 0;
+  display: grid;
+  grid-template-columns: 154px minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr) 28px;
+  grid-template-areas:
+    "palette center"
+    "palette status";
+  gap: 8px;
+  padding: 8px;
+  overflow: hidden;
+}
+
+.tl-flow-palette,
+.tl-flow-inspector,
+.tl-flow-overview,
+.tl-flow-events,
+.tl-flow-workbench {
+  border: 1px solid rgba(214, 226, 235, 0.08);
+  border-radius: 8px;
+  background: rgba(7, 13, 19, 0.78);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.025);
+}
+
+.tl-flow-palette,
+.tl-flow-inspector {
+  min-height: 0;
+  overflow: auto;
+}
+
+.tl-flow-palette {
+  grid-area: palette;
+  padding: 12px;
+}
+
+.tl-flow-create-node-btn {
+  width: 100%;
+  min-height: 36px;
+  justify-content: center;
+  gap: 7px;
+  margin: 0 0 12px;
+  color: #ffe27a;
+  border: 1px solid rgba(250, 204, 21, 0.26);
+  border-radius: 7px;
+  background: rgba(250, 204, 21, 0.08);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.tl-flow-create-node-btn:hover {
+  color: #fff3b0;
+  border-color: rgba(250, 204, 21, 0.46);
+  background: rgba(250, 204, 21, 0.13);
+  box-shadow: 0 0 18px rgba(250, 204, 21, 0.12);
+}
+
+.tl-flow-panel-title {
+  justify-content: space-between;
+  margin-bottom: 12px;
+  font-size: 13px;
+}
+
+.tl-flow-palette-search {
+  min-height: 32px;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin: 0 0 12px;
+  padding: 0 8px;
+  border: 1px solid rgba(214, 226, 235, 0.1);
+  border-radius: 7px;
+  background: rgba(3, 8, 12, 0.56);
+  color: rgba(214, 226, 235, 0.52);
+}
+
+.tl-flow-palette-search:focus-within {
+  border-color: rgba(56, 189, 248, 0.32);
+  box-shadow: 0 0 0 1px rgba(56, 189, 248, 0.08);
+}
+
+.tl-flow-palette-search input {
+  min-width: 0;
+  flex: 1;
+  border: 0;
+  outline: 0;
+  color: var(--tl-text);
+  background: transparent;
+  font: inherit;
+  font-size: 11px;
+}
+
+.tl-flow-palette-search input::placeholder {
+  color: rgba(214, 226, 235, 0.42);
+}
+
+.tl-flow-palette-search-clear {
+  width: 22px;
+  height: 22px;
+  min-height: 22px;
+  padding: 0;
+  color: rgba(214, 226, 235, 0.62);
+  border-color: transparent;
+  background: transparent;
+}
+
+.tl-flow-palette-empty {
+  min-height: 92px;
+  display: grid;
+  place-items: center;
+  align-content: center;
+  gap: 6px;
+  padding: 14px;
+  color: rgba(214, 226, 235, 0.58);
+  border: 1px dashed rgba(214, 226, 235, 0.12);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.018);
+  text-align: center;
+}
+
+.tl-flow-palette-empty strong {
+  color: var(--tl-text);
+  font-size: 12px;
+}
+
+.tl-flow-palette-empty span:last-child {
+  font-size: 10px;
+}

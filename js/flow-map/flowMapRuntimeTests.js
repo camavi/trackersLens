@@ -1,0 +1,2062 @@
+// Flow Map pulse/live/replay execution, runtime test payloads and shell/header helpers.
+// Extracted from js/flowMapView.js; loaded in order by flowMap.html.
+const isTestableStarterNode = (node = {}) => {
+  const category = String(nodeCategory(node) || "").toLowerCase();
+  const type = String(node.type || "").toLowerCase();
+  const status = String(node.runtime?.status || node.metadata?.runtimeStatus || node.status || "").toLowerCase();
+  return !node.metadata?.library &&
+    !["paused", "disabled", "disconnected"].includes(status) &&
+    (type === "source" || type === "boxtracker" || category === "sources" || category === "trackers" || isCustomNetworkSourceNode(node));
+};
+
+const customNetworkRuntimeKind = (node = {}) =>
+  String(node.metadata?.runtimeConfig?.runtimeConnector || node.metadata?.execute?.kind || node.metadata?.manifest?.execute?.kind || nodeRuntimeConfig(node).runtimeConnector || "").toLowerCase();
+
+const isCustomNetworkSourceNode = (node = {}) =>
+  isCustomRuntimeNode(node) && ["rest", "websocket", "rss"].includes(customNetworkRuntimeKind(node));
+
+const isCustomFormSourceNode = (node = {}) =>
+  isCustomRuntimeNode(node) && ["", "form"].includes(customNetworkRuntimeKind(node));
+
+const isDirectAiTestNode = (node = {}) =>
+  !node.metadata?.library &&
+  node.type === "aiAgent" &&
+  !["paused", "disabled", "disconnected"].includes(String(node.runtime?.status || node.metadata?.runtimeStatus || node.status || "").toLowerCase());
+
+const isManualInputSource = (node = {}) => {
+  const subtype = String(nodeSubtype(node) || "").toLowerCase();
+  return nodeCategory(node) === "sources" && ["manual-json", "text-input", "manual-input"].includes(subtype);
+};
+
+const isLiveTestableStarterNode = (node = {}) =>
+  isDirectAiTestNode(node) || isManualInputSource(node) || isCustomRuntimeNode(node) || (isTestableStarterNode(node) && Boolean(nodeEndpoint(node)));
+
+const runtimeRuleGraph = () =>
+  graphModelApi().build({
+    runtime: state.runtime,
+    filters: {
+      ...state.filters,
+      channel: "all",
+      type: "all",
+      origin: "all",
+      state: "all",
+      activity: "all",
+      eventType: "all",
+      logLevel: "all",
+      runId: "all",
+    },
+  });
+
+const nodeParentDependencies = (node = {}, graph = runtimeRuleGraph()) =>
+  !node?.id ? [] : (graph.dependencies || [])
+    .filter((dependency) => dependency.targetNodeId === node.id && dependency.sourceNodeId && dependency.sourceNodeId !== node.id);
+
+const isRootRuntimeNode = (node = {}, graph = runtimeRuleGraph()) =>
+  Boolean(node?.id) && !nodeParentDependencies(node, graph).length;
+
+const rootStartBlockedReason = (node = {}, graph = runtimeRuleGraph()) => {
+  const parents = nodeParentDependencies(node, graph)
+    .map((dependency) => (graph.nodes || []).find((item) => item.id === dependency.sourceNodeId))
+    .filter(Boolean)
+    .map((parent) => parent.label || parent.id);
+  return parents.length
+    ? `Parte dal parent: ${parents.slice(0, 2).join(", ")}${parents.length > 2 ? ` +${parents.length - 2}` : ""}`
+    : "Solo i root node possono avviare test";
+};
+
+const isRootTestableStarterNode = (node = {}, graph = runtimeRuleGraph()) =>
+  isRootRuntimeNode(node, graph) && isTestableStarterNode(node);
+
+const isRootLiveTestableStarterNode = (node = {}, graph = runtimeRuleGraph()) =>
+  isRootRuntimeNode(node, graph) && isLiveTestableStarterNode(node);
+
+const testRunId = () => `flow_test_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
+
+const uniqueStrings = (values = []) =>
+  [...new Set(values.filter(Boolean).map(String))];
+
+const nodeTestChannels = (node = {}) =>
+  uniqueStrings([
+    ...(node.outputs || []),
+    ...nodeChannels(node),
+    node.metadata?.config?.emitChannel,
+    node.metadata?.config?.channel,
+    node.metadata?.config?.outputChannel,
+  ].filter((channel) => channel && channel !== "all")).slice(0, 8);
+
+const parseTestPayload = (value) => {
+  if (!value) return null;
+  if (typeof value === "object") return value;
+  try {
+    return JSON.parse(String(value));
+  } catch (_) {
+    return null;
+  }
+};
+
+const parseManualJsonPayload = (value) => {
+  const parsed = parseTestPayload(value);
+  if (parsed) return parsed;
+  const text = String(value || "").trim();
+  if (!text) return null;
+  try {
+    const normalized = text
+      .replace(/([{,]\s*)([A-Za-z_$][\w$-]*)(\s*:)/g, '$1"$2"$3')
+      .replace(/'([^'\\]*(?:\\.[^'\\]*)*)'/g, (_, inner) => JSON.stringify(inner.replace(/\\'/g, "'")));
+    return JSON.parse(normalized);
+  } catch (_) {
+    return null;
+  }
+};
+
+const nodeOutgoingTestChannels = (node = {}, graph = graphModel()) => {
+  const connected = (graph.dependencies || [])
+    .filter((dependency) => dependency.sourceNodeId === node.id)
+    .map((dependency) => dependency.channel || dependency.metadata?.sourcePort || dependency.metadata?.targetPort)
+    .filter((channel) => channel && channel !== "all");
+  return uniqueStrings([...connected, ...nodeTestChannels(node)]).slice(0, 8);
+};
+
+const nodeRuntimeConfig = (node = {}) => ({
+  ...(node.metadata?.runtimeConfig || {}),
+  ...(node.metadata?.config || {}),
+  endpoint: node.metadata?.config?.endpoint || node.metadata?.runtimeConfig?.endpoint || node.metadata?.endpoint || node.endpoint || "",
+  method: node.metadata?.config?.method || node.metadata?.runtimeConfig?.method || node.method || "GET",
+});
+
+const nodeEndpoint = (node = {}) => {
+  const config = nodeRuntimeConfig(node);
+  return String(config.endpoint || config.url || config.wsUrl || config.source || "").trim();
+};
+
+const isWebSocketEndpoint = (endpoint = "") => /^wss?:\/\//i.test(String(endpoint || "").trim());
+
+const isLiveKeepOpenNode = (node = {}) => {
+  const config = nodeRuntimeConfig(node);
+  return Boolean(config.keepWebSocketOpen || config.keepOpen || config.liveStream);
+};
+
+const parseResponsePayload = (value) => {
+  if (value === undefined || value === null) return {};
+  if (typeof value !== "string") return value;
+  try {
+    return JSON.parse(value);
+  } catch (_) {
+    return { text: value };
+  }
+};
+
+const runtimeOutputPorts = (node = {}) =>
+  normalizeNodeBuilderPorts(node.metadata?.manifest?.outputs || node.outputs || ["output"], "out");
+
+const valueAtPath = (source, path = "") => {
+  const parts = String(path || "").trim().split(".").filter(Boolean);
+  if (!parts.length) return source;
+  return parts.reduce((value, key) => {
+    if (value === undefined || value === null) return undefined;
+    if (Array.isArray(value) && /^\d+$/.test(key)) return value[Number(key)];
+    return value?.[key];
+  }, source);
+};
+
+const customNodeFormValues = (node = {}) => {
+  const config = nodeConfigObject(node);
+  return Object.fromEntries(customNodeDataFields(node).map((field) => [field.key, customConfigValue(config, field)]));
+};
+
+const staticOutputValue = (expression = "") => {
+  const text = String(expression || "").trim();
+  if (!text) return null;
+  return parseTestPayload(text) ?? text;
+};
+
+const outputPayloadForPort = (node = {}, channel = "", basePayload = {}, context = {}) => {
+  const port = runtimeOutputPorts(node).find((item) => item.name === channel) || null;
+  if (!port) return basePayload;
+  const formData = context.formData || customNodeFormValues(node);
+  const mode = String(port.sourceMode || "runtimeResult");
+  let data = basePayload;
+  if (mode === "formData") data = formData;
+  else if (mode === "component") data = formData[port.sourceComponentKey || port.sourcePath || ""];
+  else if (mode === "static") data = staticOutputValue(port.expression || port.sourcePath);
+  else if (mode === "function") {
+    data = port.sourcePath ? valueAtPath({ payload: basePayload, data: basePayload?.data, form: formData }, port.sourcePath) : basePayload;
+  } else if (port.sourcePath) {
+    data = valueAtPath({ payload: basePayload, data: basePayload?.data, form: formData }, port.sourcePath);
+  }
+  return {
+    ...basePayload,
+    outputPort: port.name,
+    outputSource: {
+      mode,
+      path: port.sourcePath || "",
+      component: port.sourceComponentKey || "",
+    },
+    data: data === undefined ? null : data,
+  };
+};
+
+const nodeTestPayload = (node = {}, runId = "") => {
+  const config = node.metadata?.config || {};
+  const manualPayloadSource = config.testPayload || config.payload || config.manualJson || config.json;
+  const configuredPayload = nodeSubtype(node) === "manual-json"
+    ? parseManualJsonPayload(manualPayloadSource)
+    : parseTestPayload(manualPayloadSource);
+  if (!configuredPayload && isManualInputSource(node)) {
+    const text = String(config.text || config.inputText || config.manualText || "").trim();
+    if (text) {
+      return {
+        text,
+        __test: true,
+        runId,
+        sourceNodeId: node.id,
+        emittedAt: new Date().toISOString(),
+      };
+    }
+  }
+  const sample = configuredPayload || node.metadata?.sampleOutput || config.sampleOutput;
+  if (sample && typeof sample === "object") {
+    return {
+      ...sample,
+      __test: true,
+      runId,
+      sourceNodeId: node.id,
+      emittedAt: new Date().toISOString(),
+    };
+  }
+  const category = nodeCategory(node);
+  const subtype = nodeSubtype(node);
+  const channel = config.emitChannel || config.outputChannel || node.outputs?.[0] || nodeChannels(node)[0] || "default";
+  return {
+    __test: true,
+    runId,
+    nodeId: node.id,
+    title: node.label || node.title || node.id,
+    category,
+    subtype,
+    channel,
+    value: Math.round(Math.random() * 1000) / 10,
+    status: "active",
+    endpoint: config.endpoint || node.metadata?.endpoint || "",
+    method: config.method || "GET",
+    source: category === "sources" ? subtype : node.type || category,
+    emittedAt: new Date().toISOString(),
+  };
+};
+
+const executeManualInputNode = async ({ node, workspaceId, runId, graph } = {}) => {
+  const payload = nodeTestPayload(node, runId);
+  const channels = nodeOutgoingTestChannels(node, graph);
+  const outputChannels = channels.length ? channels : ["raw"];
+  for (const channel of outputChannels) {
+    await emitLiveNodePayload({
+      workspaceId,
+      runId,
+      node,
+      channel,
+      payload: outputPayloadForPort(node, channel, payload),
+      eventType: "flow_live_manual_input",
+      latencyMs: 1,
+    });
+  }
+  await recordFlowAction({
+    workspaceId,
+    nodeId: node.id,
+    message: `Manual input emitted: ${node.label || node.id}`,
+    context: { action: "flow-map-manual-input", runId, channels: outputChannels, payloadPreview: compactPayloadPreview(payload, 220) },
+  });
+  return { channels: outputChannels, payload };
+};
+
+const executeCustomFormNode = async ({ node, workspaceId, runId, graph } = {}) => {
+  const config = nodeConfigObject(node);
+  const fields = customNodeDataFields(node);
+  const values = Object.fromEntries(fields.map((field) => [field.key, customConfigValue(config, field)]));
+  const payload = {
+    live: true,
+    runId,
+    nodeId: node.id,
+    title: node.label || node.title || node.id,
+    type: "custom-form",
+    data: values,
+    fields: fields.map((field) => ({
+      key: field.key,
+      label: field.label,
+      type: field.type,
+      component: field.component,
+    })),
+    emittedAt: new Date().toISOString(),
+  };
+  const channels = nodeOutgoingTestChannels(node, graph);
+  const outputChannels = channels.length ? channels : ["output"];
+  for (const channel of outputChannels) {
+    await emitLiveNodePayload({
+      workspaceId,
+      runId,
+      node,
+      channel,
+      payload: outputPayloadForPort(node, channel, payload, { formData: values }),
+      eventType: "flow_live_custom_form",
+      latencyMs: 1,
+    });
+  }
+  await recordFlowAction({
+    workspaceId,
+    nodeId: node.id,
+    message: `Custom form emitted: ${node.label || node.id}`,
+    context: {
+      action: "flow-map-custom-form-input",
+      runId,
+      channels: outputChannels,
+      fields: fields.map((field) => field.key),
+      payloadPreview: compactPayloadPreview(payload, 220),
+    },
+  });
+  return { channels: outputChannels, payload };
+};
+
+const aiDirectInputChannel = (node = {}, graph = graphModel()) => {
+  const config = nodeRuntimeConfig(node);
+  const incoming = (graph.dependencies || [])
+    .filter((dependency) => dependency.targetNodeId === node.id)
+    .map((dependency) => dependency.channel || dependency.metadata?.targetPort)
+    .filter(Boolean);
+  return incoming[0] || config.input || node.inputs?.[0] || nodeChannels(node)[0] || "input";
+};
+
+const executeDirectAiAgentNode = async ({ node, workspaceId, runId, graph } = {}) => {
+  const channel = aiDirectInputChannel(node, graph);
+  const payload = nodeTestPayload(node, runId);
+  const bus = workspaceEventBus(workspaceId);
+  const event = await bus?.emit?.(channel, payload, {
+    workspaceId,
+    flowId: flowIdForWorkspace(workspaceId),
+    eventType: "flow_live_ai_direct",
+    sourceNodeId: "flow-map-ai-direct-test",
+    targetNodeId: node.id,
+    latencyMs: 1,
+    meta: {
+      live: true,
+      runId,
+      origin: "ai-direct-test",
+      targetNodeId: node.id,
+      inputChannel: channel,
+      flowMapDirectAiExecution: true,
+    },
+  });
+  if (event) mergeRuntimeEvent(event);
+  let result = null;
+  let outputChannel = node.outputs?.[0] || node.channels?.find((item) => item !== channel) || `ai.${nodeSubtype(node) || "agent"}.output`;
+  try {
+    const runtime = window.TrackerLensAiAgentRuntime?.get?.(workspaceId);
+    if (runtime?.execute) {
+      result = await runtime.execute({
+        node,
+        payload,
+        event: event || {
+          channel,
+          payload,
+          meta: { runId },
+          sourceNodeId: "flow-map-ai-direct-test",
+          targetNodeId: node.id,
+        },
+      });
+      const latencyMs = Number(result?.latencyMs || 0);
+      const responseEvent = await bus?.emit?.(outputChannel, result, {
+        workspaceId,
+        flowId: flowIdForWorkspace(workspaceId),
+        eventType: "ai_agent_response",
+        sourceNodeId: node.id,
+        latencyMs,
+        meta: {
+          aiAgentRuntime: node.id,
+          inputEventId: event?.id || "",
+          inputChannel: channel,
+          runId,
+          provider: result?.provider || "",
+          model: result?.model || "",
+          flowMapDirectAiExecution: true,
+        },
+      });
+      if (responseEvent) mergeRuntimeEvent(responseEvent);
+      await recordFlowAction({
+        workspaceId,
+        nodeId: node.id,
+        message: `Direct AI Agent emitted ${outputChannel}: ${node.label || node.id}`,
+        context: {
+          action: "flow-map-ai-direct-response",
+          runId,
+          inputChannel: channel,
+          outputChannel,
+          provider: result?.provider || "",
+          model: result?.model || "",
+          payloadPreview: compactPayloadPreview(result, 220),
+        },
+      });
+    }
+  } catch (error) {
+    await recordFlowAction({
+      workspaceId,
+      nodeId: node.id,
+      level: "error",
+      message: `Direct AI Agent error: ${error.message || error}`,
+      context: { action: "flow-map-ai-direct-error", runId, inputChannel: channel, outputChannel, error: error.message || String(error) },
+    });
+    throw error;
+  }
+  await recordFlowAction({
+    workspaceId,
+    nodeId: node.id,
+    message: `Direct AI Agent test started: ${node.label || node.id}`,
+    context: { action: "flow-map-ai-direct-test", runId, inputChannel: channel, payloadPreview: compactPayloadPreview(payload, 220) },
+  });
+  return { channels: [channel, outputChannel].filter(Boolean), payload: result || payload };
+};
+
+const downstreamTestPath = (graph = {}, starterIds = []) => {
+  const nodesById = new Map((graph.nodes || []).map((node) => [node.id, node]));
+  const bySource = new Map();
+  (graph.dependencies || []).forEach((dependency) => {
+    if (!dependency.sourceNodeId || !dependency.targetNodeId) return;
+    if (!bySource.has(dependency.sourceNodeId)) bySource.set(dependency.sourceNodeId, []);
+    bySource.get(dependency.sourceNodeId).push(dependency);
+  });
+
+  const queue = starterIds.filter((id) => nodesById.has(id));
+  const visitedNodes = new Set(queue);
+  const visitedEdges = new Set();
+  const edges = [];
+  while (queue.length && visitedNodes.size < 500 && edges.length < 1000) {
+    const sourceId = queue.shift();
+    (bySource.get(sourceId) || []).forEach((dependency) => {
+      if (visitedEdges.has(dependency.id)) return;
+      visitedEdges.add(dependency.id);
+      edges.push(dependency);
+      if (!visitedNodes.has(dependency.targetNodeId)) {
+        visitedNodes.add(dependency.targetNodeId);
+        queue.push(dependency.targetNodeId);
+      }
+    });
+  }
+  return { nodeIds: [...visitedNodes], edgeIds: [...visitedEdges], edges };
+};
+
+const activeOutgoingDependencyIds = (graph = {}, nodeIds = []) => {
+  const ids = new Set(nodeIds.filter(Boolean));
+  return (graph.dependencies || [])
+    .filter((dependency) => ids.has(dependency.sourceNodeId))
+    .map((dependency) => dependency.id);
+};
+
+const setTestRunActiveNodes = (graph = {}, nodeIds = []) => {
+  state.testRun = {
+    ...state.testRun,
+    activeNodeIds: nodeIds.filter(Boolean),
+    activeEdgeIds: activeOutgoingDependencyIds(graph, nodeIds),
+  };
+  refreshLiveGraphState();
+};
+
+const clearTestRunActiveNodes = () => {
+  state.testRun = {
+    ...state.testRun,
+    activeNodeIds: [],
+    activeEdgeIds: [],
+  };
+  refreshLiveGraphState();
+};
+
+const mergeTestEvent = async (event = {}) => {
+  const nextEvent = {
+    id: event.id || `event_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+    workspaceId: event.workspaceId || state.filters.workspaceId || "workspace_global",
+    flowId: event.flowId || flowIdForWorkspace(event.workspaceId || state.filters.workspaceId || "workspace_global"),
+    channel: event.channel || "default",
+    eventType: event.eventType || "flow_test_pulse",
+    sourceNodeId: event.sourceNodeId || "",
+    targetNodeId: event.targetNodeId || "",
+    connectionId: event.connectionId || "",
+    payload: event.payload || {},
+    status: event.status || "ok",
+    latencyMs: Number(event.latencyMs) || 0,
+    createdAt: event.createdAt || new Date().toISOString(),
+    meta: {
+      test: true,
+      ...(event.meta || {}),
+    },
+  };
+  mergeRuntimeEvent(nextEvent);
+  const persistEvent = window.TrackerLensEventLogStore?.recordEvent
+    ? window.TrackerLensEventLogStore.recordEvent({
+      id: nextEvent.id,
+      workspaceId: nextEvent.workspaceId,
+      flowId: nextEvent.flowId,
+      channel: nextEvent.channel,
+      eventType: nextEvent.eventType,
+      sourceNodeId: nextEvent.sourceNodeId,
+      targetNodeId: nextEvent.targetNodeId,
+      connectionId: nextEvent.connectionId,
+      payload: nextEvent.payload,
+      status: nextEvent.status,
+      latencyMs: nextEvent.latencyMs,
+    }).catch(() => null)
+    : Promise.resolve(null);
+  const persistChannel = window.TrackerLensChannelRegistry?.recordEmission
+    ? window.TrackerLensChannelRegistry.recordEmission({
+      workspaceId: nextEvent.workspaceId,
+      channel: nextEvent.channel,
+      sourceNodeId: nextEvent.sourceNodeId,
+      payload: nextEvent.payload,
+      emittedAt: nextEvent.createdAt,
+    }).catch(() => null)
+    : Promise.resolve(null);
+  await Promise.all([
+    persistEvent,
+    persistChannel,
+  ]);
+  return nextEvent;
+};
+
+const emitLiveNodePayload = async ({ workspaceId, runId, node, channel, payload, eventType = "flow_live_root", status = "ok", latencyMs = 0 } = {}) => {
+  const bus = workspaceEventBus(workspaceId);
+  const meta = { live: true, runId, origin: "live-test", rootNodeId: node.id };
+  const event = bus?.emit
+    ? await bus.emit(channel || "default", payload || {}, {
+      workspaceId,
+      flowId: flowIdForWorkspace(workspaceId),
+      eventType,
+      sourceNodeId: node.id,
+      status,
+      latencyMs,
+      meta,
+    })
+    : await mergeTestEvent({
+      workspaceId,
+      channel,
+      eventType,
+      sourceNodeId: node.id,
+      payload,
+      status,
+      latencyMs,
+      meta,
+    });
+  mergeRuntimeEvent(event);
+  return event;
+};
+
+const emitLiveDependencyPulse = async ({ workspaceId, runId, graph, dependency } = {}) => {
+  const source = graph.nodes.find((node) => node.id === dependency.sourceNodeId);
+  const target = graph.nodes.find((node) => node.id === dependency.targetNodeId);
+  return mergeTestEvent({
+    workspaceId,
+    channel: dependency.channel || dependencyPort(dependency, "out") || "default",
+    eventType: "flow_live_pulse",
+    sourceNodeId: dependency.sourceNodeId,
+    targetNodeId: dependency.targetNodeId,
+    connectionId: dependency.connectionId || dependency.id,
+    payload: {
+      live: true,
+      runId,
+      route: `${source?.label || dependency.sourceNodeId} -> ${target?.label || dependency.targetNodeId}`,
+      channel: dependency.channel || "default",
+    },
+    latencyMs: 1,
+    meta: { live: true, runId, origin: "live-test", dependencyId: dependency.id },
+  });
+};
+
+const replayRuntimeEvent = async (event = {}) => {
+  const graph = graphModel();
+  const selected = selectedNode();
+  const sourceNodeId = event.sourceNodeId || selected?.id || "";
+  const sourceNode = graph.nodes.find((node) => node.id === sourceNodeId) || selected;
+  if (!sourceNode?.id) return;
+
+  const workspaceId = event.workspaceId || sourceNode.workspaceId || state.filters.workspaceId || "workspace_global";
+  const channel = event.channel || nodeOutgoingTestChannels(sourceNode, graph)[0] || "default";
+  const payload = event.payload === undefined ? {} : event.payload;
+  const runId = testRunId().replace("flow_test", "flow_replay");
+  const path = downstreamTestPath(graph, [sourceNode.id]);
+
+  state.testRun = {
+    ...state.testRun,
+    running: true,
+    runId,
+    nodeIds: path.nodeIds,
+    edgeIds: path.edgeIds,
+    activeNodeIds: [sourceNode.id],
+    activeEdgeIds: activeOutgoingDependencyIds(graph, [sourceNode.id]),
+    startedAt: new Date().toISOString(),
+    completedAt: "",
+    summary: "Replaying inspector event...",
+    timeoutId: 0,
+    abortController: null,
+    liveSockets: [],
+    keepOpen: false,
+    cancelRequested: false,
+    verification: null,
+  };
+  setFiltersState({ ...state.filters, runId });
+  mount();
+
+  try {
+    const bus = workspaceEventBus(workspaceId);
+    const meta = {
+      debug: true,
+      replay: true,
+      runId,
+      origin: "inspector-replay",
+      replayEventId: event.id || "",
+      rootNodeId: sourceNode.id,
+    };
+    const replayed = bus?.emit
+      ? await bus.emit(channel, payload, {
+        workspaceId,
+        flowId: flowIdForWorkspace(workspaceId),
+        eventType: "flow_replay",
+        sourceNodeId: sourceNode.id,
+        status: "ok",
+        latencyMs: 0,
+        meta,
+      })
+      : await mergeTestEvent({
+        workspaceId,
+        channel,
+        eventType: "flow_replay",
+        sourceNodeId: sourceNode.id,
+        payload,
+        status: "ok",
+        latencyMs: 0,
+        meta,
+      });
+    mergeRuntimeEvent(replayed);
+
+    for (const dependency of path.edges) {
+      await mergeTestEvent({
+        workspaceId,
+        channel: dependency.channel || dependencyPort(dependency, "out") || channel,
+        eventType: "flow_replay_pulse",
+        sourceNodeId: dependency.sourceNodeId,
+        targetNodeId: dependency.targetNodeId,
+        connectionId: dependency.connectionId || dependency.id,
+        payload,
+        latencyMs: 1,
+        meta: {
+          debug: true,
+          replay: true,
+          runId,
+          origin: "inspector-replay",
+          dependencyId: dependency.id,
+          replayEventId: event.id || "",
+        },
+      });
+    }
+
+    await recordFlowAction({
+      workspaceId,
+      nodeId: sourceNode.id,
+      level: "info",
+      message: `Runtime event replayed: ${sourceNode.label || sourceNode.id}`,
+      context: {
+        action: "flow-map-event-replay",
+        runId,
+        channel,
+        sourceNodeId: sourceNode.id,
+        replayEventId: event.id || "",
+        downstreamEdges: path.edgeIds.length,
+        payloadPreview: compactPayloadPreview(payload, 220),
+      },
+    });
+    state.testRun.timeoutId = window.setTimeout(() => {
+      finishFlowMapTestRun({ runId, summary: `Replay completed · ${path.edgeIds.length} routes` });
+      mount();
+    }, 3200);
+  } catch (error) {
+    state.error = error?.message || "Replay evento fallito";
+    finishFlowMapTestRun({ runId, summary: "Replay error", error: state.error });
+    await recordFlowAction({
+      workspaceId,
+      nodeId: sourceNode.id,
+      level: "error",
+      message: `Runtime event replay failed: ${sourceNode.label || sourceNode.id}`,
+      context: { action: "flow-map-event-replay-error", runId, error: error?.message || String(error) },
+    });
+    mount();
+  }
+};
+
+const registerLiveSocket = ({ runId = "", nodeId = "", socket = null, endpoint = "" } = {}) => {
+  if (!socket) return;
+  state.testRun.liveSockets = [
+    ...(state.testRun.liveSockets || []),
+    { runId, nodeId, socket, endpoint },
+  ];
+};
+
+const unregisterLiveSocket = (socket = null) => {
+  state.testRun.liveSockets = (state.testRun.liveSockets || []).filter((item) => item.socket !== socket);
+};
+
+const closeLiveSockets = () => {
+  (state.testRun.liveSockets || []).forEach(({ socket }) => {
+    try {
+      if (socket && socket.readyState <= WebSocket.OPEN) socket.close(1000, "Flow Map test stopped");
+    } catch (_) {
+      // Browser WebSocket implementations can throw while closing a transient socket.
+    }
+  });
+  state.testRun.liveSockets = [];
+};
+
+const executeLiveRestNode = async ({ node, workspaceId, runId, graph, signal = null } = {}) => {
+  const config = nodeRuntimeConfig(node);
+  const endpoint = nodeEndpoint(node);
+  if (!endpoint) throw new Error(`${node.label || node.id}: endpoint mancante`);
+  const method = String(config.method || "GET").toUpperCase();
+  const headers = { Accept: "application/json" };
+  const bodyPayload = parseTestPayload(config.requestBody || config.body || config.testPayload || config.payload);
+  const init = { method, headers, ...(signal ? { signal } : {}) };
+  if (method !== "GET" && bodyPayload) {
+    headers["Content-Type"] = "application/json";
+    init.body = JSON.stringify(bodyPayload);
+  }
+  const started = performance.now();
+  await recordFlowAction({
+    workspaceId,
+    nodeId: node.id,
+    level: "info",
+    message: `Live REST test connecting ${endpoint}`,
+    context: { action: "flow-map-live-rest-start", runId, endpoint, method },
+  });
+  const response = await fetch(endpoint, init);
+  const text = await response.text();
+  const payload = {
+    live: true,
+    runId,
+    status: response.status,
+    ok: response.ok,
+    endpoint,
+    method,
+    data: parseResponsePayload(text),
+    receivedAt: new Date().toISOString(),
+  };
+  const latencyMs = Math.max(1, Math.round(performance.now() - started));
+  const channels = nodeOutgoingTestChannels(node, graph);
+  for (const channel of (channels.length ? channels : ["raw"])) {
+    await emitLiveNodePayload({ workspaceId, runId, node, channel, payload: outputPayloadForPort(node, channel, payload), latencyMs, status: response.ok ? "ok" : "error" });
+  }
+  await recordFlowAction({
+    workspaceId,
+    nodeId: node.id,
+    level: response.ok ? "info" : "warning",
+    message: `Live REST test ${response.status} from ${node.label || node.id}`,
+    context: { action: "flow-map-live-rest-response", runId, endpoint, method, status: response.status, channels },
+  });
+  return { channels, payload };
+};
+
+const parseRssPayload = (text = "") => {
+  const parser = new DOMParser();
+  const doc = parser.parseFromString(String(text || ""), "application/xml");
+  if (doc.querySelector("parsererror")) return { raw: text };
+  const pick = (root, selector) => root.querySelector(selector)?.textContent?.trim() || "";
+  const entries = [...doc.querySelectorAll("item, entry")].slice(0, 30).map((entry) => ({
+    title: pick(entry, "title"),
+    link: entry.querySelector("link")?.getAttribute?.("href") || pick(entry, "link"),
+    summary: pick(entry, "description") || pick(entry, "summary") || pick(entry, "content"),
+    publishedAt: pick(entry, "pubDate") || pick(entry, "published") || pick(entry, "updated"),
+    id: pick(entry, "guid") || pick(entry, "id"),
+  }));
+  return {
+    title: pick(doc, "channel > title") || pick(doc, "feed > title") || pick(doc, "title"),
+    link: pick(doc, "channel > link") || doc.querySelector("feed > link")?.getAttribute?.("href") || "",
+    entries,
+  };
+};
+
+const executeLiveRssNode = async ({ node, workspaceId, runId, graph, signal = null } = {}) => {
+  const endpoint = nodeEndpoint(node);
+  if (!endpoint) throw new Error(`${node.label || node.id}: RSS URL mancante`);
+  const started = performance.now();
+  await recordFlowAction({
+    workspaceId,
+    nodeId: node.id,
+    level: "info",
+    message: `Live RSS test fetching ${endpoint}`,
+    context: { action: "flow-map-live-rss-start", runId, endpoint },
+  });
+  const response = await fetch(endpoint, {
+    method: "GET",
+    headers: { Accept: "application/rss+xml, application/atom+xml, application/xml, text/xml, */*" },
+    ...(signal ? { signal } : {}),
+  });
+  const text = await response.text();
+  const payload = {
+    live: true,
+    runId,
+    status: response.status,
+    ok: response.ok,
+    endpoint,
+    type: "rss",
+    data: parseRssPayload(text),
+    receivedAt: new Date().toISOString(),
+  };
+  const latencyMs = Math.max(1, Math.round(performance.now() - started));
+  const channels = nodeOutgoingTestChannels(node, graph);
+  const outputChannels = channels.length ? channels : ["raw"];
+  for (const channel of outputChannels) {
+    await emitLiveNodePayload({ workspaceId, runId, node, channel, payload: outputPayloadForPort(node, channel, payload), latencyMs, status: response.ok ? "ok" : "error" });
+  }
+  await recordFlowAction({
+    workspaceId,
+    nodeId: node.id,
+    level: response.ok ? "info" : "warning",
+    message: `Live RSS test ${response.status} from ${node.label || node.id}`,
+    context: { action: "flow-map-live-rss-response", runId, endpoint, status: response.status, channels: outputChannels, items: payload.data?.entries?.length || 0 },
+  });
+  return { channels: outputChannels, payload };
+};
+
+const executeLiveWebSocketNode = ({ node, workspaceId, runId, graph, signal = null }) =>
+  new Promise((resolve, reject) => {
+    const endpoint = nodeEndpoint(node);
+    if (!endpoint) {
+      reject(new Error(`${node.label || node.id}: WebSocket URL mancante`));
+      return;
+    }
+    if (signal?.aborted) {
+      reject(new DOMException("Flow Map live test cancelled", "AbortError"));
+      return;
+    }
+    const channels = nodeOutgoingTestChannels(node, graph);
+    const outputChannels = channels.length ? channels : ["raw"];
+    const keepOpen = isLiveKeepOpenNode(node);
+    const started = performance.now();
+    let settled = false;
+    let socket = null;
+    let timeout = 0;
+    const settle = (callback, value, closeSocket = true) => {
+      if (settled) return;
+      settled = true;
+      if (timeout) window.clearTimeout(timeout);
+      if (socket) unregisterLiveSocket(socket);
+      try {
+        if (closeSocket && socket && socket.readyState <= WebSocket.OPEN) socket.close();
+      } catch (_) {
+        // Closing a test socket can fail in edge browser states.
+      }
+      callback(value);
+    };
+    const cancelWebSocket = () => {
+      recordFlowAction({
+        workspaceId,
+        nodeId: node.id,
+        level: "warning",
+        message: `Live WebSocket stopped ${node.label || node.id}`,
+        context: { action: "flow-map-live-websocket-stopped", runId, endpoint, keepOpen },
+      });
+      settle(resolve, { channels: outputChannels, payload: null, stopped: true });
+    };
+
+    if (!keepOpen) {
+      timeout = window.setTimeout(() => {
+        recordFlowAction({
+          workspaceId,
+          nodeId: node.id,
+          level: "warning",
+          message: `Live WebSocket test timeout from ${node.label || node.id}`,
+          context: { action: "flow-map-live-websocket-timeout", runId, endpoint },
+        });
+        settle(reject, new Error(`WebSocket timeout dopo ${LIVE_TEST_TIMEOUT_MS / 1000}s`));
+      }, LIVE_TEST_TIMEOUT_MS);
+    }
+
+    recordFlowAction({
+      workspaceId,
+      nodeId: node.id,
+      level: "info",
+      message: `Live WebSocket test connecting ${endpoint}`,
+      context: { action: "flow-map-live-websocket-start", runId, endpoint, keepOpen },
+    });
+
+    try {
+      socket = new WebSocket(endpoint);
+      registerLiveSocket({ runId, nodeId: node.id, socket, endpoint });
+    } catch (error) {
+      settle(reject, error);
+      return;
+    }
+
+    signal?.addEventListener?.("abort", cancelWebSocket, { once: true });
+
+    socket.onopen = () => {
+      recordFlowAction({
+        workspaceId,
+        nodeId: node.id,
+        level: "info",
+        message: `Live WebSocket opened ${node.label || node.id}`,
+        context: { action: "flow-map-live-websocket-open", runId, endpoint, keepOpen },
+      });
+    };
+    socket.onmessage = async (message) => {
+      try {
+        if (signal?.aborted) {
+          cancelWebSocket();
+          return;
+        }
+        const payload = {
+          live: true,
+          runId,
+          endpoint,
+          data: parseResponsePayload(message.data),
+          receivedAt: new Date().toISOString(),
+        };
+        const latencyMs = Math.max(1, Math.round(performance.now() - started));
+        for (const channel of outputChannels) {
+          await emitLiveNodePayload({ workspaceId, runId, node, channel, payload: outputPayloadForPort(node, channel, payload), latencyMs });
+        }
+        await recordFlowAction({
+          workspaceId,
+          nodeId: node.id,
+          level: "info",
+          message: `Live WebSocket message from ${node.label || node.id}`,
+          context: { action: "flow-map-live-websocket-message", runId, endpoint, channels: outputChannels, keepOpen, payloadPreview: payload },
+        });
+        if (!keepOpen) settle(resolve, { channels: outputChannels, payload });
+      } catch (error) {
+        settle(reject, error);
+      }
+    };
+    socket.onerror = () => {
+      recordFlowAction({
+        workspaceId,
+        nodeId: node.id,
+        level: "error",
+        message: `Live WebSocket error from ${node.label || node.id}`,
+        context: { action: "flow-map-live-websocket-error", runId, endpoint },
+      });
+      settle(reject, new Error(`Errore WebSocket ${endpoint}`));
+    };
+    socket.onclose = (event) => {
+      unregisterLiveSocket(socket);
+      if (settled) return;
+      recordFlowAction({
+        workspaceId,
+        nodeId: node.id,
+        level: state.testRun.cancelRequested ? "warning" : "info",
+        message: `Live WebSocket closed ${node.label || node.id}`,
+        context: { action: "flow-map-live-websocket-close", runId, endpoint, code: event.code, reason: event.reason || "", keepOpen },
+      });
+      if (keepOpen || state.testRun.cancelRequested) settle(resolve, { channels: outputChannels, payload: null, closed: true }, false);
+    };
+  });
+
+const executeLiveNode = async ({ node, workspaceId, runId, graph, signal = null } = {}) => {
+  if (isManualInputSource(node)) {
+    return executeManualInputNode({ node, workspaceId, runId, graph, signal });
+  }
+  if (isCustomFormSourceNode(node)) {
+    return executeCustomFormNode({ node, workspaceId, runId, graph, signal });
+  }
+  const endpoint = nodeEndpoint(node);
+  const subtype = customNetworkRuntimeKind(node) || nodeSubtype(node);
+  if (subtype === "rss") {
+    return executeLiveRssNode({ node, workspaceId, runId, graph, signal });
+  }
+  if (isWebSocketEndpoint(endpoint) || subtype === "websocket") {
+    return executeLiveWebSocketNode({ node, workspaceId, runId, graph, signal });
+  }
+  return executeLiveRestNode({ node, workspaceId, runId, graph, signal });
+};
+
+const clearTestRunTimeout = () => {
+  if (!state.testRun.timeoutId) return;
+  window.clearTimeout(state.testRun.timeoutId);
+  state.testRun.timeoutId = 0;
+};
+
+const finishFlowMapTestRun = ({ runId = state.testRun.runId, summary = "", error = "" } = {}) => {
+  if (runId && state.testRun.runId && runId !== state.testRun.runId) return false;
+  clearTestRunTimeout();
+  closeLiveSockets();
+  state.testRun = {
+    ...state.testRun,
+    running: false,
+    nodeIds: [],
+    edgeIds: [],
+    activeNodeIds: [],
+    activeEdgeIds: [],
+    completedAt: new Date().toISOString(),
+    summary: summary || state.testRun.summary || "Test completed",
+    timeoutId: 0,
+    abortController: null,
+    liveSockets: [],
+    keepOpen: false,
+    cancelRequested: false,
+    verification: state.testRun.verification || null,
+  };
+  if (error) state.error = error;
+  return true;
+};
+
+const wait = (ms = 0) => new Promise((resolve) => window.setTimeout(resolve, ms));
+
+const waitForMinimumTestAnimation = async (startedAt = "") => {
+  const started = Date.parse(startedAt || "");
+  if (!Number.isFinite(started)) return;
+  const remaining = MIN_TEST_ANIMATION_MS - (Date.now() - started);
+  if (remaining > 0) await wait(remaining);
+};
+
+const runtimeKindForNode = (node = {}) => {
+  if (node.type === "aiAgent") return "ai";
+  if (node.type === "storage") return "storage";
+  if (node.type === "action") return "action";
+  if (node.type === "processor") return "processor";
+  return "";
+};
+
+const getPathValue = (source, path = "") => {
+  const clean = String(path || "").trim();
+  if (!clean) return source;
+  return clean
+    .replace(/^result\./, "")
+    .replace(/^payload\./, "")
+    .replace(/\[(\d+)\]/g, ".$1")
+    .split(".")
+    .filter(Boolean)
+    .reduce((value, key) => value?.[key], source);
+};
+
+const stringifyForAssert = (value = "") => {
+  if (typeof value === "string") return value;
+  try {
+    return JSON.stringify(value ?? {});
+  } catch (_) {
+    return String(value ?? "");
+  }
+};
+
+const parseExpectedValue = (value = "") => {
+  if (value && typeof value === "object") return value;
+  const text = String(value || "").trim();
+  if (!text) return "";
+  try {
+    return JSON.parse(text);
+  } catch (_) {
+    return text;
+  }
+};
+
+const objectContains = (actual, expected) => {
+  if (!expected || typeof expected !== "object") return stringifyForAssert(actual).includes(String(expected || ""));
+  if (!actual || typeof actual !== "object") return false;
+  return Object.entries(expected).every(([key, value]) => {
+    if (value && typeof value === "object" && !Array.isArray(value)) return objectContains(actual[key], value);
+    return stringifyForAssert(actual[key]) === stringifyForAssert(value);
+  });
+};
+
+const evaluateAiAssertion = ({ node = {}, job = {} } = {}) => {
+  const config = nodeRuntimeConfig(node);
+  const expectedOutput = parseExpectedValue(config.expectedOutput);
+  const assertPath = String(config.assertPath || "").trim();
+  const operator = String(config.assertOperator || (expectedOutput ? "json-contains" : "contains")).trim() || "contains";
+  const expected = parseExpectedValue(config.assertValue || config.expectedOutput);
+  const result = job.result || {};
+  const target = assertPath ? getPathValue(result, assertPath) : result.response || result.text || result;
+  const actualText = stringifyForAssert(target);
+  const expectedText = stringifyForAssert(expected);
+
+  if (!expectedText && !assertPath && !config.expectedOutput) {
+    return { status: "not-configured", ok: true, operator, actual: actualText, expected: "" };
+  }
+  if (operator === "exists") return { status: target !== undefined && target !== null && target !== "" ? "passed" : "failed", ok: target !== undefined && target !== null && target !== "", operator, actual: actualText, expected: assertPath };
+  if (operator === "equals") return { status: actualText === expectedText ? "passed" : "failed", ok: actualText === expectedText, operator, actual: actualText, expected: expectedText };
+  if (operator === "regex") {
+    let ok = false;
+    try {
+      ok = new RegExp(String(expected || ""), "i").test(actualText);
+    } catch (_) {
+      ok = false;
+    }
+    return { status: ok ? "passed" : "failed", ok, operator, actual: actualText, expected: expectedText };
+  }
+  if (operator === "json-contains") {
+    const ok = objectContains(target, expectedOutput || expected);
+    return { status: ok ? "passed" : "failed", ok, operator, actual: actualText, expected: stringifyForAssert(expectedOutput || expected) };
+  }
+  const ok = actualText.toLowerCase().includes(expectedText.toLowerCase());
+  return { status: ok ? "passed" : "failed", ok, operator, actual: actualText, expected: expectedText };
+};
+
+const runRecordMatches = (record = {}, runId = "") =>
+  Boolean(runId) && (
+    record.meta?.runId === runId ||
+    record.context?.runId === runId ||
+    record.payload?.runId === runId
+  );
+
+const loadRunRecords = async ({ workspaceId = "", runId = "" } = {}) => {
+  const [events, flowLogs, aiData] = await Promise.all([
+    window.TrackerLensEventLogStore?.listEvents
+      ? window.TrackerLensEventLogStore.listEvents().catch(() => [])
+      : Promise.resolve([]),
+    window.TrackerLensEventLogStore?.listFlowLogs
+      ? window.TrackerLensEventLogStore.listFlowLogs().catch(() => [])
+      : Promise.resolve([]),
+    window.TrackerLensAiRuntimeStore?.list
+      ? window.TrackerLensAiRuntimeStore.list().catch(() => ({ jobs: [], logs: [], providers: [] }))
+      : Promise.resolve({ jobs: [], logs: [], providers: [] }),
+  ]);
+  return {
+    events: events.filter((event) => (!workspaceId || event.workspaceId === workspaceId) && runRecordMatches(event, runId)),
+    flowLogs: flowLogs.filter((log) => (!workspaceId || log.workspaceId === workspaceId) && runRecordMatches(log, runId)),
+    aiJobs: (aiData.jobs || []).filter((job) => (!workspaceId || job.workspaceId === workspaceId) && (job.runId === runId || job.result?.runId === runId)),
+    aiLogs: (aiData.logs || []).filter((log) => (!workspaceId || log.workspaceId === workspaceId) && runRecordMatches(log, runId)),
+    aiProviders: aiData.providers || [],
+  };
+};
+
+const aiNodesInPath = (graph = {}, path = {}) => {
+  const pathNodeIds = new Set(path.nodeIds || []);
+  return (graph.nodes || []).filter((node) => pathNodeIds.has(node.id) && runtimeKindForNode(node) === "ai");
+};
+
+const waitForAiPathRecords = async ({ workspaceId = "", runId = "", graph = {}, path = {}, signal = null } = {}) => {
+  const aiNodes = aiNodesInPath(graph, path);
+  if (!aiNodes.length) return loadRunRecords({ workspaceId, runId });
+  const aiNodeIds = new Set(aiNodes.map((node) => node.id));
+  const started = Date.now();
+  let records = await loadRunRecords({ workspaceId, runId });
+  while (!signal?.aborted && Date.now() - started < AI_DIRECT_TEST_TIMEOUT_MS) {
+    const hasAiJob = (records.aiJobs || []).some((job) => aiNodeIds.has(job.agentId));
+    const hasAiEvent = (records.events || []).some((event) =>
+      aiNodeIds.has(event.sourceNodeId) &&
+      (String(event.eventType || "").includes("ai_agent") || String(event.channel || "").startsWith("ai."))
+    );
+    const hasAiLog = (records.flowLogs || []).some((log) =>
+      aiNodeIds.has(log.nodeId) || aiNodeIds.has(log.context?.nodeId)
+    );
+    if (hasAiJob || hasAiEvent || hasAiLog) return records;
+    await wait(500);
+    records = await loadRunRecords({ workspaceId, runId });
+  }
+  return records;
+};
+
+const hasAiPathRecords = (records = {}, graph = {}, path = {}) => {
+  const aiNodeIds = new Set(aiNodesInPath(graph, path).map((node) => node.id));
+  if (!aiNodeIds.size) return true;
+  return (
+    (records.aiJobs || []).some((job) => aiNodeIds.has(job.agentId)) ||
+    (records.events || []).some((event) => aiNodeIds.has(event.sourceNodeId) && String(event.eventType || "").includes("ai_agent")) ||
+    (records.flowLogs || []).some((log) => aiNodeIds.has(log.nodeId) || aiNodeIds.has(log.context?.nodeId))
+  );
+};
+
+const latestAiInputEvent = ({ records = {}, graph = {}, node = {} } = {}) => {
+  const incomingChannels = new Set((graph.dependencies || [])
+    .filter((dependency) => dependency.targetNodeId === node.id)
+    .map((dependency) => dependency.channel || dependency.metadata?.targetPort)
+    .filter(Boolean));
+  return (records.events || [])
+    .filter((event) => incomingChannels.has(event.channel))
+    .sort((a, b) => Date.parse(b.createdAt || 0) - Date.parse(a.createdAt || 0))[0] || null;
+};
+
+const ensureAiPathExecution = async ({ workspaceId = "", runId = "", graph = {}, path = {}, signal = null } = {}) => {
+  const aiNodes = aiNodesInPath(graph, path);
+  if (!aiNodes.length || signal?.aborted) return;
+  await wait(900);
+  let records = await loadRunRecords({ workspaceId, runId });
+  if (hasAiPathRecords(records, graph, path) || signal?.aborted) return;
+  const runtime = window.TrackerLensAiAgentRuntime?.get?.(workspaceId);
+  const bus = workspaceEventBus(workspaceId);
+  if (!runtime?.execute || !bus?.emit) return;
+  for (const node of aiNodes) {
+    if (signal?.aborted) return;
+    const inputEvent = latestAiInputEvent({ records, graph, node });
+    if (!inputEvent) continue;
+    setTestRunActiveNodes(graph, [node.id]);
+    const result = await runtime.execute({
+      node,
+      payload: inputEvent.payload || {},
+      event: {
+        ...inputEvent,
+        meta: {
+          ...(inputEvent.meta || {}),
+          runId,
+          flowMapAiFallbackExecution: true,
+        },
+      },
+    });
+    const outputChannel = node.outputs?.[0] || node.channels?.find((item) => item !== inputEvent.channel) || `ai.${nodeSubtype(node) || "agent"}.output`;
+    const responseEvent = await bus.emit(outputChannel, result, {
+      workspaceId,
+      flowId: flowIdForWorkspace(workspaceId),
+      eventType: "ai_agent_response",
+      sourceNodeId: node.id,
+      latencyMs: Number(result?.latencyMs || 0),
+      meta: {
+        aiAgentRuntime: node.id,
+        inputEventId: inputEvent.id || "",
+        inputChannel: inputEvent.channel || "",
+        runId,
+        provider: result?.provider || "",
+        model: result?.model || "",
+        flowMapAiFallbackExecution: true,
+      },
+    });
+    if (responseEvent) mergeRuntimeEvent(responseEvent);
+    await recordFlowAction({
+      workspaceId,
+      nodeId: node.id,
+      message: `AI Agent fallback emitted ${outputChannel}: ${node.label || node.id}`,
+      context: {
+        action: "flow-map-ai-fallback-response",
+        runId,
+        inputChannel: inputEvent.channel || "",
+        outputChannel,
+        provider: result?.provider || "",
+        model: result?.model || "",
+        payloadPreview: compactPayloadPreview(result, 220),
+      },
+    });
+    records = await loadRunRecords({ workspaceId, runId });
+  }
+};
+
+const summarizeLiveVerification = ({ graph, path, starters, events = [], flowLogs = [], aiJobs = [], aiLogs = [] } = {}) => {
+  const pathNodeIds = new Set([...(path?.nodeIds || []), ...(starters || []).map((node) => node.id)]);
+  const nodes = (graph.nodes || []).filter((node) => pathNodeIds.has(node.id));
+  const expected = {
+    processor: nodes.filter((node) => runtimeKindForNode(node) === "processor").length,
+    action: nodes.filter((node) => runtimeKindForNode(node) === "action").length,
+    storage: nodes.filter((node) => runtimeKindForNode(node) === "storage").length,
+    ai: nodes.filter((node) => runtimeKindForNode(node) === "ai").length,
+  };
+  const eventHits = {
+    processor: events.filter((event) => String(event.eventType || "").includes("processor")).length,
+    action: events.filter((event) => String(event.eventType || "").includes("action")).length,
+    storage: events.filter((event) => String(event.eventType || "").includes("storage")).length,
+    ai: events.filter((event) => String(event.eventType || "").includes("ai_agent") || String(event.channel || "").startsWith("ai.")).length,
+  };
+  const logHits = {
+    processor: flowLogs.filter((log) => log.context?.runtime === "processor").length,
+    action: flowLogs.filter((log) => log.context?.runtime === "action").length,
+    storage: flowLogs.filter((log) => log.context?.runtime === "storage").length,
+    ai: flowLogs.filter((log) => log.context?.runtime === "ai-agent").length,
+  };
+  const aiNodes = nodes.filter((node) => runtimeKindForNode(node) === "ai");
+  const aiDetails = aiNodes.map((node) => {
+    const jobs = aiJobs
+      .filter((job) => job.agentId === node.id)
+      .sort((a, b) => Date.parse(b.updatedAt || b.createdAt || 0) - Date.parse(a.updatedAt || a.createdAt || 0));
+    const job = jobs[0] || null;
+    const assertion = job ? evaluateAiAssertion({ node, job }) : { status: "missing", ok: false };
+    const usage = job?.result?.usage || {};
+    const cost = job?.result?.cost || job?.cost || {};
+    return {
+      nodeId: node.id,
+      label: node.label || node.id,
+      status: job ? (assertion.ok ? "passed" : "failed") : "missing",
+      assertion,
+      provider: job?.provider || job?.result?.provider || "N/D",
+      model: job?.model || job?.result?.model || "N/D",
+      tokens: Number(job?.tokens || usage.totalTokens || usage.total_tokens || 0),
+      promptTokens: Number(usage.promptTokens || usage.prompt_tokens || 0),
+      completionTokens: Number(usage.completionTokens || usage.completion_tokens || 0),
+      cost: cost.estimated || 0,
+      currency: cost.currency || "USD",
+      prompt: job?.prompt || job?.result?.prompt || "",
+      memoryContext: job?.memoryContext || job?.result?.memoryContext || "",
+      raw: job?.result || null,
+    };
+  });
+  const makeStatus = (kind) => {
+    const hits = eventHits[kind] + logHits[kind];
+    if (kind === "ai" && aiDetails.some((item) => item.status === "failed")) return { kind, status: "failed", expected: expected[kind], events: eventHits[kind], logs: logHits[kind] };
+    if (kind === "ai" && aiDetails.some((item) => item.status === "passed")) return { kind, status: "passed", expected: expected[kind], events: eventHits[kind], logs: logHits[kind] };
+    if (!expected[kind]) return { kind, status: "not-present", expected: 0, events: eventHits[kind], logs: logHits[kind] };
+    return { kind, status: hits ? "passed" : "missing", expected: expected[kind], events: eventHits[kind], logs: logHits[kind] };
+  };
+  const checks = ["processor", "ai", "storage", "action"].map(makeStatus);
+  return {
+    checks,
+    events: events.length,
+    flowLogs: flowLogs.length,
+    aiJobs: aiJobs.length,
+    aiLogs: aiLogs.length,
+    aiDetails,
+    passed: checks.filter((check) => check.status === "passed").length,
+    failed: checks.filter((check) => check.status === "failed").length + aiDetails.filter((item) => item.status === "failed").length,
+    missing: checks.filter((check) => check.status === "missing").length,
+    notPresent: checks.filter((check) => check.status === "not-present").length,
+  };
+};
+
+const liveVerificationLabel = (check = {}) => {
+  if (check.status === "passed") return `${check.kind}: ok`;
+  if (check.status === "failed") return `${check.kind}: assert failed`;
+  if (check.status === "missing") return `${check.kind}: no signal`;
+  return `${check.kind}: absent`;
+};
+
+const liveVerificationTone = (check = {}) =>
+  check.status === "passed" ? "green" : check.status === "missing" || check.status === "failed" ? "red" : "gold";
+
+const renderAiTestDetails = (verification = state.testRun.verification) => {
+  const details = verification?.aiDetails || [];
+  if (!details.length) return null;
+  return _.div(
+    { class: "tl-flow-ai-test-panel" },
+    _.h3("AI Agent Test"),
+    ...details.map((detail) =>
+      _.section(
+        { class: `tl-flow-ai-test-card is-${detail.status}` },
+        _.div(
+          { class: "tl-flow-ai-test-head" },
+          _.strong(detail.label),
+          _.span({ class: `tl-flow-mini-chip is-${detail.status === "passed" ? "green" : detail.status === "failed" ? "red" : "gold"}` }, detail.status)
+        ),
+        _.div(
+          { class: "tl-flow-ai-test-metrics" },
+          _.span(`Provider: ${detail.provider}`),
+          _.span(`Model: ${detail.model}`),
+          _.span(`Tokens: ${detail.tokens} (${detail.promptTokens}/${detail.completionTokens})`),
+          _.span(`Cost: ${detail.cost} ${detail.currency}`)
+        ),
+        _.div(
+          { class: "tl-flow-ai-assert" },
+          _.strong(`Assert: ${detail.assertion?.operator || "N/D"} · ${detail.assertion?.status || "N/D"}`),
+          _.span(`Expected: ${compactPayloadPreview(detail.assertion?.expected || "", 180)}`),
+          _.span(`Actual: ${compactPayloadPreview(detail.assertion?.actual || "", 220)}`)
+        ),
+        _.details(
+          _.summary("Prompt finale"),
+          _.pre(detail.prompt || "N/D")
+        ),
+        _.details(
+          _.summary("Memoria usata"),
+          _.pre(detail.memoryContext || "N/D")
+        ),
+        _.details(
+          _.summary("Risposta raw"),
+          _.pre(prettyRuntimeValue(detail.raw || {}))
+        )
+      )
+    )
+  );
+};
+
+const renderLiveTestVerification = () => {
+  const verification = state.testRun.verification;
+  if (!verification) return null;
+  return _.div(
+    { class: "tl-flow-run-summary" },
+    _.strong("Live Test verification"),
+    ...verification.checks.map((check) =>
+      _.span({
+        class: `tl-flow-mini-chip is-${liveVerificationTone(check)}`,
+        title: `${check.expected} node target · ${check.events} events · ${check.logs} logs`,
+      }, liveVerificationLabel(check))
+    ),
+    _.span(`${verification.events} events · ${verification.flowLogs} logs · ${verification.aiJobs || 0} ai jobs`),
+    renderAiTestDetails(verification)
+  );
+};
+
+const startTestRunTimeout = (runId, timeoutMs = TEST_RUN_TIMEOUT_MS) => {
+  clearTestRunTimeout();
+  state.testRun.timeoutId = window.setTimeout(() => {
+    if (!state.testRun.running || state.testRun.runId !== runId) return;
+    finishFlowMapTestRun({
+      runId,
+      summary: "Test timeout: runtime released",
+    });
+    mount({ preserveScroll: true });
+  }, timeoutMs);
+};
+
+const stopFlowMapTestRun = async () => {
+  if (!state.testRun.running) return;
+  const runId = state.testRun.runId;
+  const workspaceId = state.filters.workspaceId || "workspace_global";
+  state.testRun.cancelRequested = true;
+  try {
+    state.testRun.abortController?.abort?.();
+  } catch (_) {
+    // AbortController can throw if already aborted in older browser contexts.
+  }
+  closeLiveSockets();
+  finishFlowMapTestRun({ runId, summary: "Test stopped" });
+  await recordFlowAction({
+    workspaceId,
+    level: "warning",
+    message: "Flow Map test stopped",
+    context: { action: "flow-map-test-stopped", runId, stopped: true },
+  });
+  mount({ preserveScroll: true });
+};
+
+const runFlowMapTest = async (starterNode = null) => {
+  if (state.testRun.running) return;
+  const graph = runtimeRuleGraph();
+  const ruleGraph = graph;
+  if (starterNode?.id && !isRootRuntimeNode(starterNode, ruleGraph)) {
+    state.error = `${starterNode.label || starterNode.id} non parte direttamente. ${rootStartBlockedReason(starterNode, ruleGraph)}.`;
+    mount({ preserveScroll: true });
+    return;
+  }
+  if (starterNode?.id && !isTestableStarterNode(starterNode)) {
+    state.error = `${starterNode.label || starterNode.id} non ha un runtime di avvio Pulse test.`;
+    mount({ preserveScroll: true });
+    return;
+  }
+  const starters = starterNode?.id
+    ? [starterNode]
+    : (graph.nodes || []).filter((node) => isRootTestableStarterNode(node, ruleGraph));
+  if (!starters.length) {
+    state.error = "Nessun root Source o Tracker testabile nel workspace corrente.";
+    mount({ preserveScroll: true });
+    return;
+  }
+
+  const workspaceId = state.filters.workspaceId || starters[0]?.workspaceId || "workspace_global";
+  const runId = testRunId();
+  const startedAt = new Date().toISOString();
+  const path = downstreamTestPath(graph, starters.map((node) => node.id));
+  const abortController = new AbortController();
+  state.testRun = {
+    running: true,
+    runId,
+    nodeIds: path.nodeIds,
+    edgeIds: path.edgeIds,
+    activeNodeIds: starters.map((node) => node.id),
+    activeEdgeIds: activeOutgoingDependencyIds(graph, starters.map((node) => node.id)),
+    startedAt,
+    completedAt: "",
+    summary: `Running test: ${starters.length} starter${starters.length === 1 ? "" : "s"}`,
+    timeoutId: 0,
+    abortController,
+    liveSockets: [],
+    keepOpen: false,
+    cancelRequested: false,
+    verification: null,
+  };
+  startTestRunTimeout(runId);
+  state.error = "";
+  setFiltersState({ ...state.filters, runId });
+  syncFilterQuery();
+  mount({ preserveScroll: true });
+
+  try {
+    const bus = workspaceEventBus(workspaceId);
+    const emittedChannels = new Set();
+    for (const node of starters) {
+      if (abortController.signal.aborted) return;
+      const payload = nodeTestPayload(node, runId);
+      const channels = nodeOutgoingTestChannels(node, graph);
+      const outputChannels = channels.length ? channels : ["default"];
+      for (const channel of outputChannels) {
+        emittedChannels.add(channel);
+        const event = bus?.emit
+          ? await bus.emit(channel, payload, {
+            workspaceId,
+            flowId: flowIdForWorkspace(workspaceId),
+            eventType: "flow_test_root",
+            sourceNodeId: node.id,
+            latencyMs: 1,
+            meta: { test: true, runId, origin: "manual-test", rootNodeId: node.id },
+          })
+          : await mergeTestEvent({
+            workspaceId,
+            channel,
+            eventType: "flow_test_root",
+            sourceNodeId: node.id,
+            payload,
+            latencyMs: 1,
+            meta: { runId, origin: "manual-test", rootNodeId: node.id },
+          });
+        mergeRuntimeEvent(event);
+      }
+      await recordFlowAction({
+        workspaceId,
+        nodeId: node.id,
+        level: "info",
+        message: `Flow Map test started from ${node.label || node.id}`,
+        context: { action: "flow-map-test-root", runId, test: true, rootNodeId: node.id, channels: outputChannels, payloadPreview: payload },
+      });
+    }
+
+    for (const dependency of path.edges) {
+      if (abortController.signal.aborted) return;
+      const source = graph.nodes.find((node) => node.id === dependency.sourceNodeId);
+      const target = graph.nodes.find((node) => node.id === dependency.targetNodeId);
+      await mergeTestEvent({
+        workspaceId,
+        channel: dependency.channel || dependencyPort(dependency, "out") || "default",
+        eventType: "flow_test_pulse",
+        sourceNodeId: dependency.sourceNodeId,
+        targetNodeId: dependency.targetNodeId,
+        connectionId: dependency.connectionId || dependency.id,
+        payload: {
+          __test: true,
+          runId,
+          route: `${source?.label || dependency.sourceNodeId} -> ${target?.label || dependency.targetNodeId}`,
+          channel: dependency.channel || "default",
+        },
+        latencyMs: 1,
+        meta: { runId, origin: "manual-test", dependencyId: dependency.id },
+      });
+    }
+
+    const channelSummary = emittedChannels.size ? ` · ${emittedChannels.size} channels` : "";
+    const summary = `Test completed: ${path.nodeIds.length} nodes · ${path.edgeIds.length} links${channelSummary}`;
+    finishFlowMapTestRun({ runId, summary });
+    await recordFlowAction({
+      workspaceId,
+      level: "info",
+      message: summary,
+      context: { action: "flow-map-test-completed", runId, test: true, starters: starters.map((node) => node.id), nodes: path.nodeIds.length, edges: path.edgeIds.length, channels: [...emittedChannels] },
+    });
+    mount({ preserveScroll: true });
+  } catch (error) {
+    if (abortController.signal.aborted) return;
+    console.error("Flow Map test error:", error);
+    state.error = error?.message || "Errore test Flow Map";
+    finishFlowMapTestRun({ runId, summary: `Test error: ${error.message || error}`, error: state.error });
+    await recordFlowAction({
+      workspaceId,
+      level: "error",
+      message: state.error,
+      context: { action: "flow-map-test-error", runId, test: true, error: error.message || String(error) },
+    });
+    mount({ preserveScroll: true });
+  }
+};
+
+const runFlowMapLiveTest = async (starterNode = null) => {
+  if (state.testRun.running) return;
+  const graph = runtimeRuleGraph();
+  const ruleGraph = graph;
+  if (starterNode?.id && !isRootRuntimeNode(starterNode, ruleGraph)) {
+    state.error = `${starterNode.label || starterNode.id} non parte direttamente. ${rootStartBlockedReason(starterNode, ruleGraph)}.`;
+    mount({ preserveScroll: true });
+    return;
+  }
+  if (starterNode?.id && !isLiveTestableStarterNode(starterNode)) {
+    state.error = `${starterNode.label || starterNode.id} non ha un runtime di avvio Live test configurato.`;
+    mount({ preserveScroll: true });
+    return;
+  }
+  const starters = starterNode?.id
+    ? [starterNode]
+    : (graph.nodes || []).filter((node) => isRootLiveTestableStarterNode(node, ruleGraph));
+  if (!starters.length) {
+    state.error = "Nessun root Source, Tracker o AI manuale con endpoint/payload configurato nel workspace corrente.";
+    mount({ preserveScroll: true });
+    return;
+  }
+
+  const workspaceId = state.filters.workspaceId || starters[0]?.workspaceId || "workspace_global";
+  const runId = testRunId().replace("flow_test", "flow_live");
+  const startedAt = new Date().toISOString();
+  const path = downstreamTestPath(graph, starters.map((node) => node.id));
+  const abortController = new AbortController();
+  const keepOpen = starters.some((node) => isWebSocketEndpoint(nodeEndpoint(node)) && isLiveKeepOpenNode(node));
+  const hasDirectAi = starters.some(isDirectAiTestNode);
+  const hasAiInPath = aiNodesInPath(graph, path).length > 0;
+  state.testRun = {
+    running: true,
+    runId,
+    nodeIds: path.nodeIds,
+    edgeIds: path.edgeIds,
+    activeNodeIds: starters.map((node) => node.id),
+    activeEdgeIds: activeOutgoingDependencyIds(graph, starters.map((node) => node.id)),
+    startedAt,
+    completedAt: "",
+    summary: `${keepOpen ? "Streaming live test" : "Running live test"}: ${starters.length} starter${starters.length === 1 ? "" : "s"}`,
+    timeoutId: 0,
+    abortController,
+    liveSockets: [],
+    keepOpen,
+    cancelRequested: false,
+    verification: null,
+  };
+  if (!keepOpen) startTestRunTimeout(runId, hasDirectAi || hasAiInPath ? AI_DIRECT_TEST_TIMEOUT_MS : TEST_RUN_TIMEOUT_MS);
+  state.error = "";
+  setFiltersState({ ...state.filters, runId });
+  syncFilterQuery();
+  mount({ preserveScroll: true });
+
+  try {
+    const emittedChannels = new Set();
+    for (const node of starters) {
+      if (abortController.signal.aborted) return;
+      setTestRunActiveNodes(graph, [node.id]);
+      const result = isDirectAiTestNode(node)
+        ? await executeDirectAiAgentNode({ node, workspaceId, runId, graph, signal: abortController.signal })
+        : await executeLiveNode({ node, workspaceId, runId, graph, signal: abortController.signal });
+      if (abortController.signal.aborted) return;
+      (result.channels || []).forEach((channel) => emittedChannels.add(channel));
+    }
+
+    const activeAiNodeIds = aiNodesInPath(graph, path).map((node) => node.id);
+    if (activeAiNodeIds.length) setTestRunActiveNodes(graph, activeAiNodeIds);
+    else clearTestRunActiveNodes();
+    if (hasAiInPath) {
+      await ensureAiPathExecution({ workspaceId, runId, graph, path, signal: abortController.signal });
+    }
+
+    const runRecords = hasAiInPath
+      ? await waitForAiPathRecords({ workspaceId, runId, graph, path, signal: abortController.signal })
+      : await wait(700).then(() => loadRunRecords({ workspaceId, runId }));
+    if (!state.testRun.running || state.testRun.runId !== runId || abortController.signal.aborted) return;
+    runRecords.events.forEach(mergeRuntimeEvent);
+    runRecords.flowLogs.forEach(mergeFlowLog);
+    const verification = summarizeLiveVerification({
+      graph,
+      path,
+      starters,
+      events: runRecords.events,
+      flowLogs: runRecords.flowLogs,
+      aiJobs: runRecords.aiJobs,
+      aiLogs: runRecords.aiLogs,
+    });
+    state.testRun.verification = verification;
+    const verificationSummary = verification.checks
+      .map(liveVerificationLabel)
+      .join(" · ");
+    const channelSummary = emittedChannels.size ? ` · ${emittedChannels.size} channels` : "";
+    const summary = `Live test completed: ${path.nodeIds.length} nodes · ${path.edgeIds.length} links${channelSummary} · ${verificationSummary}`;
+    await waitForMinimumTestAnimation(startedAt);
+    finishFlowMapTestRun({ runId, summary });
+    await recordFlowAction({
+      workspaceId,
+      level: verification.missing || verification.failed ? "warning" : "info",
+      message: summary,
+      context: {
+        action: "flow-map-live-test-completed",
+        runId,
+        live: true,
+        starters: starters.map((node) => node.id),
+        nodes: path.nodeIds.length,
+        edges: path.edgeIds.length,
+        channels: [...emittedChannels],
+        verification,
+      },
+    });
+    mount({ preserveScroll: true });
+  } catch (error) {
+    if (abortController.signal.aborted) return;
+    console.error("Flow Map live test error:", error);
+    state.error = error?.message || "Errore live test Flow Map";
+    await waitForMinimumTestAnimation(startedAt);
+    finishFlowMapTestRun({ runId, summary: `Live test error: ${error.message || error}`, error: state.error });
+    await recordFlowAction({
+      workspaceId,
+      level: "error",
+      message: state.error,
+      context: { action: "flow-map-live-test-error", runId, live: true, error: error.message || String(error) },
+    });
+    mount({ preserveScroll: true });
+  }
+};
+
+const logLevelChip = (level = "info") =>
+  _.span({ class: `tl-flow-log-level is-${String(level || "info").toLowerCase()}` }, level || "info");
+
+const prettyRuntimeValue = (value = {}) => {
+  try {
+    return JSON.stringify(value ?? {}, null, 2);
+  } catch (_) {
+    return String(value ?? "");
+  }
+};
+
+const copyRuntimeValue = async (value = {}) => {
+  const text = typeof value === "string" ? value : prettyRuntimeValue(value);
+  try {
+    await navigator.clipboard?.writeText?.(text);
+  } catch (_) {
+    const field = document.createElement("textarea");
+    field.value = text;
+    field.setAttribute("readonly", "readonly");
+    field.style.position = "fixed";
+    field.style.opacity = "0";
+    document.body.appendChild(field);
+    field.select();
+    document.execCommand("copy");
+    field.remove();
+  }
+};
+
+const copyRuntimeButton = (value = {}, label = "Copy") =>
+  btn({
+    class: "tl-flow-copy-btn",
+    title: label,
+    onPointerDown: stopNodeControlEvent,
+    onclick: (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      copyRuntimeValue(value);
+    },
+  }, icon("content_copy", "sm"));
+
+const renderRuntimePayloadDetails = ({ title = "Payload", value = {}, meta = {} } = {}) =>
+  _.details(
+    { class: "tl-flow-runtime-details" },
+    _.summary(
+      _.span(title),
+      copyRuntimeButton(value, `Copy ${title}`)
+    ),
+    Object.keys(meta || {}).length ? _.div(
+      { class: "tl-flow-runtime-meta" },
+      ...Object.entries(meta).map(([key, item]) => _.span(`${key}: ${item || "N/D"}`))
+    ) : null,
+    _.pre(prettyRuntimeValue(value))
+  );
+
+const eventTypeTone = (event = {}) => {
+  const type = String(event.eventType || "event");
+  if (event.status === "error" || type.includes("error")) return "error";
+  if (type === "tracker_test" || type.includes("test") || event.meta?.test) return "test";
+  if (type === "received") return "received";
+  if (type === "emitted") return "emitted";
+  if (type === "delivery_error") return "error";
+  return "event";
+};
+
+const eventTypeLabel = (event = {}) => ({
+  tracker_test: "test",
+  tracker_test_error: "test error",
+  flow_test_root: "test root",
+  flow_test_pulse: "test pulse",
+  emitted: "emit",
+  received: "recv",
+  delivery_error: "delivery",
+  error: "error",
+})[event.eventType] || event.eventType || "event";
+
+const eventTypeChip = (event = {}) =>
+  _.span({ class: `tl-flow-event-type is-${eventTypeTone(event)}` }, eventTypeLabel(event));
+
+const formatShortDate = (value) => {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "N/D";
+  return date.toLocaleTimeString("it-IT", { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+};
+
+const liveBusLabel = () => {
+  if (!state.liveBus.available) return "Bus: offline";
+  if (!state.liveBus.connected) return "Bus: standby";
+  if (!state.liveBus.lastAt) return "Bus: connected";
+  return `Bus: ${state.liveBus.count} live · ${formatShortDate(state.liveBus.lastAt)}`;
+};
+
+const liveBusTitle = () => {
+  if (!state.liveBus.available) return "TrackerLensEventBus non disponibile in questa pagina.";
+  if (!state.liveBus.connected) return "Event Bus disponibile, subscription live non ancora attiva.";
+  return state.liveBus.lastChannel
+    ? `Ultimo evento live su ${state.liveBus.lastChannel}`
+    : "Event Bus live connesso.";
+};
+
+const renderLiveBusPill = () =>
+  _.span(
+    {
+      class: `tl-flow-live is-bus${state.liveBus.connected ? " is-connected" : ""}${state.liveBus.lastAt ? " is-receiving" : ""}${!state.liveBus.available ? " is-offline" : ""}`,
+      title: liveBusTitle(),
+      "data-live-bus-pill": "true",
+    },
+    dot(state.liveBus.connected ? "is-connected" : !state.liveBus.available ? "is-offline" : "is-standby"),
+    _.span({ "data-live-bus-label": "true" }, liveBusLabel())
+  );
+
+const renderSelect = (className, value, options, onChange) => {
+  const model = Array.isArray(value) ? value : null;
+  return _.Select({
+    class: className,
+    ...(model ? { model } : { value, onChange }),
+    options,
+    slots: { arrow: () => icon("keyboard_arrow_down", "sm") },
+  });
+};
+
+const bindFlowMenu = (trigger, menuProps, content) => {
+  const menu = _.Menu(
+    {
+      trigger: "click",
+      placement: "bottom-start",
+      width: 280,
+      closeOnOutside: true,
+      closeOnEsc: true,
+      panelClass: "tl-flow-dropdown-menu",
+      ...menuProps,
+    },
+    content
+  );
+  queueMicrotask(() => menu.bind(trigger));
+  return trigger;
+};
+
+const readPortableFile = (file) =>
+  new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      try {
+        resolve(JSON.parse(String(reader.result || "{}")));
+      } catch (error) {
+        reject(error);
+      }
+    };
+    reader.onerror = () => reject(reader.error || new Error("Errore lettura workspace"));
+    reader.readAsText(file);
+  });
+
+const cleanupWorkspaceImportTarget = async (workspaceId = "") => {
+  if (!workspaceId) return;
+  const runtimeStores = [
+    runtimeStoreName("TL_CHANNELS", "tl_channels"),
+    runtimeStoreName("TL_FLOWS", "tl_flows"),
+    runtimeStoreName("TL_EVENTS", "tl_events"),
+    runtimeStoreName("TL_FLOW_LOGS", "tl_flow_logs"),
+    runtimeStoreName("TL_RUNTIME_NODES", "tl_runtime_nodes"),
+    runtimeStoreName("TL_RUNTIME_DEPENDENCIES", "tl_runtime_dependencies"),
+  ];
+  await Promise.all(runtimeStores.map((storeName) => deleteWorkspaceScopedRecords(storeName, workspaceId).catch(() => [])));
+  const connectionIds = (await window.TrackerLensConnectionsStore?.list?.() || [])
+    .filter((connection) => connection.workspaceId === workspaceId)
+    .map((connection) => connection.id);
+  await window.TrackerLensConnectionsStore?.removeMany?.(connectionIds);
+};
+
+const downloadCurrentWorkspace = async () => {
+  try {
+    await window.TrackerLensPortableRuntime.exportWorkspaceFile(currentWorkspaceId(), { includeAssets: true, includeRuntimeGraph: true });
+  } catch (error) {
+    state.error = error?.message || "Download workspace non riuscito.";
+    setErrorSignal(state.error);
+    mount({ preserveScroll: true });
+  }
+};
+
+const importWorkspaceFile = () => {
+  const input = document.createElement("input");
+  input.type = "file";
+  input.accept = ".tlworkspace,application/json,.json";
+  input.onchange = async () => {
+    const file = input.files?.[0];
+    if (!file) return;
+    try {
+      const bundle = await readPortableFile(file);
+      const validation = window.TrackerLensPortableRuntime.validateBundle(bundle);
+      if (!validation.ok) throw new Error(validation.errors.join(", "));
+      const workspaceId = normalizeRuntimeWorkspaceId(bundle.workspace?.id || bundle.id || currentWorkspaceId());
+      await cleanupWorkspaceImportTarget(workspaceId);
+      const result = await window.TrackerLensPortableRuntime.importBundle(bundle, { onConflict: "overwrite", includeRuntimeGraph: true });
+      setFiltersState({ ...state.filters, workspaceId: result.id || workspaceId, origin: "runtime" });
+      state.viewport = loadStoredViewport(result.id || workspaceId) || defaultViewport();
+      syncFilterQuery();
+      await loadRuntime({ force: true });
+    } catch (error) {
+      state.error = error?.message || "Import workspace non riuscito.";
+      setErrorSignal(state.error);
+      mount({ preserveScroll: true });
+    }
+  };
+  input.click();
+};
+
+const saveWorkspaceSettings = async ({ close, nameInput, titleInput, descriptionInput, statusInput }) => {
+  try {
+    const workspaceId = currentWorkspaceId();
+    const pageStore = runtimeStoreName("TL_PAGES", "tl_pages");
+    const flowStore = runtimeStoreName("TL_FLOWS", "tl_flows");
+    const now = new Date().toISOString();
+    const record = await readRuntimeRecord(pageStore, workspaceId);
+    const content = record?.content && typeof record.content === "object" ? record.content : { id: workspaceId };
+    const nextContent = {
+      ...content,
+      id: content.id || workspaceId,
+      name: nameInput.value.trim() || content.name || workspaceId,
+      title: titleInput.value.trim() || content.title || "",
+      description: descriptionInput.value.trim(),
+      status: statusInput.value || content.status || "active",
+      updatedAt: now,
+    };
+    await writeRuntimeRecord(pageStore, { ...(record || {}), id: workspaceId, content: nextContent });
+
+    const flow = state.runtime.flows.find((item) => item.workspaceId === workspaceId) || await readRuntimeRecord(flowStore, `flow_${workspaceId.replace(/[^A-Za-z0-9_-]/g, "_")}`);
+    if (flow?.id) {
+      await writeRuntimeRecord(flowStore, {
+        ...flow,
+        workspaceId,
+        name: nextContent.name || nextContent.title || workspaceId,
+        status: nextContent.status || flow.status || "active",
+        updatedAt: now,
+      }).catch(() => null);
+    }
+
+    close?.();
+    await loadRuntime({ force: true });
+  } catch (error) {
+    state.error = error?.message || "Salvataggio settings workspace non riuscito.";
+    setErrorSignal(state.error);
+    mount({ preserveScroll: true });
+  }
+};
+
+const openWorkspaceSettings = async () => {
+  const workspaceId = currentWorkspaceId();
+  const record = await readRuntimeRecord(runtimeStoreName("TL_PAGES", "tl_pages"), workspaceId).catch(() => null);
+  const content = record?.content && typeof record.content === "object" ? record.content : {};
+  const nameInput = _.input({ class: "tl-flow-menu-input", value: content.name || content.title || workspaceId, placeholder: "Workspace name" });
+  const titleInput = _.input({ class: "tl-flow-menu-input", value: content.title || "", placeholder: "Display title" });
+  const descriptionInput = _.textarea({ class: "tl-flow-menu-input", rows: 3, placeholder: "Description" }, content.description || "");
+  const statusInput = _.select(
+    { class: "tl-flow-menu-input" },
+    ...["active", "draft", "paused", "archived"].map((status) => _.option({ value: status, selected: (content.status || "active") === status }, status))
+  );
+  const dialog = _.Dialog({
+    class: "tl-flow-workspace-settings-dialog",
+    panelClass: "tl-flow-edge-delete-panel",
+    size: "md",
+    title: "Workspace settings",
+    subtitle: workspaceId,
+    icon: "settings",
+    closeButton: true,
+    content: () => _.div(
+      { class: "tl-flow-workspace-settings" },
+      _.label(_.span("Name"), nameInput),
+      _.label(_.span("Title"), titleInput),
+      _.label(_.span("Description"), descriptionInput),
+      _.label(_.span("Status"), statusInput)
+    ),
+    actions: ({ close }) => _.Toolbar(
+      { align: "end", gap: 8 },
+      btn({ onclick: close }, "Cancel"),
+      btn({ class: "is-primary", onclick: () => saveWorkspaceSettings({ close, nameInput, titleInput, descriptionInput, statusInput }) }, icon("save", "sm"), "Save")
+    ),
+  });
+  dialog.open();
+};
+
+const renderFileMenuItem = ({ iconName, label, meta = "", onclick }) =>
+  _.button(
+    { type: "button", class: "tl-flow-menu-item", onclick },
+    icon(iconName, "sm"),
+    _.span(_.strong(label), meta ? _.small(meta) : null)
+  );
+
+const renderFileMenu = () =>
+  bindFlowMenu(
+    btn({ class: "tl-flow-menu-trigger is-file" }, icon("folder_open", "sm"), "File", icon("keyboard_arrow_down", "sm")),
+    {},
+    _.div(
+      { class: "tl-flow-menu-content" },
+      renderFileMenuItem({ iconName: "download", label: "Download", meta: ".tlworkspace con asset e runtime graph", onclick: downloadCurrentWorkspace }),
+      renderFileMenuItem({ iconName: "upload_file", label: "Import", meta: "Sostituisce il workspace importato", onclick: importWorkspaceFile }),
+      _.span({ class: "tl-flow-menu-separator" }),
+      renderFileMenuItem({ iconName: "settings", label: "Settings", meta: "Nome, titolo e stato workspace", onclick: openWorkspaceSettings })
+    )
+  );
+
+const renderHeader = () =>
+  _.header(
+    { class: "tl-flow-topbar" },
+    window.TrackerLensSidebar.renderBrand({ className: "tl-flow-brand" }),
+    _.div(
+      { class: "tl-flow-title" },
+      _.h1("Flow Map"),
+      _.span(currentWorkspaceName())
+    ),
+    _.div(
+      { class: "tl-flow-top-actions" },
+      _.span({ class: "tl-flow-live" }, dot(), "Runtime: Active"),
+      renderLiveBusPill(),
+      state.lastDeletedConnection
+        ? btn({ onclick: restoreLastDeletedConnection }, icon("undo", "sm"), "Undo Link")
+        : null,
+      state.lastDeletedNode
+        ? btn({ onclick: restoreLastDeletedNode }, icon("undo", "sm"), "Undo Node")
+        : null,
+      state.lastChannelAction
+        ? btn({ onclick: restoreLastChannelAction }, icon("undo", "sm"), "Undo Channel")
+        : null,
+      btn({ onclick: loadRuntime }, icon("sync", "sm"), "Refresh"),
+      btn({
+        class: state.testRun.running ? "is-primary is-running" : "",
+        title: state.testRun.summary || "Run graph pulse test from root Sources and Trackers only; child nodes start from parent payloads",
+        disabled: state.testRun.running,
+        onclick: () => runFlowMapTest(),
+      }, icon(state.testRun.running ? "hourglass_top" : "offline_bolt", "sm"), state.testRun.running ? "Testing" : "Pulse Test"),
+      btn({
+        class: state.testRun.running ? "is-primary is-running" : "",
+        title: state.testRun.summary || "Run real one-shot test from root nodes only; child nodes start from parent payloads",
+        disabled: state.testRun.running,
+        onclick: () => runFlowMapLiveTest(),
+      }, icon(state.testRun.running ? "hourglass_top" : "play_arrow", "sm"), state.testRun.running ? "Testing" : "Live Test"),
+      state.testRun.running
+        ? btn({ class: "is-danger", title: state.testRun.keepOpen ? "Stop streaming live test" : "Stop current test", onclick: stopFlowMapTestRun }, icon("stop", "sm"), "Stop")
+        : null,
+      btn({ onclick: openDevTools }, icon("developer_board", "sm"), "DevTools"),
+      btn({ class: "is-primary", onclick: () => window.location.assign("connections.html") }, icon("link", "sm"), "Connections")
+    )
+  );
+
+const openDevTools = () => {
+  const query = new URLSearchParams();
+  const focusedChannel = state.focus.channel || (state.filters.channel !== "all" ? state.filters.channel : "");
+  query.set("tab", focusedChannel ? "channels" : "graph");
+  const node = selectedNode();
+  if (node?.id) {
+    query.set("type", "node");
+    query.set("id", node.id);
+    query.set("nodeId", node.id);
+  } else if (focusedChannel) {
+    query.set("type", "channel");
+    query.set("id", focusedChannel);
+    query.set("channel", focusedChannel);
+  }
+  if (state.filters.workspaceId) query.set("workspaceId", state.filters.workspaceId);
+  if (state.filters.channel !== "all") query.set("channel", state.filters.channel);
+  window.location.assign(`devtools.html?${query.toString()}`);
+};
+
+const openPaletteNode = (item, contextNode = selectedNode()) => {
+  const query = new URLSearchParams();
+  const workspaceId = state.filters.workspaceId || contextNode?.workspaceId || "";
+  const contextChannels = nodeChannels(contextNode || {});
+  const channel = state.filters.channel !== "all" ? state.filters.channel : contextChannels[0] || state.focus.channel || "";
+  if (workspaceId) query.set("workspaceId", workspaceId);
+  if (channel) query.set("channel", channel);
+  if (contextNode?.id) query.set("runtimeNodeId", contextNode.id);
+  if (contextNode?.metadata?.draft) query.set("draftNodeId", contextNode.id);
+  if (contextNode?.label) query.set("runtimeLabel", contextNode.label);
+
+  if (item.url) {
+    window.location.assign(`${item.url}${query.toString() ? `?${query.toString()}` : ""}`);
+    return;
+  }
+
+  if (isExistingLibraryPaletteItem(item)) {
+    openExistingLibraryDialog(item);
+    return;
+  }
+
+  if (item.trackerSource) {
+    query.set("source", item.trackerSource);
+    query.set("trackerType", item.trackerSource);
+    query.set("runtimeMode", item.runtimeMode || (item.trackerSource === "websocket" ? "real-time" : "interval"));
+    window.location.assign(`editorBoxTracker.html?${query.toString()}`);
+    return;
+  }
+
+  if (item.connectionType) {
+    query.set("type", item.connectionType);
+    window.location.assign(`connections.html?${query.toString()}`);
+  }
+};

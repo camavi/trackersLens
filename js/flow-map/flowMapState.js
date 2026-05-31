@@ -1,0 +1,1320 @@
+// Flow Map state, stores, graph loading and global helpers.
+// Extracted from js/flowMapView.js; loaded in order by flowMap.html.
+const icon = (name, size = "md") => _.Icon({ name, size });
+const btn = (props, ...children) => _.Btn({ type: "button", ...props }, ...children);
+const dot = (className = "") => _.span({ class: `tl-flow-dot${className ? ` ${className}` : ""}` });
+const params = new URLSearchParams(window.location.search);
+const defaultViewport = () => ({ zoom: 1, panX: 0, panY: 0 });
+const viewportWorkspaceId = (workspaceId = "") => {
+  const candidate = String(workspaceId || params.get("workspaceId") || state.filters.workspaceId || "workspace_global").trim();
+  return candidate && candidate !== "all" ? candidate : "workspace_global";
+};
+const viewportStorageKey = (workspaceId = "") => `tl_flow_viewport:${viewportWorkspaceId(workspaceId)}`;
+const previewClearStorageKey = (workspaceId = "") => `tl_flow_preview_cleared:${viewportWorkspaceId(workspaceId)}`;
+
+const loadStoredViewport = (workspaceId = "") => {
+  try {
+    const value = JSON.parse(localStorage.getItem(viewportStorageKey(workspaceId)) || "null");
+    if (!value || typeof value !== "object") return null;
+    return {
+      zoom: Number.isFinite(value.zoom) ? value.zoom : 1,
+      panX: Number.isFinite(value.panX) ? value.panX : 0,
+      panY: Number.isFinite(value.panY) ? value.panY : 0,
+    };
+  } catch (_) {
+    return null;
+  }
+};
+
+const saveViewport = (workspaceId = "") => {
+  try {
+    localStorage.setItem(viewportStorageKey(workspaceId), JSON.stringify(state.viewport));
+  } catch (_) {
+    // localStorage may be unavailable in restricted extension contexts.
+  }
+};
+
+const loadStoredPreviewClears = (workspaceId = "") => {
+  try {
+    const value = JSON.parse(localStorage.getItem(previewClearStorageKey(workspaceId)) || "{}");
+    if (!value || typeof value !== "object" || Array.isArray(value)) return {};
+    return Object.fromEntries(Object.entries(value).filter(([, clearedAt]) => Number.isFinite(Date.parse(clearedAt))));
+  } catch (_) {
+    return {};
+  }
+};
+
+const saveStoredPreviewClears = (workspaceId = "", clears = {}) => {
+  try {
+    localStorage.setItem(previewClearStorageKey(workspaceId), JSON.stringify(clears || {}));
+  } catch (_) {
+    // localStorage may be unavailable in restricted extension contexts.
+  }
+};
+
+const state = {
+  loading: true,
+  error: "",
+  connections: [],
+  runtime: {
+    channels: [],
+    flows: [],
+    events: [],
+    flowLogs: [],
+    nodes: [],
+    dependencies: [],
+  },
+  performance: [],
+  libraryItems: [],
+  focus: {
+    mode: params.get("runtime") || "",
+    nodeId: params.get("nodeId") || "",
+    edgeId: params.get("edgeId") || "",
+    nodeType: params.get("nodeType") || "",
+    channel: params.get("channel") || "",
+    connectionId: params.get("connectionId") || "",
+  },
+  filters: {
+    workspaceId: params.get("workspaceId") || "",
+    channel: params.get("channel") || "all",
+    activity: params.get("activity") || "all",
+    type: params.get("type") || "all",
+    origin: params.get("origin") || "all",
+    state: params.get("state") || "all",
+    eventType: params.get("eventType") || "all",
+    logLevel: params.get("logLevel") || "all",
+    runId: params.get("runId") || "all",
+  },
+  viewport: { zoom: 1, panX: 0, panY: 0 },
+  nodePositions: {},
+  frontNodeId: params.get("nodeId") || "",
+  paletteSearch: "",
+  paletteDragItem: null,
+  palettePointer: null,
+  suppressPaletteClick: false,
+  interaction: null,
+  edgeRender: { graph: { nodes: [], dependencies: [] }, activity: { edgeActivity: new Map() } },
+  edgePhase: 0,
+  edgeAnimation: 0,
+  inspectorPanelDrag: null,
+  inspectorPortDrag: null,
+  debugMode: localStorage.getItem("tl_flow_debug_mode") === "true",
+  lastDeletedConnection: null,
+  lastDeletedNode: null,
+  lastChannelAction: null,
+  linkingSourceId: "",
+  linkHoverTargetId: "",
+  linkingPort: "",
+  linkHoverPort: "",
+  hoverNodeId: "",
+  hoverPortKey: "",
+  linkValidation: null,
+  optimisticDependencies: [],
+  pendingRuntimeRefresh: false,
+  liveBusUnsubscribe: null,
+  liveRenderFrame: 0,
+  liveActivityClearTimer: 0,
+  liveBus: {
+    available: false,
+    connected: false,
+    count: 0,
+    lastAt: "",
+    lastChannel: "",
+  },
+  previewPayloads: {},
+  previewClearedAt: {},
+  aiProcessing: {},
+  runtimeWorker: {
+    available: false,
+    connected: false,
+    mode: "none",
+    status: "idle",
+    error: "",
+    workspaceId: "",
+    nodes: 0,
+    dependencies: 0,
+    lastRefreshAt: "",
+  },
+  lastInteractionAt: 0,
+  updatedAt: new Date(),
+  activeStatusPanel: "",
+  inspectorOpen: false,
+  contextMenu: null,
+  testRun: {
+    running: false,
+    runId: "",
+    nodeIds: [],
+    edgeIds: [],
+    activeNodeIds: [],
+    activeEdgeIds: [],
+    startedAt: "",
+    completedAt: "",
+    summary: "",
+    timeoutId: 0,
+    abortController: null,
+    liveSockets: [],
+    keepOpen: false,
+    cancelRequested: false,
+    verification: null,
+  },
+  mounted: false,
+};
+
+state.viewport = params.get("workspaceId") ? loadStoredViewport(params.get("workspaceId")) || state.viewport : state.viewport;
+
+const flowReactive = CMSwift.reactive;
+const [getRuntimeState, setRuntimeSignal] = flowReactive.signal(state.runtime);
+const [getFiltersState, setFiltersSignal] = flowReactive.signal(state.filters);
+const [getFocusState, setFocusSignal] = flowReactive.signal(state.focus);
+const TEST_RUN_TIMEOUT_MS = 12000;
+const LIVE_TEST_TIMEOUT_MS = 10000;
+const AI_DIRECT_TEST_TIMEOUT_MS = 120000;
+const AI_PROCESSING_VISUAL_TIMEOUT_MS = 300000;
+const MIN_TEST_ANIMATION_MS = 3000;
+const EDGE_ACTIVITY_WINDOW_MS = 3000;
+const [getUpdatedAtState, setUpdatedAtSignal] = flowReactive.signal(state.updatedAt);
+const [getLoadingState, setLoadingSignal] = flowReactive.signal(state.loading);
+const [getErrorState, setErrorSignal] = flowReactive.signal(state.error);
+
+const syncReactiveState = () => {
+  flowReactive.batch(() => {
+    setRuntimeSignal(state.runtime);
+    setFiltersSignal(state.filters);
+    setFocusSignal(state.focus);
+    setUpdatedAtSignal(state.updatedAt);
+    setLoadingSignal(state.loading);
+    setErrorSignal(state.error);
+  });
+};
+
+const setRuntimeState = (runtime) => {
+  state.runtime = runtime;
+  setRuntimeSignal(runtime);
+};
+
+const syncProcessorRuntime = (workspaceId = state.filters.workspaceId) => {
+  if (!window.TrackerLensProcessorRuntime?.get) return;
+  const id = workspaceId || "workspace_global";
+  try {
+    window.TrackerLensProcessorRuntime.get(id).start({
+      workspaceId: id,
+      runtime: state.runtime,
+    });
+  } catch (error) {
+    console.warn("Processor runtime non avviato", error);
+  }
+};
+
+const syncActionRuntime = (workspaceId = state.filters.workspaceId) => {
+  if (!window.TrackerLensActionRuntime?.get) return;
+  const id = workspaceId || "workspace_global";
+  try {
+    window.TrackerLensActionRuntime.get(id).start({
+      workspaceId: id,
+      runtime: state.runtime,
+    });
+  } catch (error) {
+    console.warn("Action runtime non avviato", error);
+  }
+};
+
+const syncStorageRuntime = (workspaceId = state.filters.workspaceId) => {
+  if (!window.TrackerLensStorageRuntime?.get) return;
+  const id = workspaceId || "workspace_global";
+  try {
+    window.TrackerLensStorageRuntime.get(id).start({
+      workspaceId: id,
+      runtime: state.runtime,
+    });
+  } catch (error) {
+    console.warn("Storage runtime non avviato", error);
+  }
+};
+
+const syncAiAgentRuntime = (workspaceId = state.filters.workspaceId) => {
+  if (!window.TrackerLensAiAgentRuntime?.get) return;
+  const id = workspaceId || "workspace_global";
+  try {
+    window.TrackerLensAiAgentRuntime.get(id).start({
+      workspaceId: id,
+      runtime: state.runtime,
+    });
+  } catch (error) {
+    console.warn("AI Agent runtime non avviato", error);
+  }
+};
+
+const syncBackgroundRuntime = (workspaceId = state.filters.workspaceId) => {
+  if (!window.TrackerLensRuntimeWorker?.start) return false;
+  const id = workspaceId || "workspace_global";
+  const status = window.TrackerLensRuntimeWorker.status?.() || {};
+  const started = window.TrackerLensRuntimeWorker.start({ workspaceId: id, refreshMs: 5000 });
+  state.runtimeWorker = {
+    ...state.runtimeWorker,
+    available: Boolean(status.available || started),
+    connected: Boolean(status.connected || started),
+    mode: status.mode || state.runtimeWorker.mode || "worker",
+    status: started ? "starting" : status.status || "idle",
+    workspaceId: id,
+    error: status.error || "",
+  };
+  return Boolean(started);
+};
+
+const syncPageRuntimes = (workspaceId = state.filters.workspaceId) => {
+  syncProcessorRuntime(workspaceId);
+  syncActionRuntime(workspaceId);
+  syncStorageRuntime(workspaceId);
+  syncAiAgentRuntime(workspaceId);
+};
+
+const setFiltersState = (filters) => {
+  state.filters = filters;
+  setFiltersSignal(filters);
+};
+
+const setFocusState = (focus) => {
+  state.focus = focus;
+  setFocusSignal(focus);
+};
+
+const filterModel = (key) => [
+  () => getFiltersState()[key],
+  (value) => setFilter(key, value),
+];
+
+const runtimeStoreName = (key, fallback) => tlConfig?.TABLES?.[key] || fallback;
+
+const readRuntimeStore = async (storeName) => {
+  if (window.TrackerLensRuntimeGraphStore?.ensureStores) {
+    await window.TrackerLensRuntimeGraphStore.ensureStores().then((db) => db?.close?.());
+  }
+
+  return new Promise((resolve, reject) => {
+    const request = indexedDB.open(tlConfig.DB_NAME);
+    request.onsuccess = (event) => {
+      const db = event.target.result;
+      if (!db.objectStoreNames.contains(storeName)) {
+        db.close();
+        resolve([]);
+        return;
+      }
+      const read = db.transaction(storeName, "readonly").objectStore(storeName).getAll();
+      read.onsuccess = (readEvent) => {
+        db.close();
+        resolve(Array.from(readEvent.target.result || []));
+      };
+      read.onerror = (readEvent) => {
+        db.close();
+        reject(readEvent.target.error || new Error(`Errore lettura ${storeName}`));
+      };
+    };
+    request.onerror = (event) => reject(event.target.error || new Error(`Errore apertura ${tlConfig.DB_NAME}`));
+  });
+};
+
+const readScopedRuntimeStore = async (storeName, workspaceId = "") => {
+  const records = await readRuntimeStore(storeName);
+  if (!workspaceId || workspaceId === "all") return records;
+  return records.filter((record) => (record.workspaceId || "global") === workspaceId);
+};
+
+const readRuntimeRecord = async (storeName, id) => {
+  if (!id) return null;
+  if (window.TrackerLensRuntimeGraphStore?.ensureStores) {
+    await window.TrackerLensRuntimeGraphStore.ensureStores().then((db) => db?.close?.());
+  }
+
+  return new Promise((resolve, reject) => {
+    const request = indexedDB.open(tlConfig.DB_NAME);
+    request.onsuccess = (event) => {
+      const db = event.target.result;
+      if (!db.objectStoreNames.contains(storeName)) {
+        db.close();
+        resolve(null);
+        return;
+      }
+      const read = db.transaction(storeName, "readonly").objectStore(storeName).get(id);
+      read.onsuccess = (readEvent) => {
+        db.close();
+        resolve(readEvent.target.result || null);
+      };
+      read.onerror = (readEvent) => {
+        db.close();
+        reject(readEvent.target.error || new Error(`Errore lettura ${storeName}`));
+      };
+    };
+    request.onerror = (event) => reject(event.target.error || new Error(`Errore apertura ${tlConfig.DB_NAME}`));
+  });
+};
+
+const writeRuntimeRecord = async (storeName, record) => {
+  if (!record?.id) return null;
+  if (window.TrackerLensRuntimeGraphStore?.ensureStores) {
+    await window.TrackerLensRuntimeGraphStore.ensureStores().then((db) => db?.close?.());
+  }
+
+  return new Promise((resolve, reject) => {
+    const request = indexedDB.open(tlConfig.DB_NAME);
+    request.onsuccess = (event) => {
+      const db = event.target.result;
+      if (!db.objectStoreNames.contains(storeName)) {
+        db.close();
+        reject(new Error(`Store ${storeName} non disponibile`));
+        return;
+      }
+      const write = db.transaction(storeName, "readwrite").objectStore(storeName).put(record);
+      write.onsuccess = () => {
+        db.close();
+        resolve(record);
+      };
+      write.onerror = (writeEvent) => {
+        db.close();
+        reject(writeEvent.target.error || new Error(`Errore salvataggio ${storeName}`));
+      };
+    };
+    request.onerror = (event) => reject(event.target.error || new Error(`Errore apertura ${tlConfig.DB_NAME}`));
+  });
+};
+
+const deleteWorkspaceScopedRecords = async (storeName, workspaceId = "") => {
+  if (!workspaceId) return [];
+  const records = await readRuntimeStore(storeName).catch(() => []);
+  const ids = records
+    .filter((record) => record.workspaceId === workspaceId || record.id === workspaceId)
+    .map((record) => record.id)
+    .filter(Boolean);
+  if (!ids.length) return [];
+  if (window.TrackerLensRuntimeGraphStore?.ensureStores) {
+    await window.TrackerLensRuntimeGraphStore.ensureStores().then((db) => db?.close?.());
+  }
+
+  return new Promise((resolve, reject) => {
+    const request = indexedDB.open(tlConfig.DB_NAME);
+    request.onsuccess = (event) => {
+      const db = event.target.result;
+      if (!db.objectStoreNames.contains(storeName)) {
+        db.close();
+        resolve([]);
+        return;
+      }
+      const transaction = db.transaction(storeName, "readwrite");
+      const store = transaction.objectStore(storeName);
+      ids.forEach((id) => store.delete(id));
+      transaction.oncomplete = () => {
+        db.close();
+        resolve(ids);
+      };
+      transaction.onerror = (deleteEvent) => {
+        db.close();
+        reject(deleteEvent.target.error || new Error(`Errore cleanup ${storeName}`));
+      };
+    };
+    request.onerror = (event) => reject(event.target.error || new Error(`Errore apertura ${tlConfig.DB_NAME}`));
+  });
+};
+
+const resolveInitialWorkspaceId = async () => {
+  if (state.filters.workspaceId && state.filters.workspaceId !== "all") return state.filters.workspaceId;
+  const flows = await readRuntimeStore(runtimeStoreName("TL_FLOWS", "tl_flows")).catch(() => []);
+  const flow = flows.find((item) => item.workspaceId) || null;
+  if (flow?.workspaceId) return flow.workspaceId;
+  const pages = await readRuntimeStore(runtimeStoreName("TL_PAGES", "tl_pages")).catch(() => []);
+  const page = pages.find((item) => item.id || item.content?.id) || null;
+  return page?.id || page?.content?.id || "workspace_global";
+};
+
+const enrichNodesWithLibrarySample = (nodes = [], libraryItems = []) => {
+  const sampleById = new Map();
+  libraryItems.forEach((item) => {
+    if (!item.sampleOutput || typeof item.sampleOutput !== "object") return;
+    [item.id, item.sourceId, item.assetId].filter(Boolean).forEach((id) => sampleById.set(String(id), item.sampleOutput));
+  });
+  return nodes.map((node) => {
+    if (node.metadata?.sampleOutput && Object.keys(node.metadata.sampleOutput).length) return node;
+    const sampleOutput = sampleById.get(String(node.assetId || node.sourceRef || node.id));
+    if (!sampleOutput) return node;
+    return {
+      ...node,
+      metadata: {
+        ...(node.metadata || {}),
+        sampleOutput,
+      },
+    };
+  });
+};
+
+const nodeLookupKeys = (node = {}) =>
+  [node.id, node.sourceRef, node.assetId, node.label]
+    .filter(Boolean)
+    .flatMap((value) => [String(value), normalize(value)]);
+
+const buildNodeLookup = (nodes = []) => {
+  const lookup = new Map();
+  nodes.forEach((node) => {
+    nodeLookupKeys(node).forEach((key) => {
+      if (key && !lookup.has(key)) lookup.set(key, node);
+    });
+  });
+  return lookup;
+};
+
+const resolveNodeRef = (lookup, ...values) => {
+  for (const value of values.filter(Boolean)) {
+    const direct = lookup.get(String(value));
+    if (direct) return direct;
+    const normalized = lookup.get(normalize(value));
+    if (normalized) return normalized;
+  }
+  return null;
+};
+
+const dependencyKey = (dependency) =>
+  [dependency.sourceNodeId, dependency.targetNodeId, dependency.channel || "runtime"].join("::");
+
+const mergeConnectionDependencies = (nodes = [], dependencies = [], connections = []) => {
+  const lookup = buildNodeLookup(nodes);
+  const merged = [...dependencies];
+  const seen = new Set(merged.map(dependencyKey));
+
+  connections.forEach((connection) => {
+    const source = resolveNodeRef(lookup, connection.fromBoxId, connection.sourceNodeId, connection.from, connection.sourceName);
+    const target = resolveNodeRef(lookup, connection.toBoxId, connection.targetNodeId, connection.to, connection.targetName);
+    if (!source || !target || source.id === target.id) return;
+    const dependency = {
+      id: `conn_dep_${connection.id || source.id}_${target.id}`.replace(/[^A-Za-z0-9_-]/g, "_"),
+      workspaceId: connection.workspaceId || source.workspaceId || target.workspaceId || "",
+      sourceNodeId: source.id,
+      targetNodeId: target.id,
+      sourceType: source.type || "",
+      targetType: target.type || "",
+      channel: connection.channel || nodeChannels(source)[0] || nodeChannels(target)[0] || "runtime",
+      connectionId: connection.id || "",
+      status: connection.status || "active",
+      metadata: {
+        virtual: false,
+        source: "tl_connections",
+        sourcePort: connection.mapping?.sourcePort || "all",
+        targetPort: connection.mapping?.targetPort || "all",
+      },
+      updatedAt: connection.updatedAt || "",
+    };
+    const key = dependencyKey(dependency);
+    if (seen.has(key)) return;
+    seen.add(key);
+    merged.push(dependency);
+  });
+
+  return merged;
+};
+
+const mergeOptimisticDependencies = (nodes = [], dependencies = []) => {
+  const nodeIds = new Set(nodes.map((node) => node.id));
+  const merged = [...dependencies];
+  const seen = new Set(merged.map(dependencyKey));
+  const stillPending = [];
+
+  (state.optimisticDependencies || []).forEach((dependency) => {
+    if (!nodeIds.has(dependency.sourceNodeId) || !nodeIds.has(dependency.targetNodeId)) return;
+    const key = dependencyKey(dependency);
+    if (!seen.has(key)) {
+      seen.add(key);
+      merged.push(dependency);
+    }
+    stillPending.push(dependency);
+  });
+
+  state.optimisticDependencies = stillPending.slice(0, 20);
+  return merged;
+};
+
+const runtimeChannelForDependency = (nodesById = new Map(), dependency = {}) => {
+  const source = nodesById.get(dependency.sourceNodeId);
+  const target = nodesById.get(dependency.targetNodeId);
+  if (!source || !target) return dependency.channel || "runtime";
+  const sourcePort = dependency.metadata?.sourcePort || dependency.sourcePort || "";
+  const targetPort = dependency.metadata?.targetPort || dependency.targetPort || "";
+  const channel = dependency.channel || "";
+  if (normalizePortChannel(sourcePort)) return normalizePortChannel(sourcePort);
+  const naturalChannel = channelForConnection(source, target);
+  if (channel && channel !== targetPort) return channel;
+  return naturalChannel || normalizePortChannel(targetPort) || channel || "runtime";
+};
+
+const normalizeRuntimeDependencyChannels = async (nodes = [], dependencies = [], connections = []) => {
+  const nodesById = new Map(nodes.map((node) => [node.id, node]));
+  const connectionsById = new Map((connections || []).map((connection) => [connection.id, connection]));
+  const changed = [];
+  const normalized = dependencies.map((dependency) => {
+    const channel = runtimeChannelForDependency(nodesById, dependency);
+    if (!channel || channel === dependency.channel) return dependency;
+    const next = { ...dependency, channel, updatedAt: new Date().toISOString() };
+    changed.push(next);
+    return next;
+  });
+  if (changed.length) {
+    await Promise.all(changed.map(async (dependency) => {
+      await window.TrackerLensRuntimeGraphStore?.upsertDependency?.({ dependency }).catch(() => null);
+      const connection = connectionsById.get(dependency.connectionId || "");
+      if (connection && connection.channel !== dependency.channel) {
+        await window.TrackerLensConnectionsStore?.upsert?.({
+          ...connection,
+          channel: dependency.channel,
+          frequency: dependency.channel,
+          updatedAt: new Date().toISOString(),
+        }).catch(() => null);
+      }
+    })).catch((error) => console.warn("Dependency channel repair non persistito", error));
+  }
+  return normalized;
+};
+
+const normalizeLoadedNodeManifest = (node = {}) => {
+  const metadata = node.metadata || {};
+  const manifest = window.TrackerLensRuntimeManifest?.normalizeManifest?.({
+    ...(metadata.manifest || {}),
+    type: metadata.manifest?.type || (node.type === "boxLens" ? "lens" : node.type),
+    subtype: metadata.manifest?.subtype || metadata.subtype || nodeSubtype(node),
+    category: metadata.manifest?.category || metadata.category || nodeCategory(node),
+    inputs: metadata.manifest?.inputs || node.inputs || [],
+    outputs: metadata.manifest?.outputs || node.outputs || [],
+    permissions: metadata.manifest?.permissions || metadata.permissions || node.permissions || [],
+    settingsSchema: metadata.manifest?.settingsSchema || metadata.settingsSchema || {},
+    runtime: metadata.manifest?.runtime || metadata.runtimeMetadata || node.runtime || {},
+  });
+  if (!manifest) return node;
+  return {
+    ...node,
+    metadata: {
+      ...metadata,
+      manifest,
+      permissions: manifest.permissions,
+      settingsSchema: manifest.settingsSchema,
+      runtimeMetadata: manifest.runtime,
+    },
+  };
+};
+
+const sortById = (items = []) =>
+  [...items].sort((a, b) => String(a.id || a.name || "").localeCompare(String(b.id || b.name || "")));
+
+const runtimeGraphSignature = () => JSON.stringify({
+  nodes: sortById(state.runtime.nodes).map((node) => ({
+    id: node.id,
+    sourceRef: node.sourceRef,
+    assetId: node.assetId,
+    type: node.type,
+    label: node.label,
+    workspaceId: node.workspaceId,
+    status: node.status,
+    inputs: node.inputs || [],
+    outputs: node.outputs || [],
+    channels: node.channels || [],
+    flowPosition: node.flowPosition || null,
+    configured: Boolean(node.metadata?.configured),
+    draft: Boolean(node.metadata?.draft),
+    library: Boolean(node.metadata?.library),
+  })),
+  dependencies: sortById(state.runtime.dependencies).map((dependency) => ({
+    id: dependency.id,
+    sourceNodeId: dependency.sourceNodeId,
+    targetNodeId: dependency.targetNodeId,
+    channel: dependency.channel,
+    status: dependency.status,
+    connectionId: dependency.connectionId || "",
+    sourcePort: dependency.metadata?.sourcePort || dependency.sourcePort || "",
+    targetPort: dependency.metadata?.targetPort || dependency.targetPort || "",
+    virtual: Boolean(dependency.metadata?.virtual),
+  })),
+  flows: sortById(state.runtime.flows).map((flow) => ({
+    id: flow.id,
+    workspaceId: flow.workspaceId,
+    name: flow.name,
+    updatedAt: flow.updatedAt || flow.savedAt || "",
+  })),
+});
+
+const loadRuntime = async (options = {}) => {
+  const silent = Boolean(options.silent);
+  const force = Boolean(options.force);
+  const previousGraphSignature = runtimeGraphSignature();
+  if (state.interaction && !force) {
+    state.pendingRuntimeRefresh = true;
+    return;
+  }
+  state.loading = !silent;
+  state.error = "";
+  setLoadingSignal(state.loading);
+  setErrorSignal(state.error);
+  if (!silent) mount();
+
+  try {
+    const workspaceId = normalizeRuntimeWorkspaceId(await resolveInitialWorkspaceId());
+    const workspaceChanged = workspaceId !== state.filters.workspaceId;
+    if (workspaceChanged) state.viewport = loadStoredViewport(workspaceId) || defaultViewport();
+    if (workspaceChanged || state.filters.origin === "library") {
+      setFiltersState({ ...state.filters, workspaceId, origin: state.filters.origin === "library" ? "runtime" : state.filters.origin });
+      syncFilterQuery();
+    }
+
+    const runtimeFilters = { workspaceId };
+    const engineResult = window.TrackerLensGraphEngine?.buildGraph
+      ? await window.TrackerLensGraphEngine.buildGraph({ filters: runtimeFilters, includeConnections: true })
+      : null;
+    const snapshot = engineResult?.runtime || (window.TrackerLensRuntimeSnapshotStore?.load
+      ? await window.TrackerLensRuntimeSnapshotStore.load({ includeConnections: true, workspaceId })
+      : null);
+    const [channels, flows, events, flowLogs, runtimeNodes, dependencies, connections, libraryItems, performanceRecords] = snapshot
+      ? await Promise.all([
+        Promise.resolve(snapshot.channels),
+        Promise.resolve(snapshot.flows),
+        Promise.resolve(snapshot.events),
+        Promise.resolve(snapshot.flowLogs || []),
+        Promise.resolve(snapshot.runtimeNodes),
+        Promise.resolve(snapshot.runtimeDependencies),
+        Promise.resolve(snapshot.connections),
+        Promise.resolve([]),
+        window.TrackerLensBoxPerformanceMonitor?.list ? window.TrackerLensBoxPerformanceMonitor.list({ workspaceId }) : Promise.resolve([]),
+      ])
+      : await Promise.all([
+        readScopedRuntimeStore(runtimeStoreName("TL_CHANNELS", "tl_channels"), workspaceId),
+        readScopedRuntimeStore(runtimeStoreName("TL_FLOWS", "tl_flows"), workspaceId),
+        readScopedRuntimeStore(runtimeStoreName("TL_EVENTS", "tl_events"), workspaceId),
+        readScopedRuntimeStore(runtimeStoreName("TL_FLOW_LOGS", "tl_flow_logs"), workspaceId),
+        readScopedRuntimeStore(runtimeStoreName("TL_RUNTIME_NODES", "tl_runtime_nodes"), workspaceId),
+        readScopedRuntimeStore(runtimeStoreName("TL_RUNTIME_DEPENDENCIES", "tl_runtime_dependencies"), workspaceId),
+        window.TrackerLensConnectionsStore?.list ? window.TrackerLensConnectionsStore.list().then((items) => items.filter((item) => item.workspaceId === workspaceId)) : Promise.resolve([]),
+        Promise.resolve([]),
+        window.TrackerLensBoxPerformanceMonitor?.list ? window.TrackerLensBoxPerformanceMonitor.list({ workspaceId }) : Promise.resolve([]),
+      ]);
+
+    if (state.interaction && !force) {
+      state.pendingRuntimeRefresh = true;
+      return;
+    }
+
+    const nodes = (await resolveAiAgentAliasNodes(enrichNodesWithLibrarySample(runtimeNodes, libraryItems))).map(normalizeLoadedNodeManifest);
+    const mergedDependencies = await normalizeRuntimeDependencyChannels(
+      nodes,
+      mergeOptimisticDependencies(nodes, mergeConnectionDependencies(nodes, dependencies, connections)),
+      connections
+    );
+    setRuntimeState({ channels, flows, events, flowLogs, nodes, dependencies: mergedDependencies });
+    state.previewClearedAt = loadStoredPreviewClears(workspaceId);
+    rebuildPreviewPayloadsFromEvents();
+    if (!syncBackgroundRuntime(workspaceId)) {
+      syncPageRuntimes(workspaceId);
+    }
+    state.graphEngine = engineResult;
+    state.libraryItems = libraryItems;
+    state.connections = connections;
+    state.performance = performanceRecords || [];
+    if (state.inspectorOpen && !state.focus.nodeId && nodes[0]?.id) {
+      setFocusState({ ...state.focus, nodeId: nodes[0].id });
+    }
+    state.updatedAt = new Date();
+    setUpdatedAtSignal(state.updatedAt);
+  } catch (error) {
+    console.error("Errore Flow Map:", error);
+    state.error = error?.message || "Errore caricamento Flow Map";
+    setErrorSignal(state.error);
+  } finally {
+    state.loading = false;
+    setLoadingSignal(state.loading);
+    if (!state.interaction) {
+      const canPatchRuntime = silent && state.mounted && previousGraphSignature === runtimeGraphSignature() && !state.error;
+      if (canPatchRuntime) refreshRuntimeDom({ preserveScroll: true });
+      else mount({ preserveScroll: silent });
+    }
+  }
+};
+
+const runtimeEventBus = () => {
+  if (!window.TrackerLensEventBus?.get) return null;
+  return window.TrackerLensEventBus.get("flow-map", {
+    eventStore: null,
+    channelRegistry: null,
+  });
+};
+
+const workspaceEventBus = (workspaceId = state.filters.workspaceId || "workspace_global") => {
+  if (!window.TrackerLensEventBus?.get) return null;
+  return window.TrackerLensEventBus.get(workspaceId || "workspace_global", {
+    eventStore: window.TrackerLensEventLogStore,
+    channelRegistry: window.TrackerLensChannelRegistry,
+  });
+};
+
+const eventMatchesFilters = (event = {}) => {
+  if (state.filters.workspaceId !== "all" && event.workspaceId !== state.filters.workspaceId) return false;
+  if (state.filters.channel !== "all" && event.channel !== state.filters.channel) return false;
+  return true;
+};
+
+const eventTypeGroup = (event = {}) => {
+  const type = String(event.eventType || "event");
+  if (event.status === "error" || type.includes("error")) return "errors";
+  if (type === "tracker_test" || type.includes("test") || event.meta?.test) return "test";
+  if (type === "received") return "received";
+  if (type === "emitted") return "emitted";
+  return "other";
+};
+
+const eventMatchesTypeFilter = (event = {}, filter = state.filters.eventType || "all") =>
+  filter === "all" || eventTypeGroup(event) === filter;
+
+const runtimeRecordRunId = (record = {}) =>
+  record.meta?.runId || record.context?.runId || record.payload?.runId || "";
+
+const recordMatchesRunFilter = (record = {}, runId = state.filters.runId || "all") =>
+  runId === "all" || runtimeRecordRunId(record) === runId;
+
+const filteredRuntimeEvents = () =>
+  state.runtime.events
+    .filter((event) => eventMatchesTypeFilter(event))
+    .filter((event) => recordMatchesRunFilter(event));
+
+const mergeRuntimeEvent = (event = {}) => {
+  if (!event.id) return false;
+  if (state.runtime.events.some((item) => item.id === event.id)) return false;
+  state.runtime.events = [event, ...state.runtime.events].slice(0, 500);
+  updateAiProcessingFromEvent(event);
+  updatePreviewPayloads(event);
+  state.runtime.channels = state.runtime.channels.map((channel) =>
+    channel.workspaceId === event.workspaceId && channel.name === event.channel
+      ? { ...channel, lastValue: event.payload, lastEmittedAt: event.createdAt, updatedAt: event.createdAt }
+      : channel
+  );
+  setRuntimeSignal(state.runtime);
+  scheduleRuntimeDomRefresh({ preserveScroll: true });
+  return true;
+};
+
+const scheduleRuntimeDomRefresh = ({ preserveScroll = true } = {}) => {
+  requestAnimationFrame(() => {
+    if (!state.mounted || state.interaction) return;
+    const baseGraph = graphModel();
+    const activity = recentActivity(baseGraph);
+    const graph = filterByActivity(baseGraph, activity);
+    state.edgeRender = { graph, activity };
+    refreshRuntimeDom({ preserveScroll });
+  });
+};
+
+const isPreviewNode = (node = {}) =>
+  node.type === "devPreview" || nodeSubtype(node) === "preview" || nodeCategory(node) === "dev";
+
+const dependencyChannelForEvent = (dependency = {}) =>
+  dependency.channel || normalizePortChannel(dependency.metadata?.sourcePort || dependency.sourcePort) || "";
+
+const previewNodesForEvent = (event = {}) => {
+  const nodesById = new Map((state.runtime.nodes || []).map((node) => [node.id, node]));
+  const previewIncomingDependencies = (state.runtime.dependencies || [])
+    .filter((dependency) => isPreviewNode(nodesById.get(dependency.targetNodeId)));
+  const directTargets = (state.runtime.dependencies || [])
+    .filter((dependency) => dependencyChannelForEvent(dependency) === event.channel)
+    .map((dependency) => nodesById.get(dependency.targetNodeId))
+    .filter(isPreviewNode);
+  const inputTargets = (state.runtime.nodes || [])
+    .filter(isPreviewNode)
+    .filter((node) => !previewIncomingDependencies.some((dependency) => dependency.targetNodeId === node.id))
+    .filter((node) => (node.inputs || []).includes(event.channel) || (node.channels || []).includes(event.channel));
+  return [...new Map([...directTargets, ...inputTargets].filter(Boolean).map((node) => [node.id, node])).values()];
+};
+
+const updateAiProcessingFromEvent = (event = {}) => {
+  const graph = state.runtime || { nodes: [], dependencies: [] };
+  const nodesById = new Map((graph.nodes || []).map((node) => [node.id, node]));
+  const runId = event.meta?.runId || event.payload?.runId || "";
+  const inputEventId = event.id || "";
+  const eventType = String(event.eventType || "").toLowerCase();
+
+  if (eventType.includes("ai_agent_response") || eventType.includes("ai_agent_error")) {
+    const nodeId = event.sourceNodeId || event.meta?.aiAgentRuntime || "";
+    if (nodeId && state.aiProcessing[nodeId]) {
+      state.aiProcessing = { ...state.aiProcessing };
+      delete state.aiProcessing[nodeId];
+    }
+    return;
+  }
+
+  const targets = (graph.dependencies || [])
+    .filter((dependency) => dependency.channel === event.channel)
+    .map((dependency) => nodesById.get(dependency.targetNodeId))
+    .filter((node) => runtimeKindForNode(node) === "ai");
+  if (!targets.length) return;
+  const now = new Date().toISOString();
+  state.aiProcessing = {
+    ...state.aiProcessing,
+    ...Object.fromEntries(targets.map((node) => [node.id, {
+      nodeId: node.id,
+      runId,
+      inputEventId,
+      inputChannel: event.channel || "",
+      startedAt: now,
+      expiresAt: new Date(Date.now() + AI_PROCESSING_VISUAL_TIMEOUT_MS).toISOString(),
+    }])),
+  };
+};
+
+const activeAiProcessingNodeIds = () => {
+  const now = Date.now();
+  const entries = Object.entries(state.aiProcessing || {})
+    .filter(([, item]) => Date.parse(item.expiresAt || "") > now);
+  if (entries.length !== Object.keys(state.aiProcessing || {}).length) {
+    state.aiProcessing = Object.fromEntries(entries);
+  }
+  return entries.map(([nodeId]) => nodeId);
+};
+
+const activeProcessingEdgeIds = (graph = state.runtime) =>
+  activeOutgoingDependencyIds(graph, activeAiProcessingNodeIds());
+
+const isPreviewPayloadEvent = (event = {}) => {
+  const type = String(event.eventType || "").toLowerCase();
+  if (!type) return true;
+  if (type.includes("pulse")) return false;
+  if (event.payload?.route && event.payload?.channel && (event.payload?.live || event.payload?.__test)) return false;
+  return true;
+};
+
+const updatePreviewPayloads = (event = {}) => {
+  if (!isPreviewPayloadEvent(event)) return;
+  previewNodesForEvent(event).forEach((node) => {
+    const clearedAt = Date.parse(state.previewClearedAt[node.id] || "");
+    const eventAt = Date.parse(event.createdAt || "");
+    if (clearedAt && eventAt && eventAt <= clearedAt) return;
+    state.previewPayloads[node.id] = {
+      eventId: event.id,
+      channel: event.channel || "default",
+      eventType: event.eventType || "event",
+      sourceNodeId: event.sourceNodeId || "",
+      payload: event.payload,
+      createdAt: event.createdAt || new Date().toISOString(),
+      sizeBytes: event.sizeBytes || 0,
+    };
+  });
+};
+
+const rebuildPreviewPayloadsFromEvents = () => {
+  state.previewPayloads = {};
+  (state.runtime.events || [])
+    .slice()
+    .sort((a, b) => Date.parse(a.createdAt || 0) - Date.parse(b.createdAt || 0))
+    .forEach(updatePreviewPayloads);
+};
+
+const mergeFlowLog = (log = {}) => {
+  if (!log.id) return false;
+  if ((state.runtime.flowLogs || []).some((item) => item.id === log.id)) return false;
+  state.runtime.flowLogs = [log, ...(state.runtime.flowLogs || [])].slice(0, 500);
+  setRuntimeSignal(state.runtime);
+  return true;
+};
+
+const scheduleLiveRender = () => {
+  if (state.liveRenderFrame) return;
+  state.liveRenderFrame = requestAnimationFrame(() => {
+    state.liveRenderFrame = 0;
+    if (state.interaction) {
+      state.pendingRuntimeRefresh = true;
+      return;
+    }
+    refreshLiveGraphState();
+    window.clearTimeout(state.liveActivityClearTimer);
+    state.liveActivityClearTimer = window.setTimeout(() => {
+      state.liveActivityClearTimer = 0;
+      refreshLiveGraphState();
+    }, EDGE_ACTIVITY_WINDOW_MS + 120);
+  });
+};
+
+const refreshLiveBusDom = () => {
+  const pill = document.querySelector("[data-live-bus-pill]");
+  if (pill) {
+    pill.className = `tl-flow-live is-bus${state.liveBus.connected ? " is-connected" : ""}${state.liveBus.lastAt ? " is-receiving" : ""}${!state.liveBus.available ? " is-offline" : ""}`;
+    pill.title = liveBusTitle();
+  }
+  const dotNode = pill?.querySelector(".tl-flow-dot");
+  if (dotNode) {
+    dotNode.className = `tl-flow-dot ${state.liveBus.connected ? "is-connected" : !state.liveBus.available ? "is-offline" : "is-standby"}`;
+  }
+  const label = document.querySelector("[data-live-bus-label]");
+  if (label) label.textContent = liveBusLabel();
+  const updated = document.querySelector("[data-flow-status-updated]");
+  if (updated) updated.textContent = state.liveBus.lastAt ? `Live ${formatShortDate(state.liveBus.lastAt)}` : `Updated ${formatShortDate(state.updatedAt)}`;
+  const statusButton = document.querySelector("[data-status-item='bus']");
+  if (statusButton) {
+    statusButton.classList.toggle("is-green", state.liveBus.connected);
+    statusButton.classList.toggle("is-gold", !state.liveBus.connected);
+    const statusLabel = statusButton.querySelector("[data-status-label]");
+    if (statusLabel) statusLabel.textContent = state.liveBus.connected ? `${state.liveBus.count} live bus` : "bus offline";
+  }
+};
+
+const updateLiveClasses = (graph, activity) => {
+  document.querySelectorAll(".tl-flow-node-port.is-event-active").forEach((port) => {
+    port.classList.remove("is-event-active");
+  });
+  const processingNodeIds = new Set(activeAiProcessingNodeIds());
+  const processingEdgeIds = new Set(activeProcessingEdgeIds(graph));
+
+  (graph.nodes || []).forEach((node) => {
+    const element = document.querySelector(`[data-flow-node-id="${escapeSelectorValue(node.id)}"]`);
+    const live = activity.nodeActivity?.get(node.id);
+    const activeTestNode = state.testRun.running && (state.testRun.activeNodeIds || []).includes(node.id);
+    const processingNode = processingNodeIds.has(node.id);
+    if (!element) return;
+    element.classList.toggle("is-live", Boolean(live) || activeTestNode || processingNode);
+    element.classList.toggle("is-event-active", Boolean(live) || activeTestNode || processingNode);
+    element.classList.toggle("is-ai-processing", processingNode);
+    element.classList.toggle("is-error", live?.status === "error");
+  });
+
+  (graph.dependencies || []).forEach((dependency) => {
+    const element = document.querySelector(`.tl-flow-edge-label[data-edge-id="${escapeSelectorValue(dependency.id)}"]`);
+    const live = activity.edgeActivity?.get(dependency.id);
+    const activeTestEdge = state.testRun.running && (state.testRun.activeEdgeIds || []).includes(dependency.id);
+    const processingEdge = processingEdgeIds.has(dependency.id);
+    if (!element) return;
+    element.classList.toggle("is-live", Boolean(live) || activeTestEdge || processingEdge);
+    element.classList.toggle("is-error", live?.status === "error");
+    if (live || activeTestEdge || processingEdge) {
+      [
+        [dependency.sourceNodeId, "out", dependencyPort(dependency, "out")],
+        [dependency.targetNodeId, "in", dependencyPort(dependency, "in")],
+      ].forEach(([nodeId, side, port]) => {
+        const selector = `.tl-flow-node[data-flow-node-id="${escapeSelectorValue(nodeId)}"] .tl-flow-node-port[data-port-side="${side}"][data-port-label="${escapeSelectorValue(port || "all")}"]`;
+        const portElement = document.querySelector(selector);
+        if (portElement) portElement.classList.add("is-event-active");
+      });
+    }
+  });
+};
+
+const refreshLiveGraphState = () => {
+  const baseGraph = graphModel();
+  const activity = recentActivity(baseGraph);
+  const graph = filterByActivity(baseGraph, activity);
+  state.edgeRender = { graph, activity };
+  refreshLiveBusDom();
+  updateLiveClasses(graph, activity);
+  renderFlowEdges();
+};
+
+const connectLiveEventBus = () => {
+  state.liveBus.available = Boolean(window.TrackerLensEventBus?.get);
+  if (state.liveBusUnsubscribe) return;
+  const bus = runtimeEventBus();
+  if (!bus?.on) {
+    state.liveBus.connected = false;
+    return;
+  }
+  state.liveBusUnsubscribe = bus.on("*", (payload, event) => {
+    state.liveBus.connected = true;
+    state.liveBus.count += 1;
+    state.liveBus.lastAt = event.createdAt || new Date().toISOString();
+    state.liveBus.lastChannel = event.channel || "default";
+    if (!eventMatchesFilters(event)) return;
+    if (!mergeRuntimeEvent(event)) return;
+    state.updatedAt = new Date();
+    scheduleLiveRender();
+  }, {
+    id: "flow-map-live-inspector",
+    targetNodeId: "flow-map",
+    metadata: { source: "flow-map" },
+  });
+  state.liveBus.connected = true;
+  requestAnimationFrame(refreshLiveBusDom);
+};
+
+const normalize = (value) => String(value || "").toLowerCase();
+const graphModelApi = () => window.TrackerLensRuntimeGraphModel;
+const nodeChannels = (node = {}) => node ? graphModelApi().nodeChannels(node) : [];
+const graphTone = (nodeOrType = "") => {
+  const node = typeof nodeOrType === "object" ? nodeOrType : null;
+  return graphModelApi().toneForType(node?.type || nodeOrType, node);
+};
+const graphIcon = (nodeOrType = "") => {
+  const node = typeof nodeOrType === "object" ? nodeOrType : null;
+  return graphModelApi().iconForType(node?.type || nodeOrType, node);
+};
+
+const nodeRuntimeStatus = (node = {}, live = null) => {
+  const raw = node.runtime?.status || node.metadata?.runtimeStatus || node.status || (live ? "active" : "idle");
+  const status = isDraftNode(node) ? "idle" : String(raw || "idle").toLowerCase();
+  if (live?.status === "error") return "error";
+  if (status === "active" && live) return "running";
+  return ["idle", "active", "running", "warning", "paused", "error", "disconnected", "disabled"].includes(status) ? status : "idle";
+};
+
+const nodeCategory = (node = {}) =>
+  node.metadata?.category || node.metadata?.manifest?.category || node.metadata?.runtimeType || node.type || "runtime";
+
+const nodeSubtype = (node = {}) =>
+  node.metadata?.subtype || node.metadata?.manifest?.subtype || node.metadata?.mode || node.type || "node";
+
+const nodeRuntimeDescription = (node = {}, live = null) => {
+  const category = nodeCategory(node);
+  if (node.metadata?.description) return node.metadata.description;
+  if (category === "sources") return "Input adapter ingesting raw external data.";
+  if (category === "dev" || node.type === "devPreview") return "Development probe showing raw and JSON payloads passing through the graph.";
+  if (category === "trackers" || node.type === "boxTracker") return "Data orchestrator emitting structured runtime channels.";
+  if (category === "processors" || node.type === "processor") return "Stateless transformation node for runtime events.";
+  if (category === "ai-agents" || node.type === "aiAgent") return "AI decision node for analysis, routing and interpretation.";
+  if (category === "lens" || node.type === "boxLens" || node.type === "lens") return "Visual runtime consumer rendering live channel state.";
+  if (category === "actions" || node.type === "action") return "Active runtime reaction triggered by events.";
+  if (category === "storage" || node.type === "storage") return "Persistence layer for runtime data and history.";
+  if (isCustomRuntimeNode(node)) return "Custom runtime node.";
+  return live ? "Runtime node receiving live events." : "Runtime graph node.";
+};
+
+const runtimeNodeBase = (node = {}, live = null, perf = null) => {
+  const eventsPerMin = perf?.eventsPerSec ? Math.round(perf.eventsPerSec * 60) : live?.count || node.runtime?.eventsPerMin || 0;
+  const latency = perf?.avgLatency || perf?.latency || node.runtime?.latency || 0;
+  return {
+    id: node.id || "",
+    workspaceId: node.workspaceId || "",
+    flowId: node.flowId || "",
+    category: nodeCategory(node),
+    subtype: nodeSubtype(node),
+    title: node.label || node.title || node.id || "Runtime Node",
+    description: nodeRuntimeDescription(node, live),
+    inputs: node.inputs || [],
+    outputs: node.outputs || [],
+    channels: nodeChannels(node),
+    runtime: {
+      status: nodeRuntimeStatus(node, live),
+      active: Boolean(live || node.runtime?.active),
+      errors: Number(node.runtime?.errors || 0),
+      eventsPerMin,
+      latency,
+      lastEventAt: live?.lastAt || node.runtime?.lastEventAt || "",
+    },
+    metrics: {
+      ...(node.metrics || {}),
+      eventsPerMin,
+      latency,
+      listeners: selectedChannelRecords(node).reduce((total, channel) => total + (channel.subscribers?.length || 0), 0),
+    },
+    permissions: node.metadata?.permissions || node.metadata?.manifest?.permissions || node.permissions || [],
+    position: node.flowPosition || node.position || { x: 0, y: 0 },
+    style: node.style || {},
+    createdAt: node.createdAt || "",
+    updatedAt: node.updatedAt || "",
+  };
+};
+
+const toneRgb = (tone = "cyan") => ({
+  green: [34, 197, 94],
+  blue: [56, 189, 248],
+  violet: [168, 85, 247],
+  purple: [147, 51, 234],
+  gold: [250, 204, 21],
+  orange: [249, 115, 22],
+  red: [248, 113, 113],
+  lime: [132, 204, 22],
+  pink: [236, 72, 153],
+  cyan: [34, 211, 238],
+  teal: [20, 184, 166],
+}[tone] || [34, 211, 238]);
+
+const FLOW_NODE_CATEGORY_OPTIONS = [
+  { value: "custom", label: "Custom" },
+  { value: "sources", label: "Sources" },
+  { value: "trackers", label: "Trackers" },
+  { value: "processors", label: "Processors" },
+  { value: "ai-agents", label: "AI Agents" },
+  { value: "lens", label: "Lens" },
+  { value: "actions", label: "Actions" },
+  { value: "storage", label: "Storage" },
+  { value: "dev", label: "Dev" },
+];
+
+const FLOW_NODE_ICON_FALLBACK_OPTIONS = [
+  { value: "extension", label: "Extension" },
+  { value: "add_box", label: "Add Box" },
+  { value: "api", label: "API" },
+  { value: "settings_input_antenna", label: "WebSocket" },
+  { value: "rss_feed", label: "RSS Feed" },
+  { value: "webhook", label: "Webhook" },
+  { value: "data_object", label: "JSON" },
+  { value: "notes", label: "Notes" },
+  { value: "storage", label: "Storage" },
+  { value: "inventory_2", label: "Inventory" },
+  { value: "sync_alt", label: "Realtime" },
+  { value: "update", label: "Polling" },
+  { value: "filter_alt", label: "Filter" },
+  { value: "tune", label: "Tune" },
+  { value: "alt_route", label: "Route" },
+  { value: "psychology", label: "AI" },
+  { value: "memory", label: "Memory" },
+  { value: "dashboard", label: "Dashboard" },
+  { value: "visibility", label: "Preview" },
+  { value: "database", label: "Database" },
+  { value: "notifications", label: "Notification" },
+  { value: "bolt", label: "Trigger" },
+];
+
+const FLOW_NODE_ICON_OPTIONS = (() => {
+  const values = new Map();
+  const addOption = (option = {}) => {
+    const value = String(option.value || "").trim();
+    if (!value || values.has(value)) return;
+    values.set(value, {
+      value,
+      label: option.label || value.replace(/_/g, " ").replace(/\b\w/g, (letter) => letter.toUpperCase()),
+      icon: value,
+      category: option.category || "",
+      keywords: option.keywords || "",
+    });
+  };
+  FLOW_NODE_ICON_FALLBACK_OPTIONS.forEach(addOption);
+  (window.TrackerLensMaterialIconOptions || []).forEach(addOption);
+  return Array.from(values.values());
+})();
+
+const FLOW_COMPONENT_ICON_OPTIONS = [
+  { value: "", label: "CMSwift default", icon: "auto_awesome" },
+  ...FLOW_NODE_ICON_OPTIONS,
+];
+
+const FLOW_NODE_TONE_OPTIONS = [
+  { value: "gold", label: "Gold" },
+  { value: "green", label: "Green" },
+  { value: "blue", label: "Blue" },
+  { value: "cyan", label: "Cyan" },
+  { value: "violet", label: "Violet" },
+  { value: "purple", label: "Purple" },
+  { value: "pink", label: "Pink" },
+  { value: "orange", label: "Orange" },
+  { value: "red", label: "Red" },
+  { value: "lime", label: "Lime" },
+  { value: "teal", label: "Teal" },
+];
+
+const rgba = ([r, g, b], alpha = 1) => `rgba(${r}, ${g}, ${b}, ${alpha})`;
+
+const workspaceOptions = () => {
+  const values = new Map();
+  state.runtime.flows.forEach((flow) => flow.workspaceId && values.set(flow.workspaceId, flow.name || flow.workspaceId));
+  state.runtime.nodes.forEach((node) => {
+    if (!node.workspaceId || values.has(node.workspaceId)) return;
+    values.set(node.workspaceId, node.workspaceId);
+  });
+  if (state.filters.workspaceId && !values.has(state.filters.workspaceId)) values.set(state.filters.workspaceId, state.filters.workspaceId);
+  return Array.from(values.entries()).map(([value, label]) => ({ value, label }));
+};
+
+const channelOptions = () => {
+  const values = new Set();
+  state.runtime.channels.forEach((channel) => channel.name && values.add(channel.name));
+  state.runtime.dependencies.forEach((dependency) => dependency.channel && values.add(dependency.channel));
+  state.runtime.nodes.forEach((node) => nodeChannels(node).forEach((channel) => values.add(channel)));
+  return [{ value: "all", label: "Tutti i channel" }, ...Array.from(values).sort().map((channel) => ({ value: channel, label: channel }))];
+};
+
+const typeOptions = () => {
+  const values = new Set(state.runtime.nodes.map((node) => node.type).filter(Boolean));
+  return [{ value: "all", label: "Tutti i tipi" }, ...Array.from(values).sort().map((type) => ({ value: type, label: type }))];
+};
+
+const eventTypeOptions = () => [
+  { value: "all", label: "All events" },
+  { value: "emitted", label: "Emit" },
+  { value: "received", label: "Recv" },
+  { value: "test", label: "Test" },
+  { value: "errors", label: "Errors" },
+  { value: "other", label: "Other" },
+];
+
+const performanceByBox = () => new Map((state.performance || []).map((record) => [record.boxId, record]));
+const nodePerformance = (node = {}) => {
+  const records = performanceByBox();
+  return records.get(node.id) || records.get(node.sourceRef) || records.get(node.assetId) || null;
+};
+const performanceTone = (perf = {}) => {
+  if (!perf) return "";
+  if (perf.health === "error" || perf.status === "error") return "red";
+  if (perf.health === "warning" || Number(perf.errorRate) >= 5 || Number(perf.avgLatencyMs) >= 500) return "gold";
+  if (perf.health === "healthy" || Number(perf.eventCount) > 0) return "green";
+  return "blue";
+};
+const performanceLabel = (perf = {}) => {
+  if (!perf) return "";
+  const eps = Number(perf.eventsPerSec) || 0;
+  const latency = Number(perf.avgLatencyMs) || Number(perf.lastLatencyMs) || 0;
+  if (eps > 0) return `${eps.toFixed(2)} ev/s`;
+  if (latency > 0) return `${Math.round(latency)} ms`;
+  return perf.health || perf.status || "";
+};
+
+const graphModel = () => graphModelApi().build({ runtime: state.runtime, filters: state.filters });
+
+const nodePosition = (node, index) => {
+  return graphModelApi().nodePosition({ node, index, overrides: state.nodePositions });
+};
+
+const recentActivity = (graph) => graphModelApi().recentActivity({
+  graph,
+  events: filteredRuntimeEvents(),
+  windowMs: EDGE_ACTIVITY_WINDOW_MS,
+});
+
+const filterByActivity = (graph, activity) => graphModelApi().filterByActivity({ graph, activity, filter: state.filters.activity });
+
+const pointerPercent = (event, canvas) => {
+  const rect = canvas.getBoundingClientRect();
+  const zoom = state.viewport.zoom || 1;
+  return {
+    x: ((event.clientX - rect.left - state.viewport.panX) / zoom / rect.width) * 100,
+    y: ((event.clientY - rect.top - state.viewport.panY) / zoom / rect.height) * 100,
+  };
+};
+
+const flowCoordinate = (value, min = -120, max = 220) =>
+  `${Math.max(min, Math.min(max, value))}%`;
+
+const normalizeRuntimeWorkspaceId = (workspaceId = "") => {
+  const value = String(workspaceId || "").trim();
+  if (!value || value === "all" || value === "library_local") return "workspace_global";
+  return value;
+};
+
+const ensureRuntimeWorkspaceScope = async () => {
+  const workspaceId = normalizeRuntimeWorkspaceId(state.filters.workspaceId || await resolveInitialWorkspaceId());
+  if (state.filters.workspaceId !== workspaceId) {
+    setFiltersState({ ...state.filters, workspaceId, origin: state.filters.origin === "library" ? "runtime" : state.filters.origin });
+    syncFilterQuery();
+    state.viewport = loadStoredViewport(workspaceId) || state.viewport || defaultViewport();
+  }
+  return workspaceId;
+};
+
+const workspaceForDraft = () =>
+  normalizeRuntimeWorkspaceId(state.filters.workspaceId || selectedNode()?.workspaceId || state.runtime.flows[0]?.workspaceId);
+
+const currentWorkspaceId = () =>
+  normalizeRuntimeWorkspaceId(state.filters.workspaceId || state.runtime.flows[0]?.workspaceId || "workspace_global");
+
+const currentWorkspaceName = () => {
+  const workspaceId = currentWorkspaceId();
+  const flow = state.runtime.flows.find((item) => item.workspaceId === workspaceId || item.id === workspaceId);
+  const option = workspaceOptions().find((item) => item.value === workspaceId);
+  return flow?.name || option?.label || workspaceId;
+};
+
+const channelForDraft = () =>
+  (state.filters.channel !== "all"
+    ? state.filters.channel
+    : state.focus.channel || (selectedNode() ? nodeChannels(selectedNode())[0] : "")) || "default";
+
+const escapeSelectorValue = (value) => window.CSS?.escape ? window.CSS.escape(value) : String(value).replace(/["\\]/g, "\\$&");
+
+const bringNodeToFront = (nodeId = "") => {
+  const nextId = String(nodeId || "");
+  if (!nextId || state.frontNodeId === nextId) return;
+  state.frontNodeId = nextId;
+  document.querySelectorAll(".tl-flow-node.is-front").forEach((element) => element.classList.remove("is-front"));
+  document.querySelector(`.tl-flow-node[data-flow-node-id="${escapeSelectorValue(nextId)}"]`)?.classList.add("is-front");
+};

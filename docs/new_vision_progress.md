@@ -289,6 +289,7 @@ Obiettivo: introdurre AI locale reale prima del cloud.
 - 2026-05-31: Corretto il caso `runtimeConnector: "form"` salvato dal builder, cosi il play compare anche sui custom node Form-only espliciti.
 - 2026-05-31: Il play e' ora sempre esposto per tutti i custom node root, inclusi REST/WebSocket/RSS senza endpoint ancora configurato; il test runtime segnala la configurazione mancante invece di nascondere il comando.
 - 2026-05-31: Le porte IN/OUT del Node Builder sono diventate configurabili: tipo dati, required/descrizione/schema per input, sorgente payload per output (`runtimeResult`, form completo, componente singolo, statico o mapping). Il live test applica il mapping per porta prima di pubblicare eventi downstream.
+- 2026-05-31: La codebase Flow Map e' stata separata in partial piu piccoli per facilitare manutenzione e lavoro AI: `js/flow-map/` contiene stato/store, interazioni, test runtime, Node Builder, nodi runtime e canvas/inspector; `js/flowMapView.js` resta il bootstrap. Anche `css/flowMap.css` e' ora solo entrypoint verso partial in `css/flow-map/`, divisi per shell/palette, Node Builder, canvas/nodi, inspector/config e responsive/status.
 
 La sequenza corretta resta:
 
