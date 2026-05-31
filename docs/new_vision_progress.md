@@ -256,6 +256,24 @@ Obiettivo: introdurre AI locale reale prima del cloud.
 - 2026-05-29: La palette `Add Node` della Flow Map ora include una search locale che filtra gruppi e nodi per label, tipo, subtype, categoria, permessi e metadata senza rimontare la shell durante la digitazione.
 - 2026-05-29: Corretto il pan del canvas Flow Map: il mouseup dopo pan reale non rimonta piu la shell, evitando il reset dello scroll nella palette `Add Node`.
 - 2026-05-29: Le card nodo della Flow Map ora vengono portate in primo piano su click/drag tramite stato `frontNodeId` e classe `is-front`, evitando che restino sotto altre card sovrapposte.
+- 2026-05-29: Avviata la base UI del Flow Map Node Builder: dialog CMSwift-style con Template Library ricercabile a sinistra, builder centrale per General/Form/Ports/Runtime e preview live del node a destra. Il punto di apertura resta da scegliere.
+- 2026-05-30: Il Node Builder della Flow Map e' ora apribile dalla palette sinistra tramite bottone `Create Node` posizionato sopra `Add Node`.
+- 2026-05-30: I controlli principali del Node Builder sono ora operativi: selezione template, modifica General, Add/Edit/Delete field, Add/Hide/Delete port, Save Template locale e Create Node reale su `TrackerLensRuntimeGraphStore` come nodo custom workspace-scoped.
+- 2026-05-30: La sidebar del Node Builder separa ora `Components` e `Templates` in due card collassabili; il catalogo componenti resta essenziale senza Card e senza componenti shell/overlay/lista, mentre `Card` diventa un'azione dedicata nel pannello `Form Fields` accanto ad `Add Field`.
+- 2026-05-30: Il Node Builder usa ora `formLayout` ad albero: `Card`, `Row` e `Col` sono contenitori con children, mentre i componenti dati generano `settingsSchema`; il nodo custom salva sia `formSchema.layout` sia i campi dati derivati.
+- 2026-05-30: I componenti del Node Builder sono ora trascinabili dalla lista `Components` dentro i container `Card`, `Row` e `Col`; Row/Col non compaiono piu nella lista laterale e restano aggiungibili come container interni dalle azioni del builder.
+- 2026-05-30: Il drop del Node Builder accetta ora anche il pannello `Form Fields` come root target e usa un dragover meno fragile, cosi il rilascio su root o su Card/Row/Col materializza davvero il componente.
+- 2026-05-30: Il drag dei componenti nel Node Builder e' stato spostato da HTML native drag a pointer events custom con ghost visuale e target detection via `elementFromPoint()`, rendendo evidente l'avvio del trascinamento.
+- 2026-05-30: La sidebar del Node Builder ora fa scroll come aside unico, cosi `Components` e `Templates` possono restare aperti insieme senza comprimersi tra loro.
+- 2026-05-30: `Field Settings` del Node Builder usa ora `_.Toggle` CMSwift per l'opzione `Required`, eliminando la checkbox HTML nativa.
+- 2026-05-30: `Field Settings` del Node Builder usa ora componenti CMSwift anche per `Label`, `Key` e `Type` (`_.Input` / `_.Select`), rimuovendo input e select HTML nativi visibili.
+- 2026-05-30: Il preview del Node Builder ora renderizza il `Form Layout` dentro la card nodo runtime, con controlli CMSwift reali disabilitati/read-only per input, select, toggle e componenti affini.
+- 2026-05-30: I controlli CMSwift nel preview della card nodo sono stati compattati solo in quel contesto, evitando componenti sproporzionati dentro la preview stretta.
+- 2026-05-30: Corretto `Save Field` nel dialog `Field Settings`: il bottone del footer salva direttamente lo stato del campo senza dipendere dal submit form via attributo `form`.
+- 2026-05-30: I nodi custom creati dal Node Builder ora mostrano il `formLayout` anche nella card reale del canvas e il gear apre un dialog CMSwift `Custom Node Settings` invece della pagina fallback. Il salvataggio aggiorna `metadata.config`, preserva manifest/formSchema/porte e registra i channel nel registry.
+- 2026-05-30: I controlli custom renderizzati sulla card reale del canvas sono ora interattivi: input/select/slider aggiornano `metadata.config` con salvataggio mirato, toggle/checkbox salvano subito e gli eventi pointer restano isolati dal drag del nodo.
+- 2026-05-30: Il dialog `Custom Node Settings` aggiunge nel footer `Customize Node`, che riapre il Node Builder in modalita modifica sullo stesso nodo custom. Layout, porte e metadata vengono precaricati e `Save Node` aggiorna il record esistente senza duplicarlo.
+- 2026-05-31: I controlli CMSwift nel Node Builder/custom node ora usano `size: "sm"` anche per Slider nei contesti preview, canvas e settings, dopo la correzione CMSwift dell'`IndexSizeError` sul range input nativo.
 
 La sequenza corretta resta:
 

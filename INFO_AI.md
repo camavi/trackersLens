@@ -3688,6 +3688,40 @@ Fatto:
 - `js/flowMapView.js`: le card nodo mantengono uno stato `frontNodeId` e vengono portate in primo piano su click o avvio drag.
 - `css/flowMap.css`: aggiunta la classe `is-front` con z-index dedicato, lasciando gli stati selected/link-source coerenti.
 
+## Aggiornamento 2026-05-29 - Flow Map Node Builder foundation
+
+Fatto:
+
+- `js/flowMapView.js`: aggiunta una base dialog `Create Node` con Template Library ricercabile, builder centrale e preview live del node. Per ora e' esposta come `window.TrackerLensOpenNodeBuilder()` in attesa di decidere il bottone di apertura.
+- `css/flowMap.css`: aggiunti stili dedicati `tl-flow-node-builder-*` e riuso delle tonalita node esistenti.
+
+Aggiornamento 2026-05-30:
+
+- `js/flowMapView.js`: la palette sinistra apre ora il Node Builder con bottone `Create Node` sopra `Add Node`.
+- `css/flowMap.css`: aggiunto stile dedicato `tl-flow-create-node-btn`.
+- `js/flowMapView.js`: i controlli del Node Builder aggiornano uno stato reale; `Add Field`, field settings/delete, add/hide/delete port, `Save Template` e `Create Node` sono collegati. `Create Node` crea un runtime node custom workspace-scoped tramite `TrackerLensRuntimeGraphStore`, senza passare dal flusso draft/editor esterno.
+- `css/flowMap.css`: aggiunti stati layout per righe porta nascoste, bottoni riga e feedback `Saved`.
+- `js/flowMapView.js`: la sidebar del dialog Node Builder usa ora due card collassabili: `Components`, con catalogo componenti essenziali senza Card e senza componenti shell/overlay/lista, e `Templates`, che mantiene la template library ricercabile. `Card` e' ora un'azione dedicata nel pannello `Form Fields`, accanto ad `Add Field`.
+- `css/flowMap.css`: aggiunti stili puliti per le card laterali collassabili, lista componenti, azioni header del builder e template scroll interno.
+- `js/flowMapView.js`: il form builder ora usa una struttura `formLayout` ad albero: `Card`, `Row` e `Col` sono contenitori con `children`, mentre Input/Select/Toggle/Checkbox/Slider generano il `settingsSchema`. I componenti display come Badge/Chip restano nel layout ma non aggiungono campi dati.
+- `css/flowMap.css`: aggiunto trattamento visuale per nodi layout annidati, children dei container e stato vuoto dentro Card/Row/Col.
+- `js/flowMapView.js`: la lista `Components` non include piu Row/Col; i componenti rimasti sono draggable e possono essere rilasciati su container `Card`, `Row` o `Col`, dove vengono inseriti nei rispettivi `children`.
+- `css/flowMap.css`: aggiunti stati drag/drop per componenti e container target del Node Builder.
+- `js/flowMapView.js`: corretto il drop del Node Builder rendendo `Form Fields` un target root e rimuovendo il controllo fragile sui MIME type durante `dragover`; il drop su Card/Row/Col continua a inserire nei children.
+- `js/flowMapView.js`: il drag dei componenti del Node Builder non usa piu il drag nativo HTML sui button; ora parte da pointer events, mostra un ghost custom sotto il mouse e risolve il target da `elementFromPoint()`.
+- `css/flowMap.css`: aggiunto ghost visuale fixed e stato body `is-node-builder-component-dragging`.
+- `css/flowMap.css`: corretta la sidebar del Node Builder: `Components` e `Templates` restano entrambi aperti e lo scroll avviene sull'aside intero, evitando che Templates schiacci Components.
+- `js/flowMapView.js`: il dialog `Field Settings` usa ora `_.Toggle` CMSwift per `Required`, non piu una checkbox HTML nativa.
+- `js/flowMapView.js`: il dialog `Field Settings` usa ora anche `_.Input` per Label/Key e `_.Select` per Type, eliminando input/select HTML nativi visibili.
+- `js/flowMapView.js`: il preview del Node Builder ora renderizza il `formLayout` dentro la card nodo runtime, usando componenti CMSwift reali disabilitati/read-only per Input, Select, Toggle e controlli affini.
+- `css/flowMap.css`: compattati solo i componenti CMSwift nel contesto preview della card nodo, riducendo altezza, font, gap e scala del toggle senza toccare il tema globale.
+- `js/flowMapView.js`: corretto `Save Field` nel dialog `Field Settings`; il bottone footer ora chiama direttamente la funzione di salvataggio invece di dipendere dal submit form esterno al dialog footer.
+- `js/flowMapView.js`: i nodi custom creati dal Node Builder ora renderizzano il loro `formLayout` anche sulla card reale del canvas e il gear apre un dialog CMSwift `Custom Node Settings`, non una pagina fallback. Il salvataggio aggiorna `metadata.config`, mantiene porte/manifest/formSchema e registra i channel nel registry.
+- `js/flowMapView.js`: i controlli del form custom sulla card reale del canvas sono ora editabili, non piu read-only: input/select/slider salvano il valore con update mirato in `metadata.config`, mentre toggle/checkbox salvano subito senza rimontare tutta la Flow Map.
+- `js/flowMapView.js`: il footer del dialog `Custom Node Settings` include ora `Customize Node`, che riapre il Node Builder in modalita modifica sullo stesso nodo custom. Il builder viene precaricato con layout, porte e metadata del nodo e salva sul record esistente invece di creare un duplicato.
+- `js/flowMapView.js`: i controlli CMSwift usati dal Node Builder e dai custom node (`Input`, `Select`, `Toggle`, `Slider`) passano ora `size: "sm"` come default operativo nei contesti preview, canvas e settings, dopo la correzione CMSwift dello Slider.
+- `css/flowMap.css`: aggiunto solo il CSS di supporto per il form custom sul canvas e il dialog settings, riusando le classi preview/layout del Node Builder invece di duplicare un secondo sistema visuale.
+
 ## Aggiornamento 2026-05-29 - Inspector Flow Map a card collassabili
 
 Obiettivo della sessione: aggiornare l'aside destro Node/Edge Inspector con una struttura piu compatta e moderna, ispirata a pannelli collassabili, mantenendo i controlli principali sempre in alto.

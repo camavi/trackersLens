@@ -194,6 +194,24 @@ Runtime Notes:
 - 2026-05-29: Flow Map `Add Node` palette now has local search over node label, type, subtype, category, permissions and metadata. Filtering patches palette DOM visibility directly so typing does not remount the shell or drop input focus.
 - 2026-05-29: Flow Map canvas pan no longer remounts the shell on mouseup after a real pan. The viewport is saved and edges are redrawn in-place, preserving the left Add Node palette scroll.
 - 2026-05-29: Flow Map node cards now come to front on click or drag start through `frontNodeId` / `is-front`, so overlapping nodes keep their controls accessible.
+- 2026-05-29: Flow Map Node Builder foundation added as a CMSwift-style dialog with searchable Template Library, central General/Form/Ports/Runtime builder panels and a live node preview. It is exposed for testing while the final open button placement is still undecided.
+- 2026-05-30: Flow Map left palette now opens the Node Builder from a dedicated `Create Node` button placed above `Add Node`.
+- 2026-05-30: Flow Map Node Builder actions now mutate real builder state: General fields update preview, fields can be added/edited/deleted, ports can be added/hidden/deleted, templates save to local storage, and `Create Node` persists a workspace-scoped custom runtime node through `TrackerLensRuntimeGraphStore`.
+- 2026-05-30: Flow Map Node Builder sidebar now has two collapsible cards: an essential `Components` catalog without Card or shell/overlay/list components, plus expanded `Templates`; `Card` is now added from the `Form Fields` header beside `Add Field`.
+- 2026-05-30: Flow Map Node Builder form fields now use a tree `formLayout`: Card/Row/Col are containers with children, data components generate `settingsSchema`, and created custom nodes persist both layout and derived fields.
+- 2026-05-30: Flow Map Node Builder components are now draggable into Card/Row/Col containers; Row/Col were removed from the sidebar component catalog and remain available as internal container actions.
+- 2026-05-30: Flow Map Node Builder drag/drop now accepts the `Form Fields` panel as root target and avoids fragile MIME checks during dragover, so drops materialize components at root or inside Card/Row/Col children.
+- 2026-05-30: Flow Map Node Builder component drag now uses custom pointer events with a visible drag ghost and `elementFromPoint()` target detection instead of native HTML drag on buttons.
+- 2026-05-30: Flow Map Node Builder sidebar now scrolls as one aside, allowing `Components` and `Templates` to remain open together without either card compressing the other.
+- 2026-05-30: Flow Map Node Builder `Field Settings` now uses CMSwift `_.Toggle` for `Required` instead of a native HTML checkbox.
+- 2026-05-30: Flow Map Node Builder `Field Settings` now uses CMSwift `_.Input` and `_.Select` for Label, Key and Type instead of visible native HTML inputs/selects.
+- 2026-05-30: Flow Map Node Builder preview now renders `Form Layout` inside the runtime node card with real disabled/read-only CMSwift controls for input, select, toggle and related components.
+- 2026-05-30: Flow Map Node Builder preview-scoped CSS now compacts CMSwift controls inside the narrow node card without changing global component styling.
+- 2026-05-30: Flow Map Node Builder `Field Settings` footer `Save Field` now calls the save handler directly instead of relying on an external form submit bridge.
+- 2026-05-30: Flow Map custom nodes created by the Node Builder now render their authored `formLayout` on the actual canvas card and route the gear button to an in-place CMSwift `Custom Node Settings` dialog. Saving updates `metadata.config`, keeps manifest/formSchema/ports intact and registers the node channels.
+- 2026-05-30: Flow Map custom node controls on the actual canvas card are now editable. Text/select/slider changes persist targeted `metadata.config` values, toggle/checkbox changes save immediately, and pointer events are isolated from node drag.
+- 2026-05-30: Flow Map `Custom Node Settings` now has a footer `Customize Node` action that reopens the Node Builder in edit mode for the same custom node. The builder preloads layout, ports and metadata, and `Save Node` updates the existing runtime node instead of creating a duplicate.
+- 2026-05-31: Flow Map Node Builder/custom node CMSwift Input, Select, Toggle and Slider controls now pass `size: "sm"` in preview, canvas and settings contexts after the CMSwift Slider range-input `IndexSizeError` fix.
 - Remaining: service-worker/extension background persistence after every Trackers Lens tab is closed remains future hardening; current worker lifetime is browser-page scoped.
 
 ## [TASK-020]

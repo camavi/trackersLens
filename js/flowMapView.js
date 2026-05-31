@@ -1063,6 +1063,7 @@ const nodeRuntimeDescription = (node = {}, live = null) => {
   if (category === "lens" || node.type === "boxLens" || node.type === "lens") return "Visual runtime consumer rendering live channel state.";
   if (category === "actions" || node.type === "action") return "Active runtime reaction triggered by events.";
   if (category === "storage" || node.type === "storage") return "Persistence layer for runtime data and history.";
+  if (isCustomRuntimeNode(node)) return "Custom runtime node.";
   return live ? "Runtime node receiving live events." : "Runtime graph node.";
 };
 
@@ -3027,7 +3028,7 @@ const isTestableStarterNode = (node = {}) => {
 const isDirectAiTestNode = (node = {}) =>
   !node.metadata?.library &&
   node.type === "aiAgent" &&
-    !["paused", "disabled", "disconnected"].includes(String(node.runtime?.status || node.metadata?.runtimeStatus || node.status || "").toLowerCase());
+  !["paused", "disabled", "disconnected"].includes(String(node.runtime?.status || node.metadata?.runtimeStatus || node.status || "").toLowerCase());
 
 const isManualInputSource = (node = {}) => {
   const subtype = String(nodeSubtype(node) || "").toLowerCase();
@@ -5128,11 +5129,1303 @@ const paletteItemForNode = (node = {}) => {
     null;
 };
 
+const blankNodeTemplate = () => paletteNode({
+  label: "Blank Custom Node",
+  icon: "add_box",
+  tone: "gold",
+  nodeType: "custom",
+  subtype: "custom",
+  category: "custom",
+  inputs: ["input"],
+  outputs: ["output"],
+  settingsSchema: {},
+});
+
+const NODE_BUILDER_TEMPLATE_STORAGE_KEY = "trackersLens.flowMap.nodeBuilder.templates";
+
+const loadSavedNodeBuilderTemplates = () => {
+  try {
+    const saved = JSON.parse(localStorage.getItem(NODE_BUILDER_TEMPLATE_STORAGE_KEY) || "[]");
+    return Array.isArray(saved) ? saved.filter((item) => item && item.label) : [];
+  } catch (_) {
+    return [];
+  }
+};
+
+const saveNodeBuilderTemplate = (template = {}) => {
+  const saved = loadSavedNodeBuilderTemplates();
+  const next = {
+    ...template,
+    savedTemplate: true,
+    savedAt: new Date().toISOString(),
+  };
+  const id = nodeBuilderTemplateId("My Templates", next);
+  const existing = saved.filter((item) => nodeBuilderTemplateId("My Templates", item) !== id);
+  try {
+    localStorage.setItem(NODE_BUILDER_TEMPLATE_STORAGE_KEY, JSON.stringify([next, ...existing].slice(0, 40)));
+  } catch (_) {
+    // Local template persistence is optional in restricted contexts.
+  }
+  return next;
+};
+
+const nodeBuilderTemplateGroups = () => [
+  ["Custom", [blankNodeTemplate()]],
+  ...(loadSavedNodeBuilderTemplates().length ? [["My Templates", loadSavedNodeBuilderTemplates()]] : []),
+  ...nodePalette,
+];
+
+const nodeBuilderTemplateId = (group = "", item = {}) =>
+  `${String(group || "templates").toLowerCase().replace(/[^a-z0-9]+/g, "-")}-${String(item.label || item.nodeType || "node").toLowerCase().replace(/[^a-z0-9]+/g, "-")}`;
+
+const nodeBuilderTemplateSearchText = (group = "", item = {}) =>
+  [
+    group,
+    item.label,
+    item.nodeType,
+    item.subtype,
+    item.category,
+    item.connectionType,
+    item.trackerSource,
+    item.runtimeMode,
+    ...(item.permissions || []),
+  ].filter(Boolean).join(" ").toLowerCase();
+
+const nodeBuilderCmswiftComponents = [
+  { label: "Badge", type: "content", icon: "label", description: "Status badge" },
+  { label: "Chip", type: "content", icon: "sell", description: "Compact token" },
+  { label: "Input", type: "form", icon: "input", description: "Text field" },
+  { label: "Select", type: "form", icon: "arrow_drop_down_circle", description: "Option menu" },
+  { label: "Toggle", type: "form", icon: "toggle_on", description: "Boolean switch" },
+  { label: "Checkbox", type: "form", icon: "check_box", description: "Check control" },
+  { label: "Slider", type: "form", icon: "tune", description: "Numeric range" },
+];
+
+const normalizeNodeBuilderPorts = (ports = [], side = "in") => {
+  const values = Array.isArray(ports) && ports.length ? ports : [side === "in" ? "input" : "output"];
+  return values.map((port) => {
+    if (typeof port === "object" && port) {
+      return {
+        name: port.name || port.key || port.label || (side === "in" ? "input" : "output"),
+        type: port.type || "object",
+        visible: port.visible !== false,
+      };
+    }
+    return {
+      name: String(port || (side === "in" ? "input" : "output")),
+      type: "object",
+    };
+  });
+};
+
+const defaultNodeBuilderTemplate = () =>
+  nodeBuilderTemplateGroups()[0]?.[1]?.[0] || blankNodeTemplate();
+
+const NODE_BUILDER_CONTAINER_TYPES = new Set(["card", "row", "col"]);
+const NODE_BUILDER_DATA_COMPONENT_TYPES = new Set(["input", "select", "toggle", "checkbox", "slider", "string", "number", "boolean", "object", "array", "textarea"]);
+
+const nodeBuilderComponentSchemaType = (type = "input") => ({
+  input: "string",
+  textarea: "textarea",
+  select: "select",
+  toggle: "toggle",
+  checkbox: "boolean",
+  slider: "number",
+  string: "string",
+  number: "number",
+  boolean: "boolean",
+  object: "object",
+  array: "array",
+}[type] || type || "string");
+
+const nodeBuilderComponentIcon = (type = "input") => ({
+  card: "view_agenda",
+  row: "view_stream",
+  col: "view_column",
+  input: "input",
+  string: "input",
+  textarea: "notes",
+  number: "pin",
+  boolean: "toggle_on",
+  toggle: "toggle_on",
+  checkbox: "check_box",
+  select: "arrow_drop_down_circle",
+  slider: "tune",
+  badge: "label",
+  chip: "sell",
+}[type] || "dynamic_form");
+
+const nodeBuilderId = (prefix = "item") =>
+  `${prefix}_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
+
+const nodeBuilderFieldsFromTemplate = (template = {}) => {
+  const entries = Object.entries(template.settingsSchema || {});
+  return (entries.length ? entries : [["name", "string"], ["enabled", "toggle"]]).map(([key, type]) => ({
+    id: `field_${String(key || "field").replace(/[^A-Za-z0-9_-]/g, "_")}_${Math.random().toString(36).slice(2, 6)}`,
+    key: String(key || "field"),
+    label: String(key || "Field"),
+    type: String(type || "string"),
+    required: false,
+  }));
+};
+
+const normalizeNodeBuilderLayout = (nodes = []) =>
+  (Array.isArray(nodes) ? nodes : []).map((node) => {
+    const type = String(node?.type || "input");
+    const normalized = {
+      id: node?.id || nodeBuilderId(type),
+      type,
+      label: node?.label || node?.key || (NODE_BUILDER_CONTAINER_TYPES.has(type) ? type.toUpperCase() : "Field"),
+      key: node?.key || "",
+      required: Boolean(node?.required),
+    };
+    if (NODE_BUILDER_CONTAINER_TYPES.has(type)) {
+      normalized.children = normalizeNodeBuilderLayout(node?.children || []);
+    } else if (!normalized.key) {
+      normalized.key = String(normalized.label || "field").replace(/[^A-Za-z0-9_.-]/g, "_").toLowerCase();
+    }
+    return normalized;
+  });
+
+const nodeBuilderLayoutFromFields = (fields = []) =>
+  normalizeNodeBuilderLayout((fields || []).map((field) => {
+    const type = String(field.type || "input");
+    if (NODE_BUILDER_CONTAINER_TYPES.has(type)) {
+      return {
+        id: field.id || nodeBuilderId(type),
+        type,
+        label: field.label || type.toUpperCase(),
+        key: field.key || "",
+        children: normalizeNodeBuilderLayout(field.children || []),
+      };
+    }
+    return {
+      id: field.id || nodeBuilderId("field"),
+      type,
+      label: field.label || field.key || "Field",
+      key: field.key || "field",
+      required: Boolean(field.required),
+    };
+  }));
+
+const walkNodeBuilderLayout = (nodes = [], visitor = () => { }, parent = null) => {
+  (nodes || []).forEach((node, index) => {
+    visitor(node, parent, index);
+    if (NODE_BUILDER_CONTAINER_TYPES.has(node.type)) {
+      walkNodeBuilderLayout(node.children || [], visitor, node);
+    }
+  });
+};
+
+const findNodeBuilderLayoutNode = (nodes = [], nodeId = "") => {
+  let found = null;
+  walkNodeBuilderLayout(nodes, (node, parent, index) => {
+    if (!found && node.id === nodeId) found = { node, parent, index };
+  });
+  return found;
+};
+
+const removeNodeBuilderLayoutNode = (nodes = [], nodeId = "") => {
+  const found = findNodeBuilderLayoutNode(nodes, nodeId);
+  if (!found) return false;
+  const list = found.parent ? found.parent.children : nodes;
+  if (!found.parent && list.length <= 1) return false;
+  list.splice(found.index, 1);
+  return true;
+};
+
+const collectNodeBuilderDataFields = (layout = []) => {
+  const fields = [];
+  walkNodeBuilderLayout(layout, (node) => {
+    if (NODE_BUILDER_DATA_COMPONENT_TYPES.has(node.type)) {
+      fields.push({
+        id: node.id,
+        key: node.key || String(node.label || "field").replace(/[^A-Za-z0-9_.-]/g, "_").toLowerCase(),
+        label: node.label || node.key || "Field",
+        type: nodeBuilderComponentSchemaType(node.type),
+        component: node.type,
+        required: Boolean(node.required),
+      });
+    }
+  });
+  return fields;
+};
+
+const nodeBuilderSettingsSchemaFromLayout = (layout = []) =>
+  Object.fromEntries(collectNodeBuilderDataFields(layout).map((field) => [field.key || field.label || "field", field.type || "string"]));
+
+const nodeBuilderStateFromTemplate = (template = {}, group = "Custom") => {
+  const fields = nodeBuilderFieldsFromTemplate(template);
+  const formLayout = normalizeNodeBuilderLayout(template.formLayout || template.formSchema?.layout || nodeBuilderLayoutFromFields(fields));
+  return {
+    sourceGroup: group,
+    label: template.label || "Custom Node",
+    nodeType: template.nodeType || "custom",
+    subtype: template.subtype || "custom",
+    category: template.category || String(group || "custom").toLowerCase(),
+    icon: template.icon || "extension",
+    tone: template.tone || "gold",
+    connectionType: template.connectionType || template.trackerSource || "",
+    runtimeMode: template.runtimeMode || template.runtime?.mode || "manual / on event",
+    permissions: Array.isArray(template.permissions) ? [...template.permissions] : [],
+    formLayout,
+    fields: collectNodeBuilderDataFields(formLayout),
+    inputs: normalizeNodeBuilderPorts(template.inputs || template.manifest?.inputs || ["input"], "in").map((port) => ({ ...port, visible: true })),
+    outputs: normalizeNodeBuilderPorts(template.outputs || template.manifest?.outputs || ["output"], "out").map((port) => ({ ...port, visible: true })),
+  };
+};
+
+const nodeBuilderStateToTemplate = (builder = {}) => {
+  const formLayout = normalizeNodeBuilderLayout(builder.formLayout || nodeBuilderLayoutFromFields(builder.fields || []));
+  const settingsSchema = nodeBuilderSettingsSchemaFromLayout(formLayout);
+  const fields = collectNodeBuilderDataFields(formLayout);
+  return {
+    label: builder.label || "Custom Node",
+    icon: builder.icon || "extension",
+    tone: builder.tone || "gold",
+    nodeType: builder.nodeType || "custom",
+    subtype: builder.subtype || "custom",
+    category: builder.category || "custom",
+    inputs: (builder.inputs || []).map((port) => ({ name: port.name || "input", type: port.type || "object" })),
+    outputs: (builder.outputs || []).map((port) => ({ name: port.name || "output", type: port.type || "object" })),
+    permissions: Array.isArray(builder.permissions) ? [...builder.permissions] : [],
+    runtimeMode: builder.runtimeMode || "manual / on event",
+    connectionType: builder.connectionType || "",
+    formLayout,
+    fields,
+    settingsSchema,
+    manifest: {
+      type: builder.nodeType || "custom",
+      subtype: builder.subtype || "custom",
+      category: builder.category || "custom",
+      inputs: (builder.inputs || []).map((port) => ({ name: port.name || "input", type: port.type || "object" })),
+      outputs: (builder.outputs || []).map((port) => ({ name: port.name || "output", type: port.type || "object" })),
+      permissions: Array.isArray(builder.permissions) ? [...builder.permissions] : [],
+      settingsSchema,
+    },
+  };
+};
+
+const renderNodeBuilderPreviewComponent = (node = {}) => {
+  const label = node.label || node.key || node.type || "Component";
+  if (NODE_BUILDER_CONTAINER_TYPES.has(node.type)) {
+    return _.div(
+      { class: `tl-flow-node-builder-preview-form-node is-${node.type}` },
+      _.div(
+        { class: "tl-flow-node-builder-preview-form-head" },
+        icon(nodeBuilderComponentIcon(node.type), "sm"),
+        _.strong(label),
+        _.em(node.type)
+      ),
+      _.div(
+        { class: "tl-flow-node-builder-preview-form-children" },
+        ...(node.children?.length
+          ? node.children.map((child) => renderNodeBuilderPreviewComponent(child))
+          : [_.span({ class: "tl-flow-node-builder-preview-empty" }, "Empty container")])
+      )
+    );
+  }
+  if (node.type === "badge" || node.type === "chip") {
+    return _.span(
+      { class: `tl-flow-node-builder-live-token is-${node.type}` },
+      icon(nodeBuilderComponentIcon(node.type), "sm"),
+      label
+    );
+  }
+  if (node.type === "select") {
+    return _.Select({
+      class: "tl-flow-node-builder-live-field",
+      size: "sm",
+      label,
+      value: "preview",
+      disabled: true,
+      options: [{ value: "preview", label: "Preview option" }],
+      slots: { arrow: () => icon("keyboard_arrow_down", "sm") },
+    });
+  }
+  if (node.type === "toggle" || node.type === "checkbox" || node.type === "boolean") {
+    return _.div(
+      { class: "tl-flow-node-builder-live-toggle" },
+      _.span(label),
+      _.Toggle({ class: "tl-flow-node-builder-live-toggle-control", size: "sm", checked: true, color: "success", disabled: true })
+    );
+  }
+  if (node.type === "slider" || node.type === "number") {
+    return _.div(
+      { class: "tl-flow-node-builder-live-field" },
+      _.span(label),
+      _.Slider ? _.Slider({ size: "sm", value: 42, min: 0, max: 100, disabled: true }) : _.div({ class: "tl-flow-node-builder-live-slider" })
+    );
+  }
+  return _.Input({
+    class: "tl-flow-node-builder-live-field",
+    size: "sm",
+    label,
+    value: node.type === "textarea" ? "Preview text" : "",
+    placeholder: node.key || label,
+    disabled: true,
+  });
+};
+
+const renderNodeBuilderPreviewFormNodes = (layout = []) => {
+  const nodes = normalizeNodeBuilderLayout(layout);
+  return nodes.length
+    ? nodes.map((node) => renderNodeBuilderPreviewComponent(node))
+    : [
+      _.div(
+        { class: "tl-flow-node-builder-preview-form-empty is-inline" },
+        icon("view_agenda", "sm"),
+        _.strong("No form layout"),
+        _.span("Add a Card or drag components into Form Fields.")
+      )
+    ];
+};
+
+const renderNodeBuilderPreview = (template = defaultNodeBuilderTemplate()) => {
+  const inputs = normalizeNodeBuilderPorts(template.inputs || template.manifest?.inputs || ["input"], "in").filter((port) => port.visible !== false).slice(0, 4);
+  const outputs = normalizeNodeBuilderPorts(template.outputs || template.manifest?.outputs || ["output"], "out").filter((port) => port.visible !== false).slice(0, 4);
+  const tone = template.tone || "gold";
+  return _.div(
+    { class: "tl-flow-node-builder-preview-stack" },
+    _.div(
+      { class: `tl-flow-node-builder-preview-node is-${tone}` },
+      _.div(
+        { class: "tl-flow-node-builder-preview-head" },
+        _.span({ class: `tl-flow-node-icon is-${tone}` }, icon(template.icon || "extension", "md")),
+        _.span(
+          { class: "tl-flow-node-builder-preview-title" },
+          _.strong(template.label || "Custom Node"),
+          _.em(`${template.nodeType || "node"} · ${template.subtype || "custom"}`)
+        ),
+        _.span({ class: "tl-flow-status is-active" }, _.span(), "active")
+      ),
+      _.div(
+        { class: "tl-flow-node-builder-preview-body" },
+        _.small(template.connectionType || template.trackerSource || "Template loaded for this workspace."),
+        _.div(
+          { class: "tl-flow-node-builder-live-form" },
+          ...renderNodeBuilderPreviewFormNodes(template.formLayout || template.formSchema?.layout || [])
+        ),
+        _.div(
+          { class: "tl-flow-node-builder-preview-ports" },
+          _.span("IN"),
+          ...inputs.map((port) => _.em(port.name || port.label || "input")),
+          _.span("OUT"),
+          ...outputs.map((port) => _.em(port.name || port.label || "output"))
+        )
+      ),
+      _.div(
+        { class: "tl-flow-node-builder-preview-footer" },
+        _.span(`${inputs.length} IN · ${outputs.length} OUT`),
+        btn({ class: "tl-flow-node-test-btn", disabled: true, title: "Preview only" }, icon("play_arrow", "sm"))
+      )
+    )
+  );
+};
+
+const renderNodeBuilderFormLayout = (layout = [], depth = 0) => {
+  const nodes = normalizeNodeBuilderLayout(layout);
+  if (!nodes.length && depth === 0) {
+    return [
+      _.div(
+        { class: "tl-flow-node-builder-empty-layout" },
+        icon("dynamic_form", "sm"),
+        _.strong("No form components"),
+        _.span("Add a Card, Row, Col or input-like component.")
+      ),
+    ];
+  }
+  return nodes.map((node, index) => {
+    const isContainer = NODE_BUILDER_CONTAINER_TYPES.has(node.type);
+    const childActions = isContainer ? _.span(
+      { class: "tl-flow-node-builder-row-actions" },
+      btn({ title: "Add Row", "aria-label": "Add Row", "data-node-builder-add-child": `${node.id}:row` }, icon("view_stream", "sm")),
+      btn({ title: "Add Col", "aria-label": "Add Col", "data-node-builder-add-child": `${node.id}:col` }, icon("view_column", "sm")),
+      btn({ title: "Add Input", "aria-label": "Add Input", "data-node-builder-add-child": `${node.id}:input` }, icon("input", "sm")),
+      btn({ title: "Add Select", "aria-label": "Add Select", "data-node-builder-add-child": `${node.id}:select` }, icon("arrow_drop_down_circle", "sm"))
+    ) : null;
+    return _.div(
+      {
+        class: `tl-flow-node-builder-layout-node is-${node.type}${isContainer ? " is-container" : " is-leaf"}`,
+        "data-node-builder-layout-id": node.id,
+        ...(isContainer ? { "data-node-builder-drop-container": node.id } : {}),
+        style: `--builder-depth:${depth}`,
+      },
+      _.div(
+        { class: "tl-flow-node-builder-layout-head" },
+        icon(nodeBuilderComponentIcon(node.type), "sm"),
+        _.span(
+          { class: "tl-flow-node-builder-row-main" },
+          _.strong(node.label || node.key || node.type),
+          _.em(isContainer ? `${node.type} container` : `${node.type} · ${node.key || "display"}`)
+        ),
+        node.key && !isContainer ? _.code(node.key) : null,
+        childActions,
+        btn({ title: "Component settings", "aria-label": "Component settings", "data-node-builder-edit-field": node.id }, icon("tune", "sm")),
+        btn({ title: "Remove component", "aria-label": "Remove component", "data-node-builder-delete-field": node.id, disabled: depth === 0 && nodes.length <= 1 && index === 0 }, icon("delete", "sm"))
+      ),
+      isContainer ? _.div(
+        { class: "tl-flow-node-builder-layout-children" },
+        ...(node.children?.length
+          ? renderNodeBuilderFormLayout(node.children, depth + 1)
+          : [_.div({ class: "tl-flow-node-builder-layout-empty" }, "Add components inside this container.")])
+      ) : null
+    );
+  });
+};
+
+const renderNodeBuilderPortRows = (ports = [], side = "in") =>
+  normalizeNodeBuilderPorts(ports, side).map((port, index) => _.div(
+    { class: `tl-flow-node-builder-port-row${port.visible === false ? " is-hidden-port" : ""}`, "data-node-builder-port-side": side, "data-node-builder-port-index": index },
+    icon("drag_indicator", "sm"),
+    _.span(
+      { class: "tl-flow-node-builder-row-main" },
+      _.strong(port.name || port.label || (side === "in" ? "input" : "output")),
+      _.em(port.type || "object")
+    ),
+    btn({ title: port.visible === false ? "Show on node" : "Hide from node", "aria-label": port.visible === false ? "Show on node" : "Hide from node", "data-node-builder-toggle-port": `${side}:${index}` }, icon(port.visible === false ? "visibility_off" : "visibility", "sm")),
+    btn({ title: "Remove port", "aria-label": "Remove port", "data-node-builder-delete-port": `${side}:${index}`, disabled: ports.length <= 1 }, icon("delete", "sm"))
+  ));
+
+const renderNodeBuilderCmswiftComponents = () =>
+  nodeBuilderCmswiftComponents.map((component) => _.button(
+    {
+      type: "button",
+      class: "tl-flow-node-builder-component",
+      title: component.description || component.label,
+      "aria-label": `CMSwift ${component.label}`,
+      "data-node-builder-add-component": component.label.toLowerCase(),
+    },
+    icon("drag_indicator", "sm"),
+    _.span({ class: "tl-flow-node-builder-component-icon" }, icon(component.icon || "widgets", "sm")),
+    _.span(
+      { class: "tl-flow-node-builder-template-main" },
+      _.strong(component.label),
+      _.em(`${component.type} · ${component.description}`)
+    )
+  ));
+
+const openNodeBuilderDialog = (options = {}) => {
+  const groups = nodeBuilderTemplateGroups();
+  const templates = groups.flatMap(([group, items]) => items.map((item) => ({ group, item, id: nodeBuilderTemplateId(group, item) })));
+  const editNode = options.editNode || null;
+  const editTemplate = options.nodeTemplate || null;
+  const editMode = Boolean(editNode?.id && editTemplate);
+  let selectedId = editMode ? "editing-custom-node" : options.templateId || templates[0]?.id || "";
+  let selected = editMode
+    ? { group: "Custom Node", item: editTemplate, id: selectedId }
+    : templates.find((entry) => entry.id === selectedId) || templates[0] || { group: "Custom", item: blankNodeTemplate(), id: "custom-blank-custom-node" };
+  let builder = nodeBuilderStateFromTemplate(selected.item, selected.group);
+
+  const rootFor = (eventOrElement) =>
+    eventOrElement?.currentTarget?.closest?.(".tl-flow-node-builder") ||
+    eventOrElement?.target?.closest?.(".tl-flow-node-builder") ||
+    eventOrElement?.closest?.(".tl-flow-node-builder") ||
+    document.querySelector(".tl-flow-node-builder");
+
+  const readBuilderGeneral = (root) => {
+    if (!root) return;
+    builder.label = root.querySelector("[data-node-builder-field='label']")?.value?.trim() || builder.label || "Custom Node";
+    builder.category = root.querySelector("[data-node-builder-field='category']")?.value?.trim() || "custom";
+    builder.icon = root.querySelector("[data-node-builder-field='icon']")?.value?.trim() || "extension";
+    builder.tone = root.querySelector("[data-node-builder-field='tone']")?.value?.trim() || "gold";
+    builder.subtype = root.querySelector("[data-node-builder-field='subtype']")?.value?.trim() || builder.subtype || "custom";
+  };
+
+  const refreshNodeBuilder = (root, { full = false } = {}) => {
+    if (!root) return;
+    if (full) {
+      const labelInput = root.querySelector("[data-node-builder-field='label']");
+      const categoryInput = root.querySelector("[data-node-builder-field='category']");
+      const iconInput = root.querySelector("[data-node-builder-field='icon']");
+      const toneInput = root.querySelector("[data-node-builder-field='tone']");
+      const subtypeInput = root.querySelector("[data-node-builder-field='subtype']");
+      if (labelInput) labelInput.value = builder.label || "Custom Node";
+      if (categoryInput) categoryInput.value = builder.category || "custom";
+      if (iconInput) iconInput.value = builder.icon || "extension";
+      if (toneInput) toneInput.value = builder.tone || "gold";
+      if (subtypeInput) subtypeInput.value = builder.subtype || "custom";
+      const fields = root.querySelector("[data-node-builder-fields]");
+      if (fields) fields.replaceChildren(...renderNodeBuilderFormLayout(builder.formLayout || []));
+      const inputPorts = root.querySelector("[data-node-builder-inputs]");
+      if (inputPorts) inputPorts.replaceChildren(...renderNodeBuilderPortRows(builder.inputs, "in"));
+      const outputPorts = root.querySelector("[data-node-builder-outputs]");
+      if (outputPorts) outputPorts.replaceChildren(...renderNodeBuilderPortRows(builder.outputs, "out"));
+    }
+    const title = root.querySelector("[data-node-builder-active-title]");
+    const meta = root.querySelector("[data-node-builder-active-meta]");
+    const summary = root.querySelector("[data-node-builder-active-summary]");
+    const runtimeExecution = root.querySelector("[data-node-builder-runtime-execution]");
+    const runtimePermissions = root.querySelector("[data-node-builder-runtime-permissions]");
+    if (title) title.textContent = builder.label || "Custom Node";
+    if (meta) meta.textContent = `${builder.sourceGroup || "Custom"} · ${builder.nodeType || "node"} · ${builder.subtype || "custom"}`;
+    if (summary) summary.textContent = builder.connectionType || "Template loaded for this workspace.";
+    if (runtimeExecution) runtimeExecution.textContent = builder.runtimeMode || "manual / on event";
+    if (runtimePermissions) runtimePermissions.textContent = (builder.permissions || []).join(", ") || "none";
+    const preview = root.querySelector("[data-node-builder-preview]");
+    if (preview) preview.replaceChildren(renderNodeBuilderPreview(builder));
+  };
+
+  const syncSelection = (root, nextId) => {
+    if (editMode) return;
+    selectedId = nextId || selectedId;
+    selected = templates.find((entry) => entry.id === selectedId) || selected;
+    builder = nodeBuilderStateFromTemplate(selected.item, selected.group);
+    root.querySelectorAll("[data-node-builder-template]").forEach((button) => {
+      button.classList.toggle("is-selected", button.dataset.nodeBuilderTemplate === selectedId);
+    });
+    refreshNodeBuilder(root, { full: true });
+  };
+
+  const filterTemplates = (root, query = "") => {
+    const needle = String(query || "").trim().toLowerCase();
+    let visibleGroups = 0;
+    root.querySelectorAll("[data-node-builder-template-group]").forEach((section) => {
+      let visibleItems = 0;
+      section.querySelectorAll("[data-node-builder-template]").forEach((button) => {
+        const matched = !needle || String(button.dataset.nodeBuilderSearch || "").includes(needle);
+        button.hidden = !matched;
+        if (matched) visibleItems += 1;
+      });
+      section.hidden = visibleItems === 0;
+      if (visibleItems) visibleGroups += 1;
+    });
+    const empty = root.querySelector("[data-node-builder-empty]");
+    if (empty) empty.hidden = visibleGroups > 0;
+  };
+
+  const toggleSideCard = (button) => {
+    const card = button?.closest?.("[data-node-builder-side-card]");
+    const body = card?.querySelector?.("[data-node-builder-side-body]");
+    if (!card || !body) return;
+    const collapsed = !card.classList.contains("is-collapsed");
+    card.classList.toggle("is-collapsed", collapsed);
+    button.setAttribute("aria-expanded", String(!collapsed));
+    body.hidden = collapsed;
+  };
+
+  const editBuilderField = (fieldId = "", root = null) => {
+    const found = findNodeBuilderLayoutNode(builder.formLayout || [], fieldId);
+    const field = found?.node;
+    if (!field) return;
+    const isContainer = NODE_BUILDER_CONTAINER_TYPES.has(field.type);
+    const formId = `tl-node-builder-field-${field.id}`;
+    let labelValue = field.label || field.key || "Field";
+    let keyValue = field.key || "field";
+    let typeValue = field.type || "string";
+    let requiredValue = Boolean(field.required);
+    const readCmsValue = (value) => value?.target?.value ?? value;
+    const typeOptions = (isContainer ? ["card", "row", "col"] : ["input", "string", "number", "boolean", "object", "array", "toggle", "checkbox", "select", "slider", "textarea", "badge", "chip"])
+      .map((type) => ({ value: type, label: type }));
+    const saveFieldSettings = () => {
+      const label = String(labelValue || "").trim() || field.label || field.key || "Field";
+      field.label = label;
+      field.key = isContainer ? "" : (String(keyValue || "").trim() || label).replace(/[^A-Za-z0-9_.-]/g, "_");
+      field.type = String(typeValue || "string");
+      if (NODE_BUILDER_CONTAINER_TYPES.has(field.type) && !Array.isArray(field.children)) field.children = [];
+      if (!NODE_BUILDER_CONTAINER_TYPES.has(field.type)) delete field.children;
+      field.required = Boolean(requiredValue);
+      builder.fields = collectNodeBuilderDataFields(builder.formLayout || []);
+      fieldDialog.close();
+      refreshNodeBuilder(root, { full: true });
+    };
+    const fieldDialog = _.Dialog({
+      class: "tl-flow-node-builder-dialog",
+      panelClass: "tl-flow-config-panel",
+      size: "md",
+      title: isContainer ? "Container Settings" : "Field Settings",
+      subtitle: field.key || field.label || "field",
+      icon: "dynamic_form",
+      closeButton: true,
+      content: () => _.form(
+        {
+          id: formId,
+          class: "tl-flow-config-form",
+          onsubmit: (event) => {
+            event.preventDefault();
+            saveFieldSettings();
+          },
+        },
+        _.Input({
+          size: "sm",
+          label: "Label",
+          value: labelValue,
+          autocomplete: "off",
+          onInput: (event) => {
+            labelValue = String(readCmsValue(event) || "");
+          },
+        }),
+        isContainer ? null : _.Input({
+          size: "sm",
+          label: "Key",
+          value: keyValue,
+          autocomplete: "off",
+          onInput: (event) => {
+            keyValue = String(readCmsValue(event) || "");
+          },
+        }),
+        _.Select({
+          size: "sm",
+          label: "Type",
+          value: typeValue,
+          options: typeOptions,
+          slots: { arrow: () => icon("keyboard_arrow_down", "sm") },
+          onChange: (value) => {
+            typeValue = String(readCmsValue(value) || "string");
+          },
+        }),
+        isContainer ? null : _.div(
+          { class: "tl-flow-config-toggle-row" },
+          _.span("Required"),
+          _.Toggle({
+            size: "sm",
+            checked: requiredValue,
+            color: "success",
+            onChange: (checked) => {
+              requiredValue = Boolean(checked);
+            },
+          })
+        )
+      ),
+      actions: ({ close }) => _.Toolbar(
+        { align: "end", gap: 8 },
+        btn({ onclick: close }, "Cancel"),
+        btn({ class: "is-primary", onclick: saveFieldSettings }, icon("save", "sm"), "Save Field")
+      ),
+    });
+    fieldDialog.open();
+  };
+
+  const addBuilderField = (root) => {
+    readBuilderGeneral(root);
+    const count = collectNodeBuilderDataFields(builder.formLayout || []).length + 1;
+    builder.formLayout = builder.formLayout || [];
+    builder.formLayout.push({
+      id: nodeBuilderId("field"),
+      key: `field_${count}`,
+      label: `Field ${count}`,
+      type: "input",
+      required: false,
+    });
+    builder.fields = collectNodeBuilderDataFields(builder.formLayout);
+    refreshNodeBuilder(root, { full: true });
+  };
+
+  const addBuilderCard = (root) => {
+    readBuilderGeneral(root);
+    let count = 1;
+    walkNodeBuilderLayout(builder.formLayout || [], (node) => {
+      if (node.type === "card") count += 1;
+    });
+    builder.formLayout = builder.formLayout || [];
+    builder.formLayout.push({
+      id: nodeBuilderId("card"),
+      label: `Card ${count}`,
+      type: "card",
+      children: [],
+    });
+    builder.fields = collectNodeBuilderDataFields(builder.formLayout);
+    refreshNodeBuilder(root, { full: true });
+  };
+
+  const deleteBuilderField = (fieldId = "", root = null) => {
+    if (!removeNodeBuilderLayoutNode(builder.formLayout || [], fieldId)) return;
+    builder.fields = collectNodeBuilderDataFields(builder.formLayout || []);
+    refreshNodeBuilder(root, { full: true });
+  };
+
+  const addBuilderComponent = (type = "input", root = null, parentId = "") => {
+    readBuilderGeneral(root);
+    const componentType = String(type || "input");
+    const isContainer = NODE_BUILDER_CONTAINER_TYPES.has(componentType);
+    const siblings = parentId
+      ? findNodeBuilderLayoutNode(builder.formLayout || [], parentId)?.node?.children
+      : builder.formLayout;
+    const list = siblings || builder.formLayout || [];
+    const count = list.filter((item) => item.type === componentType).length + 1;
+    const label = `${componentType.charAt(0).toUpperCase()}${componentType.slice(1)} ${count}`;
+    const next = {
+      id: nodeBuilderId(componentType),
+      type: componentType,
+      label,
+      ...(isContainer
+        ? { children: [] }
+        : {
+          key: `${componentType === "input" ? "field" : componentType}_${collectNodeBuilderDataFields(builder.formLayout || []).length + 1}`,
+          required: false,
+        }),
+    };
+    if (parentId) {
+      const parent = findNodeBuilderLayoutNode(builder.formLayout || [], parentId)?.node;
+      if (parent && NODE_BUILDER_CONTAINER_TYPES.has(parent.type)) {
+        parent.children = parent.children || [];
+        parent.children.push(next);
+      }
+    } else {
+      builder.formLayout = builder.formLayout || [];
+      builder.formLayout.push(next);
+    }
+    builder.fields = collectNodeBuilderDataFields(builder.formLayout || []);
+    refreshNodeBuilder(root, { full: true });
+  };
+
+  const clearBuilderDropTargets = (root) => {
+    root?.querySelectorAll?.(".is-builder-drop-target").forEach((element) => element.classList.remove("is-builder-drop-target"));
+  };
+
+  const resolveBuilderDropTarget = (eventOrElement) => {
+    const source = eventOrElement?.target || eventOrElement;
+    const container = source?.closest?.("[data-node-builder-drop-container]");
+    if (container) return container;
+    return source?.closest?.("[data-node-builder-drop-root]");
+  };
+
+  const resolveBuilderDropTargetFromPoint = (root, clientX, clientY) => {
+    const element = document.elementFromPoint(clientX, clientY);
+    if (!element || !root?.contains?.(element)) return null;
+    return resolveBuilderDropTarget(element);
+  };
+
+  const builderDropParentId = (target) =>
+    target?.dataset?.nodeBuilderDropContainer || "";
+
+  let builderComponentDrag = null;
+  let suppressBuilderComponentClick = false;
+
+  const createBuilderDragGhost = (component) => {
+    const rect = component.getBoundingClientRect();
+    const ghost = component.cloneNode(true);
+    ghost.classList.add("tl-flow-node-builder-drag-ghost");
+    ghost.style.width = `${rect.width}px`;
+    document.body.appendChild(ghost);
+    return ghost;
+  };
+
+  const moveBuilderDragGhost = (drag, clientX, clientY) => {
+    if (!drag?.ghost) return;
+    drag.ghost.style.transform = `translate3d(${clientX + 12}px, ${clientY + 12}px, 0)`;
+  };
+
+  const updateBuilderPointerDropTarget = (drag, clientX, clientY) => {
+    clearBuilderDropTargets(drag.root);
+    const target = resolveBuilderDropTargetFromPoint(drag.root, clientX, clientY);
+    drag.dropTarget = target;
+    target?.classList.add("is-builder-drop-target");
+  };
+
+  const cleanupBuilderComponentPointerDrag = () => {
+    if (!builderComponentDrag) return;
+    clearBuilderDropTargets(builderComponentDrag.root);
+    builderComponentDrag.source?.classList.remove("is-dragging");
+    builderComponentDrag.ghost?.remove();
+    document.body.classList.remove("is-node-builder-component-dragging");
+    document.removeEventListener("pointermove", moveBuilderComponentPointerDrag);
+    document.removeEventListener("pointerup", endBuilderComponentPointerDrag);
+    document.removeEventListener("pointercancel", cancelBuilderComponentPointerDrag);
+    builderComponentDrag = null;
+    if (suppressBuilderComponentClick) {
+      window.setTimeout(() => {
+        suppressBuilderComponentClick = false;
+      }, 120);
+    }
+  };
+
+  function moveBuilderComponentPointerDrag(event) {
+    const drag = builderComponentDrag;
+    if (!drag) return;
+    const moved = Math.hypot(event.clientX - drag.startX, event.clientY - drag.startY) > 4;
+    if (moved) {
+      drag.moved = true;
+      suppressBuilderComponentClick = true;
+      if (!drag.ghost) drag.ghost = createBuilderDragGhost(drag.source);
+      moveBuilderDragGhost(drag, event.clientX, event.clientY);
+      updateBuilderPointerDropTarget(drag, event.clientX, event.clientY);
+      event.preventDefault();
+    }
+  }
+
+  function endBuilderComponentPointerDrag(event) {
+    const drag = builderComponentDrag;
+    if (!drag) return;
+    if (drag.moved && drag.dropTarget) {
+      addBuilderComponent(drag.type, drag.root, builderDropParentId(drag.dropTarget));
+    }
+    cleanupBuilderComponentPointerDrag();
+  }
+
+  function cancelBuilderComponentPointerDrag() {
+    cleanupBuilderComponentPointerDrag();
+  }
+
+  const beginBuilderComponentPointerDrag = (event) => {
+    const component = event.target.closest?.("[data-node-builder-add-component]");
+    if (!component || event.button !== 0) return;
+    const type = component.dataset.nodeBuilderAddComponent || "";
+    if (!type) return;
+    const root = rootFor(event);
+    if (!root) return;
+    event.preventDefault();
+    builderComponentDrag = {
+      root,
+      source: component,
+      type,
+      startX: event.clientX,
+      startY: event.clientY,
+      moved: false,
+      ghost: null,
+      dropTarget: null,
+    };
+    component.classList.add("is-dragging");
+    document.body.classList.add("is-node-builder-component-dragging");
+    document.addEventListener("pointermove", moveBuilderComponentPointerDrag);
+    document.addEventListener("pointerup", endBuilderComponentPointerDrag, { once: true });
+    document.addEventListener("pointercancel", cancelBuilderComponentPointerDrag, { once: true });
+  };
+
+  const addBuilderPort = (side = "in", root = null) => {
+    const list = side === "out" ? builder.outputs : builder.inputs;
+    list.push({ name: side === "out" ? `output_${list.length + 1}` : `input_${list.length + 1}`, type: "object", visible: true });
+    refreshNodeBuilder(root, { full: true });
+  };
+
+  const toggleBuilderPort = (payload = "", root = null) => {
+    const [side, indexValue] = String(payload).split(":");
+    const list = side === "out" ? builder.outputs : builder.inputs;
+    const index = Number(indexValue);
+    if (!list[index]) return;
+    list[index].visible = list[index].visible === false;
+    refreshNodeBuilder(root, { full: true });
+  };
+
+  const deleteBuilderPort = (payload = "", root = null) => {
+    const [side, indexValue] = String(payload).split(":");
+    const list = side === "out" ? builder.outputs : builder.inputs;
+    const index = Number(indexValue);
+    if (!list[index] || list.length <= 1) return;
+    list.splice(index, 1);
+    refreshNodeBuilder(root, { full: true });
+  };
+
+  const saveBuilderTemplateAction = (root) => {
+    readBuilderGeneral(root);
+    saveNodeBuilderTemplate(nodeBuilderStateToTemplate(builder));
+    const button = root?.closest?.(".cms-dialog")?.querySelector?.("[data-node-builder-save-template]");
+    if (button) {
+      button.classList.add("is-saved");
+      button.textContent = "Saved";
+      window.setTimeout(() => {
+        button.classList.remove("is-saved");
+        button.replaceChildren(icon("bookmark_add", "sm"), "Save Template");
+      }, 1200);
+    }
+  };
+
+  const createNodeFromBuilderAction = async (root, close) => {
+    readBuilderGeneral(root);
+    const item = nodeBuilderStateToTemplate(builder);
+    try {
+      const workspaceId = await ensureRuntimeWorkspaceScope();
+      const now = new Date().toISOString();
+      const portChannels = [...new Set([...(item.inputs || []), ...(item.outputs || [])].map((port) => port.name || port).filter(Boolean))];
+      let node = {
+        id: `custom_${safeRuntimeId(workspaceId)}_${Date.now()}`,
+        workspaceId,
+        type: item.nodeType || "custom",
+        label: item.label || "Custom Node",
+        inputs: item.inputs || [],
+        outputs: item.outputs || [],
+        flowPosition: options.flowPosition || defaultAssetFlowPosition(),
+        channels: portChannels,
+        sourceRef: "",
+        assetId: "",
+        status: "idle",
+        runtime: { status: "idle", active: false },
+        metadata: {
+          paletteLabel: item.label || "Custom Node",
+          paletteAction: "node-builder",
+          tone: item.tone || "gold",
+          icon: item.icon || "extension",
+          runtimeType: item.nodeType || "custom",
+          subtype: item.subtype || "custom",
+          category: item.category || "custom",
+          manifest: item.manifest || null,
+          permissions: item.permissions || [],
+          settingsSchema: item.settingsSchema || {},
+          formSchema: {
+            fields: item.fields || [],
+            layout: item.formLayout || [],
+          },
+          formLayout: item.formLayout || [],
+          portUi: {
+            in: { hidden: (builder.inputs || []).filter((port) => port.visible === false).map((port) => port.name) },
+            out: { hidden: (builder.outputs || []).filter((port) => port.visible === false).map((port) => port.name) },
+          },
+          customNode: true,
+        },
+        createdAt: now,
+        updatedAt: now,
+      };
+      node = customRuntimeNodeUpdate({
+        node,
+        label: item.label || "Custom Node",
+        runtimeStatus: "idle",
+        config: {},
+      });
+      node = await window.TrackerLensRuntimeGraphStore?.upsertRuntimeNode?.({ node });
+      if (node?.id && window.TrackerLensChannelRegistry?.upsertChannelsForRuntimeNode) {
+        await window.TrackerLensChannelRegistry.upsertChannelsForRuntimeNode({ node });
+      }
+      if (node?.id) {
+        setFocusState({
+          mode: "dependencies",
+          nodeId: node.id,
+          edgeId: "",
+          nodeType: node.type,
+          channel: node.channels?.[0] || "",
+          connectionId: "",
+        });
+        state.inspectorOpen = true;
+      }
+      close?.();
+      await loadRuntime({ force: true });
+    } catch (error) {
+      state.error = error?.message || "Errore creazione custom node";
+      setErrorSignal(state.error);
+      mount();
+    }
+  };
+
+  const saveExistingNodeFromBuilderAction = async (root, close) => {
+    if (!editMode || !editNode?.id) return;
+    readBuilderGeneral(root);
+    const item = nodeBuilderStateToTemplate(builder);
+    const current = nodeById(editNode.id) || editNode;
+    const previousMetadata = current.metadata || {};
+    const baseNode = {
+      ...current,
+      type: item.nodeType || current.type || "custom",
+      label: item.label || current.label || "Custom Node",
+      inputs: item.inputs || [],
+      outputs: item.outputs || [],
+      metadata: {
+        ...previousMetadata,
+        paletteLabel: item.label || previousMetadata.paletteLabel || "Custom Node",
+        paletteAction: previousMetadata.paletteAction || "node-builder",
+        tone: item.tone || previousMetadata.tone || "gold",
+        icon: item.icon || previousMetadata.icon || "extension",
+        runtimeType: item.nodeType || previousMetadata.runtimeType || "custom",
+        subtype: item.subtype || previousMetadata.subtype || "custom",
+        category: item.category || previousMetadata.category || "custom",
+        manifest: item.manifest || previousMetadata.manifest || null,
+        permissions: item.permissions || previousMetadata.permissions || [],
+        settingsSchema: item.settingsSchema || {},
+        formSchema: {
+          ...(previousMetadata.formSchema || {}),
+          fields: item.fields || [],
+          layout: item.formLayout || [],
+        },
+        formLayout: item.formLayout || [],
+        portUi: {
+          ...(previousMetadata.portUi || {}),
+          in: { ...(previousMetadata.portUi?.in || {}), hidden: (builder.inputs || []).filter((port) => port.visible === false).map((port) => port.name) },
+          out: { ...(previousMetadata.portUi?.out || {}), hidden: (builder.outputs || []).filter((port) => port.visible === false).map((port) => port.name) },
+        },
+        customNode: true,
+      },
+    };
+    const nextNode = customRuntimeNodeUpdate({
+      node: baseNode,
+      label: item.label || current.label,
+      runtimeStatus: current.metadata?.runtimeStatus || current.runtime?.status || current.status || "idle",
+      config: nodeConfigObject(current),
+    });
+    try {
+      await window.TrackerLensRuntimeGraphStore?.upsertRuntimeNode?.({ node: nextNode });
+      if (window.TrackerLensChannelRegistry?.upsertChannelsForRuntimeNode) {
+        await window.TrackerLensChannelRegistry.upsertChannelsForRuntimeNode({ node: nextNode });
+      }
+      await recordFlowAction({
+        workspaceId: nextNode.workspaceId || "global",
+        nodeId: nextNode.id,
+        message: `Custom node layout updated: ${nextNode.label || nextNode.id}`,
+        context: {
+          action: "custom-runtime-node-builder-updated",
+          fields: customNodeDataFields(nextNode).map((field) => field.key),
+        },
+      });
+      setFocusState({
+        mode: "dependencies",
+        nodeId: nextNode.id,
+        edgeId: "",
+        nodeType: nextNode.type,
+        channel: nextNode.channels?.[0] || "",
+        connectionId: "",
+      });
+      state.inspectorOpen = true;
+      close?.();
+      await loadRuntime({ force: true });
+    } catch (error) {
+      state.error = error?.message || "Errore aggiornamento custom node";
+      setErrorSignal(state.error);
+      mount();
+    }
+  };
+
+  const dialog = _.Dialog({
+    class: "tl-flow-node-builder-dialog",
+    panelClass: "tl-flow-node-builder-panel",
+    size: "xl",
+    title: editMode ? "Edit Custom Node" : "Create Node",
+    subtitle: editMode ? "Continue customizing this node form, ports and runtime contract." : "Search a node template, load it, then customize form, ports and runtime contract.",
+    icon: editMode ? "edit_note" : "add_box",
+    closeButton: true,
+    content: () => _.div(
+      {
+        class: "tl-flow-node-builder",
+        onpointerdown: beginBuilderComponentPointerDrag,
+        onclick: (event) => {
+          const root = rootFor(event);
+          const fieldEdit = event.target.closest?.("[data-node-builder-edit-field]");
+          const fieldDelete = event.target.closest?.("[data-node-builder-delete-field]");
+          const portToggle = event.target.closest?.("[data-node-builder-toggle-port]");
+          const portDelete = event.target.closest?.("[data-node-builder-delete-port]");
+          const portAdd = event.target.closest?.("[data-node-builder-add-port]");
+          const sideToggle = event.target.closest?.("[data-node-builder-toggle-side-card]");
+          const childAdd = event.target.closest?.("[data-node-builder-add-child]");
+          const componentAdd = event.target.closest?.("[data-node-builder-add-component]");
+          if (fieldEdit) {
+            event.preventDefault();
+            editBuilderField(fieldEdit.dataset.nodeBuilderEditField, root);
+          } else if (fieldDelete) {
+            event.preventDefault();
+            deleteBuilderField(fieldDelete.dataset.nodeBuilderDeleteField, root);
+          } else if (portToggle) {
+            event.preventDefault();
+            toggleBuilderPort(portToggle.dataset.nodeBuilderTogglePort, root);
+          } else if (portDelete) {
+            event.preventDefault();
+            deleteBuilderPort(portDelete.dataset.nodeBuilderDeletePort, root);
+          } else if (portAdd) {
+            event.preventDefault();
+            addBuilderPort(portAdd.dataset.nodeBuilderAddPort, root);
+          } else if (sideToggle) {
+            event.preventDefault();
+            toggleSideCard(sideToggle);
+          } else if (childAdd) {
+            event.preventDefault();
+            const [parentId, type] = String(childAdd.dataset.nodeBuilderAddChild || "").split(":");
+            addBuilderComponent(type, root, parentId);
+          } else if (componentAdd) {
+            event.preventDefault();
+            if (suppressBuilderComponentClick) {
+              suppressBuilderComponentClick = false;
+              return;
+            }
+            addBuilderComponent(componentAdd.dataset.nodeBuilderAddComponent, root);
+          }
+        },
+      },
+      _.aside(
+        { class: "tl-flow-node-builder-templates" },
+        _.section(
+          { class: "tl-flow-node-builder-side-card", "data-node-builder-side-card": "components" },
+          _.button(
+            { type: "button", class: "tl-flow-node-builder-side-head", "data-node-builder-toggle-side-card": "components", "aria-expanded": "true" },
+            _.span(icon("view_quilt", "sm"), _.strong("Components")),
+            icon("expand_less", "sm")
+          ),
+          _.div(
+            { class: "tl-flow-node-builder-side-body", "data-node-builder-side-body": "components" },
+            _.div({ class: "tl-flow-node-builder-component-list" }, ...renderNodeBuilderCmswiftComponents())
+          )
+        ),
+        _.section(
+          { class: "tl-flow-node-builder-side-card", "data-node-builder-side-card": "templates", hidden: editMode },
+          _.button(
+            { type: "button", class: "tl-flow-node-builder-side-head", "data-node-builder-toggle-side-card": "templates", "aria-expanded": "true" },
+            _.span(icon("category", "sm"), _.strong("Templates")),
+            icon("expand_less", "sm")
+          ),
+          _.div(
+            { class: "tl-flow-node-builder-side-body", "data-node-builder-side-body": "templates" },
+            _.div(
+              { class: "tl-flow-node-builder-search" },
+              icon("search", "sm"),
+              _.input({
+                type: "search",
+                placeholder: "Search templates",
+                "aria-label": "Search node templates",
+                oninput: (event) => filterTemplates(event.currentTarget.closest(".tl-flow-node-builder"), event.currentTarget.value),
+              })
+            ),
+            _.div(
+              { class: "tl-flow-node-builder-template-scroll" },
+              ...groups.map(([group, items]) => _.section(
+                { "data-node-builder-template-group": group },
+                _.h3(group),
+                ...items.map((item) => {
+                  const id = nodeBuilderTemplateId(group, item);
+                  return _.button(
+                    {
+                      type: "button",
+                      class: `tl-flow-node-builder-template is-${item.tone || "cyan"}${id === selectedId ? " is-selected" : ""}`,
+                      "data-node-builder-template": id,
+                      "data-node-builder-search": nodeBuilderTemplateSearchText(group, item),
+                      onclick: (event) => syncSelection(event.currentTarget.closest(".tl-flow-node-builder"), id),
+                    },
+                    _.span({ class: "tl-flow-node-builder-template-icon" }, icon(item.icon || "extension", "sm")),
+                    _.span(
+                      { class: "tl-flow-node-builder-template-main" },
+                      _.strong(item.label || "Node Template"),
+                      _.em(`${item.nodeType || "node"} · ${item.subtype || "custom"}`)
+                    )
+                  );
+                })
+              )),
+              _.div(
+                { class: "tl-flow-palette-empty", "data-node-builder-empty": "true", hidden: true },
+                icon("search_off", "sm"),
+                _.strong("No templates found"),
+                _.span("Try another name, type or permission.")
+              )
+            )
+          )
+        )
+      ),
+      _.main(
+        { class: "tl-flow-node-builder-main" },
+        _.section(
+          { class: "tl-flow-node-builder-card" },
+          _.div(
+            { class: "tl-flow-node-builder-card-head" },
+            _.span(icon("tune", "sm"), _.strong("General")),
+            _.em({ "data-node-builder-active-meta": "true" }, `${selected.group} · ${selected.item.nodeType || "node"} · ${selected.item.subtype || "custom"}`)
+          ),
+          _.div(
+            { class: "tl-flow-node-builder-general" },
+            _.label(_.span("Name"), _.input({ "data-node-builder-field": "label", value: builder.label || "Custom Node", autocomplete: "off", oninput: (event) => { readBuilderGeneral(rootFor(event)); refreshNodeBuilder(rootFor(event)); } })),
+            _.label(_.span("Category"), _.input({ "data-node-builder-field": "category", value: builder.category || "custom", autocomplete: "off", oninput: (event) => { readBuilderGeneral(rootFor(event)); refreshNodeBuilder(rootFor(event)); } })),
+            _.label(_.span("Subtype"), _.input({ "data-node-builder-field": "subtype", value: builder.subtype || "custom", autocomplete: "off", oninput: (event) => { readBuilderGeneral(rootFor(event)); refreshNodeBuilder(rootFor(event)); } })),
+            _.label(_.span("Icon"), _.input({ "data-node-builder-field": "icon", value: builder.icon || "extension", autocomplete: "off", oninput: (event) => { readBuilderGeneral(rootFor(event)); refreshNodeBuilder(rootFor(event)); } })),
+            _.label(_.span("Tone"), _.input({ "data-node-builder-field": "tone", value: builder.tone || "gold", autocomplete: "off", oninput: (event) => { readBuilderGeneral(rootFor(event)); refreshNodeBuilder(rootFor(event)); } }))
+          )
+        ),
+        _.section(
+          { class: "tl-flow-node-builder-card" },
+          _.div(
+            { class: "tl-flow-node-builder-card-head" },
+            _.span(icon("dynamic_form", "sm"), _.strong("Form Fields")),
+            _.span(
+              { class: "tl-flow-node-builder-head-actions" },
+              btn({ title: "Add Card", onclick: (event) => { event.preventDefault(); addBuilderCard(rootFor(event)); } }, icon("view_agenda", "sm"), "Add Card"),
+              btn({ title: "Add Field", onclick: (event) => { event.preventDefault(); addBuilderField(rootFor(event)); } }, icon("add", "sm"), "Add Field")
+            )
+          ),
+          _.div({ class: "tl-flow-node-builder-rows", "data-node-builder-fields": "true", "data-node-builder-drop-root": "true" }, ...renderNodeBuilderFormLayout(builder.formLayout || []))
+        ),
+        _.section(
+          { class: "tl-flow-node-builder-card" },
+          _.div(
+            { class: "tl-flow-node-builder-card-head" },
+            _.span(icon("hub", "sm"), _.strong("Ports")),
+            _.em("Manifest IN / OUT")
+          ),
+          _.div(
+            { class: "tl-flow-node-builder-ports" },
+            _.div(
+              _.h4("Inputs", btn({ title: "Add input", "aria-label": "Add input", "data-node-builder-add-port": "in" }, icon("add", "sm"))),
+              _.div({ "data-node-builder-inputs": "true" }, ...renderNodeBuilderPortRows(builder.inputs, "in"))
+            ),
+            _.div(
+              _.h4("Outputs", btn({ title: "Add output", "aria-label": "Add output", "data-node-builder-add-port": "out" }, icon("add", "sm"))),
+              _.div({ "data-node-builder-outputs": "true" }, ...renderNodeBuilderPortRows(builder.outputs, "out"))
+            )
+          )
+        ),
+        _.section(
+          { class: "tl-flow-node-builder-card" },
+          _.div(
+            { class: "tl-flow-node-builder-card-head" },
+            _.span(icon("bolt", "sm"), _.strong("Runtime")),
+            _.em("Adapter later")
+          ),
+          _.div(
+            { class: "tl-flow-node-builder-runtime" },
+            _.span("Execution"),
+            _.strong({ "data-node-builder-runtime-execution": "true" }, builder.runtimeMode || "manual / on event"),
+            _.span("Permissions"),
+            _.strong({ "data-node-builder-runtime-permissions": "true" }, (builder.permissions || []).join(", ") || "none")
+          )
+        )
+      ),
+      _.aside(
+        { class: "tl-flow-node-builder-preview" },
+        _.div(
+          { class: "tl-flow-node-builder-preview-summary" },
+          _.strong({ "data-node-builder-active-title": "true" }, builder.label || "Custom Node"),
+          _.span({ "data-node-builder-active-summary": "true" }, builder.connectionType || "Template loaded for this workspace.")
+        ),
+        _.div({ "data-node-builder-preview": "true" }, renderNodeBuilderPreview(builder))
+      )
+    ),
+    actions: ({ close }) => _.Toolbar(
+      { align: "end", gap: 8 },
+      btn({ onclick: close }, "Cancel"),
+      btn({ "data-node-builder-save-template": "true", onclick: (event) => saveBuilderTemplateAction(rootFor(event)) }, icon("bookmark_add", "sm"), "Save Template"),
+      editMode
+        ? btn({ class: "is-primary", onclick: (event) => saveExistingNodeFromBuilderAction(rootFor(event), close) }, icon("save", "sm"), "Save Node")
+        : btn({ class: "is-primary", onclick: (event) => createNodeFromBuilderAction(rootFor(event), close) }, icon("add", "sm"), "Create Node")
+    ),
+  });
+  dialog.open();
+};
+
+window.TrackerLensOpenNodeBuilder = openNodeBuilderDialog;
+
 const isDraftNode = (node = {}) =>
   Boolean(node.metadata?.draft || node.status === "draft" || String(node.id || "").startsWith("draft_"));
 
 const isInlineConfigNode = (node = {}) =>
-  ["source", "boxTracker", "processor", "aiAgent", "boxLens", "lens", "action", "storage", "devPreview"].includes(node.type);
+  ["source", "boxTracker", "processor", "aiAgent", "boxLens", "lens", "action", "storage", "devPreview", "custom"].includes(node.type);
+
+const isCustomRuntimeNode = (node = {}) =>
+  node.type === "custom" || node.metadata?.customNode === true || Boolean(node.metadata?.formSchema || node.metadata?.formLayout);
+
+const customNodeFormLayout = (node = {}) =>
+  normalizeNodeBuilderLayout(
+    node.metadata?.formSchema?.layout ||
+    node.metadata?.formLayout ||
+    node.metadata?.manifest?.formLayout ||
+    []
+  );
+
+const customNodeDataFields = (node = {}) =>
+  collectNodeBuilderDataFields(customNodeFormLayout(node));
+
+const nodeBuilderTemplateFromCustomNode = (node = {}) => {
+  const metadata = node.metadata || {};
+  const hiddenIn = new Set(metadata.portUi?.in?.hidden || []);
+  const hiddenOut = new Set(metadata.portUi?.out?.hidden || []);
+  return {
+    label: node.label || metadata.paletteLabel || "Custom Node",
+    icon: metadata.icon || graphIcon(node) || "extension",
+    tone: metadata.tone || graphTone(node) || "gold",
+    nodeType: node.type || metadata.runtimeType || "custom",
+    subtype: nodeSubtype(node) || "custom",
+    category: nodeCategory(node) || "custom",
+    inputs: normalizeNodeBuilderPorts(node.inputs || metadata.manifest?.inputs || ["input"], "in")
+      .map((port) => ({ ...port, visible: !hiddenIn.has(port.name) })),
+    outputs: normalizeNodeBuilderPorts(node.outputs || metadata.manifest?.outputs || ["output"], "out")
+      .map((port) => ({ ...port, visible: !hiddenOut.has(port.name) })),
+    permissions: metadata.permissions || metadata.manifest?.permissions || node.permissions || [],
+    runtimeMode: metadata.runtimeMetadata?.mode || metadata.manifest?.runtime?.mode || "manual / on event",
+    connectionType: metadata.paletteAction === "node-builder" ? "Custom node builder" : metadata.paletteAction || "",
+    formLayout: customNodeFormLayout(node),
+    formSchema: metadata.formSchema || {},
+    settingsSchema: metadata.settingsSchema || metadata.manifest?.settingsSchema || {},
+    manifest: metadata.manifest || null,
+  };
+};
 
 const nodeBadges = (node = {}, live = null) => {
   const badges = [];
@@ -5184,6 +6477,10 @@ const configureNode = (node) => {
   }
   if (node?.type === "aiAgent" && !node.metadata?.library) {
     requestAiAgentRuntimeConfig(node);
+    return;
+  }
+  if (isCustomRuntimeNode(node) && !node.metadata?.library) {
+    requestCustomRuntimeNodeConfig(node);
     return;
   }
   if (isInlineConfigNode(node) && !node.metadata?.library) {
@@ -5647,6 +6944,7 @@ const renderPreviewNodePanel = (node = {}) => {
 
 const renderInlineNodeSettings = (node) => {
   if (!isInlineConfigNode(node) || node.metadata?.library) return null;
+  if (isCustomRuntimeNode(node)) return renderCustomRuntimeNodeInlineForm(node);
   if (isPreviewNode(node)) return renderPreviewNodePanel(node);
   if (node.type === "boxTracker" || node.type === "boxLens") {
     return _.div(
@@ -5716,6 +7014,157 @@ const renderInlineNodeSettings = (node) => {
       _.span({ class: "tl-flow-inline-label" }, definition.label),
       control(definition)
     ))
+  );
+};
+
+const customConfigValue = (config = {}, field = {}) => {
+  const value = config[field.key];
+  if (value !== undefined && value !== null) return value;
+  if (field.type === "toggle" || field.type === "checkbox" || field.type === "boolean") return false;
+  if (field.type === "number" || field.type === "slider") return 0;
+  return "";
+};
+
+const customInlineSaveTimers = new Map();
+
+const persistCustomInlineValue = ({ node = {}, key = "", value = "", debounce = 0 } = {}) => {
+  if (!node?.id || !key) return;
+  const timerKey = `${node.id}:${key}`;
+  if (customInlineSaveTimers.has(timerKey)) window.clearTimeout(customInlineSaveTimers.get(timerKey));
+  const run = async () => {
+    customInlineSaveTimers.delete(timerKey);
+    const current = nodeById(node.id) || node;
+    const nextConfig = {
+      ...nodeConfigObject(current),
+      [key]: value,
+    };
+    const nextNode = customRuntimeNodeUpdate({
+      node: current,
+      label: current.label || node.label,
+      runtimeStatus: current.metadata?.runtimeStatus || current.runtime?.status || current.status || "idle",
+      config: nextConfig,
+    });
+    state.runtime.nodes = (state.runtime.nodes || []).map((item) => item.id === nextNode.id ? nextNode : item);
+    try {
+      await window.TrackerLensRuntimeGraphStore?.upsertRuntimeNode?.({ node: nextNode });
+    } catch (error) {
+      console.error("Errore salvataggio campo custom runtime node:", error);
+      state.error = error?.message || "Errore salvataggio campo custom runtime node";
+      setErrorSignal(state.error);
+    }
+  };
+  if (debounce > 0) {
+    customInlineSaveTimers.set(timerKey, window.setTimeout(run, debounce));
+  } else {
+    run();
+  }
+};
+
+const renderCustomRuntimeNodeInlineComponent = (node = {}, layoutNode = {}, config = {}) => {
+  const label = layoutNode.label || layoutNode.key || layoutNode.type || "Field";
+  if (NODE_BUILDER_CONTAINER_TYPES.has(layoutNode.type)) {
+    return _.div(
+      { class: `tl-flow-node-builder-preview-form-node is-${layoutNode.type}` },
+      _.div(
+        { class: "tl-flow-node-builder-preview-form-head" },
+        icon(nodeBuilderComponentIcon(layoutNode.type), "sm"),
+        _.strong(label),
+        _.em(layoutNode.type)
+      ),
+      _.div(
+        { class: "tl-flow-node-builder-preview-form-children" },
+        ...(layoutNode.children?.length
+          ? layoutNode.children.map((child) => renderCustomRuntimeNodeInlineComponent(node, child, config))
+          : [_.span({ class: "tl-flow-node-builder-preview-empty" }, "Empty container")])
+      )
+    );
+  }
+  if (layoutNode.type === "badge" || layoutNode.type === "chip") {
+    return _.span(
+      { class: `tl-flow-node-builder-live-token is-${layoutNode.type}` },
+      icon(nodeBuilderComponentIcon(layoutNode.type), "sm"),
+      label
+    );
+  }
+  const key = layoutNode.key || layoutNode.id;
+  const readCmsValue = (nextValue) => nextValue?.target?.value ?? nextValue;
+  const stopInlineControlEvent = (event) => {
+    event.stopPropagation();
+  };
+  const value = customConfigValue(config, { ...layoutNode, key });
+  if (layoutNode.type === "select") {
+    return _.Select({
+      class: "tl-flow-node-builder-live-field",
+      size: "sm",
+      label,
+      value: String(value || ""),
+      options: [
+        { value: "", label: "Select option" },
+        { value: "option-1", label: "Option 1" },
+        { value: "option-2", label: "Option 2" },
+      ],
+      slots: { arrow: () => icon("keyboard_arrow_down", "sm") },
+      onPointerDown: stopInlineControlEvent,
+      onclick: stopInlineControlEvent,
+      onChange: (nextValue) => persistCustomInlineValue({ node, key, value: String(readCmsValue(nextValue) || "") }),
+    });
+  }
+  if (layoutNode.type === "toggle" || layoutNode.type === "checkbox" || layoutNode.type === "boolean") {
+    return _.div(
+      { class: "tl-flow-node-builder-live-toggle", onPointerDown: stopInlineControlEvent, onclick: stopInlineControlEvent },
+      _.span(label),
+      _.Toggle({
+        class: "tl-flow-node-builder-live-toggle-control",
+        size: "sm",
+
+        checked: Boolean(value),
+        color: "success",
+        onChange: (checked) => persistCustomInlineValue({ node, key, value: Boolean(checked) }),
+      })
+    );
+  }
+  if (layoutNode.type === "slider" || layoutNode.type === "number") {
+    return _.div(
+      { class: "tl-flow-node-builder-live-field", onPointerDown: stopInlineControlEvent, onclick: stopInlineControlEvent },
+      _.span(label),
+      _.Slider ? _.Slider({
+        size: "sm",
+        showValue: true,
+        value: Number(value) || 0,
+        min: 0,
+        max: 100,
+        onChange: (nextValue) => persistCustomInlineValue({ node, key, value: Number(readCmsValue(nextValue)) || 0 }),
+      }) : _.Input({
+        class: "tl-flow-node-builder-live-field",
+        size: "sm",
+        label,
+        value: String(value || "0"),
+        onPointerDown: stopInlineControlEvent,
+        onclick: stopInlineControlEvent,
+        onInput: (event) => persistCustomInlineValue({ node, key, value: Number(readCmsValue(event)) || 0, debounce: 350 }),
+      })
+    );
+  }
+  return _.Input({
+    class: "tl-flow-node-builder-live-field",
+    size: "sm",
+    label,
+    value: String(value || ""),
+    placeholder: layoutNode.key || label,
+    autocomplete: "off",
+    onPointerDown: stopInlineControlEvent,
+    onclick: stopInlineControlEvent,
+    onInput: (event) => persistCustomInlineValue({ node, key, value: String(readCmsValue(event) || ""), debounce: 350 }),
+  });
+};
+
+const renderCustomRuntimeNodeInlineForm = (node = {}) => {
+  const layout = customNodeFormLayout(node);
+  if (!layout.length) return null;
+  const config = nodeConfigObject(node);
+  return _.div(
+    { class: "tl-flow-node-builder-live-form tl-flow-custom-node-live-form", onPointerDown: stopNodeControlEvent, onclick: stopNodeControlEvent },
+    ...layout.map((layoutNode) => renderCustomRuntimeNodeInlineComponent(node, layoutNode, config))
   );
 };
 
@@ -6186,6 +7635,257 @@ const requestAiAgentRuntimeConfig = async (node) => {
       : null,
     onSave: ({ payload, close }) => persistAiAgentEditorPayload({ node, payload, close }),
   });
+};
+
+const customRuntimeNodeUpdate = ({ node, label, runtimeStatus, config }) => {
+  const previousMetadata = node.metadata || {};
+  const layout = customNodeFormLayout(node);
+  const fields = collectNodeBuilderDataFields(layout);
+  const settingsSchema = nodeBuilderSettingsSchemaFromLayout(layout);
+  const inputs = normalizeNodeBuilderPorts(node.inputs || previousMetadata.manifest?.inputs || ["input"], "in");
+  const outputs = normalizeNodeBuilderPorts(node.outputs || previousMetadata.manifest?.outputs || ["output"], "out");
+  const manifest = nodeManifest({
+    type: "custom",
+    subtype: nodeSubtype(node) || "custom",
+    category: nodeCategory(node) || "custom",
+    inputs,
+    outputs,
+    permissions: previousMetadata.permissions || previousMetadata.manifest?.permissions || node.permissions || [],
+    settingsSchema,
+    runtime: previousMetadata.runtimeMetadata || previousMetadata.manifest?.runtime || node.runtime || {},
+    render: previousMetadata.manifest?.render || null,
+    execute: previousMetadata.manifest?.execute || null,
+    persist: previousMetadata.manifest?.persist || null,
+  });
+  return {
+    ...node,
+    label: label || node.label || "Custom Node",
+    status: runtimeStatus || node.status || "idle",
+    inputs: inputs.map((port) => port.name || "input"),
+    outputs: outputs.map((port) => port.name || "output"),
+    channels: [...new Set([...inputs, ...outputs].map((port) => port.name).filter(Boolean))],
+    runtime: {
+      ...(node.runtime || {}),
+      status: runtimeStatus || node.runtime?.status || node.status || "idle",
+      active: !["paused", "disabled"].includes(runtimeStatus || node.runtime?.status || node.status || "idle"),
+    },
+    metadata: {
+      ...previousMetadata,
+      draft: false,
+      configured: true,
+      customNode: true,
+      config,
+      runtimeStatus: runtimeStatus || previousMetadata.runtimeStatus || node.runtime?.status || node.status || "idle",
+      formLayout: layout,
+      formSchema: {
+        ...(previousMetadata.formSchema || {}),
+        fields,
+        layout,
+      },
+      settingsSchema,
+      manifest: {
+        ...manifest,
+        formLayout: layout,
+      },
+      permissions: manifest.permissions,
+      runtimeMetadata: manifest.runtime,
+    },
+    updatedAt: new Date().toISOString(),
+  };
+};
+
+const persistCustomRuntimeNodeConfig = async ({ node, draft = {}, close }) => {
+  const nextNode = customRuntimeNodeUpdate({
+    node,
+    label: draft.label || node.label,
+    runtimeStatus: draft.runtimeStatus || node.metadata?.runtimeStatus || node.runtime?.status || node.status || "idle",
+    config: draft.config || {},
+  });
+  try {
+    await window.TrackerLensRuntimeGraphStore?.upsertRuntimeNode?.({ node: nextNode });
+    if (window.TrackerLensChannelRegistry?.upsertChannelsForRuntimeNode) {
+      await window.TrackerLensChannelRegistry.upsertChannelsForRuntimeNode({ node: nextNode });
+    }
+    await recordFlowAction({
+      workspaceId: nextNode.workspaceId || "global",
+      nodeId: nextNode.id,
+      message: `Custom runtime node configured: ${nextNode.label || nextNode.id}`,
+      context: {
+        action: "custom-runtime-node-configured",
+        nodeType: nextNode.type || "custom",
+        fields: customNodeDataFields(nextNode).map((field) => field.key),
+      },
+    });
+    setFocusState({
+      mode: "dependencies",
+      nodeId: nextNode.id,
+      edgeId: "",
+      nodeType: nextNode.type,
+      channel: nextNode.channels?.[0] || "",
+      connectionId: "",
+    });
+    close?.();
+    await loadRuntime({ force: true });
+  } catch (error) {
+    console.error("Errore configurazione custom runtime node:", error);
+    state.error = error?.message || "Errore configurazione custom runtime node";
+    mount();
+  }
+};
+
+const renderCustomConfigComponent = (layoutNode = {}, draft = {}) => {
+  const label = layoutNode.label || layoutNode.key || layoutNode.type || "Field";
+  if (NODE_BUILDER_CONTAINER_TYPES.has(layoutNode.type)) {
+    return _.div(
+      { class: `tl-flow-node-builder-preview-form-node tl-flow-custom-config-container is-${layoutNode.type}` },
+      _.div(
+        { class: "tl-flow-node-builder-preview-form-head" },
+        icon(nodeBuilderComponentIcon(layoutNode.type), "sm"),
+        _.strong(label),
+        _.em(layoutNode.type)
+      ),
+      _.div(
+        { class: "tl-flow-node-builder-preview-form-children" },
+        ...(layoutNode.children || []).map((child) => renderCustomConfigComponent(child, draft))
+      )
+    );
+  }
+  if (layoutNode.type === "badge" || layoutNode.type === "chip") {
+    return _.span({ class: `tl-flow-node-builder-live-token is-${layoutNode.type}` }, icon(nodeBuilderComponentIcon(layoutNode.type), "sm"), label);
+  }
+  const key = layoutNode.key || layoutNode.id;
+  const readCmsValue = (value) => value?.target?.value ?? value;
+  const value = customConfigValue(draft.config, { ...layoutNode, key });
+  if (layoutNode.type === "select") {
+    return _.Select({
+      size: "sm",
+      label,
+      value: String(value || ""),
+      options: [
+        { value: "", label: "Select option" },
+        { value: "option-1", label: "Option 1" },
+        { value: "option-2", label: "Option 2" },
+      ],
+      slots: { arrow: () => icon("keyboard_arrow_down", "sm") },
+      onChange: (nextValue) => {
+        draft.config[key] = String(readCmsValue(nextValue) || "");
+      },
+    });
+  }
+  if (layoutNode.type === "toggle" || layoutNode.type === "checkbox" || layoutNode.type === "boolean") {
+    return _.div(
+      { class: "tl-flow-config-toggle-row" },
+      _.span(label),
+      _.Toggle({
+        size: "sm",
+        checked: Boolean(value),
+        color: "success",
+        onChange: (checked) => {
+          draft.config[key] = Boolean(checked);
+        },
+      })
+    );
+  }
+  if (layoutNode.type === "slider") {
+    return _.div(
+      { class: "tl-flow-config-slider-row" },
+      _.span(label),
+      _.Slider ? _.Slider({
+        size: "sm",
+        showValue: true,
+        value: Number(value) || 0,
+        min: 0,
+        max: 100,
+        onChange: (nextValue) => {
+          draft.config[key] = Number(readCmsValue(nextValue)) || 0;
+        },
+      }) : _.Input({
+        size: "sm",
+        label,
+        value: String(value || "0"),
+        onInput: (event) => {
+          draft.config[key] = Number(readCmsValue(event)) || 0;
+        },
+      })
+    );
+  }
+  return _.Input({
+    size: "sm",
+    label,
+    value: String(value || ""),
+    autocomplete: "off",
+    onInput: (event) => {
+      draft.config[key] = String(readCmsValue(event) || "");
+    },
+  });
+};
+
+const requestCustomRuntimeNodeConfig = (node) => {
+  if (!node?.id) return;
+  const layout = customNodeFormLayout(node);
+  const readCmsValue = (value) => value?.target?.value ?? value;
+  const draft = {
+    label: node.label || "Custom Node",
+    runtimeStatus: node.metadata?.runtimeStatus || node.runtime?.status || node.status || "idle",
+    config: { ...nodeConfigObject(node) },
+  };
+  const dialog = _.Dialog({
+    class: "tl-flow-config-dialog",
+    panelClass: "tl-flow-config-panel",
+    size: "md",
+    title: "Custom Node Settings",
+    subtitle: `${nodeSubtype(node)} · ${node.label || node.id}`,
+    icon: graphIcon(node),
+    closeButton: true,
+    content: () => _.div(
+      { class: "tl-flow-config-form tl-flow-custom-config-form" },
+      _.p("Modifica i valori del nodo custom usando il layout creato nel Node Builder."),
+      _.div(
+        { class: "tl-flow-config-grid" },
+        _.Input({
+          size: "sm",
+          label: "Node title",
+          value: draft.label,
+          autocomplete: "off",
+          onInput: (event) => {
+            draft.label = String(readCmsValue(event) || "");
+          },
+        }),
+        _.Select({
+          size: "sm",
+          label: "Runtime state",
+          value: draft.runtimeStatus,
+          options: ["idle", "active", "running", "warning", "paused", "error", "disconnected"].map((value) => ({ value, label: value })),
+          slots: { arrow: () => icon("keyboard_arrow_down", "sm") },
+          onChange: (value) => {
+            draft.runtimeStatus = String(readCmsValue(value) || "idle");
+          },
+        })
+      ),
+      _.section(
+        { class: "tl-flow-config-section" },
+        _.h3("Form Layout"),
+        layout.length
+          ? _.div({ class: "tl-flow-node-builder-live-form" }, ...layout.map((layoutNode) => renderCustomConfigComponent(layoutNode, draft)))
+          : _.p("Questo nodo custom non contiene ancora un layout form.")
+      )
+    ),
+    actions: ({ close }) => _.Toolbar(
+      { align: "end", gap: 8 },
+      btn({
+        onclick: () => {
+          close();
+          openNodeBuilderDialog({
+            editNode: nodeById(node.id) || node,
+            nodeTemplate: nodeBuilderTemplateFromCustomNode(nodeById(node.id) || node),
+          });
+        },
+      }, icon("add_box", "sm"), "Customize Node"),
+      btn({ onclick: close }, "Cancel"),
+      btn({ class: "is-primary", onclick: () => persistCustomRuntimeNodeConfig({ node, draft, close }) }, icon("save", "sm"), "Save Node")
+    ),
+  });
+  dialog.open();
 };
 
 const requestRuntimeNodeConfig = (node) => {
@@ -7233,74 +8933,78 @@ const renderPalette = () =>
   (() => {
     const visiblePalette = filteredNodePalette();
     return (
-  _.aside(
-    { class: "tl-flow-palette" },
-    _.div({ class: "tl-flow-panel-title" }, _.strong("Add Node"), btn({ "aria-label": "Collapse" }, icon("keyboard_arrow_up", "sm"))),
-    _.label(
-      { class: "tl-flow-palette-search" },
-      icon("search", "sm"),
-      _.input({
-        type: "search",
-        value: state.paletteSearch,
-        placeholder: "Search nodes",
-        "aria-label": "Search nodes",
-        autocomplete: "off",
-        oninput: (event) => setPaletteSearch(event.currentTarget.value),
-        onkeydown: (event) => event.stopPropagation(),
-        onclick: (event) => event.stopPropagation(),
-        onPointerDown: (event) => event.stopPropagation(),
-      }),
-      btn({
-        class: "tl-flow-palette-search-clear",
-        "data-flow-palette-search-clear": "true",
-        "aria-label": "Clear node search",
-        title: "Clear search",
-        hidden: !state.paletteSearch,
-        onclick: (event) => {
-          event.preventDefault();
-          event.stopPropagation();
-          setPaletteSearch("");
-          const input = document.querySelector(".tl-flow-palette-search input");
-          if (input) input.value = "";
-          input?.focus?.();
-        },
-      }, icon("close", "sm"))
-    ),
-    ...nodePalette.map(([title, items]) => {
-      const hasVisibleItems = items.some((item) => paletteItemMatchesSearch(item, title));
-      return (
-      _.section(
-        { "data-flow-palette-section": title, hidden: !hasVisibleItems },
-        _.h3(title),
-        ...items.map((item) =>
-          _.button(
-            {
-              type: "button",
-              class: `tl-flow-palette-item is-draggable is-${item.tone || "cyan"}`,
-              title: item.url || item.trackerSource || item.connectionType || item.label,
-              "data-flow-palette-item": item.label,
-              "data-flow-palette-search": paletteSearchText(item, title),
-              hidden: !paletteItemMatchesSearch(item, title),
-              onPointerDown: (event) => beginPalettePointer(event, item),
-              onclick: () => {
-                if (state.suppressPaletteClick) return;
-                openPaletteNode(item);
-              },
+      _.aside(
+        { class: "tl-flow-palette" },
+        btn({
+          class: "tl-flow-create-node-btn",
+          onclick: () => openNodeBuilderDialog(),
+        }, icon("add_box", "sm"), "Create Node"),
+        _.div({ class: "tl-flow-panel-title" }, _.strong("Add Node"), btn({ "aria-label": "Collapse" }, icon("keyboard_arrow_up", "sm"))),
+        _.label(
+          { class: "tl-flow-palette-search" },
+          icon("search", "sm"),
+          _.input({
+            type: "search",
+            value: state.paletteSearch,
+            placeholder: "Search nodes",
+            "aria-label": "Search nodes",
+            autocomplete: "off",
+            oninput: (event) => setPaletteSearch(event.currentTarget.value),
+            onkeydown: (event) => event.stopPropagation(),
+            onclick: (event) => event.stopPropagation(),
+            onPointerDown: (event) => event.stopPropagation(),
+          }),
+          btn({
+            class: "tl-flow-palette-search-clear",
+            "data-flow-palette-search-clear": "true",
+            "aria-label": "Clear node search",
+            title: "Clear search",
+            hidden: !state.paletteSearch,
+            onclick: (event) => {
+              event.preventDefault();
+              event.stopPropagation();
+              setPaletteSearch("");
+              const input = document.querySelector(".tl-flow-palette-search input");
+              if (input) input.value = "";
+              input?.focus?.();
             },
-            icon(item.icon, "sm"),
-            _.span(item.label)
-          )
+          }, icon("close", "sm"))
+        ),
+        ...nodePalette.map(([title, items]) => {
+          const hasVisibleItems = items.some((item) => paletteItemMatchesSearch(item, title));
+          return (
+            _.section(
+              { "data-flow-palette-section": title, hidden: !hasVisibleItems },
+              _.h3(title),
+              ...items.map((item) =>
+                _.button(
+                  {
+                    type: "button",
+                    class: `tl-flow-palette-item is-draggable is-${item.tone || "cyan"}`,
+                    title: item.url || item.trackerSource || item.connectionType || item.label,
+                    "data-flow-palette-item": item.label,
+                    "data-flow-palette-search": paletteSearchText(item, title),
+                    hidden: !paletteItemMatchesSearch(item, title),
+                    onPointerDown: (event) => beginPalettePointer(event, item),
+                    onclick: () => {
+                      if (state.suppressPaletteClick) return;
+                      openPaletteNode(item);
+                    },
+                  },
+                  icon(item.icon, "sm"),
+                  _.span(item.label)
+                )
+              )
+            )
+          );
+        }),
+        _.div(
+          { class: "tl-flow-palette-empty", "data-flow-palette-empty": "true", hidden: visiblePalette.length > 0 },
+          icon("search_off", "sm"),
+          _.strong("No nodes found"),
+          _.span("Try another name, type or category.")
         )
       )
-      );
-    }),
-    _.div(
-      { class: "tl-flow-palette-empty", "data-flow-palette-empty": "true", hidden: visiblePalette.length > 0 },
-      icon("search_off", "sm"),
-      _.strong("No nodes found"),
-      _.span("Try another name, type or category.")
-    )
-  )
     );
   })();
 
