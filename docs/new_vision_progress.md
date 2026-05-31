@@ -282,6 +282,13 @@ Obiettivo: introdurre AI locale reale prima del cloud.
 - 2026-05-31: Il blocco `General` del Node Builder usa ora select CMSwift per Category, Icon e Tone, alimentati da liste globali riusabili per mantenere coerenti categorie, icone e toni dei nodi.
 - 2026-05-31: Il blocco `General` del Node Builder usa ora `_.Input` anche per Name e Subtype, e il dialog non si chiude piu da outside/backdrop quando si interagisce con dropdown CMSwift.
 - 2026-05-31: La Flow Map include ora una lista Material Icons locale (`data/material-icons-list.json` + `js/tl-material-icon-options.js`); i picker icone del Node Builder usano `_.Select` filterable su quella lista locale, documentata in `docs/icon-selects.md`.
+- 2026-05-31: Il footer del dialog Node Builder distingue meglio le azioni: `Cancel` neutro, `Save Template` ciano e `Create/Save Node` oro, con CSS confinato al dialog.
+- 2026-05-31: Il preview destro del Node Builder ora usa overflow interno per il contenuto del nodo, evitando che form custom lunghi escano dall'aside.
+- 2026-05-31: Il Node Builder custom ora puo creare nodi form-only oppure nodi runtime REST/WebSocket/RSS. Le impostazioni endpoint/metodo/body/stream vengono salvate nel nodo custom, il play della card canvas si abilita per i nodi root configurati e il test pubblica payload reali sulle porte OUT.
+- 2026-05-31: Anche i nodi custom `Form only` hanno il play quando sono root: il test emette i valori correnti del form come payload `flow_live_custom_form`, rendendo il form una sorgente manuale per i nodi downstream.
+- 2026-05-31: Corretto il caso `runtimeConnector: "form"` salvato dal builder, cosi il play compare anche sui custom node Form-only espliciti.
+- 2026-05-31: Il play e' ora sempre esposto per tutti i custom node root, inclusi REST/WebSocket/RSS senza endpoint ancora configurato; il test runtime segnala la configurazione mancante invece di nascondere il comando.
+- 2026-05-31: Le porte IN/OUT del Node Builder sono diventate configurabili: tipo dati, required/descrizione/schema per input, sorgente payload per output (`runtimeResult`, form completo, componente singolo, statico o mapping). Il live test applica il mapping per porta prima di pubblicare eventi downstream.
 
 La sequenza corretta resta:
 

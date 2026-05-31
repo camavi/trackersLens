@@ -3096,8 +3096,17 @@ const isTestableStarterNode = (node = {}) => {
   const status = String(node.runtime?.status || node.metadata?.runtimeStatus || node.status || "").toLowerCase();
   return !node.metadata?.library &&
     !["paused", "disabled", "disconnected"].includes(status) &&
-    (type === "source" || type === "boxtracker" || category === "sources" || category === "trackers");
+    (type === "source" || type === "boxtracker" || category === "sources" || category === "trackers" || isCustomNetworkSourceNode(node));
 };
+
+const customNetworkRuntimeKind = (node = {}) =>
+  String(node.metadata?.runtimeConfig?.runtimeConnector || node.metadata?.execute?.kind || node.metadata?.manifest?.execute?.kind || nodeRuntimeConfig(node).runtimeConnector || "").toLowerCase();
+
+const isCustomNetworkSourceNode = (node = {}) =>
+  isCustomRuntimeNode(node) && ["rest", "websocket", "rss"].includes(customNetworkRuntimeKind(node));
+
+const isCustomFormSourceNode = (node = {}) =>
+  isCustomRuntimeNode(node) && ["", "form"].includes(customNetworkRuntimeKind(node));
 
 const isDirectAiTestNode = (node = {}) =>
   !node.metadata?.library &&
@@ -3110,7 +3119,7 @@ const isManualInputSource = (node = {}) => {
 };
 
 const isLiveTestableStarterNode = (node = {}) =>
-  isDirectAiTestNode(node) || isManualInputSource(node) || (isTestableStarterNode(node) && Boolean(nodeEndpoint(node)));
+  isDirectAiTestNode(node) || isManualInputSource(node) || isCustomRuntimeNode(node) || (isTestableStarterNode(node) && Boolean(nodeEndpoint(node)));
 
 const runtimeRuleGraph = () =>
   graphModelApi().build({
@@ -3199,9 +3208,10 @@ const nodeOutgoingTestChannels = (node = {}, graph = graphModel()) => {
 };
 
 const nodeRuntimeConfig = (node = {}) => ({
+  ...(node.metadata?.runtimeConfig || {}),
   ...(node.metadata?.config || {}),
-  endpoint: node.metadata?.config?.endpoint || node.metadata?.endpoint || node.endpoint || "",
-  method: node.metadata?.config?.method || node.method || "GET",
+  endpoint: node.metadata?.config?.endpoint || node.metadata?.runtimeConfig?.endpoint || node.metadata?.endpoint || node.endpoint || "",
+  method: node.metadata?.config?.method || node.metadata?.runtimeConfig?.method || node.method || "GET",
 });
 
 const nodeEndpoint = (node = {}) => {
@@ -3224,6 +3234,56 @@ const parseResponsePayload = (value) => {
   } catch (_) {
     return { text: value };
   }
+};
+
+const runtimeOutputPorts = (node = {}) =>
+  normalizeNodeBuilderPorts(node.metadata?.manifest?.outputs || node.outputs || ["output"], "out");
+
+const valueAtPath = (source, path = "") => {
+  const parts = String(path || "").trim().split(".").filter(Boolean);
+  if (!parts.length) return source;
+  return parts.reduce((value, key) => {
+    if (value === undefined || value === null) return undefined;
+    if (Array.isArray(value) && /^\d+$/.test(key)) return value[Number(key)];
+    return value?.[key];
+  }, source);
+};
+
+const customNodeFormValues = (node = {}) => {
+  const config = nodeConfigObject(node);
+  return Object.fromEntries(customNodeDataFields(node).map((field) => [field.key, customConfigValue(config, field)]));
+};
+
+const staticOutputValue = (expression = "") => {
+  const text = String(expression || "").trim();
+  if (!text) return null;
+  return parseTestPayload(text) ?? text;
+};
+
+const outputPayloadForPort = (node = {}, channel = "", basePayload = {}, context = {}) => {
+  const port = runtimeOutputPorts(node).find((item) => item.name === channel) || null;
+  if (!port) return basePayload;
+  const formData = context.formData || customNodeFormValues(node);
+  const mode = String(port.sourceMode || "runtimeResult");
+  let data = basePayload;
+  if (mode === "formData") data = formData;
+  else if (mode === "component") data = formData[port.sourceComponentKey || port.sourcePath || ""];
+  else if (mode === "static") data = staticOutputValue(port.expression || port.sourcePath);
+  else if (mode === "function") {
+    data = port.sourcePath ? valueAtPath({ payload: basePayload, data: basePayload?.data, form: formData }, port.sourcePath) : basePayload;
+  } else if (port.sourcePath) {
+    data = valueAtPath({ payload: basePayload, data: basePayload?.data, form: formData }, port.sourcePath);
+  }
+  return {
+    ...basePayload,
+    outputPort: port.name,
+    outputSource: {
+      mode,
+      path: port.sourcePath || "",
+      component: port.sourceComponentKey || "",
+    },
+    data: data === undefined ? null : data,
+  };
 };
 
 const nodeTestPayload = (node = {}, runId = "") => {
@@ -3284,7 +3344,7 @@ const executeManualInputNode = async ({ node, workspaceId, runId, graph } = {}) 
       runId,
       node,
       channel,
-      payload,
+      payload: outputPayloadForPort(node, channel, payload),
       eventType: "flow_live_manual_input",
       latencyMs: 1,
     });
@@ -3294,6 +3354,53 @@ const executeManualInputNode = async ({ node, workspaceId, runId, graph } = {}) 
     nodeId: node.id,
     message: `Manual input emitted: ${node.label || node.id}`,
     context: { action: "flow-map-manual-input", runId, channels: outputChannels, payloadPreview: compactPayloadPreview(payload, 220) },
+  });
+  return { channels: outputChannels, payload };
+};
+
+const executeCustomFormNode = async ({ node, workspaceId, runId, graph } = {}) => {
+  const config = nodeConfigObject(node);
+  const fields = customNodeDataFields(node);
+  const values = Object.fromEntries(fields.map((field) => [field.key, customConfigValue(config, field)]));
+  const payload = {
+    live: true,
+    runId,
+    nodeId: node.id,
+    title: node.label || node.title || node.id,
+    type: "custom-form",
+    data: values,
+    fields: fields.map((field) => ({
+      key: field.key,
+      label: field.label,
+      type: field.type,
+      component: field.component,
+    })),
+    emittedAt: new Date().toISOString(),
+  };
+  const channels = nodeOutgoingTestChannels(node, graph);
+  const outputChannels = channels.length ? channels : ["output"];
+  for (const channel of outputChannels) {
+    await emitLiveNodePayload({
+      workspaceId,
+      runId,
+      node,
+      channel,
+      payload: outputPayloadForPort(node, channel, payload, { formData: values }),
+      eventType: "flow_live_custom_form",
+      latencyMs: 1,
+    });
+  }
+  await recordFlowAction({
+    workspaceId,
+    nodeId: node.id,
+    message: `Custom form emitted: ${node.label || node.id}`,
+    context: {
+      action: "flow-map-custom-form-input",
+      runId,
+      channels: outputChannels,
+      fields: fields.map((field) => field.key),
+      payloadPreview: compactPayloadPreview(payload, 220),
+    },
   });
   return { channels: outputChannels, payload };
 };
@@ -3726,7 +3833,7 @@ const executeLiveRestNode = async ({ node, workspaceId, runId, graph, signal = n
   const latencyMs = Math.max(1, Math.round(performance.now() - started));
   const channels = nodeOutgoingTestChannels(node, graph);
   for (const channel of (channels.length ? channels : ["raw"])) {
-    await emitLiveNodePayload({ workspaceId, runId, node, channel, payload, latencyMs, status: response.ok ? "ok" : "error" });
+    await emitLiveNodePayload({ workspaceId, runId, node, channel, payload: outputPayloadForPort(node, channel, payload), latencyMs, status: response.ok ? "ok" : "error" });
   }
   await recordFlowAction({
     workspaceId,
@@ -3736,6 +3843,68 @@ const executeLiveRestNode = async ({ node, workspaceId, runId, graph, signal = n
     context: { action: "flow-map-live-rest-response", runId, endpoint, method, status: response.status, channels },
   });
   return { channels, payload };
+};
+
+const parseRssPayload = (text = "") => {
+  const parser = new DOMParser();
+  const doc = parser.parseFromString(String(text || ""), "application/xml");
+  if (doc.querySelector("parsererror")) return { raw: text };
+  const pick = (root, selector) => root.querySelector(selector)?.textContent?.trim() || "";
+  const entries = [...doc.querySelectorAll("item, entry")].slice(0, 30).map((entry) => ({
+    title: pick(entry, "title"),
+    link: entry.querySelector("link")?.getAttribute?.("href") || pick(entry, "link"),
+    summary: pick(entry, "description") || pick(entry, "summary") || pick(entry, "content"),
+    publishedAt: pick(entry, "pubDate") || pick(entry, "published") || pick(entry, "updated"),
+    id: pick(entry, "guid") || pick(entry, "id"),
+  }));
+  return {
+    title: pick(doc, "channel > title") || pick(doc, "feed > title") || pick(doc, "title"),
+    link: pick(doc, "channel > link") || doc.querySelector("feed > link")?.getAttribute?.("href") || "",
+    entries,
+  };
+};
+
+const executeLiveRssNode = async ({ node, workspaceId, runId, graph, signal = null } = {}) => {
+  const endpoint = nodeEndpoint(node);
+  if (!endpoint) throw new Error(`${node.label || node.id}: RSS URL mancante`);
+  const started = performance.now();
+  await recordFlowAction({
+    workspaceId,
+    nodeId: node.id,
+    level: "info",
+    message: `Live RSS test fetching ${endpoint}`,
+    context: { action: "flow-map-live-rss-start", runId, endpoint },
+  });
+  const response = await fetch(endpoint, {
+    method: "GET",
+    headers: { Accept: "application/rss+xml, application/atom+xml, application/xml, text/xml, */*" },
+    ...(signal ? { signal } : {}),
+  });
+  const text = await response.text();
+  const payload = {
+    live: true,
+    runId,
+    status: response.status,
+    ok: response.ok,
+    endpoint,
+    type: "rss",
+    data: parseRssPayload(text),
+    receivedAt: new Date().toISOString(),
+  };
+  const latencyMs = Math.max(1, Math.round(performance.now() - started));
+  const channels = nodeOutgoingTestChannels(node, graph);
+  const outputChannels = channels.length ? channels : ["raw"];
+  for (const channel of outputChannels) {
+    await emitLiveNodePayload({ workspaceId, runId, node, channel, payload: outputPayloadForPort(node, channel, payload), latencyMs, status: response.ok ? "ok" : "error" });
+  }
+  await recordFlowAction({
+    workspaceId,
+    nodeId: node.id,
+    level: response.ok ? "info" : "warning",
+    message: `Live RSS test ${response.status} from ${node.label || node.id}`,
+    context: { action: "flow-map-live-rss-response", runId, endpoint, status: response.status, channels: outputChannels, items: payload.data?.entries?.length || 0 },
+  });
+  return { channels: outputChannels, payload };
 };
 
 const executeLiveWebSocketNode = ({ node, workspaceId, runId, graph, signal = null }) =>
@@ -3834,7 +4003,7 @@ const executeLiveWebSocketNode = ({ node, workspaceId, runId, graph, signal = nu
         };
         const latencyMs = Math.max(1, Math.round(performance.now() - started));
         for (const channel of outputChannels) {
-          await emitLiveNodePayload({ workspaceId, runId, node, channel, payload, latencyMs });
+          await emitLiveNodePayload({ workspaceId, runId, node, channel, payload: outputPayloadForPort(node, channel, payload), latencyMs });
         }
         await recordFlowAction({
           workspaceId,
@@ -3876,8 +4045,14 @@ const executeLiveNode = async ({ node, workspaceId, runId, graph, signal = null 
   if (isManualInputSource(node)) {
     return executeManualInputNode({ node, workspaceId, runId, graph, signal });
   }
+  if (isCustomFormSourceNode(node)) {
+    return executeCustomFormNode({ node, workspaceId, runId, graph, signal });
+  }
   const endpoint = nodeEndpoint(node);
-  const subtype = nodeSubtype(node);
+  const subtype = customNetworkRuntimeKind(node) || nodeSubtype(node);
+  if (subtype === "rss") {
+    return executeLiveRssNode({ node, workspaceId, runId, graph, signal });
+  }
   if (isWebSocketEndpoint(endpoint) || subtype === "websocket") {
     return executeLiveWebSocketNode({ node, workspaceId, runId, graph, signal });
   }
@@ -4979,6 +5154,7 @@ const openPaletteNode = (item, contextNode = selectedNode()) => {
 const manifestPortDef = (port = "", fallbackType = "any") => {
   if (port && typeof port === "object") {
     return {
+      ...port,
       name: String(port.name || port.key || port.channel || port.id || "default"),
       type: port.type || port.valueType || fallbackType,
       schema: port.schema || port.payloadSchema || null,
@@ -5288,11 +5464,26 @@ const normalizeNodeBuilderPorts = (ports = [], side = "in") => {
         name: port.name || port.key || port.label || (side === "in" ? "input" : "output"),
         type: port.type || "object",
         visible: port.visible !== false,
+        required: Boolean(port.required),
+        description: port.description || "",
+        schema: port.schema || null,
+        sourceMode: side === "out" ? (port.sourceMode || port.source || "runtimeResult") : "",
+        sourcePath: side === "out" ? (port.sourcePath || port.path || "") : "",
+        sourceComponentKey: side === "out" ? (port.sourceComponentKey || "") : "",
+        expression: side === "out" ? (port.expression || "") : "",
       };
     }
     return {
       name: String(port || (side === "in" ? "input" : "output")),
       type: "object",
+      visible: true,
+      required: false,
+      description: "",
+      schema: null,
+      sourceMode: side === "out" ? "runtimeResult" : "",
+      sourcePath: "",
+      sourceComponentKey: "",
+      expression: "",
     };
   });
 };
@@ -5343,6 +5534,33 @@ const nodeBuilderComponentIcon = (type = "input") => ({
 }[type] || "dynamic_form");
 
 const NODE_BUILDER_COLOR_OPTIONS = ["primary", "secondary", "success", "warning", "danger", "info", "light", "dark"];
+
+const NODE_BUILDER_PORT_TYPE_OPTIONS = [
+  "object",
+  "array",
+  "string",
+  "number",
+  "integer",
+  "float",
+  "boolean",
+  "image",
+  "file",
+  "blob",
+  "json",
+  "event",
+  "record",
+  "date",
+  "time",
+  "any",
+].map((type) => ({ value: type, label: type }));
+
+const NODE_BUILDER_OUTPUT_SOURCE_OPTIONS = [
+  { value: "runtimeResult", label: "Runtime result" },
+  { value: "formData", label: "Full form data" },
+  { value: "component", label: "Single component" },
+  { value: "static", label: "Static value" },
+  { value: "function", label: "Function / mapping" },
+];
 
 const nodeBuilderDefaultComponentSettings = (type = "input") => ({
   visibleOnNode: true,
@@ -5542,9 +5760,62 @@ const nodeBuilderSettingsSchemaFromLayout = (layout = []) =>
 const nodeBuilderDefaultConfigFromLayout = (layout = []) =>
   Object.fromEntries(collectNodeBuilderDataFields(layout).map((field) => [field.key || field.label || "field", customConfigValue({}, field)]));
 
+const NODE_BUILDER_RUNTIME_OPTIONS = [
+  { value: "form", label: "Form only" },
+  { value: "rest", label: "REST API" },
+  { value: "websocket", label: "WebSocket" },
+  { value: "rss", label: "RSS Feed" },
+];
+
+const NODE_BUILDER_HTTP_METHOD_OPTIONS = ["GET", "POST", "PUT", "PATCH", "DELETE"].map((method) => ({ value: method, label: method }));
+
+const nodeBuilderRuntimeKind = (builder = {}) =>
+  String(builder.runtimeConnector || builder.runtime?.connector || builder.execute?.kind || "form").toLowerCase();
+
+const nodeBuilderRuntimePermissions = (kind = "form") => {
+  if (kind === "websocket") return ["network.websocket"];
+  if (kind === "rest" || kind === "rss") return ["network.fetch"];
+  return [];
+};
+
+const nodeBuilderRuntimeConfig = (builder = {}) => {
+  const kind = nodeBuilderRuntimeKind(builder);
+  return {
+    runtimeConnector: kind,
+    endpoint: String(builder.endpoint || "").trim(),
+    method: String(builder.method || "GET").toUpperCase(),
+    requestBody: String(builder.requestBody || ""),
+    keepWebSocketOpen: Boolean(builder.keepWebSocketOpen),
+  };
+};
+
+const nodeBuilderRuntimeExecute = (builder = {}) => {
+  const config = nodeBuilderRuntimeConfig(builder);
+  if (config.runtimeConnector === "form") return null;
+  return {
+    kind: config.runtimeConnector,
+    endpoint: config.endpoint,
+    method: config.method,
+    keepOpen: config.keepWebSocketOpen,
+  };
+};
+
+const nodeBuilderRuntimeModeLabel = (builder = {}) => {
+  const kind = nodeBuilderRuntimeKind(builder);
+  if (kind === "rest") return "manual / REST test";
+  if (kind === "websocket") return builder.keepWebSocketOpen ? "manual / WebSocket stream" : "manual / WebSocket test";
+  if (kind === "rss") return "manual / RSS fetch";
+  return builder.runtimeMode || "manual / form";
+};
+
 const nodeBuilderStateFromTemplate = (template = {}, group = "Custom") => {
   const fields = nodeBuilderFieldsFromTemplate(template);
   const formLayout = normalizeNodeBuilderLayout(template.formLayout || template.formSchema?.layout || nodeBuilderLayoutFromFields(fields));
+  const runtimeConfig = {
+    ...(template.runtimeConfig || {}),
+    ...(template.config || {}),
+  };
+  const runtimeConnector = String(template.runtimeConnector || template.execute?.kind || template.manifest?.execute?.kind || runtimeConfig.runtimeConnector || "form").toLowerCase();
   return {
     sourceGroup: group,
     label: template.label || "Custom Node",
@@ -5554,8 +5825,13 @@ const nodeBuilderStateFromTemplate = (template = {}, group = "Custom") => {
     icon: template.icon || "extension",
     tone: template.tone || "gold",
     connectionType: template.connectionType || template.trackerSource || "",
-    runtimeMode: template.runtimeMode || template.runtime?.mode || "manual / on event",
-    permissions: Array.isArray(template.permissions) ? [...template.permissions] : [],
+    runtimeConnector,
+    endpoint: runtimeConfig.endpoint || template.endpoint || template.manifest?.execute?.endpoint || "",
+    method: runtimeConfig.method || template.method || template.manifest?.execute?.method || "GET",
+    requestBody: runtimeConfig.requestBody || runtimeConfig.body || template.requestBody || "",
+    keepWebSocketOpen: Boolean(runtimeConfig.keepWebSocketOpen || runtimeConfig.keepOpen || template.keepWebSocketOpen || template.manifest?.execute?.keepOpen),
+    runtimeMode: template.runtimeMode || template.runtime?.mode || nodeBuilderRuntimeModeLabel({ runtimeConnector, keepWebSocketOpen: Boolean(runtimeConfig.keepWebSocketOpen || template.keepWebSocketOpen) }),
+    permissions: Array.isArray(template.permissions) ? [...template.permissions] : nodeBuilderRuntimePermissions(runtimeConnector),
     formLayout,
     fields: collectNodeBuilderDataFields(formLayout),
     inputs: normalizeNodeBuilderPorts(template.inputs || template.manifest?.inputs || ["input"], "in").map((port) => ({ ...port, visible: true })),
@@ -5567,6 +5843,25 @@ const nodeBuilderStateToTemplate = (builder = {}) => {
   const formLayout = normalizeNodeBuilderLayout(builder.formLayout || nodeBuilderLayoutFromFields(builder.fields || []));
   const settingsSchema = nodeBuilderSettingsSchemaFromLayout(formLayout);
   const fields = collectNodeBuilderDataFields(formLayout);
+  const runtimeConfig = nodeBuilderRuntimeConfig(builder);
+  const execute = nodeBuilderRuntimeExecute(builder);
+  const runtimePermissions = nodeBuilderRuntimePermissions(runtimeConfig.runtimeConnector);
+  const permissions = [...new Set([...(Array.isArray(builder.permissions) ? builder.permissions : []), ...runtimePermissions])];
+  const serializePort = (port = {}, side = "in") => ({
+    name: port.name || (side === "in" ? "input" : "output"),
+    type: port.type || "object",
+    visible: port.visible !== false,
+    required: Boolean(port.required),
+    description: port.description || "",
+    schema: port.schema || null,
+    ...(port.sourceComponentId ? { sourceComponentId: port.sourceComponentId, sourceComponentKey: port.sourceComponentKey || "" } : {}),
+    ...(side === "out" ? {
+      sourceMode: port.sourceMode || "runtimeResult",
+      sourcePath: port.sourcePath || "",
+      sourceComponentKey: port.sourceComponentKey || "",
+      expression: port.expression || "",
+    } : {}),
+  });
   return {
     label: builder.label || "Custom Node",
     icon: builder.icon || "extension",
@@ -5574,21 +5869,14 @@ const nodeBuilderStateToTemplate = (builder = {}) => {
     nodeType: builder.nodeType || "custom",
     subtype: builder.subtype || "custom",
     category: builder.category || "custom",
-    inputs: (builder.inputs || []).map((port) => ({
-      name: port.name || "input",
-      type: port.type || "object",
-      visible: port.visible !== false,
-      ...(port.sourceComponentId ? { sourceComponentId: port.sourceComponentId, sourceComponentKey: port.sourceComponentKey || "" } : {}),
-    })),
-    outputs: (builder.outputs || []).map((port) => ({
-      name: port.name || "output",
-      type: port.type || "object",
-      visible: port.visible !== false,
-      ...(port.sourceComponentId ? { sourceComponentId: port.sourceComponentId, sourceComponentKey: port.sourceComponentKey || "" } : {}),
-    })),
-    permissions: Array.isArray(builder.permissions) ? [...builder.permissions] : [],
-    runtimeMode: builder.runtimeMode || "manual / on event",
+    inputs: (builder.inputs || []).map((port) => serializePort(port, "in")),
+    outputs: (builder.outputs || []).map((port) => serializePort(port, "out")),
+    permissions,
+    runtimeConnector: runtimeConfig.runtimeConnector,
+    runtimeConfig,
+    runtimeMode: nodeBuilderRuntimeModeLabel(builder),
     connectionType: builder.connectionType || "",
+    execute,
     formLayout,
     fields,
     settingsSchema,
@@ -5596,10 +5884,15 @@ const nodeBuilderStateToTemplate = (builder = {}) => {
       type: builder.nodeType || "custom",
       subtype: builder.subtype || "custom",
       category: builder.category || "custom",
-      inputs: (builder.inputs || []).map((port) => ({ name: port.name || "input", type: port.type || "object", visible: port.visible !== false })),
-      outputs: (builder.outputs || []).map((port) => ({ name: port.name || "output", type: port.type || "object", visible: port.visible !== false })),
-      permissions: Array.isArray(builder.permissions) ? [...builder.permissions] : [],
+      inputs: (builder.inputs || []).map((port) => serializePort(port, "in")),
+      outputs: (builder.outputs || []).map((port) => serializePort(port, "out")),
+      permissions,
       settingsSchema,
+      runtime: {
+        mode: nodeBuilderRuntimeModeLabel(builder),
+        connector: runtimeConfig.runtimeConnector,
+      },
+      ...(execute ? { execute } : {}),
     },
   };
 };
@@ -5769,6 +6062,10 @@ const renderNodeBuilderPreview = (template = defaultNodeBuilderTemplate()) => {
   const inputs = normalizeNodeBuilderPorts(template.inputs || template.manifest?.inputs || ["input"], "in").filter((port) => port.visible !== false).slice(0, 4);
   const outputs = normalizeNodeBuilderPorts(template.outputs || template.manifest?.outputs || ["output"], "out").filter((port) => port.visible !== false).slice(0, 4);
   const tone = template.tone || "gold";
+  const runtimeKind = nodeBuilderRuntimeKind(template);
+  const runtimeSummary = runtimeKind === "form"
+    ? (template.connectionType || template.trackerSource || "Template loaded for this workspace.")
+    : `${runtimeKind.toUpperCase()} · ${template.endpoint || template.runtimeConfig?.endpoint || "endpoint required"}`;
   return _.div(
     { class: "tl-flow-node-builder-preview-stack" },
     _.div(
@@ -5785,7 +6082,7 @@ const renderNodeBuilderPreview = (template = defaultNodeBuilderTemplate()) => {
       ),
       _.div(
         { class: "tl-flow-node-builder-preview-body" },
-        _.small(template.connectionType || template.trackerSource || "Template loaded for this workspace."),
+        _.small(runtimeSummary),
         _.div(
           { class: "tl-flow-node-builder-live-form" },
           ...renderNodeBuilderPreviewFormNodes(template.formLayout || template.formSchema?.layout || [])
@@ -5801,7 +6098,7 @@ const renderNodeBuilderPreview = (template = defaultNodeBuilderTemplate()) => {
       _.div(
         { class: "tl-flow-node-builder-preview-footer" },
         _.span(`${inputs.length} IN · ${outputs.length} OUT`),
-        btn({ class: "tl-flow-node-test-btn", disabled: true, title: "Preview only" }, icon("play_arrow", "sm"))
+        btn({ class: "tl-flow-node-test-btn", disabled: true, title: runtimeKind === "form" ? "Preview only" : "Create the node, then use this Play button on the canvas" }, icon("play_arrow", "sm"))
       )
     )
   );
@@ -5874,8 +6171,11 @@ const renderNodeBuilderPortRows = (ports = [], side = "in") =>
     _.span(
       { class: "tl-flow-node-builder-row-main" },
       _.strong(port.name || port.label || (side === "in" ? "input" : "output")),
-      _.em(port.type || "object")
+      _.em(side === "out"
+        ? `${port.type || "object"} · ${port.sourceMode || "runtimeResult"}${port.sourceComponentKey ? `:${port.sourceComponentKey}` : ""}`
+        : `${port.type || "object"}${port.required ? " · required" : ""}`)
     ),
+    btn({ title: "Port settings", "aria-label": "Port settings", "data-node-builder-edit-port": `${side}:${index}` }, icon("tune", "sm")),
     btn({ title: port.visible === false ? "Show on node" : "Hide from node", "aria-label": port.visible === false ? "Show on node" : "Hide from node", "data-node-builder-toggle-port": `${side}:${index}` }, icon(port.visible === false ? "visibility_off" : "visibility", "sm")),
     btn({ title: "Remove port", "aria-label": "Remove port", "data-node-builder-delete-port": `${side}:${index}`, disabled: ports.length <= 1 }, icon("delete", "sm"))
   ));
@@ -5923,6 +6223,14 @@ const openNodeBuilderDialog = (options = {}) => {
     builder.icon = root.querySelector("[data-node-builder-field='icon']")?.value?.trim() || builder.icon || "extension";
     builder.tone = root.querySelector("[data-node-builder-field='tone']")?.value?.trim() || builder.tone || "gold";
     builder.subtype = root.querySelector("[data-node-builder-field='subtype']")?.value?.trim() || builder.subtype || "custom";
+    const runtimeConnectorInput = root.querySelector("[data-node-builder-runtime='connector']");
+    const endpointInput = root.querySelector("[data-node-builder-runtime='endpoint']");
+    const methodInput = root.querySelector("[data-node-builder-runtime='method']");
+    const bodyInput = root.querySelector("[data-node-builder-runtime='requestBody']");
+    if (runtimeConnectorInput) builder.runtimeConnector = runtimeConnectorInput.value?.trim() || "form";
+    if (endpointInput) builder.endpoint = endpointInput.value?.trim() || "";
+    if (methodInput) builder.method = methodInput.value?.trim() || "GET";
+    if (bodyInput) builder.requestBody = bodyInput.value || "";
   };
 
   const refreshNodeBuilder = (root, { full = false } = {}) => {
@@ -5938,6 +6246,8 @@ const openNodeBuilderDialog = (options = {}) => {
       if (iconInput) iconInput.value = builder.icon || "extension";
       if (toneInput) toneInput.value = builder.tone || "gold";
       if (subtypeInput) subtypeInput.value = builder.subtype || "custom";
+      const runtime = root.querySelector("[data-node-builder-runtime-panel]");
+      if (runtime) runtime.replaceChildren(renderNodeBuilderRuntimePanel(root));
       const fields = root.querySelector("[data-node-builder-fields]");
       if (fields) fields.replaceChildren(...renderNodeBuilderFormLayout(builder.formLayout || []));
       const inputPorts = root.querySelector("[data-node-builder-inputs]");
@@ -5953,8 +6263,10 @@ const openNodeBuilderDialog = (options = {}) => {
     if (title) title.textContent = builder.label || "Custom Node";
     if (meta) meta.textContent = `${builder.sourceGroup || "Custom"} · ${builder.nodeType || "node"} · ${builder.subtype || "custom"}`;
     if (summary) summary.textContent = builder.connectionType || "Template loaded for this workspace.";
-    if (runtimeExecution) runtimeExecution.textContent = builder.runtimeMode || "manual / on event";
-    if (runtimePermissions) runtimePermissions.textContent = (builder.permissions || []).join(", ") || "none";
+    builder.runtimeMode = nodeBuilderRuntimeModeLabel(builder);
+    const runtimePermissionsValue = [...new Set([...(builder.permissions || []), ...nodeBuilderRuntimePermissions(nodeBuilderRuntimeKind(builder))])];
+    if (runtimeExecution) runtimeExecution.textContent = builder.runtimeMode || "manual / form";
+    if (runtimePermissions) runtimePermissions.textContent = runtimePermissionsValue.join(", ") || "none";
     const preview = root.querySelector("[data-node-builder-preview]");
     if (preview) preview.replaceChildren(renderNodeBuilderPreview(builder));
   };
@@ -6422,9 +6734,196 @@ const openNodeBuilderDialog = (options = {}) => {
     document.addEventListener("pointercancel", cancelBuilderComponentPointerDrag, { once: true });
   };
 
+  const nodeBuilderComponentPortOptions = () => [
+    { value: "", label: "None" },
+    ...collectNodeBuilderDataFields(builder.formLayout || []).map((field) => ({
+      value: field.key,
+      label: `${field.label || field.key} · ${field.type || "field"}`,
+    })),
+  ];
+
+  const editBuilderPort = (payload = "", root = null) => {
+    const [side, indexValue] = String(payload).split(":");
+    const listKey = side === "out" ? "outputs" : "inputs";
+    const list = normalizeNodeBuilderPorts(builder[listKey] || [], side);
+    const index = Number(indexValue);
+    const port = list[index];
+    if (!port) return;
+    const readCmsValue = (value) => value?.target?.value ?? value;
+    const componentOptions = nodeBuilderComponentPortOptions();
+    const draft = {
+      name: port.name || (side === "out" ? "output" : "input"),
+      type: port.type || "object",
+      required: Boolean(port.required),
+      visible: port.visible !== false,
+      description: port.description || "",
+      schemaText: typeof port.schema === "string" ? port.schema : port.schema ? JSON.stringify(port.schema, null, 2) : "",
+      sourceMode: port.sourceMode || "runtimeResult",
+      sourcePath: port.sourcePath || "",
+      sourceComponentKey: port.sourceComponentKey || "",
+      expression: port.expression || "",
+    };
+    const savePortSettings = () => {
+      const next = {
+        ...port,
+        name: String(draft.name || "").trim().replace(/[^A-Za-z0-9_.-]/g, "_") || (side === "out" ? "output" : "input"),
+        type: String(draft.type || "object"),
+        required: Boolean(draft.required),
+        visible: draft.visible !== false,
+        description: String(draft.description || "").trim(),
+        schema: String(draft.schemaText || "").trim()
+          ? (parseTestPayload(draft.schemaText) || String(draft.schemaText || "").trim())
+          : null,
+      };
+      if (side === "out") {
+        next.sourceMode = draft.sourceMode || "runtimeResult";
+        next.sourcePath = String(draft.sourcePath || "").trim();
+        next.sourceComponentKey = String(draft.sourceComponentKey || "").trim();
+        next.expression = String(draft.expression || "").trim();
+      }
+      list[index] = next;
+      builder[listKey] = list;
+      builder.fields = collectNodeBuilderDataFields(builder.formLayout || []);
+      portDialog.close();
+      refreshNodeBuilder(root, { full: true });
+    };
+    const portDialog = _.Dialog({
+      class: "tl-flow-node-builder-dialog",
+      panelClass: "tl-flow-config-panel",
+      size: "md",
+      title: side === "out" ? "Output Port Settings" : "Input Port Settings",
+      subtitle: port.name || (side === "out" ? "output" : "input"),
+      icon: side === "out" ? "output" : "input",
+      closeButton: true,
+      content: () => _.form(
+        {
+          class: "tl-flow-config-form",
+          onsubmit: (event) => {
+            event.preventDefault();
+            savePortSettings();
+          },
+        },
+        _.div(
+          { class: "tl-flow-config-grid" },
+          _.Input({
+            size: "sm",
+            label: "Port name",
+            value: draft.name,
+            autocomplete: "off",
+            onInput: (event) => {
+              draft.name = String(readCmsValue(event) || "");
+            },
+          }),
+          _.Select({
+            size: "sm",
+            label: "Data type",
+            value: draft.type,
+            options: NODE_BUILDER_PORT_TYPE_OPTIONS,
+            filterable: true,
+            slots: { arrow: () => icon("keyboard_arrow_down", "sm") },
+            onChange: (value) => {
+              draft.type = String(readCmsValue(value) || "object");
+            },
+          })
+        ),
+        _.div(
+          { class: "tl-flow-config-toggle-row" },
+          _.span(side === "out" ? "Show on node" : "Required input"),
+          _.Toggle({
+            size: "sm",
+            checked: side === "out" ? draft.visible !== false : draft.required,
+            color: "success",
+            onChange: (checked) => {
+              if (side === "out") draft.visible = Boolean(checked);
+              else draft.required = Boolean(checked);
+            },
+          })
+        ),
+        _.Input({
+          size: "sm",
+          label: "Description",
+          value: draft.description,
+          placeholder: side === "out" ? "Payload produced by this output" : "Expected incoming payload",
+          autocomplete: "off",
+          onInput: (event) => {
+            draft.description = String(readCmsValue(event) || "");
+          },
+        }),
+        _.Input({
+          size: "sm",
+          label: "JSON schema",
+          value: draft.schemaText,
+          placeholder: "{\"type\":\"object\"}",
+          autocomplete: "off",
+          onInput: (event) => {
+            draft.schemaText = String(readCmsValue(event) || "");
+          },
+        }),
+        side === "out" ? _.div(
+          { class: "tl-flow-config-section" },
+          _.h3("Output Source"),
+          _.Select({
+            size: "sm",
+            label: "Source",
+            value: draft.sourceMode,
+            options: NODE_BUILDER_OUTPUT_SOURCE_OPTIONS,
+            slots: { arrow: () => icon("keyboard_arrow_down", "sm") },
+            onChange: (value) => {
+              draft.sourceMode = String(readCmsValue(value) || "runtimeResult");
+            },
+          }),
+          _.Select({
+            size: "sm",
+            label: "Component",
+            value: draft.sourceComponentKey,
+            options: componentOptions,
+            filterable: true,
+            slots: { arrow: () => icon("keyboard_arrow_down", "sm") },
+            onChange: (value) => {
+              draft.sourceComponentKey = String(readCmsValue(value) || "");
+            },
+          }),
+          _.Input({
+            size: "sm",
+            label: "Path",
+            value: draft.sourcePath,
+            placeholder: "data.price or payload.result",
+            autocomplete: "off",
+            onInput: (event) => {
+              draft.sourcePath = String(readCmsValue(event) || "");
+            },
+          }),
+          _.Input({
+            size: "sm",
+            label: "Static / function",
+            value: draft.expression,
+            placeholder: "Static value or return { value: data.name }",
+            autocomplete: "off",
+            onInput: (event) => {
+              draft.expression = String(readCmsValue(event) || "");
+            },
+          })
+        ) : null
+      ),
+      actions: ({ close }) => _.Toolbar(
+        { align: "end", gap: 8 },
+        btn({ onclick: close }, "Cancel"),
+        btn({ class: "is-primary", onclick: savePortSettings }, icon("save", "sm"), "Save Port")
+      ),
+    });
+    portDialog.open();
+  };
+
   const addBuilderPort = (side = "in", root = null) => {
     const list = side === "out" ? builder.outputs : builder.inputs;
-    list.push({ name: side === "out" ? `output_${list.length + 1}` : `input_${list.length + 1}`, type: "object", visible: true });
+    list.push({
+      name: side === "out" ? `output_${list.length + 1}` : `input_${list.length + 1}`,
+      type: "object",
+      visible: true,
+      required: false,
+      description: "",
+      sourceMode: side === "out" ? "runtimeResult" : "",
+    });
     refreshNodeBuilder(root, { full: true });
   };
 
@@ -6446,6 +6945,86 @@ const openNodeBuilderDialog = (options = {}) => {
     refreshNodeBuilder(root, { full: true });
   };
 
+  const readBuilderRuntimeValue = (value) => value?.target?.value ?? value;
+
+  const updateBuilderRuntime = (root, patch = {}, full = false) => {
+    builder = {
+      ...builder,
+      ...patch,
+    };
+    builder.runtimeMode = nodeBuilderRuntimeModeLabel(builder);
+    builder.permissions = [...new Set([...(builder.permissions || []).filter((permission) => !["network.fetch", "network.websocket"].includes(permission)), ...nodeBuilderRuntimePermissions(nodeBuilderRuntimeKind(builder))])];
+    refreshNodeBuilder(root || document.querySelector(".tl-flow-node-builder"), { full });
+  };
+
+  const renderNodeBuilderRuntimePanel = (root = null) => {
+    const kind = nodeBuilderRuntimeKind(builder);
+    const isNetwork = kind !== "form";
+    return _.div(
+      { class: "tl-flow-node-builder-runtime-panel" },
+      _.div(
+        { class: "tl-flow-node-builder-runtime-grid" },
+        _.Select({
+          size: "sm",
+          label: "Runtime call",
+          value: kind,
+          options: NODE_BUILDER_RUNTIME_OPTIONS,
+          "data-node-builder-runtime": "connector",
+          slots: { arrow: () => icon("keyboard_arrow_down", "sm") },
+          onChange: (value) => updateBuilderRuntime(root || document.querySelector(".tl-flow-node-builder"), { runtimeConnector: String(readBuilderRuntimeValue(value) || "form") }, true),
+        }),
+        isNetwork ? _.Input({
+          size: "sm",
+          label: kind === "websocket" ? "WebSocket URL" : kind === "rss" ? "RSS URL" : "Endpoint",
+          value: builder.endpoint || "",
+          placeholder: kind === "websocket" ? "wss://stream.example.com/feed" : "https://api.example.com/data",
+          autocomplete: "off",
+          "data-node-builder-runtime": "endpoint",
+          onInput: (event) => {
+            builder.endpoint = String(readBuilderRuntimeValue(event) || "");
+            refreshNodeBuilder(root || document.querySelector(".tl-flow-node-builder"));
+          },
+        }) : null,
+        kind === "rest" ? _.Select({
+          size: "sm",
+          label: "Method",
+          value: builder.method || "GET",
+          options: NODE_BUILDER_HTTP_METHOD_OPTIONS,
+          "data-node-builder-runtime": "method",
+          slots: { arrow: () => icon("keyboard_arrow_down", "sm") },
+          onChange: (value) => updateBuilderRuntime(root || document.querySelector(".tl-flow-node-builder"), { method: String(readBuilderRuntimeValue(value) || "GET").toUpperCase() }),
+        }) : null,
+        kind === "rest" ? _.Input({
+          size: "sm",
+          label: "JSON body",
+          value: builder.requestBody || "",
+          placeholder: "{\"query\":\"btc\"}",
+          autocomplete: "off",
+          "data-node-builder-runtime": "requestBody",
+          onInput: (event) => {
+            builder.requestBody = String(readBuilderRuntimeValue(event) || "");
+          },
+        }) : null
+      ),
+      kind === "websocket" ? _.div(
+        { class: "tl-flow-config-toggle-row" },
+        _.span("Keep WebSocket open"),
+        _.Toggle({
+          size: "sm",
+          checked: Boolean(builder.keepWebSocketOpen),
+          color: "success",
+          onChange: (checked) => updateBuilderRuntime(root || document.querySelector(".tl-flow-node-builder"), { keepWebSocketOpen: Boolean(checked) }),
+        })
+      ) : null,
+      _.p(
+        { class: "tl-flow-node-builder-runtime-help" },
+        isNetwork
+          ? "Il play del nodo esegue questa chiamata e pubblica il payload sulle porte OUT collegate."
+          : "Form only salva dati/config del nodo. Scegli REST, WebSocket o RSS per abilitare test runtime dal canvas."
+      )
+    );
+  };
+
   const saveBuilderTemplateAction = (root) => {
     readBuilderGeneral(root);
     saveNodeBuilderTemplate(nodeBuilderStateToTemplate(builder));
@@ -6455,7 +7034,7 @@ const openNodeBuilderDialog = (options = {}) => {
       button.textContent = "Saved";
       window.setTimeout(() => {
         button.classList.remove("is-saved");
-        button.replaceChildren(icon("bookmark_add", "sm"), "Save Template");
+        button.replaceChildren(icon("save", "sm"), "Save Template");
       }, 1200);
     }
   };
@@ -6489,6 +7068,9 @@ const openNodeBuilderDialog = (options = {}) => {
           subtype: item.subtype || "custom",
           category: item.category || "custom",
           manifest: item.manifest || null,
+          execute: item.execute || null,
+          runtimeConfig: item.runtimeConfig || {},
+          runtimeMetadata: item.manifest?.runtime || { mode: item.runtimeMode || "manual / form", connector: item.runtimeConnector || "form" },
           permissions: item.permissions || [],
           settingsSchema: item.settingsSchema || {},
           formSchema: {
@@ -6509,7 +7091,10 @@ const openNodeBuilderDialog = (options = {}) => {
         node,
         label: item.label || "Custom Node",
         runtimeStatus: "idle",
-        config: nodeBuilderDefaultConfigFromLayout(item.formLayout || []),
+        config: {
+          ...nodeBuilderDefaultConfigFromLayout(item.formLayout || []),
+          ...(item.runtimeConfig || {}),
+        },
       });
       node = await window.TrackerLensRuntimeGraphStore?.upsertRuntimeNode?.({ node });
       if (node?.id && window.TrackerLensChannelRegistry?.upsertChannelsForRuntimeNode) {
@@ -6557,6 +7142,9 @@ const openNodeBuilderDialog = (options = {}) => {
         subtype: item.subtype || previousMetadata.subtype || "custom",
         category: item.category || previousMetadata.category || "custom",
         manifest: item.manifest || previousMetadata.manifest || null,
+        execute: item.execute || previousMetadata.execute || null,
+        runtimeConfig: item.runtimeConfig || previousMetadata.runtimeConfig || {},
+        runtimeMetadata: item.manifest?.runtime || previousMetadata.runtimeMetadata || previousMetadata.manifest?.runtime || { mode: item.runtimeMode || "manual / form", connector: item.runtimeConnector || "form" },
         permissions: item.permissions || previousMetadata.permissions || [],
         settingsSchema: item.settingsSchema || {},
         formSchema: {
@@ -6577,7 +7165,7 @@ const openNodeBuilderDialog = (options = {}) => {
       node: baseNode,
       label: item.label || current.label,
       runtimeStatus: current.metadata?.runtimeStatus || current.runtime?.status || current.status || "idle",
-      config: { ...nodeBuilderDefaultConfigFromLayout(item.formLayout || []), ...nodeConfigObject(current) },
+      config: { ...nodeBuilderDefaultConfigFromLayout(item.formLayout || []), ...nodeConfigObject(current), ...(item.runtimeConfig || {}) },
     });
     try {
       await window.TrackerLensRuntimeGraphStore?.upsertRuntimeNode?.({ node: nextNode });
@@ -6629,6 +7217,7 @@ const openNodeBuilderDialog = (options = {}) => {
           const root = rootFor(event);
           const fieldEdit = event.target.closest?.("[data-node-builder-edit-field]");
           const fieldDelete = event.target.closest?.("[data-node-builder-delete-field]");
+          const portEdit = event.target.closest?.("[data-node-builder-edit-port]");
           const portToggle = event.target.closest?.("[data-node-builder-toggle-port]");
           const portDelete = event.target.closest?.("[data-node-builder-delete-port]");
           const portAdd = event.target.closest?.("[data-node-builder-add-port]");
@@ -6638,6 +7227,9 @@ const openNodeBuilderDialog = (options = {}) => {
           if (fieldEdit) {
             event.preventDefault();
             editBuilderField(fieldEdit.dataset.nodeBuilderEditField, root);
+          } else if (portEdit) {
+            event.preventDefault();
+            editBuilderPort(portEdit.dataset.nodeBuilderEditPort, root);
           } else if (fieldDelete) {
             event.preventDefault();
             deleteBuilderField(fieldDelete.dataset.nodeBuilderDeleteField, root);
@@ -6850,14 +7442,15 @@ const openNodeBuilderDialog = (options = {}) => {
           _.div(
             { class: "tl-flow-node-builder-card-head" },
             _.span(icon("bolt", "sm"), _.strong("Runtime")),
-            _.em("Adapter later")
+            _.em("Call + test")
           ),
+          _.div({ "data-node-builder-runtime-panel": "true" }, renderNodeBuilderRuntimePanel()),
           _.div(
             { class: "tl-flow-node-builder-runtime" },
             _.span("Execution"),
-            _.strong({ "data-node-builder-runtime-execution": "true" }, builder.runtimeMode || "manual / on event"),
+            _.strong({ "data-node-builder-runtime-execution": "true" }, nodeBuilderRuntimeModeLabel(builder)),
             _.span("Permissions"),
-            _.strong({ "data-node-builder-runtime-permissions": "true" }, (builder.permissions || []).join(", ") || "none")
+            _.strong({ "data-node-builder-runtime-permissions": "true" }, [...new Set([...(builder.permissions || []), ...nodeBuilderRuntimePermissions(nodeBuilderRuntimeKind(builder))])].join(", ") || "none")
           )
         )
       ),
@@ -6872,12 +7465,12 @@ const openNodeBuilderDialog = (options = {}) => {
       )
     ),
     actions: ({ close }) => _.Toolbar(
-      { align: "end", gap: 8 },
-      btn({ onclick: close }, "Cancel"),
-      btn({ "data-node-builder-save-template": "true", onclick: (event) => saveBuilderTemplateAction(rootFor(event)) }, icon("bookmark_add", "sm"), "Save Template"),
+      { class: "tl-flow-node-builder-actions", align: "end", gap: 8 },
+      btn({ class: "tl-flow-node-builder-action is-cancel", onclick: close }, "Cancel"),
+      btn({ class: "tl-flow-node-builder-action is-template", "data-node-builder-save-template": "true", onclick: (event) => saveBuilderTemplateAction(rootFor(event)) }, icon("save", "sm"), "Save Template"),
       editMode
-        ? btn({ class: "is-primary", onclick: (event) => saveExistingNodeFromBuilderAction(rootFor(event), close) }, icon("save", "sm"), "Save Node")
-        : btn({ class: "is-primary", onclick: (event) => createNodeFromBuilderAction(rootFor(event), close) }, icon("add", "sm"), "Create Node")
+        ? btn({ class: "tl-flow-node-builder-action is-create is-primary", onclick: (event) => saveExistingNodeFromBuilderAction(rootFor(event), close) }, icon("save", "sm"), "Save Node")
+        : btn({ class: "tl-flow-node-builder-action is-create is-primary", onclick: (event) => createNodeFromBuilderAction(rootFor(event), close) }, icon("save", "sm"), "Create Node")
     ),
   });
   dialog.open();
@@ -6922,6 +7515,12 @@ const nodeBuilderTemplateFromCustomNode = (node = {}) => {
       .map((port) => ({ ...port, visible: !hiddenOut.has(port.name) })),
     permissions: metadata.permissions || metadata.manifest?.permissions || node.permissions || [],
     runtimeMode: metadata.runtimeMetadata?.mode || metadata.manifest?.runtime?.mode || "manual / on event",
+    runtimeConnector: metadata.runtimeConfig?.runtimeConnector || metadata.execute?.kind || metadata.manifest?.execute?.kind || metadata.runtimeMetadata?.connector || "form",
+    runtimeConfig: {
+      ...(metadata.runtimeConfig || {}),
+      ...(nodeConfigObject(node) || {}),
+    },
+    execute: metadata.execute || metadata.manifest?.execute || null,
     connectionType: metadata.paletteAction === "node-builder" ? "Custom node builder" : metadata.paletteAction || "",
     formLayout: customNodeFormLayout(node),
     formSchema: metadata.formSchema || {},
@@ -8261,7 +8860,7 @@ const customRuntimeNodeUpdate = ({ node, label, runtimeStatus, config }) => {
     settingsSchema,
     runtime: previousMetadata.runtimeMetadata || previousMetadata.manifest?.runtime || node.runtime || {},
     render: previousMetadata.manifest?.render || null,
-    execute: previousMetadata.manifest?.execute || null,
+    execute: previousMetadata.execute || previousMetadata.manifest?.execute || null,
     persist: previousMetadata.manifest?.persist || null,
   });
   return {
@@ -8282,6 +8881,8 @@ const customRuntimeNodeUpdate = ({ node, label, runtimeStatus, config }) => {
       configured: true,
       customNode: true,
       config,
+      runtimeConfig: previousMetadata.runtimeConfig || {},
+      execute: previousMetadata.execute || manifest.execute || null,
       runtimeStatus: runtimeStatus || previousMetadata.runtimeStatus || node.runtime?.status || node.status || "idle",
       formLayout: layout,
       formSchema: {

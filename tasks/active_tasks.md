@@ -220,6 +220,13 @@ Runtime Notes:
 - 2026-05-31: Flow Map Node Builder `General` now uses CMSwift Select controls for Category, Icon and Tone, backed by reusable global option lists for node categories/icons/tones.
 - 2026-05-31: Flow Map Node Builder `General` now uses CMSwift Input for Name and Subtype, and the builder dialog disables outside/backdrop close so CMSwift dropdown item clicks do not close the modal.
 - 2026-05-31: Flow Map now stores the Material Icons list locally in `data/material-icons-list.json` and exposes generated `window.TrackerLensMaterialIconOptions` via `js/tl-material-icon-options.js`; Node Builder icon selects are filterable CMSwift Select controls using that local list.
+- 2026-05-31: Flow Map Node Builder dialog footer actions now use scoped visual variants: neutral `Cancel`, cyan `Save Template`, and gold `Create/Save Node`.
+- 2026-05-31: Flow Map Node Builder preview aside now scrolls the node preview content internally so long custom forms no longer overflow the right panel.
+- 2026-05-31: Flow Map Node Builder custom nodes now support runtime calls in addition to form data: `Form only`, `REST API`, `WebSocket` and `RSS Feed`. REST/WebSocket/RSS custom nodes persist endpoint/runtime settings, become root live-test starters, and emit test payloads through their OUT ports from the canvas play button.
+- 2026-05-31: Flow Map `Form only` custom nodes are now live-testable roots too. Their play button emits the current form/config values as `flow_live_custom_form` payloads through OUT ports, so a custom form can manually feed downstream nodes.
+- 2026-05-31: Fixed explicit `runtimeConnector: "form"` custom nodes so the canvas play button appears for root Form-only nodes.
+- 2026-05-31: Flow Map now shows the canvas play button for every root custom node, including REST/WebSocket/RSS nodes without an endpoint yet; missing configuration is reported by the runtime test instead of hiding the action.
+- 2026-05-31: Flow Map Node Builder ports now have `Port Settings`: IN ports define data type, required state, description and schema; OUT ports define data type plus payload source (`runtimeResult`, `formData`, `component`, `static`, `function/mapping`) and live tests resolve per-port payloads before emitting.
 - Remaining: service-worker/extension background persistence after every Trackers Lens tab is closed remains future hardening; current worker lifetime is browser-page scoped.
 
 ## [TASK-020]
