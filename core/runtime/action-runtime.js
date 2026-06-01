@@ -103,14 +103,53 @@ window.TrackerLensActionRuntime = (() => {
 
   const shouldUseFetch = (target = "") => /^https?:\/\//i.test(String(target || "").trim());
 
-  const postJson = async ({ target, body }) => {
+  const parseHeaders = (value = "") => {
+    if (!value || typeof value === "object") return value && !Array.isArray(value) ? value : {};
+    try {
+      const parsed = JSON.parse(String(value));
+      return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : {};
+    } catch {
+      return {};
+    }
+  };
+
+  const fetchJson = async ({ target, body, method = "POST", headers = {} }) => {
     const response = await fetch(target, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
+      method,
+      headers: { "Content-Type": "application/json", ...headers },
       body: JSON.stringify(body),
     });
-    if (!response.ok) throw new Error(`HTTP ${response.status}`);
-    return { status: response.status, ok: true };
+    const text = await response.text().catch(() => "");
+    if (!response.ok) throw new Error(`HTTP ${response.status}${text ? `: ${text.slice(0, 180)}` : ""}`);
+    return { status: response.status, ok: true, body: text.slice(0, 1000) };
+  };
+
+  const telegramTarget = (config = {}) => {
+    const target = String(config.target || "").trim();
+    if (shouldUseFetch(target)) return target;
+    const botToken = String(config.botToken || "").trim();
+    return botToken ? `https://api.telegram.org/bot${botToken}/sendMessage` : "";
+  };
+
+  const telegramBody = (body = {}, config = {}) => ({
+    chat_id: config.chatId || body.chat_id || body.chatId || "",
+    text: body.text || body.message || JSON.stringify(body.payload || body),
+    parse_mode: config.parseMode || body.parse_mode || undefined,
+  });
+
+  const whatsappBody = (body = {}, config = {}) => {
+    if (body.messaging_product || body.to || body.type) return body;
+    return {
+      messaging_product: "whatsapp",
+      to: config.to || body.recipient || "",
+      type: "text",
+      text: { body: body.text || body.message || JSON.stringify(body.payload || body) },
+    };
+  };
+
+  const textWebhookBody = (body = {}) => {
+    if (body.text || body.content || body.blocks || body.attachments) return body;
+    return { text: body.message || JSON.stringify(body.payload || body) };
   };
 
   const runBrowserNotification = async ({ title, body }) => {
@@ -201,9 +240,34 @@ window.TrackerLensActionRuntime = (() => {
       const body = actionPayload({ node, payload, event, config });
       const target = String(config.target || "").trim();
 
-      if (["webhook-call", "telegram", "discord", "email"].includes(subtype)) {
+      if (subtype === "telegram") {
+        const target = telegramTarget(config);
+        if (!shouldUseFetch(target)) return { skipped: true, reason: "Telegram botToken/target mancante", target };
+        return fetchJson({ target, body: telegramBody(body, config), headers: parseHeaders(config.headers) });
+      }
+
+      if (subtype === "whatsapp") {
+        if (!shouldUseFetch(target)) return { skipped: true, reason: "WhatsApp API/provider URL mancante", target };
+        const headers = parseHeaders(config.headers);
+        if (config.accessToken && !headers.Authorization) {
+          headers.Authorization = String(config.accessToken).trim().startsWith("Bearer ")
+            ? String(config.accessToken).trim()
+            : `Bearer ${config.accessToken}`;
+        }
+        return fetchJson({ target, body: whatsappBody(body, config), headers });
+      }
+
+      if (["webhook-call", "webhook-post", "discord", "slack", "email"].includes(subtype)) {
         if (!shouldUseFetch(target)) return { skipped: true, reason: "Target HTTP mancante", target };
-        return postJson({ target, body });
+        return fetchJson({ target, body: ["discord", "slack"].includes(subtype) ? textWebhookBody(body) : body, headers: parseHeaders(config.headers) });
+      }
+
+      if (subtype === "http-write") {
+        if (!shouldUseFetch(target)) return { skipped: true, reason: "Target HTTP mancante", target };
+        const method = ["PUT", "PATCH", "POST"].includes(String(config.method || "").toUpperCase())
+          ? String(config.method).toUpperCase()
+          : "PUT";
+        return fetchJson({ target, body, method, headers: parseHeaders(config.headers) });
       }
 
       if (subtype === "notification") {

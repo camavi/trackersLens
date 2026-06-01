@@ -320,6 +320,41 @@ const configFieldDefinitions = (node = {}) => {
         { key: "template", label: "Payload Template", type: "textarea", placeholder: "{ \"triggered\": true, \"value\": \"{{payload.value}}\" }" },
       ];
     }
+    if (subtype === "telegram") {
+      return [
+        { key: "botToken", label: "Bot token", placeholder: "123456:ABC..." },
+        { key: "chatId", label: "Chat ID", placeholder: "-1001234567890" },
+        { key: "target", label: "Override URL", placeholder: "https://api.telegram.org/bot.../sendMessage" },
+        { key: "template", label: "Message Template", type: "textarea", placeholder: "{ \"text\": \"{{payload.value}}\" } oppure testo semplice" },
+        { key: "retryPolicy", label: "Retry policy", type: "select", options: ["none", "linear", "exponential"] },
+      ];
+    }
+    if (subtype === "whatsapp") {
+      return [
+        { key: "target", label: "API / Provider URL", placeholder: "https://graph.facebook.com/v19.0/<phone_number_id>/messages" },
+        { key: "accessToken", label: "Access token", placeholder: "Bearer token opzionale" },
+        { key: "to", label: "Recipient", placeholder: "+391234567890" },
+        { key: "template", label: "Message Template", type: "textarea", placeholder: "{ \"text\": \"{{payload.value}}\" } oppure payload provider" },
+        { key: "retryPolicy", label: "Retry policy", type: "select", options: ["none", "linear", "exponential"] },
+      ];
+    }
+    if (subtype === "http-write") {
+      return [
+        { key: "target", label: "URL", placeholder: "https://api.example.com/resource/1" },
+        { key: "method", label: "Method", type: "select", options: ["PUT", "PATCH", "POST"] },
+        { key: "headers", label: "Headers JSON", type: "textarea", placeholder: "{ \"Authorization\": \"Bearer ...\" }" },
+        { key: "template", label: "Payload Template", type: "textarea", placeholder: "{ \"value\": \"{{payload.value}}\" }" },
+        { key: "retryPolicy", label: "Retry policy", type: "select", options: ["none", "linear", "exponential"] },
+      ];
+    }
+    if (["webhook-post", "webhook-call", "discord", "slack", "email"].includes(subtype)) {
+      return [
+        { key: "target", label: "Target URL", placeholder: "https://..." },
+        { key: "headers", label: "Headers JSON", type: "textarea", placeholder: "{ \"Authorization\": \"Bearer ...\" }" },
+        { key: "template", label: "Payload Template", type: "textarea", placeholder: "{ \"text\": \"{{payload.value}}\" }" },
+        { key: "retryPolicy", label: "Retry policy", type: "select", options: ["none", "linear", "exponential"] },
+      ];
+    }
     return [
       { key: "target", label: "Target", placeholder: "webhook/chat/email" },
       { key: "template", label: "Payload Template", type: "textarea", placeholder: "{ \"text\": \"{{payload.value}}\" }" },
@@ -446,6 +481,24 @@ const inlineConfigFields = (node = {}) => {
     if (subtype === "runtime-trigger") {
       return [
         { key: "targetChannel", label: "Emit", placeholder: "alerts.price" },
+      ];
+    }
+    if (subtype === "telegram") {
+      return [
+        { key: "chatId", label: "Chat", placeholder: "-100..." },
+        { key: "botToken", label: "Token", placeholder: "bot token" },
+      ];
+    }
+    if (subtype === "whatsapp") {
+      return [
+        { key: "to", label: "To", placeholder: "+39..." },
+        { key: "target", label: "URL", placeholder: "https://..." },
+      ];
+    }
+    if (subtype === "http-write") {
+      return [
+        { key: "method", label: "Method", type: "select", options: ["PUT", "PATCH", "POST"] },
+        { key: "target", label: "URL", placeholder: "https://..." },
       ];
     }
     return [
