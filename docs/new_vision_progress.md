@@ -290,6 +290,8 @@ Obiettivo: introdurre AI locale reale prima del cloud.
 - 2026-05-31: Il play e' ora sempre esposto per tutti i custom node root, inclusi REST/WebSocket/RSS senza endpoint ancora configurato; il test runtime segnala la configurazione mancante invece di nascondere il comando.
 - 2026-05-31: Le porte IN/OUT del Node Builder sono diventate configurabili: tipo dati, required/descrizione/schema per input, sorgente payload per output (`runtimeResult`, form completo, componente singolo, statico o mapping). Il live test applica il mapping per porta prima di pubblicare eventi downstream.
 - 2026-05-31: La codebase Flow Map e' stata separata in partial piu piccoli per facilitare manutenzione e lavoro AI: `js/flow-map/` contiene stato/store, interazioni, test runtime, Node Builder, nodi runtime e canvas/inspector; `js/flowMapView.js` resta il bootstrap. Anche `css/flowMap.css` e' ora solo entrypoint verso partial in `css/flow-map/`, divisi per shell/palette, Node Builder, canvas/nodi, inspector/config e responsive/status.
+- 2026-05-31: La palette `Sources` della Flow Map aggiunge source locali per media e file (`Image Source`, `Audio Source`, `File Source`, `Files Batch`). Questi nodi usano porte tipizzate, possono avviare Live Test da root emettendo payload media/file e `Image Source` mostra una drop-zone cliccabile con preview direttamente sulla card.
+- 2026-06-01: Le drop-zone cliccabili sulla card sono state estese a tutti i source media/file: audio con player compatto, file singolo con payload locale e batch con piu file salvati come metadata/data URL per test e propagazione downstream.
 
 La sequenza corretta resta:
 

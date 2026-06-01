@@ -44,6 +44,22 @@ const sourceConfigInputPorts = (subtype = "") => {
     { name: "store", type: "string", required: true, description: "IndexedDB store name" },
     { name: "query", type: "record", description: "Local query/filter" },
   ];
+  if (kind === "image-source") return [
+    { name: "image", type: "image", description: "Image file or URL" },
+    { name: "metadata", type: "record", description: "Image metadata and tags" },
+  ];
+  if (kind === "audio-source") return [
+    { name: "audio", type: "audio", description: "Audio file or URL" },
+    { name: "metadata", type: "record", description: "Audio metadata and tags" },
+  ];
+  if (kind === "file-source") return [
+    { name: "file", type: "file", description: "Single file payload" },
+    { name: "metadata", type: "record", description: "File metadata and tags" },
+  ];
+  if (kind === "files-source") return [
+    { name: "files", type: "array", description: "Multiple file payloads" },
+    { name: "metadata", type: "record", description: "Batch metadata and tags" },
+  ];
   return [];
 };
 
@@ -145,6 +161,10 @@ const nodePalette = [
     paletteNode({ label: "YouTube API", icon: "smart_display", tone: "green", nodeType: "source", subtype: "youtube", category: "sources", outputs: ["raw"], permissions: ["network.fetch"], connectionType: "Source: YouTube API" }),
     paletteNode({ label: "Manual JSON", icon: "data_object", tone: "green", nodeType: "source", subtype: "manual-json", category: "sources", outputs: ["raw"], settingsSchema: { json: "object" }, connectionType: "Source: Manual JSON" }),
     paletteNode({ label: "Text Input", icon: "notes", tone: "green", nodeType: "source", subtype: "text-input", category: "sources", outputs: ["raw"], settingsSchema: { text: "string" }, connectionType: "Source: Text Input" }),
+    paletteNode({ label: "Image Source", icon: "image", tone: "teal", nodeType: "source", subtype: "image-source", category: "sources", outputs: ["image"], settingsSchema: { imageUrl: "string", imageDataUrl: "string", alt: "string" }, connectionType: "Source: Image" }),
+    paletteNode({ label: "Audio Source", icon: "graphic_eq", tone: "teal", nodeType: "source", subtype: "audio-source", category: "sources", outputs: ["audio"], settingsSchema: { audioUrl: "string", audioDataUrl: "string", transcript: "string" }, connectionType: "Source: Audio" }),
+    paletteNode({ label: "File Source", icon: "upload_file", tone: "teal", nodeType: "source", subtype: "file-source", category: "sources", outputs: ["file"], settingsSchema: { fileName: "string", fileDataUrl: "string", mimeType: "string" }, connectionType: "Source: File" }),
+    paletteNode({ label: "Files Batch", icon: "drive_folder_upload", tone: "teal", nodeType: "source", subtype: "files-source", category: "sources", outputs: ["files"], settingsSchema: { files: "array" }, connectionType: "Source: Files" }),
     paletteNode({ label: "IndexedDB Source", icon: "database", tone: "cyan", nodeType: "source", subtype: "indexeddb-source", category: "sources", outputs: ["raw"], permissions: ["indexeddb.read"], connectionType: "Source: IndexedDB" }),
   ]],
   ["Trackers", [

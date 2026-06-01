@@ -871,6 +871,66 @@ body.is-flow-link-dragging .tl-flow-node:not(.is-link-source) .tl-flow-node-port
   padding: 5px;
 }
 
+.tl-flow-node-media-drop {
+  margin: 0;
+  display: grid;
+  place-items: center;
+  gap: 6px;
+  min-height: 96px;
+  padding: 8px;
+  border: 1px solid rgba(34, 211, 238, 0.22);
+  border-radius: 8px;
+  background: rgba(8, 17, 24, 0.7);
+  cursor: pointer;
+  overflow: hidden;
+}
+
+.tl-flow-node-media-drop:hover {
+  border-color: rgba(34, 211, 238, 0.48);
+  background: rgba(8, 22, 30, 0.86);
+}
+
+.tl-flow-node-media-drop input {
+  display: none;
+}
+
+.tl-flow-node-media-drop img {
+  width: 100%;
+  max-height: 118px;
+  object-fit: cover;
+  border-radius: 6px;
+  background: rgba(2, 6, 12, 0.7);
+}
+
+.tl-flow-node-media-drop audio {
+  width: 100%;
+  min-width: 0;
+}
+
+.tl-flow-node-media-drop figcaption {
+  color: var(--tl-text-muted);
+  font-size: 10px;
+  line-height: 1.3;
+}
+
+.tl-flow-node-media-empty {
+  display: grid;
+  justify-items: center;
+  gap: 3px;
+  color: var(--tl-text-muted);
+  font-size: 10px;
+  text-align: center;
+}
+
+.tl-flow-node-media-empty strong {
+  color: var(--tl-text);
+  font-size: 11px;
+}
+
+.tl-flow-node-media-empty em {
+  font-style: normal;
+}
+
 .tl-flow-inline-row {
   min-width: 0;
   display: grid;

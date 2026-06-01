@@ -25,7 +25,7 @@ const isDirectAiTestNode = (node = {}) =>
 
 const isManualInputSource = (node = {}) => {
   const subtype = String(nodeSubtype(node) || "").toLowerCase();
-  return nodeCategory(node) === "sources" && ["manual-json", "text-input", "manual-input"].includes(subtype);
+  return nodeCategory(node) === "sources" && ["manual-json", "text-input", "manual-input", "image-source", "audio-source", "file-source", "files-source"].includes(subtype);
 };
 
 const isLiveTestableStarterNode = (node = {}) =>
@@ -198,6 +198,65 @@ const outputPayloadForPort = (node = {}, channel = "", basePayload = {}, context
 
 const nodeTestPayload = (node = {}, runId = "") => {
   const config = node.metadata?.config || {};
+  const subtype = nodeSubtype(node);
+  if (subtype === "image-source") {
+    return {
+      live: true,
+      runId,
+      nodeId: node.id,
+      type: "image",
+      url: config.imageUrl || "",
+      dataUrl: config.imageDataUrl || "",
+      alt: config.alt || "",
+      fileName: config.imageFileName || "",
+      mimeType: config.imageMimeType || "image/*",
+      data: { url: config.imageUrl || "", dataUrl: config.imageDataUrl || "", alt: config.alt || "" },
+      emittedAt: new Date().toISOString(),
+    };
+  }
+  if (subtype === "audio-source") {
+    return {
+      live: true,
+      runId,
+      nodeId: node.id,
+      type: "audio",
+      url: config.audioUrl || "",
+      dataUrl: config.audioDataUrl || "",
+      transcript: config.transcript || "",
+      fileName: config.audioFileName || "",
+      mimeType: config.audioMimeType || "audio/*",
+      data: { url: config.audioUrl || "", dataUrl: config.audioDataUrl || "", transcript: config.transcript || "" },
+      emittedAt: new Date().toISOString(),
+    };
+  }
+  if (subtype === "file-source") {
+    return {
+      live: true,
+      runId,
+      nodeId: node.id,
+      type: "file",
+      fileName: config.fileName || "file",
+      mimeType: config.mimeType || "application/octet-stream",
+      dataUrl: config.fileDataUrl || "",
+      data: { fileName: config.fileName || "file", mimeType: config.mimeType || "application/octet-stream", dataUrl: config.fileDataUrl || "" },
+      emittedAt: new Date().toISOString(),
+    };
+  }
+  if (subtype === "files-source") {
+    const parsedFiles = Array.isArray(config.filesData) && config.filesData.length
+      ? config.filesData
+      : parseTestPayload(config.filesJson) || [];
+    return {
+      live: true,
+      runId,
+      nodeId: node.id,
+      type: "files",
+      batchLabel: config.batchLabel || "",
+      files: Array.isArray(parsedFiles) ? parsedFiles : [parsedFiles],
+      data: Array.isArray(parsedFiles) ? parsedFiles : [parsedFiles],
+      emittedAt: new Date().toISOString(),
+    };
+  }
   const manualPayloadSource = config.testPayload || config.payload || config.manualJson || config.json;
   const configuredPayload = nodeSubtype(node) === "manual-json"
     ? parseManualJsonPayload(manualPayloadSource)
@@ -225,7 +284,6 @@ const nodeTestPayload = (node = {}, runId = "") => {
     };
   }
   const category = nodeCategory(node);
-  const subtype = nodeSubtype(node);
   const channel = config.emitChannel || config.outputChannel || node.outputs?.[0] || nodeChannels(node)[0] || "default";
   return {
     __test: true,

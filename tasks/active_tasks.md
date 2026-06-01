@@ -230,6 +230,8 @@ Runtime Notes:
 - 2026-05-31: Flow Map now shows the canvas play button for every root custom node, including REST/WebSocket/RSS nodes without an endpoint yet; missing configuration is reported by the runtime test instead of hiding the action.
 - 2026-05-31: Flow Map Node Builder ports now have `Port Settings`: IN ports define data type, required state, description and schema; OUT ports define data type plus payload source (`runtimeResult`, `formData`, `component`, `static`, `function/mapping`) and live tests resolve per-port payloads before emitting.
 - 2026-05-31: Flow Map UI code was split into ordered partials under `js/flow-map/` (`State`, `Interactions`, `RuntimeTests`, `NodeBuilder`, `RuntimeNodes`, `CanvasInspector`) while `js/flowMapView.js` now only bootstraps the page. Flow Map CSS was also split under `css/flow-map/`, with `css/flowMap.css` kept as the ordered import entrypoint.
+- 2026-05-31: Flow Map `Sources` palette now includes local media/file starters: `Image Source`, `Audio Source`, `File Source` and `Files Batch`. They expose typed OUT ports, persist URL/file metadata in node config, are live-testable as root source nodes, and Image Source renders a compact click/drop upload zone with preview directly on the node card.
+- 2026-06-01: Flow Map media/file source cards now all expose inline click/drop upload zones: Audio Source persists local audio and shows a compact player, File Source persists a single file payload, and Files Batch persists multiple file payload metadata/data URLs for live test emission.
 - Remaining: service-worker/extension background persistence after every Trackers Lens tab is closed remains future hardening; current worker lifetime is browser-page scoped.
 
 ## [TASK-020]

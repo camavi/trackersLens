@@ -244,6 +244,37 @@ const configFieldDefinitions = (node = {}) => {
         { key: "emitChannel", label: "Emit channel", placeholder: "raw" },
       ];
     }
+    if (subtype === "image-source") {
+      return [
+        { key: "imageUrl", label: "Image URL", placeholder: "https://example.com/image.png" },
+        { key: "imageDataUrl", label: "Upload image", type: "image-file", placeholder: "Select image file" },
+        { key: "alt", label: "Alt / caption", placeholder: "Image description" },
+        { key: "emitChannel", label: "Emit channel", placeholder: "image" },
+      ];
+    }
+    if (subtype === "audio-source") {
+      return [
+        { key: "audioUrl", label: "Audio URL", placeholder: "https://example.com/audio.mp3" },
+        { key: "audioDataUrl", label: "Upload audio", type: "audio-file", placeholder: "Select audio file" },
+        { key: "transcript", label: "Transcript / notes", type: "textarea", placeholder: "Optional transcript or notes" },
+        { key: "emitChannel", label: "Emit channel", placeholder: "audio" },
+      ];
+    }
+    if (subtype === "file-source") {
+      return [
+        { key: "fileDataUrl", label: "Upload file", type: "file", placeholder: "Select file" },
+        { key: "fileName", label: "File name", placeholder: "payload.csv" },
+        { key: "mimeType", label: "MIME type", placeholder: "text/csv" },
+        { key: "emitChannel", label: "Emit channel", placeholder: "file" },
+      ];
+    }
+    if (subtype === "files-source") {
+      return [
+        { key: "filesJson", label: "Files metadata JSON", type: "textarea", placeholder: "[{ \"name\": \"image.png\", \"type\": \"image/png\" }]" },
+        { key: "batchLabel", label: "Batch label", placeholder: "import batch" },
+        { key: "emitChannel", label: "Emit channel", placeholder: "files" },
+      ];
+    }
     const fields = [
       { key: "endpoint", label: "Endpoint / Source", placeholder: "https://api.example.com/data" },
       { key: "method", label: "Method", type: "select", options: ["GET", "POST", "PUT", "PATCH"] },
@@ -359,6 +390,30 @@ const inlineConfigFields = (node = {}) => {
       return [
         { key: "emitChannel", label: "Emit", placeholder: "raw" },
         { key: "text", label: "Text", placeholder: "value" },
+      ];
+    }
+    if (subtype === "image-source") {
+      return [
+        { key: "emitChannel", label: "Emit", placeholder: "image" },
+        { key: "imageUrl", label: "Image URL", placeholder: "https://..." },
+      ];
+    }
+    if (subtype === "audio-source") {
+      return [
+        { key: "emitChannel", label: "Emit", placeholder: "audio" },
+        { key: "audioUrl", label: "Audio URL", placeholder: "https://..." },
+      ];
+    }
+    if (subtype === "file-source") {
+      return [
+        { key: "emitChannel", label: "Emit", placeholder: "file" },
+        { key: "fileName", label: "Name", placeholder: "payload.csv" },
+      ];
+    }
+    if (subtype === "files-source") {
+      return [
+        { key: "emitChannel", label: "Emit", placeholder: "files" },
+        { key: "batchLabel", label: "Batch", placeholder: "import batch" },
       ];
     }
     const fields = [
@@ -515,6 +570,159 @@ const renderPreviewNodePanel = (node = {}) => {
   );
 };
 
+const mediaSourceDropSpec = (subtype = "") => {
+  if (subtype === "image-source") return {
+    accept: "image/*",
+    multiple: false,
+    iconName: "add_photo_alternate",
+    title: "Drop image",
+    hint: "or click to select",
+    dataKey: "imageDataUrl",
+    nameKey: "imageFileName",
+    typeKey: "imageMimeType",
+    typePrefix: "image/",
+  };
+  if (subtype === "audio-source") return {
+    accept: "audio/*",
+    multiple: false,
+    iconName: "library_music",
+    title: "Drop audio",
+    hint: "or click to select",
+    dataKey: "audioDataUrl",
+    nameKey: "audioFileName",
+    typeKey: "audioMimeType",
+    typePrefix: "audio/",
+  };
+  if (subtype === "file-source") return {
+    accept: "",
+    multiple: false,
+    iconName: "upload_file",
+    title: "Drop file",
+    hint: "or click to select",
+    dataKey: "fileDataUrl",
+    nameKey: "fileName",
+    typeKey: "mimeType",
+    typePrefix: "",
+  };
+  if (subtype === "files-source") return {
+    accept: "",
+    multiple: true,
+    iconName: "drive_folder_upload",
+    title: "Drop files",
+    hint: "or click to select",
+    dataKey: "filesData",
+    nameKey: "batchLabel",
+    typeKey: "mimeType",
+    typePrefix: "",
+  };
+  return null;
+};
+
+const readFileAsDataUrl = (file) => new Promise((resolve, reject) => {
+  const reader = new FileReader();
+  reader.onload = () => resolve(String(reader.result || ""));
+  reader.onerror = () => reject(reader.error || new Error("File read failed"));
+  reader.readAsDataURL(file);
+});
+
+const persistMediaSourceFiles = async ({ node = {}, files = [], spec = null } = {}) => {
+  const selectedFiles = Array.from(files || []).filter(Boolean);
+  if (!node?.id || !selectedFiles.length || !spec) return;
+  const validFiles = spec.typePrefix
+    ? selectedFiles.filter((file) => String(file.type || "").startsWith(spec.typePrefix))
+    : selectedFiles;
+  if (!validFiles.length) return;
+  if (spec.multiple) {
+    const entries = await Promise.all(validFiles.map(async (file) => ({
+      name: file.name || "file",
+      type: file.type || "application/octet-stream",
+      size: file.size || 0,
+      dataUrl: await readFileAsDataUrl(file),
+    })));
+    persistInlineRuntimeNodeConfig({
+      node,
+      patch: {
+        filesData: entries,
+        filesJson: JSON.stringify(entries.map(({ name, type, size }) => ({ name, type, size })), null, 2),
+        batchLabel: entries.length === 1 ? entries[0].name : `${entries.length} files`,
+      },
+    });
+    return;
+  }
+  const file = validFiles[0];
+  persistInlineRuntimeNodeConfig({
+    node,
+    patch: {
+      [spec.dataKey]: await readFileAsDataUrl(file),
+      [spec.nameKey]: file.name || "",
+      [spec.typeKey]: file.type || "application/octet-stream",
+    },
+  });
+};
+
+const renderMediaSourceDropzone = (node = {}, config = {}) => {
+  const subtype = nodeSubtype(node);
+  const spec = mediaSourceDropSpec(subtype);
+  if (!spec) return null;
+  const inputId = `tl-flow-media-source-${String(node.id || "").replace(/[^A-Za-z0-9_-]/g, "_")}`;
+  const filesData = Array.isArray(config.filesData) ? config.filesData : [];
+  const dataUrl = String(config[spec.dataKey] || "").trim();
+  const remoteUrl = subtype === "image-source"
+    ? String(config.imageUrl || "").trim()
+    : subtype === "audio-source"
+      ? String(config.audioUrl || "").trim()
+      : "";
+  const previewUrl = dataUrl || remoteUrl;
+  const hasValue = Boolean(previewUrl || filesData.length || config[spec.nameKey]);
+  const handleFiles = (files) => persistMediaSourceFiles({ node, files, spec });
+  const handleDrop = (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    handleFiles(event.dataTransfer?.files || []);
+  };
+  const summary = spec.multiple
+    ? `${filesData.length || 0} file${(filesData.length || 0) === 1 ? "" : "s"}`
+    : config[spec.nameKey] || (previewUrl ? "local media" : "");
+  return _.label(
+    {
+      class: `tl-flow-node-media-drop is-${subtype}${hasValue ? " has-media" : ""}`,
+      htmlFor: inputId,
+      title: `${spec.title} here or click to select`,
+      onPointerDown: stopNodeControlEvent,
+      onclick: stopNodeControlEvent,
+      ondragover: (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+      },
+      ondrop: handleDrop,
+    },
+    _.input({
+      id: inputId,
+      type: "file",
+      accept: spec.accept,
+      multiple: spec.multiple,
+      onchange: (event) => handleFiles(event.currentTarget.files || []),
+    }),
+    subtype === "image-source" && previewUrl ? _.img({ src: previewUrl, alt: config.alt || node.label || "Image source preview", loading: "lazy" }) : null,
+    subtype === "audio-source" && previewUrl ? _.audio({ src: previewUrl, controls: true }) : null,
+    subtype !== "image-source" || !previewUrl ? _.span(
+      { class: "tl-flow-node-media-empty" },
+      icon(spec.iconName, "sm"),
+      _.strong(summary || spec.title),
+      _.em(hasValue ? "Click or drop to replace" : spec.hint)
+    ) : null,
+    config.alt && subtype === "image-source" && previewUrl ? _.figcaption(config.alt) : null
+  );
+};
+
+const mediaInlineHiddenKeys = (subtype = "") => {
+  if (subtype === "image-source") return new Set(["imageUrl"]);
+  if (subtype === "audio-source") return new Set(["audioUrl"]);
+  if (subtype === "file-source") return new Set(["fileName"]);
+  if (subtype === "files-source") return new Set(["batchLabel"]);
+  return new Set();
+};
+
 const renderInlineNodeSettings = (node) => {
   if (!isInlineConfigNode(node) || node.metadata?.library) return null;
   if (isCustomRuntimeNode(node)) return renderCustomRuntimeNodeInlineForm(node);
@@ -537,6 +745,9 @@ const renderInlineNodeSettings = (node) => {
   const defaults = runtimeNodeConfigDefaults(node);
   const config = defaults.configObject || {};
   const fields = inlineConfigFields(node).slice(0, 3);
+  const subtype = nodeSubtype(node);
+  const hiddenInlineKeys = mediaInlineHiddenKeys(subtype);
+  const renderedFields = fields.filter((definition) => !hiddenInlineKeys.has(definition.key));
   const saveField = (definition, event) => {
     const value = definition.type === "checkbox" ? event.currentTarget.checked : event.currentTarget.value;
     persistInlineRuntimeNodeConfig({ node, patch: { [definition.key]: value } });
@@ -582,7 +793,8 @@ const renderInlineNodeSettings = (node) => {
 
   return _.div(
     { class: "tl-flow-node-inline-config", onPointerDown: stopNodeControlEvent, onclick: stopNodeControlEvent },
-    ...fields.map((definition) => _.label(
+    mediaSourceDropSpec(subtype) ? renderMediaSourceDropzone(node, config) : null,
+    ...renderedFields.map((definition) => _.label(
       { class: `tl-flow-inline-row is-${definition.type || "text"}` },
       _.span({ class: "tl-flow-inline-label" }, definition.label),
       control(definition)
@@ -1733,6 +1945,43 @@ const requestRuntimeNodeConfig = (node) => {
         _.textarea({ "data-config-key": definition.key, rows: 4, placeholder: definition.placeholder || "", value })
       );
     }
+    if (["image-file", "audio-file", "file"].includes(definition.type)) {
+      const accept = definition.type === "image-file" ? "image/*" : definition.type === "audio-file" ? "audio/*" : "";
+      const inputId = `${formId}-${definition.key}`;
+      const fileLabelKey = definition.type === "image-file" ? "imageFileName" : definition.type === "audio-file" ? "audioFileName" : "fileName";
+      const fileTypeKey = definition.type === "image-file" ? "imageMimeType" : definition.type === "audio-file" ? "audioMimeType" : "mimeType";
+      return _.div(
+        { class: `tl-flow-config-field is-wide is-file${definition.type === "image-file" ? " is-image" : ""}` },
+        _.span(definition.label),
+        _.input({ id: inputId, "data-config-key": definition.key, type: "hidden", value }),
+        _.input({
+          type: "file",
+          accept,
+          onchange: (event) => {
+            const file = event.currentTarget.files?.[0];
+            if (!file) return;
+            const reader = new FileReader();
+            reader.onload = () => {
+              const hidden = document.getElementById(inputId);
+              if (hidden) hidden.value = String(reader.result || "");
+              const nameField = formRef?.querySelector?.(`[data-config-key="${fileLabelKey}"]`);
+              const typeField = formRef?.querySelector?.(`[data-config-key="${fileTypeKey}"]`);
+              if (nameField && !nameField.value) nameField.value = file.name;
+              if (typeField && !typeField.value) typeField.value = file.type || "";
+              const preview = formRef?.querySelector?.(`[data-file-preview-for="${definition.key}"]`);
+              if (preview && definition.type === "image-file") preview.src = String(reader.result || "");
+            };
+            reader.readAsDataURL(file);
+          },
+        }),
+        definition.type === "image-file" ? _.img({
+          class: "tl-flow-config-image-preview",
+          "data-file-preview-for": definition.key,
+          src: value || defaults.configObject?.imageUrl || "",
+          alt: "Image preview",
+        }) : null
+      );
+    }
     return _.label(
       { class: "tl-flow-config-field" },
       _.span(definition.label),
@@ -2184,6 +2433,10 @@ const inferPortType = (node = {}, side = "out", name = "") => {
   if (lowerName === "all") return side === "in" ? "any" : "object";
   if (["true", "false"].includes(lowerName)) return "event";
   if (lowerName === "event") return "event";
+  if (["image", "thumbnail", "preview"].includes(lowerName)) return "image";
+  if (["audio", "sound", "voice"].includes(lowerName)) return "audio";
+  if (["file", "document", "blob"].includes(lowerName)) return "file";
+  if (["files", "attachments"].includes(lowerName)) return "array";
   if (["input", "output", "raw", "record", "state", "channel"].includes(lowerName)) return "object";
   if (category === "sources") return side === "out" ? "object" : "never";
   if (category === "trackers") return "object";
