@@ -24,6 +24,7 @@ window.TrackerLensGraphEngine = (() => {
   };
 
   const normalizeChannel = (value = "") => String(value || "default").trim() || "default";
+  const isAgentControlChannel = (value = "") => ["agent_control", "agent-control"].includes(normalizeChannel(value));
 
   const dependencyKey = (dependency = {}) => [
     dependency.sourceNodeId || "",
@@ -51,8 +52,8 @@ window.TrackerLensGraphEngine = (() => {
     if (!source?.id) errors.push("missing source");
     if (!target?.id) errors.push("missing target");
     if (source?.id && target?.id && source.id === target.id) errors.push("self link");
-    if (source?.id && !canProduce(source)) errors.push(`${source.type || "source"} cannot produce`);
-    if (target?.id && !canConsume(target)) errors.push(`${target.type || "target"} cannot consume`);
+    if (!isAgentControlChannel(normalizedChannel) && source?.id && !canProduce(source)) errors.push(`${source.type || "source"} cannot produce`);
+    if (!isAgentControlChannel(normalizedChannel) && target?.id && !canConsume(target)) errors.push(`${target.type || "target"} cannot consume`);
 
     const duplicate = dependencies.some((dependency) =>
       dependency.sourceNodeId === source?.id &&
