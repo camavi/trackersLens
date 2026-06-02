@@ -246,6 +246,19 @@ const configFieldDefinitions = (node = {}) => {
     return [];
   }
   if (category === "sources") {
+    if (subtype === "task") {
+      return [
+        { key: "objective", label: "Objective", type: "textarea", placeholder: "Describe what the agent must achieve." },
+        { key: "context", label: "Context", type: "textarea", placeholder: "Operational context, data notes or user intent." },
+        { key: "priority", label: "Priority", type: "select", options: ["normal", "high", "urgent"] },
+        { key: "successCondition", label: "Success condition", type: "textarea", placeholder: "How the agent knows the objective is complete." },
+        { key: "constraints", label: "Constraints / Policy", type: "textarea", placeholder: "One rule per line, limits, allowed actions or safety policy." },
+        { key: "maxIterations", label: "Max iterations", placeholder: "5" },
+        { key: "timeoutMs", label: "Timeout (ms)", placeholder: "30000" },
+        { key: "payloadJson", label: "Payload JSON", type: "textarea", placeholder: "{ \"symbol\": \"BTCUSDT\" }" },
+        { key: "emitChannel", label: "Emit channel", placeholder: "task" },
+      ];
+    }
     if (subtype === "manual-json") {
       return [
         { key: "json", label: "JSON Payload", type: "textarea", placeholder: "{ \"mela\": \"prova\" } oppure {mela:'prova'}" },
@@ -439,6 +452,13 @@ const inlineConfigFields = (node = {}) => {
     ];
   }
   if (category === "sources") {
+    if (subtype === "task") {
+      return [
+        { key: "objective", label: "Goal", placeholder: "Analyze BTC and report action" },
+        { key: "priority", label: "Priority", type: "select", options: ["normal", "high", "urgent"] },
+        { key: "successCondition", label: "Done", placeholder: "completed" },
+      ];
+    }
     if (subtype === "manual-json") {
       return [
         { key: "emitChannel", label: "Emit", placeholder: "raw" },
@@ -1477,7 +1497,7 @@ const persistAiAgentEditorPayload = async ({ node, payload, close }) => {
     return;
   }
   const outputChannel = payload.channels?.outputChannel || payload.channels?.outputs?.[0] || `ai.${payload.runtime?.agentType || "agent"}.output`;
-  const inputChannel = payload.channels?.inputs?.[0] || "input";
+  const inputChannel = payload.channels?.inputs?.[0] || "task";
   const update = runtimeNodeUpdateFromValues({
     node,
     values: {
@@ -1982,8 +2002,30 @@ const requestOrchestratorAgentConfig = (node) => {
       goal: config.goal || "Decide which connected nodes should run for each incoming payload.",
       systemPrompt: config.systemPrompt || "You are the central Trackers Lens orchestrator. Read payload, inspect available connected nodes, choose safe steps, and keep every decision traceable.",
       executionMode: config.executionMode || "on_event",
+      autonomousMode: String(config.autonomousMode || config.autonomous || "false") === "true",
+      maxIterations: config.maxIterations || "5",
+      iterationDelayMs: config.iterationDelayMs || "1200",
+      stopCondition: config.stopCondition || "completed",
+      feedbackWindow: config.feedbackWindow || "12",
       allowedNodeTypes: config.allowedNodeTypes || "processors, ai-agents, actions, storage, lens, dev",
       maxSteps: config.maxSteps || "6",
+      dispatchStrategy: config.dispatchStrategy || "linked_order",
+      plannerStrategy: config.plannerStrategy || "ai-first",
+      routePolicy: config.routePolicy || "direct-linked-only",
+      providerProfile: config.providerProfile || "",
+      providerType: config.providerType || config.provider || "local",
+      model: config.model || "local-model",
+      temperature: config.temperature || "0.2",
+      maxTokens: config.maxTokens || "1200",
+      responseFormat: config.responseFormat || "json",
+      memoryMode: config.memoryMode || "workspace",
+      memorySize: config.memorySize || "30",
+      contextWindow: config.contextWindow || "8",
+      traceRetention: config.traceRetention || "workspace",
+      outputDecision: config.outputDecision || "decision",
+      outputAction: config.outputAction || "action",
+      outputDone: config.outputDone || "done",
+      outputError: config.outputError || "error",
       maxConcurrentTasks: config.maxConcurrentTasks || config.parallelJobs || "1",
       queueLimit: config.queueLimit || "10",
       timeoutMs: config.timeoutMs || "30000",
@@ -1991,6 +2033,9 @@ const requestOrchestratorAgentConfig = (node) => {
       decisionName: config.decisionName || "execute_downstream",
       requireConfirmation: String(config.requireConfirmation || "false") === "true",
       verboseTrace: String(config.verboseTrace || "true") !== "false",
+      savePrompts: String(config.savePrompts || "true") !== "false",
+      saveDecisions: String(config.saveDecisions || "true") !== "false",
+      debugMode: String(config.debugMode || "false") === "true",
       testPayload: config.testPayload || "{ \"task\": \"Route this payload through the connected graph\", \"confirmed\": true }",
     },
   };
@@ -2003,13 +2048,23 @@ const requestOrchestratorAgentConfig = (node) => {
     const outputs = ["decision", "action", "done", "error"];
     const normalizedConfig = {
       ...draft.config,
+      autonomousMode: String(Boolean(draft.config.autonomousMode)),
       requireConfirmation: String(Boolean(draft.config.requireConfirmation)),
       verboseTrace: String(Boolean(draft.config.verboseTrace)),
+      maxIterations: String(draft.config.maxIterations || "5"),
+      iterationDelayMs: String(draft.config.iterationDelayMs || "1200"),
+      stopCondition: draft.config.stopCondition || "completed",
+      feedbackWindow: String(draft.config.feedbackWindow || "12"),
       maxSteps: String(draft.config.maxSteps || "6"),
+      memorySize: String(draft.config.memorySize || "30"),
+      contextWindow: String(draft.config.contextWindow || "8"),
       maxConcurrentTasks: String(draft.config.maxConcurrentTasks || "1"),
       queueLimit: String(draft.config.queueLimit || "10"),
       timeoutMs: String(draft.config.timeoutMs || "30000"),
       dropPolicy: draft.config.dropPolicy || "queue",
+      savePrompts: String(Boolean(draft.config.savePrompts)),
+      saveDecisions: String(Boolean(draft.config.saveDecisions)),
+      debugMode: String(Boolean(draft.config.debugMode)),
     };
     const manifest = nodeManifest({
       type: "aiAgent",
@@ -2021,8 +2076,16 @@ const requestOrchestratorAgentConfig = (node) => {
       settingsSchema: {
         goal: "string",
         systemPrompt: "string",
-        executionMode: "manual|on_event|continuous",
+        executionMode: "manual|on_event|continuous|autonomous",
+        autonomousMode: "boolean",
+        maxIterations: "number",
+        iterationDelayMs: "number",
+        stopCondition: "string",
+        feedbackWindow: "number",
         allowedNodeTypes: "array",
+        dispatchStrategy: "linked_order|priority|first_success|all",
+        plannerStrategy: "ai-first|graph-first|goal-first|feedback-first|legacy",
+        routePolicy: "direct-linked-only|agent-control|all-linked",
         maxSteps: "number",
         maxConcurrentTasks: "number",
         queueLimit: "number",
@@ -2030,8 +2093,11 @@ const requestOrchestratorAgentConfig = (node) => {
         dropPolicy: "queue|reject|latest",
         requireConfirmation: "boolean",
         verboseTrace: "boolean",
+        savePrompts: "boolean",
+        saveDecisions: "boolean",
+        debugMode: "boolean",
       },
-      runtime: { executionMode: normalizedConfig.executionMode, orchestrator: true },
+      runtime: { executionMode: normalizedConfig.executionMode, orchestrator: true, autonomous: normalizedConfig.autonomousMode === "true" },
     });
     const nextNode = {
       ...node,
@@ -2075,195 +2141,248 @@ const requestOrchestratorAgentConfig = (node) => {
     await loadRuntime({ force: true });
   };
   const selectOptions = (values) => values.map((value) => ({ value, label: value }));
+  const tabModel = window.CMSwift?.reactive?.signal?.("general");
+  const formId = `tl-flow-orchestrator-${String(node.id || Date.now()).replace(/[^A-Za-z0-9_-]/g, "_")}`;
+  const inputField = (label, key, extra = {}) => _.Input({
+    size: "sm",
+    label,
+    value: String(draft.config[key] ?? ""),
+    autocomplete: "off",
+    onInput: (event) => update(key, String(readCmsValue(event) || "")),
+    ...extra,
+  });
+  const selectField = (label, key, options = []) => _.Select({
+    size: "sm",
+    label,
+    value: String(draft.config[key] ?? ""),
+    options: selectOptions(options),
+    slots: { arrow: () => icon("keyboard_arrow_down", "sm") },
+    onChange: (value) => update(key, String(readCmsValue(value) || options[0] || "")),
+  });
+  const textareaField = (label, key, rows = 5, placeholder = "") => _.label(
+    { class: "tl-ai-agent-textarea-field" },
+    _.span(label),
+    _.textarea({
+      rows,
+      value: String(draft.config[key] || ""),
+      placeholder,
+      oninput: (event) => update(key, event.currentTarget.value),
+    })
+  );
+  const toggleField = (label, key) => _.div(
+    { class: "tl-flow-config-toggle-row" },
+    _.span(label),
+    _.Toggle({
+      size: "sm",
+      checked: Boolean(draft.config[key]),
+      onChange: (checked) => update(key, Boolean(checked)),
+    })
+  );
+  const previewCard = (title, text, codeText = "") => _.div(
+    { class: "tl-ai-agent-preview-card" },
+    _.strong(title),
+    _.p(text),
+    codeText ? _.code(codeText) : null
+  );
   const dialog = _.Dialog({
-    class: "tl-flow-orchestrator-dialog",
-    panelClass: "tl-flow-orchestrator-panel",
-    size: "lg",
-    title: "Orchestrator Agent",
+    class: "tl-ai-agent-dialog tl-flow-orchestrator-dialog",
+    panelClass: "tl-ai-agent-runtime-panel tl-flow-orchestrator-panel",
+    size: "xl",
+    title: draft.label || "Orchestrator Agent",
     subtitle: `${node.label || node.id} · central graph runtime`,
     icon: "hub",
     closeButton: true,
-    content: () => _.div(
-      { class: "tl-flow-orchestrator-form" },
-      _.section(
-        { class: "tl-flow-orchestrator-hero" },
-        _.div(
-          { class: "tl-flow-orchestrator-orb" },
-          icon("hub", "lg")
-        ),
-        _.div(
-          _.strong("Runtime brain"),
-          _.span("Reads incoming events, decides a safe plan, dispatches connected nodes and writes a complete trace.")
-        ),
-        _.div(
-          { class: "tl-flow-orchestrator-metrics" },
-          _.span(_.strong(String((state.runtime.dependencies || []).filter((dependency) => dependency.sourceNodeId === node.id).length)), " links"),
-          _.span(_.strong(String((node.outputs || []).length || 4)), " outputs"),
-          _.span(_.strong(draft.config.executionMode), " mode")
-        )
-      ),
-      _.div(
-        { class: "tl-flow-orchestrator-grid" },
-        _.section(
-          { class: "tl-flow-orchestrator-card is-wide" },
-          _.h3("Goal"),
-          _.Input({
-            size: "sm",
-            label: "Node title",
-            value: draft.label,
-            autocomplete: "off",
-            onInput: (event) => {
-              draft.label = String(readCmsValue(event) || "");
-            },
-          }),
-          _.label(
-            { class: "tl-flow-config-field" },
-            _.span("Goal"),
-            _.textarea({
-              rows: 3,
-              value: draft.config.goal,
-              placeholder: "What should this orchestrator accomplish?",
-              oninput: (event) => update("goal", event.currentTarget.value),
-            })
-          ),
-          _.label(
-            { class: "tl-flow-config-field" },
-            _.span("System policy"),
-            _.textarea({
-              rows: 4,
-              value: draft.config.systemPrompt,
-              placeholder: "Decision policy, constraints, tone and safety rules.",
-              oninput: (event) => update("systemPrompt", event.currentTarget.value),
-            })
-          )
-        ),
-        _.section(
-          { class: "tl-flow-orchestrator-card" },
-          _.h3("Execution"),
-          _.Select({
-            size: "sm",
-            label: "Execution mode",
-            value: draft.config.executionMode,
-            options: selectOptions(["manual", "on_event", "continuous"]),
-            slots: { arrow: () => icon("keyboard_arrow_down", "sm") },
-            onChange: (value) => update("executionMode", String(readCmsValue(value) || "on_event")),
-          }),
-          _.Select({
-            size: "sm",
-            label: "Runtime state",
-            value: draft.runtimeStatus,
-            options: selectOptions(["idle", "active", "running", "warning", "paused", "error", "disconnected"]),
-            slots: { arrow: () => icon("keyboard_arrow_down", "sm") },
-            onChange: (value) => {
-              draft.runtimeStatus = String(readCmsValue(value) || "idle");
-            },
-          }),
-          _.Input({
-            size: "sm",
-            label: "Decision name",
-            value: draft.config.decisionName,
-            autocomplete: "off",
-            onInput: (event) => update("decisionName", String(readCmsValue(event) || "")),
-          })
-        ),
-        _.section(
-          { class: "tl-flow-orchestrator-card" },
-          _.h3("Capacity"),
-          _.Input({
-            size: "sm",
-            label: "Max concurrent tasks",
-            value: draft.config.maxConcurrentTasks,
-            autocomplete: "off",
-            onInput: (event) => update("maxConcurrentTasks", String(readCmsValue(event) || "1")),
-          }),
-          _.Input({
-            size: "sm",
-            label: "Queue limit",
-            value: draft.config.queueLimit,
-            autocomplete: "off",
-            onInput: (event) => update("queueLimit", String(readCmsValue(event) || "10")),
-          }),
-          _.Input({
-            size: "sm",
-            label: "Timeout (ms)",
-            value: draft.config.timeoutMs,
-            autocomplete: "off",
-            onInput: (event) => update("timeoutMs", String(readCmsValue(event) || "30000")),
-          }),
-          _.Select({
-            size: "sm",
-            label: "Drop policy",
-            value: draft.config.dropPolicy,
-            options: selectOptions(["queue", "reject", "latest"]),
-            slots: { arrow: () => icon("keyboard_arrow_down", "sm") },
-            onChange: (value) => update("dropPolicy", String(readCmsValue(value) || "queue")),
-          })
-        ),
-        _.section(
-          { class: "tl-flow-orchestrator-card" },
-          _.h3("Dispatch"),
-          _.Input({
-            size: "sm",
-            label: "Allowed node types",
-            value: draft.config.allowedNodeTypes,
-            autocomplete: "off",
-            onInput: (event) => update("allowedNodeTypes", String(readCmsValue(event) || "")),
-          }),
-          _.Input({
-            size: "sm",
-            label: "Max steps",
-            value: draft.config.maxSteps,
-            autocomplete: "off",
-            onInput: (event) => update("maxSteps", String(readCmsValue(event) || "6")),
-          }),
-          _.div(
-            { class: "tl-flow-orchestrator-tip" },
-            icon("account_tree", "sm"),
-            _.span("The runtime only dispatches nodes linked directly from this Orchestrator.")
-          )
-        ),
-        _.section(
-          { class: "tl-flow-orchestrator-card" },
-          _.h3("Safety"),
-          _.div(
-            { class: "tl-flow-config-toggle-row" },
-            _.span("Require confirmation for external Actions"),
-            _.Toggle({
-              size: "sm",
-              checked: Boolean(draft.config.requireConfirmation),
-              onChange: (checked) => update("requireConfirmation", Boolean(checked)),
-            })
-          ),
-          _.div(
-            { class: "tl-flow-config-toggle-row" },
-            _.span("Verbose trace logs"),
-            _.Toggle({
-              size: "sm",
-              checked: Boolean(draft.config.verboseTrace),
-              onChange: (checked) => update("verboseTrace", Boolean(checked)),
-            })
-          )
-        ),
-        _.section(
-          { class: "tl-flow-orchestrator-card is-wide" },
-          _.h3("Direct test payload"),
-          _.label(
-            { class: "tl-flow-config-field" },
-            _.span("Payload"),
-            _.textarea({
-              rows: 4,
-              value: draft.config.testPayload,
-              placeholder: "{ \"task\": \"...\" }",
-              oninput: (event) => update("testPayload", event.currentTarget.value),
-            })
-          )
-        )
-      )
+    closeOnOutside: false,
+    closeOnBackdrop: false,
+    scrollable: true,
+    bodyMaxHeight: "76vh",
+    content: ({ close }) => _.form(
+      {
+        id: formId,
+        class: "tl-ai-agent-runtime-editor tl-flow-orchestrator-editor",
+        onsubmit: async (event) => {
+          event.preventDefault();
+          await save(close);
+        },
+      },
+      _.TabPanel({
+        class: "tl-ai-agent-tabs tl-flow-orchestrator-tabs",
+        model: tabModel,
+        orientation: "horizontal",
+        variant: "soft",
+        tabs: [
+          {
+            name: "general",
+            label: "General",
+            icon: "hub",
+            content: _.div(
+              { class: "tl-ai-agent-tab-grid" },
+              _.Input({
+                size: "sm",
+                label: "Node title",
+                value: draft.label,
+                autocomplete: "off",
+                onInput: (event) => {
+                  draft.label = String(readCmsValue(event) || "");
+                },
+              }),
+              inputField("Orchestrator role", "orchestratorRole", { placeholder: "central graph runtime" }),
+              textareaField("Goal", "goal", 5, "What should this orchestrator accomplish?"),
+              textareaField("System policy", "systemPrompt", 6, "Decision policy, constraints, tone and safety rules."),
+              previewCard("Graph scope", "The Orchestrator dispatches directly linked nodes and keeps a trace for every decision.", `${(state.runtime.dependencies || []).filter((dependency) => dependency.sourceNodeId === node.id).length} links · ${(node.outputs || []).length || 4} outputs`)
+            ),
+          },
+          {
+            name: "runtime",
+            label: "Runtime",
+            icon: "account_tree",
+            content: _.div(
+              { class: "tl-ai-agent-tab-grid" },
+              _.Select({
+                size: "sm",
+                label: "Runtime state",
+                value: draft.runtimeStatus,
+                options: selectOptions(["idle", "active", "running", "warning", "paused", "error", "disconnected"]),
+                slots: { arrow: () => icon("keyboard_arrow_down", "sm") },
+                onChange: (value) => {
+                  draft.runtimeStatus = String(readCmsValue(value) || "idle");
+                },
+              }),
+              selectField("Execution mode", "executionMode", ["manual", "on_event", "continuous", "autonomous"]),
+              inputField("Priority", "priority", { type: "number" }),
+              inputField("Max concurrent tasks", "maxConcurrentTasks", { type: "number" }),
+              inputField("Queue limit", "queueLimit", { type: "number" }),
+              inputField("Timeout (ms)", "timeoutMs", { type: "number" }),
+              inputField("Cooldown (ms)", "cooldownMs", { type: "number" }),
+              selectField("Drop policy", "dropPolicy", ["queue", "reject", "latest"])
+            ),
+          },
+          {
+            name: "planner",
+            label: "Planner",
+            icon: "route",
+            content: _.div(
+              { class: "tl-ai-agent-tab-grid" },
+              inputField("Decision name", "decisionName"),
+              selectField("Planner strategy", "plannerStrategy", ["ai-first", "graph-first", "goal-first", "feedback-first", "legacy"]),
+              selectField("Dispatch strategy", "dispatchStrategy", ["linked_order", "priority", "first_success", "all"]),
+              selectField("Route policy", "routePolicy", ["direct-linked-only", "agent-control", "all-linked"]),
+              inputField("Allowed node types", "allowedNodeTypes"),
+              inputField("Max steps per iteration", "maxSteps", { type: "number" }),
+              previewCard("Planning contract", "Each plan is emitted as a decision, then every accepted step is dispatched as a traceable runtime event.", "decision -> step[] -> feedback -> done")
+            ),
+          },
+          {
+            name: "provider",
+            label: "AI Provider",
+            icon: "dns",
+            content: _.div(
+              { class: "tl-ai-agent-tab-grid" },
+              inputField("Provider profile", "providerProfile"),
+              selectField("Provider type", "providerType", ["local", "ollama", "lm-studio", "openai", "claude", "gemini", "custom"]),
+              inputField("Model", "model"),
+              inputField("Temperature", "temperature", { type: "number", step: "0.1" }),
+              inputField("Max tokens", "maxTokens", { type: "number" }),
+              selectField("Response format", "responseFormat", ["json", "structured", "text", "markdown"]),
+              previewCard("Decision provider", "Provider settings are stored with the Orchestrator mission contract and can be used by autonomous planning.")
+            ),
+          },
+          {
+            name: "inputs",
+            label: "Inputs",
+            icon: "input",
+            content: _.div(
+              { class: "tl-ai-agent-tab-grid" },
+              inputField("Task input channel", "taskInput", { placeholder: "task" }),
+              inputField("Context channels", "contextChannels", { placeholder: "market.data, agent.feedback" }),
+              inputField("Required context", "requiredContext", { placeholder: "workspace, memory, last-event" }),
+              selectField("Input data request", "inputDataMode", ["off", "latest", "history", "latest_history"]),
+              inputField("Input history limit", "inputHistoryLimit", { type: "number" }),
+              textareaField("Payload mapping", "payloadMapping", 5, "task -> mission.task\nfeedback -> mission.feedback"),
+              previewCard("Task contract", "The Orchestrator receives missions on task and may enrich each iteration with feedback and connected node results.", "task -> mission -> plan")
+            ),
+          },
+          {
+            name: "autonomy",
+            label: "Autonomy",
+            icon: "autoplay",
+            content: _.div(
+              { class: "tl-ai-agent-tab-grid" },
+              toggleField("Run until goal is reached", "autonomousMode"),
+              inputField("Max iterations", "maxIterations", { type: "number" }),
+              inputField("Delay between iterations (ms)", "iterationDelayMs", { type: "number" }),
+              inputField("Stop condition", "stopCondition"),
+              inputField("Feedback events", "feedbackWindow", { type: "number" }),
+              selectField("Failure policy", "failurePolicy", ["stop", "retry", "skip-target", "ask-human"]),
+              inputField("Max mission runtime (ms)", "maxMissionRuntimeMs", { type: "number" }),
+              previewCard("Autonomy guardrails", "Autonomous missions stop on a completion signal, max iterations, blocked graph, timeout, or explicit error.")
+            ),
+          },
+          {
+            name: "memory",
+            label: "Memory",
+            icon: "memory",
+            content: _.div(
+              { class: "tl-ai-agent-tab-grid" },
+              selectField("Memory mode", "memoryMode", ["none", "short", "workspace", "persistent"]),
+              inputField("Memory size", "memorySize", { type: "number" }),
+              inputField("Context window", "contextWindow", { type: "number" }),
+              selectField("Trace retention", "traceRetention", ["none", "session", "workspace", "persistent"]),
+              inputField("Mission memory key", "missionMemoryKey", { placeholder: "orchestrator.mission" }),
+              toggleField("Save decisions", "saveDecisions"),
+              toggleField("Save prompts", "savePrompts"),
+              previewCard("Mission memory", "Each run keeps the decision, emitted steps, feedback window and final stop reason.")
+            ),
+          },
+          {
+            name: "outputs",
+            label: "Outputs",
+            icon: "output",
+            content: _.div(
+              { class: "tl-ai-agent-tab-grid" },
+              inputField("Decision output", "outputDecision"),
+              inputField("Action output", "outputAction"),
+              inputField("Done output", "outputDone"),
+              inputField("Error output", "outputError"),
+              selectField("Emit strategy", "emitStrategy", ["always", "on_success", "on_change", "manual"]),
+              selectField("Event priority", "eventPriority", ["low", "normal", "high", "critical"]),
+              previewCard("Output channels", "The node keeps four stable outputs so downstream nodes can react to decisions, actions, completion and errors.", `${draft.config.outputDecision}, ${draft.config.outputAction}, ${draft.config.outputDone}, ${draft.config.outputError}`)
+            ),
+          },
+          {
+            name: "safety",
+            label: "Safety",
+            icon: "shield",
+            content: _.div(
+              { class: "tl-ai-agent-permission-grid" },
+              toggleField("Require confirmation for external Actions", "requireConfirmation"),
+              toggleField("Allow agent-to-agent dispatch", "allowAgentDispatch"),
+              toggleField("Allow storage writes", "allowStorageWrites"),
+              toggleField("Allow notification Actions", "allowNotifications"),
+              toggleField("Allow webhook/network Actions", "allowNetworkActions"),
+              toggleField("Verbose trace logs", "verboseTrace"),
+              previewCard("Safety boundary", "Dangerous outputs can require confirmation while internal processor, lens and agent routes remain automatic.")
+            ),
+          },
+          {
+            name: "debug",
+            label: "Debug/Test",
+            icon: "bug_report",
+            content: _.div(
+              { class: "tl-ai-agent-tab-grid is-wide" },
+              toggleField("Debug mode", "debugMode"),
+              inputField("Trace label", "traceLabel", { placeholder: "market-mission-v1" }),
+              textareaField("Direct test payload", "testPayload", 7, "{ \"task\": \"...\" }"),
+              previewCard("Live test", "Use Pulse Test or Live Test to run the configured task through the Orchestrator and inspect decisions in Flow Logs.")
+            ),
+          },
+        ],
+      })
     ),
     actions: ({ close }) => _.Toolbar(
-      { align: "end", gap: 8 },
+      { class: "tl-ai-agent-editor-footer", align: "end", gap: 8 },
       btn({ onclick: close }, "Cancel"),
-      btn({ class: "is-primary", onclick: () => save(close) }, icon("save", "sm"), "Save Orchestrator")
+      btn({ class: "tl-ai-save-btn", onclick: () => save(close) }, icon("save", "sm"), "Save Orchestrator")
     ),
   });
   dialog.open();
@@ -2920,6 +3039,13 @@ const declaredPortDefs = (node = {}, side = "out") => {
     });
 };
 
+const normalizeAiAgentTaskPort = (node = {}, side = "in", port = {}) => {
+  if (side !== "in" || nodeCategory(node) !== "ai-agents" || nodeSubtype(node) === "orchestrator") return port;
+  return String(port.name || "").toLowerCase() === "input"
+    ? { ...port, name: "task", legacyName: port.name || "input" }
+    : port;
+};
+
 const sampleOutputFields = (node = {}) => {
   const sample = node?.metadata?.sampleOutput;
   if (!sample || typeof sample !== "object" || Array.isArray(sample)) return [];
@@ -2974,8 +3100,9 @@ const nodePorts = (node = {}, side = "out") => {
   const ports = values.length ? values : [normalizePortDef(side === "in" ? inputPortLabel(node) : outputPortLabel(node), inferPortType(node, side))];
   const unique = new Map();
   ports.forEach((port) => {
-    if (!port.name || unique.has(port.name)) return;
-    unique.set(port.name, { ...port, type: port.type || inferPortType(node, side, port.name) });
+    const normalizedPort = normalizeAiAgentTaskPort(node, side, port);
+    if (!normalizedPort.name || unique.has(normalizedPort.name)) return;
+    unique.set(normalizedPort.name, { ...normalizedPort, type: normalizedPort.type || inferPortType(node, side, normalizedPort.name) });
   });
   return withAgentControlPort(node, side, [{ name: "all", type: side === "in" ? "any" : "object" }, ...unique.values()]);
 };
@@ -3059,11 +3186,13 @@ const connectionValidation = (source, target, sourcePortName = "all", targetPort
     return { ok: false, reason: `Incompatible ports: ${sourcePort.name}:${sourcePort.type || "any"} -> ${targetPort.name}:${targetPort.type || "any"}`, sourcePort, targetPort, hint: "usa una porta con tipo compatibile o passa da un Processor Transform/Formatter" };
   }
   const channel = channelForPortConnection(source, target, sourcePortName, targetPortName);
+  const isAgentControlLink = isAgentControlPort(sourcePort) || isAgentControlPort(targetPort);
   const duplicate = state.runtime.dependencies.some((dependency) =>
     dependency.sourceNodeId === source.id &&
     dependency.targetNodeId === target.id &&
     (dependency.channel || "runtime") === channel);
   if (duplicate) return { ok: false, reason: "duplicate link", sourcePort, targetPort, hint: "seleziona il collegamento esistente o usa un channel/porta diversa" };
+  if (isAgentControlLink) return { ok: true, reason: "", channel, sourcePort, targetPort };
   const engineValidation = window.TrackerLensGraphEngine?.validateConnection?.({
     source,
     target,

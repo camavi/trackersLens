@@ -776,6 +776,38 @@ const renderFlowEdges = () => {
   positionEdgeLabels();
 };
 
+const nodeRuntimeBanner = (node = {}, live = null) => {
+  if (!live || nodeCategory(node) !== "ai-agents") return null;
+  const status = String(live.status || "").toLowerCase();
+  const phase = String(live.phase || "").toLowerCase();
+  const isOrchestrator = nodeSubtype(node) === "orchestrator";
+  if (status === "complete") {
+    const completedAt = Date.parse(live.lastAt || 0);
+    if (completedAt && Date.now() - completedAt > 5000) return null;
+    return { tone: "complete", icon: "check_circle", label: "Task complete" };
+  }
+  if (status !== "orchestrating" && status !== "busy") return null;
+  if (phase === "planning") return { tone: "planning", icon: "hub", label: isOrchestrator ? "Planning route" : "Planning" };
+  if (phase === "waiting") return { tone: "waiting", icon: isOrchestrator ? "hub" : "psychology", label: live.targetLabel ? `Waiting for ${live.targetLabel}` : "Waiting for AI" };
+  if (phase === "executing" || phase === "run_node") return { tone: "executing", icon: "bolt", label: live.targetLabel ? `Running ${live.targetLabel}` : "Running node" };
+  if (phase === "sending" || phase === "send_result") return { tone: "sending", icon: "send", label: live.targetLabel ? `Sending to ${live.targetLabel}` : "Sending result" };
+  return { tone: "thinking", icon: isOrchestrator ? "hub" : "psychology", label: isOrchestrator ? "Orchestrating" : "Thinking" };
+};
+
+const renderNodeRuntimeBanner = (node = {}, live = null) => {
+  const banner = nodeRuntimeBanner(node, live);
+  return _.div(
+    {
+      class: `tl-flow-node-runtime-banner${banner ? ` is-visible is-${banner.tone}` : ""}`,
+      "data-flow-node-runtime-banner": node.id,
+      hidden: !banner,
+    },
+    banner ? icon(banner.icon, "sm") : null,
+    banner ? _.strong(banner.label) : null,
+    banner ? _.span({ class: "tl-flow-node-runtime-loader", "aria-hidden": "true" }) : null
+  );
+};
+
 const replaceRenderedNode = (selector, nextNode, { preserveScroll = false } = {}) => {
   const current = document.querySelector(selector);
   if (!current || !nextNode) return false;
@@ -807,6 +839,18 @@ const refreshNodeRuntimeDom = (graph, activity) => {
         ? `${performanceLabel(perf)} · ${perf.health || perf.status || "perf"}`
         : runtimeStatus ? `${runtimeStatus} · ${live.count} events`
           : live ? `${live.count} events · ${formatShortDate(live.lastAt)}` : fieldCount ? `${fieldCount} outputs` : node.metadata?.library ? "library" : node.status || "idle";
+    }
+
+    const runtimeBanner = document.querySelector(`[data-flow-node-runtime-banner="${escapeSelectorValue(node.id)}"]`);
+    if (runtimeBanner) {
+      const banner = nodeRuntimeBanner(node, live);
+      runtimeBanner.hidden = !banner;
+      runtimeBanner.className = `tl-flow-node-runtime-banner${banner ? ` is-visible is-${banner.tone}` : ""}`;
+      runtimeBanner.replaceChildren(
+        banner ? icon(banner.icon, "sm") : null,
+        banner ? _.strong(banner.label) : null,
+        banner ? _.span({ class: "tl-flow-node-runtime-loader", "aria-hidden": "true" }) : null
+      );
     }
 
     if (isPreviewNode(node)) {
@@ -1169,7 +1213,7 @@ const renderCanvas = () => {
             {
               role: "button",
               tabindex: 0,
-              class: `tl-flow-node is-${graphTone(node)} is-runtime-${view.runtime.status}${isAgentBridge ? " is-agent-bridge" : ""}${node.metadata?.collapsed ? " is-collapsed" : ""}${state.frontNodeId === node.id ? " is-front" : ""}${state.focus.nodeId === node.id ? " is-selected" : ""}${impactClassForNode(node, impact)}${live || processingNode ? " is-live is-event-active" : ""}${processingNode ? " is-ai-processing" : ""}${live?.status === "error" ? " is-error" : ""}${isLinkSource ? " is-link-source" : ""}${isLinkTarget ? " is-link-target" : ""}${isLinkHover ? " is-link-hover" : ""}${isInTestRun ? " is-test-path" : ""}`,
+              class: `tl-flow-node is-${graphTone(node)} is-runtime-${view.runtime.status}${isAgentBridge ? " is-agent-bridge" : ""}${node.metadata?.collapsed ? " is-collapsed" : ""}${state.frontNodeId === node.id ? " is-front" : ""}${state.focus.nodeId === node.id ? " is-selected" : ""}${impactClassForNode(node, impact)}${live || processingNode ? " is-live is-event-active" : ""}${processingNode ? " is-ai-processing" : ""}${live?.status === "orchestrating" ? " is-orchestrating" : ""}${live?.status === "complete" ? " is-task-complete" : ""}${live?.status === "error" ? " is-error" : ""}${isLinkSource ? " is-link-source" : ""}${isLinkTarget ? " is-link-target" : ""}${isLinkHover ? " is-link-hover" : ""}${isInTestRun ? " is-test-path" : ""}`,
               style: { "--x": pos.x, "--y": pos.y, "--port-count": portCount, minHeight: isAgentBridge ? "58px" : `${nodeMinHeight(portCount)}px` },
               "data-flow-node-id": node.id,
               "data-input-port-count": fullInputPorts.length,
@@ -1188,6 +1232,7 @@ const renderCanvas = () => {
                 }
               },
             },
+            renderNodeRuntimeBanner(node, live),
             ...inputPorts.map((port, portIndex) => _.span({
               class: `tl-flow-node-port is-input is-${port.type}${isAgentBridge && isAgentControlPort(port) ? " is-bridge-agent-input" : ""}${isAgentBridge && port.name === "listening" ? " is-bridge-right-input is-bridge-listening" : ""}${isAgentControlPort(port) ? " is-agent-control-port" : ""}${port.name === "all" ? " is-pass" : ""}${isPortConnected(graph, node.id, "in", port.name) ? " is-connected" : ""}${live ? " is-event-active" : ""}`,
               title: portTooltip(port, "in", inputPorts),

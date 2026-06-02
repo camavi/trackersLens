@@ -328,9 +328,11 @@ const aiAgentChannelsForRecord = (agent = {}) => {
   const agentType = agent.runtime?.agentType || "analyzer";
   const inputChannels = Array.isArray(agent.channels?.inputs) && agent.channels.inputs.length
     ? agent.channels.inputs
-    : ["input"];
+    : ["task"];
+  const normalizedInputs = inputChannels.map((channel) =>
+    String(channel || "").trim().toLowerCase() === "input" ? "task" : channel);
   const outputChannel = agent.channels?.outputChannel || agent.channels?.outputs?.[0] || `ai.${agentType}.output`;
-  return { agentType, inputChannels, outputChannel };
+  return { agentType, inputChannels: normalizedInputs, outputChannel };
 };
 
 const materializeAiAgentNode = async ({ agent, flowPosition = null, close = null, mode = "alias" } = {}) => {

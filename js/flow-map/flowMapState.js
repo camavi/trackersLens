@@ -982,6 +982,8 @@ const updateLiveClasses = (graph, activity) => {
     element.classList.toggle("is-live", Boolean(live) || activeTestNode || processingNode);
     element.classList.toggle("is-event-active", Boolean(live) || activeTestNode || processingNode);
     element.classList.toggle("is-ai-processing", processingNode);
+    element.classList.toggle("is-orchestrating", live?.status === "orchestrating");
+    element.classList.toggle("is-task-complete", live?.status === "complete");
     element.classList.toggle("is-busy", live?.status === "busy");
     element.classList.toggle("is-queued", live?.status === "queued");
     element.classList.toggle("is-overloaded", live?.status === "overloaded");
@@ -1075,6 +1077,7 @@ const nodeSubtype = (node = {}) =>
 const nodeRuntimeDescription = (node = {}, live = null) => {
   const category = nodeCategory(node);
   if (node.metadata?.description) return node.metadata.description;
+  if (category === "sources" && nodeSubtype(node) === "task") return "Agent task source emitting objective, context and success conditions.";
   if (category === "sources") return "Input adapter ingesting raw external data.";
   if (category === "dev" || node.type === "devPreview") return "Development probe showing raw and JSON payloads passing through the graph.";
   if (category === "trackers" || node.type === "boxTracker") return "Data orchestrator emitting structured runtime channels.";

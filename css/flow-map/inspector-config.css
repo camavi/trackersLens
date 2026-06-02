@@ -680,7 +680,46 @@ body.is-flow-inspector-card-dragging {
 }
 
 .tl-flow-orchestrator-panel {
-  width: min(980px, calc(100vw - 48px));
+  width: min(1180px, calc(100vw - 72px));
+}
+
+.tl-flow-orchestrator-panel.tl-ai-agent-runtime-panel {
+  border-color: rgba(96, 165, 250, 0.26);
+  box-shadow: 0 28px 90px rgba(0, 0, 0, 0.5), 0 0 42px rgba(34, 211, 238, 0.12);
+}
+
+.tl-flow-orchestrator-panel.tl-ai-agent-runtime-panel .cms-dialog-head {
+  border-bottom-color: rgba(96, 165, 250, 0.2);
+  background:
+    radial-gradient(circle at 7% 18%, rgba(34, 211, 238, 0.08), transparent 28%),
+    linear-gradient(135deg, rgba(59, 130, 246, 0.08), rgba(255, 255, 255, 0.01));
+}
+
+.tl-flow-orchestrator-panel.tl-ai-agent-runtime-panel .cms-dialog-icon {
+  color: #bfdbfe !important;
+  border-color: rgba(96, 165, 250, 0.54);
+  background: rgba(37, 99, 235, 0.16) !important;
+  box-shadow: inset 0 0 28px rgba(34, 211, 238, 0.08), 0 0 24px rgba(34, 211, 238, 0.16);
+}
+
+.tl-flow-orchestrator-panel.tl-ai-agent-runtime-panel .cms-dialog-icon .cms-icon,
+.tl-flow-orchestrator-panel.tl-ai-agent-runtime-panel .cms-dialog-icon .material-symbols-outlined {
+  color: #bfdbfe !important;
+}
+
+.tl-flow-orchestrator-tabs .cms-tabpanel-tab.active.cms-btn {
+  color: #06121d;
+  background: linear-gradient(180deg, #7dd3fc, #2563eb);
+}
+
+.cms-tabpanel.horizontal.tl-flow-orchestrator-tabs>.cms-tabpanel-nav>.cms-tabpanel-nav-btn .tab-indicator {
+  background-color: #7dd3fc;
+}
+
+.tl-flow-orchestrator-panel .tl-ai-save-btn.cms-btn {
+  color: #06121d;
+  border-color: rgba(125, 211, 252, 0.54);
+  background: linear-gradient(180deg, #7dd3fc, #2563eb);
 }
 
 .tl-flow-orchestrator-form {

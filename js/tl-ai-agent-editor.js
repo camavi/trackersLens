@@ -61,7 +61,8 @@ window.TrackerLensAiAgentEditor = (() => {
     const name = agentFormValue(form, "name");
     const agentType = agentFormValue(form, "agentType") || "analyzer";
     const outputChannel = agentFormValue(form, "outputChannel") || `ai.${agentType}.output`;
-    const inputChannels = splitList(agentFormValue(form, "inputChannels"));
+    const inputChannels = splitList(agentFormValue(form, "inputChannels"))
+      .map((channel) => String(channel || "").trim().toLowerCase() === "input" ? "task" : channel);
     const outputChannels = splitList(outputChannel);
     const permissions = Object.fromEntries(AI_PERMISSION_FIELDS.map(([key]) => [key, boolValue(form, key, key === "canEmitChannels" || key === "canReadWorkspace")]));
     const debug = Object.fromEntries(AI_DEBUG_FIELDS.map(([key]) => [key, boolValue(form, key, key !== "debugMode")]));
@@ -202,7 +203,7 @@ window.TrackerLensAiAgentEditor = (() => {
       workspaceId: agentField(agent, "workspaceId", ""),
       templateId: agentField(agent, "templateId", ""),
     };
-    const inputChannels = channels.inputs || raw.inputs || ["input"];
+    const inputChannels = channels.inputs || raw.inputs || ["task"];
     const outputChannel = channels.outputChannel || channels.outputs?.[0] || raw.output || "ai.agent.output";
     const providerProfiles = [
       { value: "", label: "Auto / local-first" },
@@ -314,7 +315,7 @@ window.TrackerLensAiAgentEditor = (() => {
                 agentSelect("Input Data Request", "inputDataMode", channels.inputDataMode || raw.inputDataMode || "latest", AI_INPUT_DATA_MODES),
                 agentInput("Input History Limit", "inputHistoryLimit", channels.inputHistoryLimit ?? raw.inputHistoryLimit ?? 5, { type: "number" }),
                 agentTextarea("Payload Mapping", "payloadMapping", channels.payloadMapping || "btc.price -> market_price\nnews.crypto -> latest_news", 5),
-                _.div({ class: "tl-ai-agent-preview-card" }, _.strong("Input Preview"), _.p("Last event, frequency and schema are populated by runtime channel telemetry."), _.code(`channels: ${csvOf(inputChannels) || "input"}`))
+                _.div({ class: "tl-ai-agent-preview-card" }, _.strong("Input Preview"), _.p("Last event, frequency and schema are populated by runtime channel telemetry."), _.code(`channels: ${csvOf(inputChannels) || "task"}`))
               ),
             },
             {
@@ -354,7 +355,7 @@ window.TrackerLensAiAgentEditor = (() => {
                 agentSelect("Output Format", "outputFormat", channels.outputFormat || provider.responseFormat || "json", AI_RESPONSE_FORMATS),
                 agentSelect("Emit Strategy", "emitStrategy", channels.emitStrategy || "on_success", ["on_success", "always", "on_change", "threshold", "manual"]),
                 agentSelect("Event Priority", "eventPriority", channels.eventPriority || "normal", ["low", "normal", "high", "critical"]),
-                _.div({ class: "tl-ai-agent-preview-card" }, _.strong("Runtime Flow"), _.p("Channel consumer -> prompt generation -> provider call -> memory update -> output channel emit."), _.code(`${csvOf(inputChannels) || "input"} -> ${outputChannel}`))
+                _.div({ class: "tl-ai-agent-preview-card" }, _.strong("Runtime Flow"), _.p("Channel consumer -> prompt generation -> provider call -> memory update -> output channel emit."), _.code(`${csvOf(inputChannels) || "task"} -> ${outputChannel}`))
               ),
             },
             {

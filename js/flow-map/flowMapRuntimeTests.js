@@ -28,7 +28,7 @@ const isOrchestratorAgentNode = (node = {}) =>
 
 const isManualInputSource = (node = {}) => {
   const subtype = String(nodeSubtype(node) || "").toLowerCase();
-  return nodeCategory(node) === "sources" && ["manual-json", "text-input", "manual-input", "image-source", "audio-source", "file-source", "files-source"].includes(subtype);
+  return nodeCategory(node) === "sources" && ["task", "manual-json", "text-input", "manual-input", "image-source", "audio-source", "file-source", "files-source"].includes(subtype);
 };
 
 const isLiveTestableStarterNode = (node = {}) =>
@@ -52,7 +52,11 @@ const runtimeRuleGraph = () =>
 
 const nodeParentDependencies = (node = {}, graph = runtimeRuleGraph()) =>
   !node?.id ? [] : (graph.dependencies || [])
-    .filter((dependency) => dependency.targetNodeId === node.id && dependency.sourceNodeId && dependency.sourceNodeId !== node.id);
+    .filter((dependency) => dependency.targetNodeId === node.id && dependency.sourceNodeId && dependency.sourceNodeId !== node.id)
+    .filter((dependency) => {
+      const port = String(dependency.channel || dependency.metadata?.sourcePort || dependency.metadata?.targetPort || "").toLowerCase();
+      return port !== "agent_control" && port !== "agent-control";
+    });
 
 const isRootRuntimeNode = (node = {}, graph = runtimeRuleGraph()) =>
   Boolean(node?.id) && !nodeParentDependencies(node, graph).length;
@@ -110,6 +114,33 @@ const parseManualJsonPayload = (value) => {
   } catch (_) {
     return null;
   }
+};
+
+const taskPayloadForNode = (node = {}, runId = "") => {
+  const config = node.metadata?.config || {};
+  const payload = parseManualJsonPayload(config.payloadJson || config.payload || config.testPayload) || {};
+  const constraints = String(config.constraints || "")
+    .split(/\r?\n/)
+    .map((item) => item.trim())
+    .filter(Boolean);
+  return {
+    type: "agent_task",
+    objective: String(config.objective || config.goal || node.label || "Agent task").trim(),
+    context: String(config.context || "").trim(),
+    priority: String(config.priority || "normal").trim() || "normal",
+    successCondition: String(config.successCondition || config.stopCondition || "completed").trim(),
+    constraints,
+    limits: {
+      maxIterations: Math.max(1, Number(config.maxIterations || 5)),
+      timeoutMs: Math.max(0, Number(config.timeoutMs || 30000)),
+    },
+    payload,
+    task: String(config.objective || config.goal || node.label || "Agent task").trim(),
+    __test: true,
+    runId,
+    sourceNodeId: node.id,
+    emittedAt: new Date().toISOString(),
+  };
 };
 
 const nodeOutgoingTestChannels = (node = {}, graph = graphModel()) => {
@@ -202,6 +233,7 @@ const outputPayloadForPort = (node = {}, channel = "", basePayload = {}, context
 const nodeTestPayload = (node = {}, runId = "") => {
   const config = node.metadata?.config || {};
   const subtype = nodeSubtype(node);
+  if (subtype === "task") return taskPayloadForNode(node, runId);
   if (subtype === "image-source") {
     return {
       live: true,
@@ -518,6 +550,8 @@ const executeDirectOrchestratorAgentNode = async ({ node, workspaceId, runId, gr
       runId,
       inputChannel: channel,
       decision: result?.decision || "",
+      missionStatus: result?.status || "",
+      missionIterations: Array.isArray(result?.iterations) ? result.iterations.length : 0,
       emitted: result?.emitted || [],
       skipped: result?.skipped || [],
     },

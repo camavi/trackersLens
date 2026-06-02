@@ -27,6 +27,7 @@ window.TrackerLensRuntimeGraphModel = (() => {
     Aggregator: { tone: "purple", icon: "stacked_bar_chart" },
     Cache: { tone: "purple", icon: "cached" },
     Parser: { tone: "purple", icon: "schema" },
+    "Task Node": { tone: "gold", icon: "assignment" },
     "AI Analyzer": { tone: "violet", icon: "psychology" },
     "AI Sentiment": { tone: "pink", icon: "mood" },
     "AI Summarizer": { tone: "violet", icon: "summarize" },
@@ -196,6 +197,14 @@ window.TrackerLensRuntimeGraphModel = (() => {
       const eventChannel = event.channel || "";
       const matchedDependencies = (graph.dependencies || []).filter((dependency) => {
         if (event.meta?.dependencyId && dependency.id === event.meta.dependencyId) return true;
+        if (event.meta?.orchestratorRuntime && event.meta?.executedNodeId) {
+          const orchestratorId = String(event.meta.orchestratorRuntime || "");
+          const executedNodeId = String(event.meta.executedNodeId || "");
+          const port = String(dependency.channel || dependency.metadata?.sourcePort || dependency.metadata?.targetPort || "").toLowerCase();
+          return port === "agent_control" &&
+            ((dependency.sourceNodeId === orchestratorId && dependency.targetNodeId === executedNodeId) ||
+              (dependency.sourceNodeId === executedNodeId && dependency.targetNodeId === orchestratorId));
+        }
         if (event.sourceNodeId && dependency.sourceNodeId === event.sourceNodeId) {
           return !eventChannel || dependency.channel === eventChannel;
         }
@@ -207,20 +216,34 @@ window.TrackerLensRuntimeGraphModel = (() => {
       const related = [
         event.sourceNodeId,
         event.targetNodeId,
+        event.meta?.orchestratorRuntime,
+        event.meta?.executedNodeId,
         ...matchedDependencies.flatMap((dependency) => [dependency.sourceNodeId, dependency.targetNodeId]),
       ].filter(Boolean);
 
       (graph.nodes || []).forEach((node) => {
         if (related.includes(node.id) || nodeChannels(node).includes(event.channel)) {
           const current = nodeActivity.get(node.id) || { count: 0, status: "ok", lastAt: event.createdAt };
+          const type = String(event.eventType || "").toLowerCase();
+          const orchestrating = type.startsWith("orchestrator_") && !type.includes("done") && !type.includes("result");
+          const complete = type.includes("done") || type.includes("completed") || type.includes("result");
           const runtimeStatus = ["busy", "queued", "overloaded", "idle"].includes(String(event.status || "").toLowerCase())
             ? String(event.status).toLowerCase()
             : "";
+          const nextStatus = event.status === "error" || event.eventType === "error" || current.status === "error"
+            ? "error"
+            : complete
+              ? "complete"
+              : orchestrating
+                ? "orchestrating"
+                : runtimeStatus || current.status || "ok";
+          const isNewer = Date.parse(current.lastAt || 0) <= created;
           nodeActivity.set(node.id, {
             count: current.count + 1,
-            status: event.status === "error" || event.eventType === "error" || current.status === "error"
-              ? "error"
-              : runtimeStatus || current.status || "ok",
+            status: isNewer ? nextStatus : current.status || nextStatus,
+            phase: isNewer ? (event.payload?.phase || event.meta?.plannerStep || (complete ? "complete" : "")) : current.phase || "",
+            eventType: isNewer ? event.eventType || "" : current.eventType || "",
+            targetLabel: isNewer ? event.payload?.targetLabel || "" : current.targetLabel || "",
             lastAt: Date.parse(current.lastAt) > created ? current.lastAt : event.createdAt,
           });
         }
@@ -230,7 +253,11 @@ window.TrackerLensRuntimeGraphModel = (() => {
           const current = edgeActivity.get(dependency.id) || { count: 0, status: "ok", lastAt: event.createdAt };
           edgeActivity.set(dependency.id, {
             count: current.count + 1,
-            status: event.status === "error" || event.eventType === "error" || current.status === "error" ? "error" : "ok",
+            status: event.status === "error" || event.eventType === "error" || current.status === "error"
+              ? "error"
+              : String(event.eventType || "").startsWith("orchestrator_")
+                ? "orchestrating"
+                : "ok",
             lastAt: Date.parse(current.lastAt) > created ? current.lastAt : event.createdAt,
           });
       });

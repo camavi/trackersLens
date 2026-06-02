@@ -35,7 +35,7 @@ window.TrackerLensOrchestratorAgentRuntime = (() => {
     String(nodeConfig(node).executionMode || node.metadata?.runtimeMetadata?.executionMode || "on_event").toLowerCase();
 
   const isEventDriven = (mode = "") =>
-    ["on_event", "continuous"].includes(String(mode || "").toLowerCase());
+    ["on_event", "continuous", "autonomous"].includes(String(mode || "").toLowerCase());
 
   const isRunnableOrchestrator = (node = {}) =>
     node.type === "aiAgent" &&
@@ -63,6 +63,24 @@ window.TrackerLensOrchestratorAgentRuntime = (() => {
     return text.length > max ? `${text.slice(0, max)}\n...` : text;
   };
 
+  const parseJsonLoose = (text = "") => {
+    const clean = String(text || "").trim();
+    if (!clean) return null;
+    const candidates = [
+      clean,
+      clean.replace(/^```(?:json)?/i, "").replace(/```$/i, "").trim(),
+      clean.slice(clean.indexOf("{"), clean.lastIndexOf("}") + 1),
+    ].filter(Boolean);
+    for (const candidate of candidates) {
+      try {
+        return JSON.parse(candidate);
+      } catch {
+        // Try next candidate.
+      }
+    }
+    return null;
+  };
+
   const listFromConfig = (value = "", fallback = []) => {
     const source = Array.isArray(value) ? value : String(value || "").split(/[\n,]+/);
     const items = source.map((item) => String(item || "").trim()).filter(Boolean);
@@ -75,6 +93,20 @@ window.TrackerLensOrchestratorAgentRuntime = (() => {
       .filter(Boolean)
       .map(String);
 
+  const nodeOutputs = (node = {}) =>
+    unique([
+      ...(node.outputs || []),
+      ...(node.channels || []),
+      ...(node.metadata?.manifest?.outputs || []).map((port) => typeof port === "object" ? port.name || port.key : port),
+    ]);
+
+  const nodeInputPorts = (node = {}) =>
+    unique([
+      ...(node.inputs || []),
+      ...(node.channels || []),
+      ...(node.metadata?.manifest?.inputs || []).map((port) => typeof port === "object" ? port.name || port.key : port),
+    ]);
+
   const outgoingDependencies = ({ node, runtime }) =>
     (runtime.dependencies || [])
       .filter((dependency) => dependency.sourceNodeId === node.id && !dependency.metadata?.virtual)
@@ -83,6 +115,64 @@ window.TrackerLensOrchestratorAgentRuntime = (() => {
         targetNode: (runtime.nodes || []).find((item) => item.id === dependency.targetNodeId) || null,
       }))
       .filter((dependency) => dependency.targetNode);
+
+  const isAgentControlDependency = (dependency = {}) => {
+    const value = String(dependency.channel || dependency.metadata?.sourcePort || dependency.metadata?.targetPort || "").toLowerCase();
+    return value === "agent_control" || value === "agent-control";
+  };
+
+  const connectedDependencies = ({ node, runtime }) =>
+    (runtime.dependencies || [])
+      .filter((dependency) =>
+        dependency.sourceNodeId === node.id ||
+        (dependency.sourceNodeId === node.id && isAgentControlDependency(dependency)) ||
+        (dependency.targetNodeId === node.id && isAgentControlDependency(dependency)))
+      .map((dependency) => ({
+        ...dependency,
+        targetNode: (runtime.nodes || []).find((item) => item.id === dependency.targetNodeId) || null,
+        sourceNode: (runtime.nodes || []).find((item) => item.id === dependency.sourceNodeId) || null,
+      }));
+
+  const graphNeighborhood = ({ node, runtime }) => {
+    const nodesById = new Map((runtime.nodes || []).map((item) => [item.id, item]));
+    const relatedIds = new Set([node.id]);
+    (runtime.dependencies || []).forEach((dependency) => {
+      if (dependency.sourceNodeId === node.id || dependency.targetNodeId === node.id) {
+        relatedIds.add(dependency.sourceNodeId);
+        relatedIds.add(dependency.targetNodeId);
+      }
+    });
+    const related = (runtime.nodes || [])
+      .filter((item) => relatedIds.has(item.id))
+      .map((item) => ({
+        nodeId: item.id,
+        label: item.label || item.id,
+        type: item.type || "",
+        category: nodeCategory(item),
+        subtype: nodeSubtype(item),
+        status: nodeStatus(item),
+        inputs: nodeInputPorts(item),
+        outputs: nodeOutputs(item),
+        config: {
+          endpoint: nodeConfig(item).endpoint || nodeConfig(item).url || nodeConfig(item).wsUrl || "",
+          method: nodeConfig(item).method || "",
+          emitChannel: nodeConfig(item).emitChannel || "",
+        },
+      }));
+    const links = (runtime.dependencies || [])
+      .filter((dependency) => relatedIds.has(dependency.sourceNodeId) && relatedIds.has(dependency.targetNodeId))
+      .map((dependency) => ({
+        id: dependency.id || "",
+        sourceNodeId: dependency.sourceNodeId,
+        sourceLabel: nodesById.get(dependency.sourceNodeId)?.label || dependency.sourceNodeId,
+        targetNodeId: dependency.targetNodeId,
+        targetLabel: nodesById.get(dependency.targetNodeId)?.label || dependency.targetNodeId,
+        channel: dependency.channel || "",
+        sourcePort: dependency.metadata?.sourcePort || dependency.sourcePort || "",
+        targetPort: dependency.metadata?.targetPort || dependency.targetPort || "",
+      }));
+    return { nodes: related, links };
+  };
 
   const targetIsConfigured = (target = {}) => {
     const category = nodeCategory(target);
@@ -101,11 +191,128 @@ window.TrackerLensOrchestratorAgentRuntime = (() => {
     return true;
   };
 
-  const defaultAllowedCategories = ["processors", "ai-agents", "actions", "storage", "lens", "dev"];
+  const defaultAllowedCategories = ["sources", "trackers", "processors", "ai-agents", "actions", "storage", "lens", "dev"];
+
+  const pickProvider = async (config = {}) => {
+    const data = await window.TrackerLensAiRuntimeStore?.list?.().catch(() => null);
+    const providers = data?.providers || window.TrackerLensAiRuntimeStore?.localProviderDefaults?.() || [];
+    const requested = String(config.providerType || config.provider || config.providerProfile || "").toLowerCase();
+    return providers.find((provider) =>
+      requested &&
+      [provider.id, provider.name, provider.provider].some((value) => String(value || "").toLowerCase().includes(requested)))
+      || providers.find((provider) => provider.local && provider.status === "online")
+      || providers.find((provider) => provider.local)
+      || providers[0]
+      || null;
+  };
+
+  const withLmStudioApiBase = (endpoint = "") => {
+    const clean = String(endpoint || "http://127.0.0.1:1234").replace(/\/+$/g, "");
+    return clean.endsWith("/v1") ? clean : `${clean}/v1`;
+  };
+
+  const resolveLmStudioModel = async ({ provider = {}, model = "" } = {}) => {
+    const requested = String(model || provider.model || "").trim();
+    if (requested && requested !== "local-model") return requested;
+    const endpoint = withLmStudioApiBase(provider.endpoint);
+    try {
+      const response = await fetch(`${endpoint}/models`);
+      if (!response.ok) return requested || "local-model";
+      const data = await response.json();
+      const models = Array.isArray(data?.data) ? data.data : [];
+      const chatModel = models.find((item) => !/embed/i.test(String(item.id || ""))) || models[0];
+      return chatModel?.id || requested || "local-model";
+    } catch {
+      return requested || "local-model";
+    }
+  };
+
+  const callLmStudio = async ({ provider = {}, model = "", prompt = "", config = {} } = {}) => {
+    const endpoint = withLmStudioApiBase(provider.endpoint);
+    const resolvedModel = await resolveLmStudioModel({ provider, model });
+    const response = await fetch(`${endpoint}/chat/completions`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        model: resolvedModel,
+        messages: [{ role: "user", content: prompt }],
+        temperature: Number(config.temperature || 0.2),
+        max_tokens: Math.max(128, Number(config.maxTokens || 1200)),
+      }),
+    });
+    if (!response.ok) {
+      const errorText = await response.text().catch(() => "");
+      throw new Error(`LM Studio HTTP ${response.status}${errorText ? `: ${errorText.slice(0, 180)}` : ""}`);
+    }
+    const data = await response.json();
+    return { text: data.choices?.[0]?.message?.content || "", model: resolvedModel, raw: data };
+  };
+
+  const callOllama = async ({ provider = {}, model = "", prompt = "" } = {}) => {
+    const endpoint = String(provider.endpoint || "http://127.0.0.1:11434").replace(/\/+$/g, "");
+    const response = await fetch(`${endpoint}/api/generate`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ model: model || provider.model || "local-model", prompt, stream: false }),
+    });
+    if (!response.ok) throw new Error(`Ollama HTTP ${response.status}`);
+    const data = await response.json();
+    return { text: data.response || "", model: model || provider.model || "local-model", raw: data };
+  };
+
+  const askPlannerAi = async ({ node, runtime, payload, event, phase = "initial", observation = null } = {}) => {
+    const config = nodeConfig(node);
+    const provider = await pickProvider(config);
+    if (!provider) throw new Error("Nessun provider AI disponibile per Orchestrator planner");
+    const graph = graphNeighborhood({ node, runtime });
+    const prompt = [
+      "You are the Trackers Lens Orchestrator planner.",
+      "Return ONLY valid JSON, no markdown.",
+      "Available actions:",
+      "- run_node: activate a source/runtime node and observe its result.",
+      "- send_result: send the last observed result to a target node. You may include transform as a JSON object mapping output keys to source paths.",
+      "- finish: mark the task complete.",
+      "Schema:",
+      "{\"canExecute\":true,\"reason\":\"\",\"steps\":[{\"action\":\"run_node\",\"nodeId\":\"...\",\"outputChannel\":\"raw\"},{\"action\":\"send_result\",\"nodeId\":\"...\",\"inputChannel\":\"done\",\"from\":\"lastResult\",\"transform\":{\"price\":\"number:data.c\"}},{\"action\":\"finish\"}]}",
+      "Rules:",
+      "- If the user asks to fetch BTC price, choose the Binance/BTC source before Preview.",
+      "- Never choose the Task Node as run_node; the Task Node is only the instruction source.",
+      "- Do not send the task itself to Preview unless no data source exists.",
+      "- If the task asks for a clean JSON, include transform in send_result.",
+      "- Prefer direct Orchestrator links and agent_control links.",
+      "- Use send_result only after run_node produced an observation.",
+      `Phase: ${phase}`,
+      `Orchestrator: ${node.label || node.id}`,
+      `Input event: ${event.channel || ""}`,
+      `Task payload:\n${compactJson(payload, 1800)}`,
+      `Graph nodes and links:\n${compactJson(graph, 4200)}`,
+      observation ? `Observation:\n${compactJson(observation, 2200)}` : "",
+    ].filter(Boolean).join("\n\n");
+    const providerName = String(provider.provider || provider.name || "").toLowerCase();
+    const model = String(config.model || provider.model || "local-model");
+    const ai = providerName.includes("ollama")
+      ? await callOllama({ provider, model, prompt })
+      : await callLmStudio({ provider, model, prompt, config });
+    const plan = parseJsonLoose(ai.text);
+    if (!plan || !Array.isArray(plan.steps)) throw new Error("Planner AI non ha restituito JSON steps valido");
+    return {
+      provider: provider.name || provider.provider || "local",
+      model: ai.model || model,
+      prompt,
+      rawText: ai.text,
+      ...plan,
+    };
+  };
 
   const isTargetAllowed = ({ target, config }) => {
     const category = nodeCategory(target);
-    const allowed = listFromConfig(config.allowedNodeTypes || config.allowedCategories, defaultAllowedCategories)
+    const allowed = unique([
+      ...listFromConfig(config.allowedNodeTypes || config.allowedCategories, defaultAllowedCategories),
+      "sources",
+      "source",
+      "trackers",
+      "boxtracker",
+    ])
       .map((item) => item.toLowerCase());
     const aliases = new Set([category, target.type, nodeSubtype(target)].map((item) => String(item || "").toLowerCase()));
     return allowed.some((item) => aliases.has(item) || item === "all");
@@ -115,6 +322,332 @@ window.TrackerLensOrchestratorAgentRuntime = (() => {
     if (nodeCategory(target) !== "actions") return false;
     if (String(config.requireConfirmation || "false") !== "true") return false;
     return !(payload?.confirmed === true || payload?.orchestratorConfirmed === true);
+  };
+
+  const nodeEndpoint = (node = {}) => {
+    const config = nodeConfig(node);
+    return String(config.endpoint || config.url || config.wsUrl || config.source || node.metadata?.endpoint || node.endpoint || "").trim();
+  };
+
+  const parseResponsePayload = (value) => {
+    if (value === undefined || value === null) return {};
+    if (typeof value !== "string") return value;
+    try {
+      return JSON.parse(value);
+    } catch {
+      return { text: value };
+    }
+  };
+
+  const outputChannelsForNode = (node = {}, fallback = "raw") =>
+    (unique([
+      nodeConfig(node).emitChannel,
+      nodeConfig(node).outputChannel,
+      ...nodeOutputs(node),
+    ].filter((channel) => channel && channel !== "all")).slice(0, 8)).length
+      ? unique([
+        nodeConfig(node).emitChannel,
+        nodeConfig(node).outputChannel,
+        ...nodeOutputs(node),
+      ].filter((channel) => channel && channel !== "all")).slice(0, 8)
+      : [fallback];
+
+  const isWebSocketEndpoint = (endpoint = "") =>
+    /^wss?:\/\//i.test(String(endpoint || "").trim());
+
+  const executeSourceNode = ({ runtime, bus, workspaceId, runId, node, outputChannel = "" } = {}) =>
+    new Promise((resolve, reject) => {
+      const endpoint = nodeEndpoint(node);
+      const subtype = nodeSubtype(node);
+      const config = nodeConfig(node);
+      const channels = outputChannel
+        ? [outputChannel]
+        : outputChannelsForNode(node, subtype === "task" ? "task" : "raw");
+      const started = performance.now();
+      const emitResult = async (payload, status = "ok") => {
+        const latencyMs = Math.max(1, Math.round(performance.now() - started));
+        for (const channel of channels) {
+          await bus?.emit?.(channel, payload, {
+            workspaceId,
+            eventType: "orchestrator_node_result",
+            sourceNodeId: node.id,
+            latencyMs,
+            status,
+            meta: {
+              runId,
+              orchestratorExecution: true,
+              executedNodeId: node.id,
+            },
+          });
+        }
+        return { nodeId: node.id, label: node.label || node.id, channels, payload, latencyMs, status };
+      };
+
+      if (subtype === "task") {
+        const payload = {
+          type: "agent_task",
+          objective: String(config.objective || config.goal || node.label || "Agent task").trim(),
+          context: String(config.context || "").trim(),
+          priority: String(config.priority || "normal").trim() || "normal",
+          successCondition: String(config.successCondition || config.stopCondition || "completed").trim(),
+          payload: parseJsonLoose(config.payloadJson || config.payload || config.testPayload) || {},
+          runId,
+          sourceNodeId: node.id,
+          emittedAt: new Date().toISOString(),
+        };
+        emitResult(payload).then(resolve).catch(reject);
+        return;
+      }
+
+      if (!endpoint && nodeCategory(node) === "sources") {
+        reject(new Error(`${node.label || node.id}: endpoint mancante`));
+        return;
+      }
+
+      if (isWebSocketEndpoint(endpoint) || subtype === "websocket") {
+        let socket = null;
+        let settled = false;
+        const timeout = window.setTimeout(() => {
+          if (settled) return;
+          settled = true;
+          try {
+            if (socket && socket.readyState <= WebSocket.OPEN) socket.close();
+          } catch {
+            // Ignore transient socket close failures.
+          }
+          reject(new Error(`WebSocket timeout dopo 15s: ${endpoint}`));
+        }, 15000);
+        const finish = (callback, value) => {
+          if (settled) return;
+          settled = true;
+          window.clearTimeout(timeout);
+          try {
+            if (socket && socket.readyState <= WebSocket.OPEN) socket.close();
+          } catch {
+            // Ignore transient socket close failures.
+          }
+          callback(value);
+        };
+        try {
+          socket = new WebSocket(endpoint);
+        } catch (error) {
+          finish(reject, error);
+          return;
+        }
+        socket.onmessage = async (message) => {
+          try {
+            const payload = {
+              live: true,
+              runId,
+              endpoint,
+              data: parseResponsePayload(message.data),
+              receivedAt: new Date().toISOString(),
+            };
+            finish(resolve, await emitResult(payload));
+          } catch (error) {
+            finish(reject, error);
+          }
+        };
+        socket.onerror = () => finish(reject, new Error(`Errore WebSocket ${endpoint}`));
+        socket.onclose = () => {
+          if (!settled) finish(reject, new Error(`WebSocket chiuso senza payload: ${endpoint}`));
+        };
+        return;
+      }
+
+      const method = String(config.method || "GET").toUpperCase();
+      const headers = { Accept: "application/json" };
+      const body = parseJsonLoose(config.requestBody || config.body || config.testPayload || config.payload);
+      const init = { method, headers };
+      if (method !== "GET" && body) {
+        headers["Content-Type"] = "application/json";
+        init.body = JSON.stringify(body);
+      }
+      fetch(endpoint, init)
+        .then(async (response) => {
+          const text = await response.text();
+          return emitResult({
+            live: true,
+            runId,
+            status: response.status,
+            ok: response.ok,
+            endpoint,
+            method,
+            data: parseResponsePayload(text),
+            receivedAt: new Date().toISOString(),
+          }, response.ok ? "ok" : "error");
+        })
+        .then(resolve)
+        .catch(reject);
+    });
+
+  const isTaskSourceNode = (node = {}) =>
+    nodeSubtype(node) === "task" || String(node.metadata?.paletteLabel || node.label || "").toLowerCase() === "task node";
+
+  const sourceScoreForTask = (node = {}, text = "") => {
+    if (isTaskSourceNode(node)) return -100;
+    const source = `${node.label || ""} ${nodeSubtype(node)} ${nodeCategory(node)} ${nodeEndpoint(node)}`.toLowerCase();
+    const task = String(text || "").toLowerCase();
+    let score = 0;
+    if (nodeCategory(node) === "sources" || node.type === "source" || node.type === "boxTracker") score += 4;
+    if (task.includes("btc") && source.includes("btc")) score += 8;
+    if (task.includes("bitcoin") && /btc|bitcoin/.test(source)) score += 8;
+    if (task.includes("binance") && source.includes("binance")) score += 6;
+    if ((task.includes("price") || task.includes("prezzo")) && /price|prezzo|ticker|trade|ws|websocket/.test(source)) score += 3;
+    return score;
+  };
+
+  const outgoingCandidateNodes = ({ node, runtime, payload } = {}) => {
+    const taskText = [payload?.objective, payload?.task, payload?.context, compactJson(payload?.payload || {}, 300)].filter(Boolean).join("\n");
+    const connected = connectedDependencies({ node, runtime })
+      .flatMap((dependency) => [dependency.targetNode, dependency.sourceNode])
+      .filter(Boolean)
+      .filter((item) => item.id !== node.id);
+    const graphSources = (runtime.nodes || [])
+      .filter((item) =>
+        !isTaskSourceNode(item) &&
+        (nodeCategory(item) === "sources" || nodeCategory(item) === "trackers" || item.type === "source" || item.type === "boxTracker"))
+      .filter((item) => sourceScoreForTask(item, taskText) > 0);
+    return [...new Map([...connected, ...graphSources].map((item) => [item.id, item])).values()];
+  };
+
+  const preferredSourceForTask = ({ node, runtime, payload } = {}) => {
+    const taskText = [payload?.objective, payload?.task, payload?.context, compactJson(payload?.payload || {}, 300)].filter(Boolean).join("\n");
+    const candidateNodes = outgoingCandidateNodes({ node, runtime, payload });
+    return candidateNodes
+      .map((target) => ({ target, score: sourceScoreForTask(target, taskText) }))
+      .filter((item) => item.score > 0)
+      .sort((a, b) => b.score - a.score)[0]?.target ||
+      candidateNodes.find((target) =>
+        !isTaskSourceNode(target) &&
+        (nodeCategory(target) === "sources" || target.type === "source" || target.type === "boxTracker")) ||
+      null;
+  };
+
+  const repairPlannerSteps = ({ node, runtime, payload, event, steps = [] } = {}) => {
+    const normalized = (steps || []).map(normalizePlannerStep).filter((step) => step.action);
+    const source = preferredSourceForTask({ node, runtime, payload });
+    if (!source) return normalized;
+    const nodesById = new Map((runtime.nodes || []).map((item) => [item.id, item]));
+    const inputSourceId = event.sourceNodeId || payload?.sourceNodeId || "";
+    let replaced = false;
+    const repaired = normalized.map((step) => {
+      if (step.action !== "run_node") return step;
+      const target = nodesById.get(step.nodeId) ||
+        (runtime.nodes || []).find((item) => String(item.label || "").toLowerCase() === String(step.nodeId || "").toLowerCase());
+      if (target && !isTaskSourceNode(target) && target.id !== inputSourceId) return step;
+      replaced = true;
+      return {
+        ...step,
+        nodeId: source.id,
+        outputChannel: nodeOutputs(source).find((channel) => channel === "raw") || nodeConfig(source).emitChannel || nodeOutputs(source)[0] || "raw",
+        reason: step.reason || "planner-repaired-source",
+      };
+    });
+    if (!repaired.some((step) => step.action === "run_node") && normalized.some((step) => step.action === "send_result")) {
+      replaced = true;
+      repaired.unshift({
+        action: "run_node",
+        nodeId: source.id,
+        outputChannel: nodeOutputs(source).find((channel) => channel === "raw") || nodeConfig(source).emitChannel || nodeOutputs(source)[0] || "raw",
+        inputChannel: "",
+        from: "",
+        reason: "planner-inserted-source",
+      });
+    }
+    return replaced ? repaired : normalized;
+  };
+
+  const fallbackAiPlan = ({ node, runtime, payload, event } = {}) => {
+    const config = nodeConfig(node);
+    const dependencies = outgoingDependencies({ node, runtime });
+    const candidateNodes = outgoingCandidateNodes({ node, runtime, payload });
+    const source = preferredSourceForTask({ node, runtime, payload });
+    const preview = candidateNodes.find((target) => target.type === "devPreview" || nodeSubtype(target) === "preview" || nodeCategory(target) === "dev") || null;
+    const steps = [];
+    if (source) {
+      const outputChannel = nodeOutputs(source).find((channel) => channel === "raw") || nodeConfig(source).emitChannel || nodeOutputs(source)[0] || "raw";
+      steps.push({ action: "run_node", nodeId: source.id, outputChannel, reason: "fallback-source-match" });
+    }
+    if (preview) {
+      const previewDependency = dependencies.find((dependency) => dependency.targetNode?.id === preview.id);
+      steps.push({
+        action: "send_result",
+        nodeId: preview.id,
+        inputChannel: previewDependency?.channel || previewDependency?.metadata?.targetPort || "done",
+        from: "lastResult",
+        reason: "fallback-preview-target",
+      });
+    }
+    steps.push({ action: "finish" });
+    return {
+      provider: "fallback",
+      model: "rule-planner",
+      canExecute: Boolean(steps.length > 1),
+      reason: source && preview ? "source-preview-route" : "fallback route incomplete",
+      steps,
+      runId: event.meta?.runId || payload?.runId || `orch_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+      decision: source && preview ? String(config.decisionName || "execute_downstream") : "blocked",
+    };
+  };
+
+  const normalizePlannerStep = (step = {}) => ({
+    action: String(step.action || step.type || "").trim().toLowerCase(),
+    nodeId: String(step.nodeId || step.targetNodeId || step.node || "").trim(),
+    outputChannel: String(step.outputChannel || step.channel || step.sourcePort || "").trim(),
+    inputChannel: String(step.inputChannel || step.channel || step.targetPort || "").trim(),
+    from: String(step.from || step.source || "").trim(),
+    reason: String(step.reason || "").trim(),
+    transform: step.transform && typeof step.transform === "object" && !Array.isArray(step.transform) ? step.transform : null,
+  });
+
+  const valueAtPath = (source, path = "") => {
+    const parts = String(path || "").trim().split(".").filter(Boolean);
+    if (!parts.length) return source;
+    return parts.reduce((value, key) => {
+      if (value === undefined || value === null) return undefined;
+      if (Array.isArray(value) && /^\d+$/.test(key)) return value[Number(key)];
+      return value?.[key];
+    }, source);
+  };
+
+  const transformValue = (source, expression = "") => {
+    if (typeof expression !== "string") return expression;
+    const text = expression.trim();
+    const numberPrefix = "number:";
+    const stringPrefix = "string:";
+    const boolPrefix = "bool:";
+    if (text.startsWith(numberPrefix)) {
+      const value = valueAtPath(source, text.slice(numberPrefix.length));
+      const numeric = Number(value);
+      return Number.isNaN(numeric) ? null : numeric;
+    }
+    if (text.startsWith(stringPrefix)) {
+      const value = valueAtPath(source, text.slice(stringPrefix.length));
+      return value === undefined || value === null ? "" : String(value);
+    }
+    if (text.startsWith(boolPrefix)) return Boolean(valueAtPath(source, text.slice(boolPrefix.length)));
+    const pathValue = valueAtPath(source, text);
+    return pathValue === undefined ? expression : pathValue;
+  };
+
+  const applyTransform = (source, transform = null) => {
+    if (!transform || typeof transform !== "object" || Array.isArray(transform)) return source;
+    return Object.fromEntries(Object.entries(transform).map(([key, expression]) => [
+      key,
+      transformValue(source, expression),
+    ]));
+  };
+
+  const inferTransformFromTask = (taskPayload = {}) => {
+    const text = [taskPayload?.objective, taskPayload?.task, taskPayload?.context].filter(Boolean).join("\n").toLowerCase();
+    const transform = {};
+    if (/symbol|simbolo/.test(text)) transform.symbol = "data.s";
+    if (/price|prezzo/.test(text)) transform.price = "number:data.c";
+    if (/changepercent|change percent|percentuale|variazione/.test(text)) transform.changePercent = "number:data.P";
+    if (/source|sorgente/.test(text)) transform.source = "Binance";
+    if (/receivedat|received at|timestamp/.test(text)) transform.receivedAt = "receivedAt";
+    return Object.keys(transform).length ? transform : null;
   };
 
   const buildStepPayload = ({ orchestrator, target, payload, event, decision, stepIndex }) => ({
@@ -141,6 +674,58 @@ window.TrackerLensOrchestratorAgentRuntime = (() => {
       subtype: nodeSubtype(target),
     },
   });
+
+  const missionConfig = (node = {}) => {
+    const config = nodeConfig(node);
+    const mode = executionMode(node);
+    return {
+      enabled: mode === "autonomous" || String(config.autonomousMode || config.autonomous || "false") === "true",
+      maxIterations: Math.max(1, Math.min(50, Number(config.maxIterations || 5))),
+      iterationDelayMs: Math.max(0, Math.min(60000, Number(config.iterationDelayMs || 1200))),
+      stopCondition: String(config.stopCondition || "completed").trim().toLowerCase(),
+      feedbackWindow: Math.max(1, Math.min(50, Number(config.feedbackWindow || 12))),
+    };
+  };
+
+  const wait = (ms = 0) =>
+    new Promise((resolve) => {
+      const timer = typeof window?.setTimeout === "function" ? window.setTimeout : setTimeout;
+      timer(resolve, Math.max(0, Number(ms) || 0));
+    });
+
+  const searchableOutcomeText = (payload = {}) => {
+    if (!payload || typeof payload !== "object") return String(payload || "");
+    return [
+      payload.text,
+      payload.message,
+      payload.summary,
+      payload.reason,
+      payload.result?.text,
+      payload.result?.message,
+      payload.result?.summary,
+      payload.response?.text,
+      payload.response?.message,
+      payload.response?.summary,
+      payload.output?.text,
+      payload.output?.message,
+      payload.output?.summary,
+    ].filter(Boolean).join("\n").toLowerCase();
+  };
+
+  const payloadLooksComplete = (payload = {}, stopCondition = "completed") => {
+    if (!payload || typeof payload !== "object") return String(payload || "").toLowerCase().includes(stopCondition);
+    const status = String(payload.status || payload.state || payload.result?.status || payload.response?.status || "").toLowerCase();
+    const decision = String(payload.decision || payload.result?.decision || payload.response?.decision || "").toLowerCase();
+    if (payload.completed === true || payload.done === true || payload.success === true || payload.goalReached === true) return true;
+    if (["completed", "complete", "done", "success", "succeeded", "goal_reached"].includes(status)) return true;
+    if (["completed", "complete", "done", "success", "goal_reached"].includes(decision)) return true;
+    return stopCondition ? searchableOutcomeText(payload).includes(stopCondition) : false;
+  };
+
+  const missionIsComplete = ({ payload = {}, result = {}, feedback = [], stopCondition = "completed" } = {}) =>
+    payloadLooksComplete(payload, stopCondition) ||
+    payloadLooksComplete(result, stopCondition) ||
+    feedback.some((item) => payloadLooksComplete(item.payload, stopCondition));
 
   const planFromGraph = ({ node, runtime, payload, event }) => {
     const config = nodeConfig(node);
@@ -306,7 +891,396 @@ window.TrackerLensOrchestratorAgentRuntime = (() => {
       return this;
     }
 
-    async performExecution({ node, payload = {}, event = {}, runtime = this.runtime } = {}) {
+    async collectMissionFeedback({ runId = "", since = 0, limit = 12 } = {}) {
+      if (!runId) return [];
+      const events = await window.TrackerLensEventLogStore?.listEvents?.().catch(() => []);
+      const workspaceAliases = new Set([this.workspaceId || "workspace_global", this.workspaceId === "workspace_global" ? "global" : "workspace_global"]);
+      return (events || [])
+        .filter((item) => workspaceAliases.has(item.workspaceId || "global"))
+        .filter((item) => item.meta?.runId === runId || item.payload?.runId === runId)
+        .filter((item) => !since || Date.parse(item.createdAt || 0) >= since)
+        .sort((a, b) => Date.parse(b.createdAt || 0) - Date.parse(a.createdAt || 0))
+        .slice(0, limit)
+        .map((item) => ({
+          id: item.id || "",
+          channel: item.channel || "",
+          eventType: item.eventType || "",
+          sourceNodeId: item.sourceNodeId || "",
+          createdAt: item.createdAt || "",
+          payload: clonePayload(item.payload),
+        }));
+    }
+
+    startStatusHeartbeat({ node, runId = "", event = {}, phase = "waiting", label = "", targetLabel = "" } = {}) {
+      if (!node?.id || !this.bus?.emit) return () => {};
+      let stopped = false;
+      const emitWaitingStatus = () => {
+        if (stopped) return;
+        this.bus.emit("orchestrator.status", {
+          phase,
+          runId,
+          nodeId: node.id,
+          label: label || targetLabel || "Waiting",
+          targetLabel,
+          startedAt: new Date().toISOString(),
+        }, {
+          workspaceId: this.workspaceId,
+          eventType: "orchestrator_waiting",
+          sourceNodeId: node.id,
+          status: "busy",
+          meta: {
+            orchestratorRuntime: node.id,
+            inputEventId: event.id || "",
+            inputChannel: event.channel || "",
+            runId,
+          },
+        }).catch(() => {});
+      };
+      emitWaitingStatus();
+      const timer = globalThis.setInterval?.(emitWaitingStatus, 1800);
+      return () => {
+        stopped = true;
+        if (timer) globalThis.clearInterval?.(timer);
+      };
+    }
+
+    async buildPlannerDecision({ node, payload = {}, event = {}, runtime = this.runtime, phase = "initial", observation = null } = {}) {
+      const runId = event.meta?.runId || payload?.runId || `orch_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
+      const fallback = fallbackAiPlan({ node, runtime, payload, event });
+      try {
+        const aiPlan = await askPlannerAi({ node, runtime, payload, event, phase, observation });
+        const steps = repairPlannerSteps({ node, runtime, payload, event, steps: aiPlan.steps || [] });
+        if (!steps.length) throw new Error("Planner AI senza step eseguibili");
+        return {
+          ...fallback,
+          ...aiPlan,
+          runId,
+          decision: steps.some((step) => step.action === "run_node" || step.action === "send_result")
+            ? String(nodeConfig(node).decisionName || "execute_downstream")
+            : "blocked",
+          steps,
+          fallbackUsed: false,
+          createdAt: new Date().toISOString(),
+        };
+      } catch (error) {
+        await this.log({
+          node,
+          level: "warning",
+          message: `Orchestrator AI planner fallback: ${error.message || error}`,
+          context: {
+            action: "orchestrator-ai-planner-fallback",
+            runId,
+            error: error.message || String(error),
+            fallback,
+          },
+        });
+        return {
+          ...fallback,
+          runId,
+          fallbackUsed: true,
+          plannerError: error.message || String(error),
+          createdAt: new Date().toISOString(),
+        };
+      }
+    }
+
+    async sendPlannerResult({ node, target, payload, channel = "", runId = "", event = {}, step = {}, taskPayload = {} } = {}) {
+      const emitChannel = channel || node.outputs?.[2] || "done";
+      const rawPayload = payload?.payload && payload.nodeId && payload.channels
+        ? payload.payload
+        : payload;
+      const transform = step.transform || inferTransformFromTask(taskPayload);
+      const resultPayload = applyTransform(rawPayload, transform);
+      const emittedEvent = await this.bus?.emit?.(emitChannel, resultPayload, {
+        workspaceId: this.workspaceId,
+        eventType: "orchestrator_result",
+        sourceNodeId: node.id,
+        targetNodeId: target?.id || "",
+        meta: {
+          orchestratorRuntime: node.id,
+          inputEventId: event.id || "",
+          inputChannel: event.channel || "",
+          targetPort: step.inputChannel || "",
+          targetNodeId: target?.id || "",
+          runId,
+          plannerStep: step.action || "send_result",
+          transformed: Boolean(transform),
+        },
+      });
+      return {
+        action: "send_result",
+        nodeId: target?.id || "",
+        label: target?.label || target?.id || "",
+        channel: emitChannel,
+        eventId: emittedEvent?.id || "",
+        payload: clonePayload(resultPayload),
+        transform: transform ? clonePayload(transform) : null,
+      };
+    }
+
+    async performPlannedExecution({ node, payload = {}, event = {}, runtime = this.runtime } = {}) {
+      const startedAt = performance.now();
+      const plannedRunId = event.meta?.runId || payload?.runId || `orch_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
+      await this.bus?.emit?.("orchestrator.status", {
+        phase: "planning",
+        runId: plannedRunId,
+        nodeId: node.id,
+        label: node.label || node.id,
+        task: payload?.objective || payload?.task || "",
+        startedAt: new Date().toISOString(),
+      }, {
+        workspaceId: this.workspaceId,
+        eventType: "orchestrator_planning",
+        sourceNodeId: node.id,
+        status: "busy",
+        meta: {
+          orchestratorRuntime: node.id,
+          inputEventId: event.id || "",
+          inputChannel: event.channel || "",
+          runId: plannedRunId,
+        },
+      });
+      const stopPlanningHeartbeat = this.startStatusHeartbeat({
+        node,
+        runId: plannedRunId,
+        event,
+        phase: "waiting",
+        label: "Waiting for AI planner",
+        targetLabel: "AI planner",
+      });
+      let decision;
+      try {
+        decision = await this.buildPlannerDecision({ node, payload, event, runtime });
+      } finally {
+        stopPlanningHeartbeat();
+      }
+      const decisionChannel = node.outputs?.[0] || "decision";
+      await this.bus?.emit?.(decisionChannel, {
+        runId: decision.runId,
+        decision: decision.decision || "execute_downstream",
+        canExecute: decision.canExecute !== false,
+        reason: decision.reason || "",
+        provider: decision.provider || "",
+        model: decision.model || "",
+        fallbackUsed: Boolean(decision.fallbackUsed),
+        steps: decision.steps || [],
+        graph: graphNeighborhood({ node, runtime }),
+        task: clonePayload(payload),
+        createdAt: decision.createdAt || new Date().toISOString(),
+      }, {
+        workspaceId: this.workspaceId,
+        eventType: "orchestrator_plan",
+        sourceNodeId: node.id,
+        meta: {
+          orchestratorRuntime: node.id,
+          inputEventId: event.id || "",
+          inputChannel: event.channel || "",
+          runId: decision.runId,
+        },
+      });
+
+      const observations = [];
+      const emitted = [];
+      const skipped = [];
+      let lastResult = null;
+      const nodesById = new Map((runtime.nodes || []).map((item) => [item.id, item]));
+      const resolveStepTarget = (step = {}) =>
+        nodesById.get(step.nodeId) ||
+        (runtime.nodes || []).find((item) => String(item.label || "").toLowerCase() === String(step.nodeId || "").toLowerCase()) ||
+        (runtime.nodes || []).find((item) => String(item.label || "").toLowerCase().includes(String(step.nodeId || "").toLowerCase()));
+
+      const stepQueue = [...(decision.steps || [])];
+      while (stepQueue.length) {
+        const rawStep = stepQueue.shift();
+        const step = normalizePlannerStep(rawStep);
+        if (step.action === "finish") break;
+        const target = resolveStepTarget(step);
+        if (!target) {
+          skipped.push({ ...step, reason: "target-not-found" });
+          continue;
+        }
+        if (!isTargetAllowed({ target, config: nodeConfig(node) })) {
+          skipped.push({ ...step, label: target.label || target.id, reason: "target-not-allowed" });
+          continue;
+        }
+        if (step.action === "run_node") {
+          try {
+            await this.bus?.emit?.("orchestrator.status", {
+              phase: "executing",
+              runId: decision.runId,
+              nodeId: node.id,
+              targetNodeId: target.id,
+              targetLabel: target.label || target.id,
+              action: "run_node",
+              startedAt: new Date().toISOString(),
+            }, {
+              workspaceId: this.workspaceId,
+              eventType: "orchestrator_executing",
+              sourceNodeId: node.id,
+              targetNodeId: target.id,
+              status: "busy",
+              meta: {
+                orchestratorRuntime: node.id,
+                executedNodeId: target.id,
+                runId: decision.runId,
+                plannerStep: "run_node",
+              },
+            });
+            const result = await executeSourceNode({
+              runtime,
+              bus: this.bus,
+              workspaceId: this.workspaceId,
+              runId: decision.runId,
+              node: target,
+              outputChannel: step.outputChannel,
+            });
+            lastResult = result;
+            observations.push({
+              ...step,
+              label: target.label || target.id,
+              channels: result.channels || [],
+              payload: clonePayload(result.payload),
+              latencyMs: result.latencyMs || 0,
+            });
+            const stopObservationHeartbeat = this.startStatusHeartbeat({
+              node,
+              runId: decision.runId,
+              event,
+              phase: "waiting",
+              label: "Waiting for next command",
+              targetLabel: "AI planner",
+            });
+            let nextDecision;
+            try {
+              nextDecision = await this.buildPlannerDecision({
+                node,
+                payload,
+                event,
+                runtime,
+                phase: "observe",
+                observation: {
+                  executedStep: step,
+                  result,
+                  previousPlan: decision.steps || [],
+                },
+              });
+            } finally {
+              stopObservationHeartbeat();
+            }
+            const nextSteps = (nextDecision.steps || [])
+              .map(normalizePlannerStep)
+              .filter((item) => item.action && item.action !== "run_node");
+            if (nextSteps.length) {
+              const hasNextSend = nextSteps.some((item) => item.action === "send_result");
+              const pending = hasNextSend
+                ? stepQueue.filter((item) => normalizePlannerStep(item).action !== "send_result")
+                : stepQueue;
+              stepQueue.splice(0, stepQueue.length, ...nextSteps, ...pending);
+            }
+          } catch (error) {
+            skipped.push({ ...step, label: target.label || target.id, reason: "run-node-error", error: error.message || String(error) });
+          }
+          continue;
+        }
+        if (step.action === "send_result") {
+          if (!lastResult) {
+            skipped.push({ ...step, label: target.label || target.id, reason: "missing-observation" });
+            continue;
+          }
+          const routeDependency = (runtime.dependencies || [])
+            .find((dependency) => dependency.sourceNodeId === node.id && dependency.targetNodeId === target.id);
+          await this.bus?.emit?.("orchestrator.status", {
+            phase: "sending",
+            runId: decision.runId,
+            nodeId: node.id,
+            targetNodeId: target.id,
+            targetLabel: target.label || target.id,
+            action: "send_result",
+            startedAt: new Date().toISOString(),
+          }, {
+            workspaceId: this.workspaceId,
+            eventType: "orchestrator_sending",
+            sourceNodeId: node.id,
+            targetNodeId: target.id,
+            status: "busy",
+            meta: {
+              orchestratorRuntime: node.id,
+              runId: decision.runId,
+              plannerStep: "send_result",
+            },
+          });
+          const emittedResult = await this.sendPlannerResult({
+            node,
+            target,
+            payload: lastResult,
+            channel: routeDependency?.channel || routeDependency?.metadata?.targetPort || step.inputChannel || node.outputs?.[2] || "done",
+            runId: decision.runId,
+            event,
+            step,
+            taskPayload: payload,
+          });
+          emitted.push(emittedResult);
+          continue;
+        }
+        skipped.push({ ...step, label: target.label || target.id, reason: "unsupported-action" });
+      }
+
+      const latencyMs = Math.round(performance.now() - startedAt);
+      const completed = Boolean(emitted.length || observations.length) && !skipped.some((item) => item.reason === "run-node-error");
+      const result = {
+        runId: decision.runId,
+        decision: decision.decision || "execute_downstream",
+        provider: decision.provider || "",
+        model: decision.model || "",
+        fallbackUsed: Boolean(decision.fallbackUsed),
+        plannerError: decision.plannerError || "",
+        status: completed ? "completed" : skipped.length ? "blocked" : "idle",
+        steps: decision.steps || [],
+        observations,
+        emitted,
+        skipped,
+        latencyMs,
+      };
+
+      if (!emitted.length) {
+        await this.bus?.emit?.(node.outputs?.[2] || "done", result, {
+          workspaceId: this.workspaceId,
+          eventType: "orchestrator_done",
+          sourceNodeId: node.id,
+          latencyMs,
+          meta: {
+            orchestratorRuntime: node.id,
+            inputEventId: event.id || "",
+            inputChannel: event.channel || "",
+            runId: decision.runId,
+          },
+        });
+      }
+      await this.log({
+        node,
+        level: result.status === "completed" ? "info" : "warning",
+        message: `Orchestrator planned execution: ${node.label || node.id}`,
+        context: {
+          runId: result.runId,
+          inputChannel: event.channel || "",
+          decision: result.decision,
+          provider: result.provider,
+          model: result.model,
+          fallbackUsed: result.fallbackUsed,
+          observations: result.observations,
+          emitted: result.emitted,
+          skipped: result.skipped,
+          latencyMs,
+        },
+      });
+      return result;
+    }
+
+    async performSingleExecution({ node, payload = {}, event = {}, runtime = this.runtime } = {}) {
+      const plannerMode = String(nodeConfig(node).plannerStrategy || "ai-first").toLowerCase();
+      if (plannerMode !== "legacy") {
+        return this.performPlannedExecution({ node, payload, event, runtime });
+      }
       const decision = planFromGraph({ node, runtime, payload, event });
       const startedAt = performance.now();
       const decisionChannel = node.outputs?.[0] || "decision";
@@ -393,6 +1367,143 @@ window.TrackerLensOrchestratorAgentRuntime = (() => {
         },
       });
       return result;
+    }
+
+    async performAutonomousExecution({ node, payload = {}, event = {}, runtime = this.runtime } = {}) {
+      const config = missionConfig(node);
+      const runId = event.meta?.runId || payload?.runId || `mission_${node.id}_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
+      const startedAt = performance.now();
+      const mission = {
+        runId,
+        goal: nodeConfig(node).goal || "Reach the configured objective.",
+        status: "running",
+        iterations: [],
+        completed: false,
+        stopReason: "",
+        startedAt: new Date().toISOString(),
+      };
+      let currentPayload = {
+        ...clonePayload(payload),
+        runId,
+        mission: {
+          runId,
+          goal: mission.goal,
+          iteration: 0,
+          status: "running",
+        },
+      };
+
+      await this.bus?.emit?.("orchestrator.mission", mission, {
+        workspaceId: this.workspaceId,
+        eventType: "orchestrator_mission_started",
+        sourceNodeId: node.id,
+        meta: {
+          orchestratorRuntime: node.id,
+          inputEventId: event.id || "",
+          inputChannel: event.channel || "",
+          runId,
+          autonomousMission: true,
+        },
+      });
+
+      for (let iteration = 1; iteration <= config.maxIterations; iteration += 1) {
+        const iterationStarted = Date.now();
+        const iterationPayload = {
+          ...currentPayload,
+          mission: {
+            ...(currentPayload.mission || {}),
+            runId,
+            goal: mission.goal,
+            iteration,
+            maxIterations: config.maxIterations,
+            stopCondition: config.stopCondition,
+            status: "running",
+          },
+        };
+        const iterationEvent = {
+          ...event,
+          meta: {
+            ...(event.meta || {}),
+            runId,
+            autonomousMission: true,
+            autonomousIteration: iteration,
+          },
+        };
+        const result = await this.performSingleExecution({ node, payload: iterationPayload, event: iterationEvent, runtime });
+        if (config.iterationDelayMs) await wait(config.iterationDelayMs);
+        const feedback = await this.collectMissionFeedback({
+          runId,
+          since: iterationStarted,
+          limit: config.feedbackWindow,
+        });
+        const completed = missionIsComplete({
+          payload: iterationPayload,
+          result,
+          feedback,
+          stopCondition: config.stopCondition,
+        });
+        mission.iterations.push({
+          iteration,
+          decision: result.decision,
+          status: result.status,
+          emitted: result.emitted || [],
+          skipped: result.skipped || [],
+          feedback,
+          completed,
+        });
+        if (completed) {
+          mission.completed = true;
+          mission.status = "completed";
+          mission.stopReason = "stop-condition";
+          break;
+        }
+        if (!result.steps?.length && !result.emitted?.length) {
+          mission.status = "blocked";
+          mission.stopReason = result.skipped?.length ? "blocked" : "no-targets";
+          break;
+        }
+        currentPayload = {
+          ...iterationPayload,
+          feedback,
+          previousDecision: result,
+        };
+      }
+
+      if (!mission.stopReason) {
+        mission.status = mission.completed ? "completed" : "max_iterations";
+        mission.stopReason = mission.completed ? "stop-condition" : "max-iterations";
+      }
+      mission.completedAt = new Date().toISOString();
+      mission.latencyMs = Math.round(performance.now() - startedAt);
+
+      await this.bus?.emit?.(node.outputs?.[2] || "done", mission, {
+        workspaceId: this.workspaceId,
+        eventType: mission.completed ? "orchestrator_mission_completed" : "orchestrator_mission_stopped",
+        sourceNodeId: node.id,
+        latencyMs: mission.latencyMs,
+        meta: {
+          orchestratorRuntime: node.id,
+          inputEventId: event.id || "",
+          inputChannel: event.channel || "",
+          runId,
+          autonomousMission: true,
+          stopReason: mission.stopReason,
+        },
+      });
+      await this.log({
+        node,
+        level: mission.completed ? "info" : "warning",
+        message: `Autonomous mission ${mission.status}: ${node.label || node.id}`,
+        context: mission,
+      });
+      return mission;
+    }
+
+    async performExecution({ node, payload = {}, event = {}, runtime = this.runtime } = {}) {
+      if (missionConfig(node).enabled && !event.meta?.autonomousIteration) {
+        return this.performAutonomousExecution({ node, payload, event, runtime });
+      }
+      return this.performSingleExecution({ node, payload, event, runtime });
     }
 
     async execute({ node, payload = {}, event = {}, runtime = this.runtime } = {}) {
