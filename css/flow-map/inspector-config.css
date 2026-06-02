@@ -563,8 +563,19 @@ body.is-flow-inspector-card-dragging {
 }
 
 .tl-flow-config-field span {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
   color: var(--tl-text-muted);
   font-size: 11px;
+}
+
+.tl-flow-config-field-action {
+  min-height: 24px;
+  padding: 3px 7px;
+  font-size: 10px;
+  line-height: 1;
 }
 
 .tl-flow-config-field.is-check {

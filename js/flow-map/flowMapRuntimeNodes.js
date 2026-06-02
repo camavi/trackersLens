@@ -2460,6 +2460,34 @@ const requestRuntimeNodeConfig = (node) => {
       _.span(label),
       _.select({ name, value }, ...options.map((option) => _.option({ value: option, selected: option === value }, option)))
     );
+  const telegramTokenFromForm = () =>
+    String(formRef?.querySelector?.('[data-config-key="botToken"]')?.value || defaults.configObject?.botToken || "").trim();
+  const telegramApiUrl = (path = "") => {
+    const token = telegramTokenFromForm();
+    return token ? `https://api.telegram.org/bot${token}/${path.replace(/^\/+/, "")}` : "";
+  };
+  const warnMissingTelegramToken = () => {
+    state.error = "Inserisci prima il Bot token Telegram.";
+    setErrorSignal?.(state.error);
+    mount();
+  };
+  const openTelegramUpdates = () => {
+    const url = telegramApiUrl("getUpdates");
+    if (!url) {
+      warnMissingTelegramToken();
+      return;
+    }
+    window.open(url, "_blank", "noopener,noreferrer");
+  };
+  const generateTelegramSendMessageUrl = () => {
+    const url = telegramApiUrl("sendMessage");
+    if (!url) {
+      warnMissingTelegramToken();
+      return;
+    }
+    const targetInput = formRef?.querySelector?.('[data-config-key="target"]');
+    if (targetInput) targetInput.value = url;
+  };
   const configField = (definition) => {
     const value = defaults[definition.key] ?? defaults.configObject?.[definition.key] ?? "";
     if (definition.type === "checkbox") {
@@ -2505,6 +2533,42 @@ const requestRuntimeNodeConfig = (node) => {
         _.textarea({ "data-config-key": definition.key, rows: 4, placeholder: definition.placeholder || "", value })
       );
     }
+    if (subtype === "telegram" && definition.key === "chatId") {
+      return _.label(
+        { class: "tl-flow-config-field" },
+        _.span(
+          definition.label,
+          btn({
+            class: "tl-flow-config-field-action",
+            title: "Open Telegram getUpdates with this bot token",
+            onclick: (event) => {
+              event.preventDefault();
+              event.stopPropagation();
+              openTelegramUpdates();
+            },
+          }, icon("open_in_new", "sm"), "Get updates")
+        ),
+        _.input({ "data-config-key": definition.key, value, placeholder: definition.placeholder || "", autocomplete: "off" })
+      );
+    }
+    if (subtype === "telegram" && definition.key === "target") {
+      return _.label(
+        { class: "tl-flow-config-field" },
+        _.span(
+          definition.label,
+          btn({
+            class: "tl-flow-config-field-action",
+            title: "Generate Telegram sendMessage URL with this bot token",
+            onclick: (event) => {
+              event.preventDefault();
+              event.stopPropagation();
+              generateTelegramSendMessageUrl();
+            },
+          }, icon("auto_fix_high", "sm"), "Generate")
+        ),
+        _.input({ "data-config-key": definition.key, value, placeholder: definition.placeholder || "", autocomplete: "off" })
+      );
+    }
     if (["image-file", "audio-file", "file"].includes(definition.type)) {
       const accept = definition.type === "image-file" ? "image/*" : definition.type === "audio-file" ? "audio/*" : "";
       const inputId = `${formId}-${definition.key}`;
@@ -2545,7 +2609,7 @@ const requestRuntimeNodeConfig = (node) => {
     return _.label(
       { class: "tl-flow-config-field" },
       _.span(definition.label),
-      _.input({ "data-config-key": definition.key, value, placeholder: definition.placeholder || "", autocomplete: "off" })
+      _.input({ "data-config-key": definition.key, value, placeholder: definition.placeholder || "", autocomplete: "off", type: subtype === "telegram" && definition.key === "botToken" ? "password" : "text" })
     );
   };
   const dialog = _.Dialog({
