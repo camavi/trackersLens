@@ -10,12 +10,16 @@ window.TrackerLensNodeExecutionController = (() => {
     const config = nodeConfig(node);
     const runtimeExecution = node.runtime?.execution || node.metadata?.runtimeMetadata?.execution || {};
     const source = { ...runtimeExecution, ...config };
+    const subtype = String(node.metadata?.subtype || node.metadata?.manifest?.subtype || node.metadata?.agentRole || node.type || "").toLowerCase();
+    const isOrchestrator = subtype === "orchestrator";
     const maxConcurrentTasks = Math.max(1, Math.min(20, Number(source.maxConcurrentTasks || source.parallelJobs || 1)));
+    const requestedTimeoutMs = Number(source.timeoutMs || (isOrchestrator ? 120000 : 30000));
+    const timeoutMs = isOrchestrator && requestedTimeoutMs <= 30000 ? 120000 : requestedTimeoutMs;
     return {
       mode: maxConcurrentTasks > 1 ? "parallel" : "single",
       maxConcurrentTasks,
       queueLimit: Math.max(0, Math.min(1000, Number(source.queueLimit ?? 10))),
-      timeoutMs: Math.max(1000, Math.min(600000, Number(source.timeoutMs || 30000))),
+      timeoutMs: Math.max(1000, Math.min(600000, timeoutMs)),
       dropPolicy: ["queue", "reject", "latest"].includes(String(source.dropPolicy || "").toLowerCase())
         ? String(source.dropPolicy).toLowerCase()
         : "queue",

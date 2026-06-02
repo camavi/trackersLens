@@ -101,6 +101,29 @@ window.TrackerLensActionRuntime = (() => {
     }
   };
 
+  const smartTelegramPayload = ({ node, payload = {}, event = {} } = {}) => {
+    const source = payload?.payload && payload.text ? payload.payload : payload;
+    const symbol = source?.symbol || source?.data?.s || "";
+    const price = source?.price ?? source?.data?.c ?? "";
+    const changePercent = source?.changePercent ?? source?.data?.P ?? "";
+    const receivedAt = source?.receivedAt || source?.emittedAt || source?.createdAt || "";
+    if (symbol || price !== "") {
+      return {
+        text: [
+          `${symbol || "BTC"} ${price !== "" ? `${price} USDT` : ""}`.trim(),
+          changePercent !== "" ? `Change: ${changePercent}%` : "",
+          source?.source ? `Source: ${source.source}` : "",
+          receivedAt ? `At: ${receivedAt}` : "",
+        ].filter(Boolean).join("\n"),
+        payload: clonePayload(source),
+      };
+    }
+    return {
+      text: payload?.text || payload?.message || `${node.label || node.id} received ${event.channel || "event"}`,
+      payload: clonePayload(payload),
+    };
+  };
+
   const shouldUseFetch = (target = "") => /^https?:\/\//i.test(String(target || "").trim());
 
   const parseHeaders = (value = "") => {
@@ -245,7 +268,8 @@ window.TrackerLensActionRuntime = (() => {
       if (subtype === "telegram") {
         const target = telegramTarget(config);
         if (!shouldUseFetch(target)) return { skipped: true, reason: "Telegram botToken/target mancante", target };
-        return fetchJson({ target, body: telegramBody(body, config), headers: parseHeaders(config.headers) });
+        const telegramPayload = String(config.template || "").trim() ? body : smartTelegramPayload({ node, payload, event });
+        return fetchJson({ target, body: telegramBody(telegramPayload, config), headers: parseHeaders(config.headers) });
       }
 
       if (subtype === "whatsapp") {
@@ -311,6 +335,30 @@ window.TrackerLensActionRuntime = (() => {
       return { ok: true, simulated: true, body };
     }
 
+    async testNode({ node, payload = null } = {}) {
+      if (!this.bus) {
+        this.bus = window.TrackerLensEventBus?.get?.(this.workspaceId, {
+          eventStore: window.TrackerLensEventLogStore,
+          channelRegistry: window.TrackerLensChannelRegistry,
+        });
+      }
+      const testPayload = payload || {
+        text: `Trackers Lens test message from ${node?.label || "Telegram Message"}`,
+        payload: {
+          source: "Trackers Lens",
+          test: true,
+          sentAt: new Date().toISOString(),
+        },
+      };
+      const event = {
+        id: `action_test_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+        channel: "manual.test",
+        eventType: "action_manual_test",
+        createdAt: new Date().toISOString(),
+      };
+      return this.performEvent({ node, payload: testPayload, event });
+    }
+
     async handleEvent({ node, payload, event }) {
       if (!node?.id || event?.sourceNodeId === node.id || event?.meta?.actionRuntime === node.id) return;
       const runner = () => this.performEvent({ node, payload, event });
@@ -333,7 +381,7 @@ window.TrackerLensActionRuntime = (() => {
       try {
         const result = await this.execute({ node, payload, event });
         const latencyMs = Math.round(performance.now() - startedAt);
-        await this.bus.emit(`action.${nodeSubtype(node) || "executed"}`, {
+        await this.bus?.emit?.(`action.${nodeSubtype(node) || "executed"}`, {
           nodeId: node.id,
           result,
           inputChannel: event.channel || "",
@@ -353,8 +401,9 @@ window.TrackerLensActionRuntime = (() => {
           message: `Action executed: ${node.label || node.id}`,
           context: { inputChannel: event.channel, inputEventId: event.id, result, latencyMs },
         });
+        return { ok: true, result, latencyMs };
       } catch (error) {
-        await this.bus.emit("action.error", {
+        await this.bus?.emit?.("action.error", {
           error: error.message || String(error),
           nodeId: node.id,
           payload,
@@ -371,6 +420,7 @@ window.TrackerLensActionRuntime = (() => {
           message: `Action error: ${error.message || error}`,
           context: { inputChannel: event.channel, inputEventId: event.id, error: error.message || String(error) },
         });
+        return { ok: false, error: error.message || String(error) };
       }
     }
   }

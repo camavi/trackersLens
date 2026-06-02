@@ -2441,6 +2441,21 @@ const recentFlowLogs = (level = "all", limit = 8) =>
     .sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt))
     .slice(0, limit);
 
+const openFlowRecordDialog = ({ title = "Runtime record", subtitle = "", iconName = "data_object", record = {} } = {}) => {
+  const dialog = _.Dialog({
+    class: "tl-flow-record-dialog",
+    panelClass: "tl-flow-record-dialog-panel",
+    size: "lg",
+    title,
+    subtitle,
+    icon: iconName,
+    closeButton: true,
+    content: () => _.pre({ class: "tl-flow-record-json" }, JSON.stringify(record || {}, null, 2)),
+    actions: ({ close }) => btn({ class: "is-primary", onclick: close }, "Close"),
+  });
+  dialog.open();
+};
+
 const channelTimeline = (limit = 32) => {
   const rows = [
     ...(state.runtime.events || []).filter(recordMatchesRunFilter).map((event) => ({
@@ -2635,7 +2650,7 @@ const renderStatusEventsPanel = () => {
 const renderStatusLogsPanel = (level = "all") => {
   const logs = recentFlowLogs(level);
   return _.table(
-    _.thead(_.tr(_.th("Time"), _.th("Level"), _.th("Message"), _.th("Node"), _.th("Connection"))),
+    _.thead(_.tr(_.th("Time"), _.th("Level"), _.th("Message"), _.th("Node"), _.th("Connection"), _.th(""))),
     _.tbody(
       ...(logs.length ? logs.map((log) =>
         _.tr(
@@ -2643,9 +2658,19 @@ const renderStatusLogsPanel = (level = "all") => {
           _.td(logLevelChip(log.level || "info")),
           _.td(log.message || log.context?.action || "runtime log"),
           _.td(log.nodeId || log.context?.sourceNodeId || "runtime"),
-          _.td(log.connectionId || log.context?.connectionId || "N/D")
+          _.td(log.connectionId || log.context?.connectionId || "N/D"),
+          _.td(btn({
+            class: "is-compact",
+            title: "Open log detail",
+            onclick: () => openFlowRecordDialog({
+              title: log.message || "Flow log",
+              subtitle: formatShortDate(log.createdAt),
+              iconName: (log.level || "info") === "error" ? "error" : "receipt_long",
+              record: log,
+            }),
+          }, icon("data_object", "sm")))
         )
-      ) : [_.tr(_.td({ colspan: 5 }, level === "all" ? "Nessun flow log runtime registrato." : `Nessun log ${level}.`))])
+      ) : [_.tr(_.td({ colspan: 6 }, level === "all" ? "Nessun flow log runtime registrato." : `Nessun log ${level}.`))])
     )
   );
 };

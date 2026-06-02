@@ -279,6 +279,8 @@ window.TrackerLensOrchestratorAgentRuntime = (() => {
       "- Never choose the Task Node as run_node; the Task Node is only the instruction source.",
       "- Do not send the task itself to Preview unless no data source exists.",
       "- If the task asks for a clean JSON, include transform in send_result.",
+      "- If the task asks for multiple targets, return one send_result step for each target.",
+      "- If Telegram/Slack/Discord/Email actions are connected and requested, send the transformed lastResult to those action nodes too.",
       "- Prefer direct Orchestrator links and agent_control links.",
       "- Use send_result only after run_node produced an observation.",
       `Phase: ${phase}`,
@@ -563,7 +565,23 @@ window.TrackerLensOrchestratorAgentRuntime = (() => {
     const dependencies = outgoingDependencies({ node, runtime });
     const candidateNodes = outgoingCandidateNodes({ node, runtime, payload });
     const source = preferredSourceForTask({ node, runtime, payload });
+    const taskText = [
+      payload?.objective,
+      payload?.task,
+      payload?.context,
+      payload?.successCondition,
+      JSON.stringify(payload?.payload || {}),
+    ].filter(Boolean).join(" ").toLowerCase();
     const preview = candidateNodes.find((target) => target.type === "devPreview" || nodeSubtype(target) === "preview" || nodeCategory(target) === "dev") || null;
+    const actionTargets = candidateNodes.filter((target) => {
+      if (nodeCategory(target) !== "actions" && target.type !== "action") return false;
+      const label = `${target.label || ""} ${nodeSubtype(target)}`.toLowerCase();
+      if (/telegram/.test(taskText)) return /telegram/.test(label);
+      if (/slack/.test(taskText)) return /slack/.test(label);
+      if (/discord/.test(taskText)) return /discord/.test(label);
+      if (/email|mail/.test(taskText)) return /email|mail/.test(label);
+      return /messaggio|message|invia|send/.test(taskText);
+    });
     const steps = [];
     if (source) {
       const outputChannel = nodeOutputs(source).find((channel) => channel === "raw") || nodeConfig(source).emitChannel || nodeOutputs(source)[0] || "raw";
@@ -579,15 +597,25 @@ window.TrackerLensOrchestratorAgentRuntime = (() => {
         reason: "fallback-preview-target",
       });
     }
+    actionTargets.forEach((target) => {
+      const dependency = dependencies.find((item) => item.targetNode?.id === target.id);
+      steps.push({
+        action: "send_result",
+        nodeId: target.id,
+        inputChannel: dependency?.channel || dependency?.metadata?.targetPort || "event",
+        from: "lastResult",
+        reason: "fallback-action-target",
+      });
+    });
     steps.push({ action: "finish" });
     return {
       provider: "fallback",
       model: "rule-planner",
       canExecute: Boolean(steps.length > 1),
-      reason: source && preview ? "source-preview-route" : "fallback route incomplete",
+      reason: source && (preview || actionTargets.length) ? "source-target-route" : "fallback route incomplete",
       steps,
       runId: event.meta?.runId || payload?.runId || `orch_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
-      decision: source && preview ? String(config.decisionName || "execute_downstream") : "blocked",
+      decision: source && (preview || actionTargets.length) ? String(config.decisionName || "execute_downstream") : "blocked",
     };
   };
 
@@ -1171,11 +1199,16 @@ window.TrackerLensOrchestratorAgentRuntime = (() => {
               .map(normalizePlannerStep)
               .filter((item) => item.action && item.action !== "run_node");
             if (nextSteps.length) {
-              const hasNextSend = nextSteps.some((item) => item.action === "send_result");
-              const pending = hasNextSend
-                ? stepQueue.filter((item) => normalizePlannerStep(item).action !== "send_result")
-                : stepQueue;
-              stepQueue.splice(0, stepQueue.length, ...nextSteps, ...pending);
+              const pending = stepQueue.map(normalizePlannerStep);
+              const seenTargets = new Set(nextSteps
+                .filter((item) => item.action === "send_result")
+                .map((item) => `${item.action}:${item.nodeId}:${item.inputChannel}`));
+              const preservedPending = pending.filter((item) => {
+                if (item.action !== "send_result") return item.action !== "finish";
+                const key = `${item.action}:${item.nodeId}:${item.inputChannel}`;
+                return !seenTargets.has(key);
+              });
+              stepQueue.splice(0, stepQueue.length, ...nextSteps, ...preservedPending);
             }
           } catch (error) {
             skipped.push({ ...step, label: target.label || target.id, reason: "run-node-error", error: error.message || String(error) });

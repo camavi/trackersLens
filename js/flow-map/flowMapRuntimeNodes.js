@@ -537,7 +537,6 @@ const inlineConfigFields = (node = {}) => {
     if (subtype === "telegram") {
       return [
         { key: "chatId", label: "Chat", placeholder: "-100..." },
-        { key: "botToken", label: "Token", placeholder: "bot token" },
       ];
     }
     if (subtype === "whatsapp") {
@@ -617,6 +616,53 @@ const persistInlineRuntimeNodeConfig = async ({ node, patch = {}, values = {} })
     console.error("Errore configurazione inline runtime node:", error);
     state.error = error?.message || "Errore configurazione inline runtime node";
     mount();
+  }
+};
+
+const testTelegramActionNode = async (node = {}, event = null) => {
+  event?.preventDefault?.();
+  event?.stopPropagation?.();
+  if (!node?.id) return;
+  const button = event?.currentTarget || null;
+  if (button) {
+    button.disabled = true;
+    button.classList.add("is-running");
+  }
+  try {
+    const runtime = window.TrackerLensActionRuntime?.get?.(node.workspaceId || state.filters.workspaceId || "workspace_global");
+    if (!runtime?.testNode) throw new Error("Action runtime non disponibile");
+    const result = await runtime.testNode({ node });
+    await recordFlowAction({
+      workspaceId: node.workspaceId || state.filters.workspaceId || "workspace_global",
+      nodeId: node.id,
+      level: result?.ok ? "info" : "error",
+      message: result?.ok ? `Telegram test sent: ${node.label || node.id}` : `Telegram test error: ${result?.error || "unknown"}`,
+      context: {
+        action: "telegram-action-test",
+        result,
+      },
+    });
+    if (!result?.ok) {
+      state.error = result?.error || "Telegram test non riuscito";
+      setErrorSignal?.(state.error);
+    }
+    await loadRuntime({ force: true, silent: true });
+  } catch (error) {
+    state.error = error?.message || "Telegram test non riuscito";
+    setErrorSignal?.(state.error);
+    await recordFlowAction({
+      workspaceId: node.workspaceId || state.filters.workspaceId || "workspace_global",
+      nodeId: node.id,
+      level: "error",
+      message: state.error,
+      context: { action: "telegram-action-test" },
+    });
+    mount();
+  } finally {
+    if (button) {
+      button.disabled = false;
+      button.classList.remove("is-running");
+    }
   }
 };
 
@@ -902,7 +948,13 @@ const renderInlineNodeSettings = (node) => {
       { class: `tl-flow-inline-row is-${definition.type || "text"}` },
       _.span({ class: "tl-flow-inline-label" }, definition.label),
       control(definition)
-    ))
+    )),
+    subtype === "telegram" ? btn({
+      class: "tl-flow-inline-editor-btn",
+      title: "Send Telegram test message",
+      onPointerDown: stopNodeControlEvent,
+      onclick: (event) => testTelegramActionNode(node, event),
+    }, icon("send", "sm"), "Test") : null
   );
 };
 
