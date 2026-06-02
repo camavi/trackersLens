@@ -25,10 +25,12 @@ const loadRuntimeScripts = () => {
     "event-bus.js",
     "runtime-graph-store.js",
     "runtime-snapshot-store.js",
+    "node-execution-controller.js",
     "processor-runtime.js",
     "action-runtime.js",
     "storage-runtime.js",
-    "ai-agent-runtime.js"
+    "ai-agent-runtime.js",
+    "orchestrator-agent-runtime.js"
   );
 };
 
@@ -46,6 +48,7 @@ const startRuntimeInstances = ({ workspaceId, runtime }) => {
   self.TrackerLensActionRuntime?.get?.(workspaceId)?.start({ workspaceId, runtime });
   self.TrackerLensStorageRuntime?.get?.(workspaceId)?.start({ workspaceId, runtime });
   self.TrackerLensAiAgentRuntime?.get?.(workspaceId)?.start({ workspaceId, runtime });
+  self.TrackerLensOrchestratorAgentRuntime?.get?.(workspaceId)?.start({ workspaceId, runtime });
 };
 
 const stopRuntimeInstances = (workspaceId) => {
@@ -53,6 +56,7 @@ const stopRuntimeInstances = (workspaceId) => {
   self.TrackerLensActionRuntime?.get?.(workspaceId)?.stop?.();
   self.TrackerLensStorageRuntime?.get?.(workspaceId)?.stop?.();
   self.TrackerLensAiAgentRuntime?.get?.(workspaceId)?.stop?.();
+  self.TrackerLensOrchestratorAgentRuntime?.get?.(workspaceId)?.stop?.();
 };
 
 const refreshWorkspace = async (workspaceId) => {

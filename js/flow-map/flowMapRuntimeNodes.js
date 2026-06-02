@@ -19,6 +19,9 @@ const nodeBadges = (node = {}, live = null) => {
   if (sandbox.status === "error") badges.push({ label: "Sandbox", tone: "red" });
   else if (sandbox.status === "policy") badges.push({ label: "Policy", tone: "gold" });
   if (live?.status === "error") badges.push({ label: "Error", tone: "red" });
+  else if (live?.status === "overloaded") badges.push({ label: "Overload", tone: "red" });
+  else if (live?.status === "queued") badges.push({ label: "Queued", tone: "gold" });
+  else if (live?.status === "busy") badges.push({ label: "Busy", tone: "gold" });
   else if (live) badges.push({ label: "Live", tone: "green" });
   if (perf) badges.push({ label: performanceLabel(perf), tone: performanceTone(perf) });
 
@@ -46,6 +49,10 @@ const configureNode = (node) => {
   if (node?.type === "boxLens" && !node.metadata?.library) {
     const item = { ...(paletteItemForNode(node) || {}), url: "editorBoxLens.html" };
     openPaletteNode(item, node);
+    return;
+  }
+  if (node?.type === "aiAgent" && nodeSubtype(node) === "orchestrator" && !node.metadata?.library) {
+    requestOrchestratorAgentConfig(node);
     return;
   }
   if (node?.type === "aiAgent" && !node.metadata?.library) {
@@ -132,12 +139,16 @@ const runtimeNodeUpdateFromValues = ({ node, values = {} }) => {
   const config = { ...defaults.configObject, ...(values.config || {}) };
   const subtype = nodeSubtype(node);
   const category = nodeCategory(node);
-  const outputs = subtype === "condition"
+  const outputs = subtype === "agent-bridge"
+    ? ["action"]
+    : subtype === "condition"
     ? [config.trueOutput || defaults.trueOutput || "true", config.falseOutput || defaults.falseOutput || "false"].filter(Boolean)
     : category === "actions" || category === "storage" || category === "lens" || category === "dev"
       ? []
       : [output].filter(Boolean);
-  const inputs = category === "sources" ? [] : [input].filter(Boolean);
+  const inputs = subtype === "agent-bridge"
+    ? [AGENT_CONTROL_PORT_NAME, "listening"]
+    : category === "sources" ? [] : [input].filter(Boolean);
   const manifestInputs = category === "sources" ? sourceConfigInputPorts(subtype) : inputs;
   const channels = [...new Set([...inputs, ...outputs].filter(Boolean))];
   const previousMetadata = node.metadata || {};
@@ -230,6 +241,9 @@ const configFieldDefinitions = (node = {}) => {
     return [
       { key: "schema", label: "Validation Schema", type: "textarea", placeholder: "{ \"required\": [\"price\"] }" },
     ];
+  }
+  if (subtype === "agent-bridge") {
+    return [];
   }
   if (category === "sources") {
     if (subtype === "manual-json") {
@@ -379,6 +393,13 @@ const configFieldDefinitions = (node = {}) => {
   ];
 };
 
+const executionFieldDefinitions = () => [
+  { key: "maxConcurrentTasks", label: "Max concurrent tasks", placeholder: "1" },
+  { key: "queueLimit", label: "Queue limit", placeholder: "10" },
+  { key: "timeoutMs", label: "Timeout (ms)", placeholder: "30000" },
+  { key: "dropPolicy", label: "Drop policy", type: "select", options: ["queue", "reject", "latest"] },
+];
+
 const channelSetKey = (values = []) =>
   [...new Set(values.filter(Boolean).map(String))].sort().join("|");
 
@@ -407,6 +428,9 @@ const inlineConfigFields = (node = {}) => {
     return [
       { key: "expression", label: "Expr", placeholder: "payload.value" },
     ];
+  }
+  if (subtype === "agent-bridge") {
+    return [];
   }
   if (["throttle", "debounce"].includes(subtype)) {
     return [
@@ -465,6 +489,13 @@ const inlineConfigFields = (node = {}) => {
     ];
   }
   if (category === "ai-agents") {
+    if (subtype === "orchestrator") {
+      return [
+        { key: "executionMode", label: "Mode", type: "select", options: ["manual", "on_event", "continuous"] },
+        { key: "maxSteps", label: "Max", placeholder: "6" },
+        { key: "allowedNodeTypes", label: "Allow", placeholder: "processors, ai-agents, actions, storage" },
+      ];
+    }
     return [
       { key: "provider", label: "Provider", placeholder: "local" },
       { key: "model", label: "Model", placeholder: "model" },
@@ -1227,6 +1258,7 @@ const aiAgentFromRuntimeNode = (node = {}) => {
       cooldownMs: config.cooldownMs ?? 0,
       queueLimit: config.queueLimit ?? 25,
       parallelJobs: config.parallelJobs ?? 1,
+      dropPolicy: config.dropPolicy || "queue",
     },
     provider: {
       profileId: config.providerProfile || "",
@@ -1244,6 +1276,8 @@ const aiAgentFromRuntimeNode = (node = {}) => {
       requiredInputs: split(config.requiredInputs || defaults.input),
       contextSources: split(config.contextSources || "workspace, memory, last-event"),
       eventTriggers: split(config.eventTriggers || defaults.input),
+      inputDataMode: config.inputDataMode || "latest",
+      inputHistoryLimit: config.inputHistoryLimit ?? 5,
       outputs: [defaults.output].filter(Boolean),
       outputChannel: defaults.output || `ai.${agentType}.output`,
       outputFormat: config.outputFormat || config.responseFormat || "json",
@@ -1310,6 +1344,8 @@ const aiAgentPayloadConfig = (payload = {}) => ({
   cooldownMs: payload.runtime?.cooldownMs ?? 0,
   queueLimit: payload.runtime?.queueLimit ?? 25,
   parallelJobs: payload.runtime?.parallelJobs ?? 1,
+  maxConcurrentTasks: payload.runtime?.parallelJobs ?? 1,
+  dropPolicy: payload.runtime?.dropPolicy || "queue",
   providerProfile: payload.provider?.profileId || "",
   providerType: payload.provider?.providerType || "ollama",
   model: payload.provider?.model || "local-model",
@@ -1323,6 +1359,8 @@ const aiAgentPayloadConfig = (payload = {}) => ({
   requiredInputs: flowAiConfigValue(payload.channels?.requiredInputs),
   contextSources: flowAiConfigValue(payload.channels?.contextSources),
   eventTriggers: flowAiConfigValue(payload.channels?.eventTriggers),
+  inputDataMode: payload.channels?.inputDataMode || "latest",
+  inputHistoryLimit: payload.channels?.inputHistoryLimit ?? 5,
   outputFormat: payload.channels?.outputFormat || "json",
   emitStrategy: payload.channels?.emitStrategy || "on_success",
   eventPriority: payload.channels?.eventPriority || "normal",
@@ -1933,6 +1971,304 @@ const requestCustomRuntimeNodeConfig = (node) => {
   dialog.open();
 };
 
+const requestOrchestratorAgentConfig = (node) => {
+  if (!node?.id) return;
+  const readCmsValue = (value) => value?.target?.value ?? value;
+  const config = nodeConfigObject(node);
+  const draft = {
+    label: node.label || "Orchestrator Agent",
+    runtimeStatus: node.metadata?.runtimeStatus || node.runtime?.status || node.status || "idle",
+    config: {
+      goal: config.goal || "Decide which connected nodes should run for each incoming payload.",
+      systemPrompt: config.systemPrompt || "You are the central Trackers Lens orchestrator. Read payload, inspect available connected nodes, choose safe steps, and keep every decision traceable.",
+      executionMode: config.executionMode || "on_event",
+      allowedNodeTypes: config.allowedNodeTypes || "processors, ai-agents, actions, storage, lens, dev",
+      maxSteps: config.maxSteps || "6",
+      maxConcurrentTasks: config.maxConcurrentTasks || config.parallelJobs || "1",
+      queueLimit: config.queueLimit || "10",
+      timeoutMs: config.timeoutMs || "30000",
+      dropPolicy: config.dropPolicy || "queue",
+      decisionName: config.decisionName || "execute_downstream",
+      requireConfirmation: String(config.requireConfirmation || "false") === "true",
+      verboseTrace: String(config.verboseTrace || "true") !== "false",
+      testPayload: config.testPayload || "{ \"task\": \"Route this payload through the connected graph\", \"confirmed\": true }",
+    },
+  };
+  const update = (key, value) => {
+    draft.config[key] = value;
+  };
+  const save = async (close) => {
+    const previousMetadata = node.metadata || {};
+    const inputs = ["task"];
+    const outputs = ["decision", "action", "done", "error"];
+    const normalizedConfig = {
+      ...draft.config,
+      requireConfirmation: String(Boolean(draft.config.requireConfirmation)),
+      verboseTrace: String(Boolean(draft.config.verboseTrace)),
+      maxSteps: String(draft.config.maxSteps || "6"),
+      maxConcurrentTasks: String(draft.config.maxConcurrentTasks || "1"),
+      queueLimit: String(draft.config.queueLimit || "10"),
+      timeoutMs: String(draft.config.timeoutMs || "30000"),
+      dropPolicy: draft.config.dropPolicy || "queue",
+    };
+    const manifest = nodeManifest({
+      type: "aiAgent",
+      subtype: "orchestrator",
+      category: "ai-agents",
+      inputs,
+      outputs,
+      permissions: ["ai.invoke", "graph.dispatch", "channel.emit"],
+      settingsSchema: {
+        goal: "string",
+        systemPrompt: "string",
+        executionMode: "manual|on_event|continuous",
+        allowedNodeTypes: "array",
+        maxSteps: "number",
+        maxConcurrentTasks: "number",
+        queueLimit: "number",
+        timeoutMs: "number",
+        dropPolicy: "queue|reject|latest",
+        requireConfirmation: "boolean",
+        verboseTrace: "boolean",
+      },
+      runtime: { executionMode: normalizedConfig.executionMode, orchestrator: true },
+    });
+    const nextNode = {
+      ...node,
+      label: draft.label || node.label || "Orchestrator Agent",
+      inputs,
+      outputs,
+      channels: [...new Set([...inputs, ...outputs])],
+      status: draft.runtimeStatus,
+      runtime: {
+        ...(node.runtime || {}),
+        status: draft.runtimeStatus,
+        active: !["paused", "disabled"].includes(draft.runtimeStatus),
+      },
+      metadata: {
+        ...previousMetadata,
+        draft: false,
+        configured: true,
+        mode: "Orchestrator",
+        config: normalizedConfig,
+        runtimeStatus: draft.runtimeStatus,
+        subtype: "orchestrator",
+        category: "ai-agents",
+        manifest,
+        permissions: manifest.permissions,
+        settingsSchema: manifest.settingsSchema,
+        runtimeMetadata: manifest.runtime,
+        agentRole: "orchestrator",
+        description: "Central runtime brain that decides and dispatches connected nodes.",
+      },
+      updatedAt: new Date().toISOString(),
+    };
+    await window.TrackerLensRuntimeGraphStore?.upsertRuntimeNode?.({ node: nextNode });
+    await window.TrackerLensChannelRegistry?.upsertChannelsForRuntimeNode?.({ node: nextNode });
+    await recordFlowAction({
+      workspaceId: node.workspaceId || state.filters.workspaceId || "workspace_global",
+      nodeId: node.id,
+      message: `Orchestrator Agent configured: ${nextNode.label || node.id}`,
+      context: { action: "orchestrator-config", config: normalizedConfig },
+    });
+    close?.();
+    await loadRuntime({ force: true });
+  };
+  const selectOptions = (values) => values.map((value) => ({ value, label: value }));
+  const dialog = _.Dialog({
+    class: "tl-flow-orchestrator-dialog",
+    panelClass: "tl-flow-orchestrator-panel",
+    size: "lg",
+    title: "Orchestrator Agent",
+    subtitle: `${node.label || node.id} · central graph runtime`,
+    icon: "hub",
+    closeButton: true,
+    content: () => _.div(
+      { class: "tl-flow-orchestrator-form" },
+      _.section(
+        { class: "tl-flow-orchestrator-hero" },
+        _.div(
+          { class: "tl-flow-orchestrator-orb" },
+          icon("hub", "lg")
+        ),
+        _.div(
+          _.strong("Runtime brain"),
+          _.span("Reads incoming events, decides a safe plan, dispatches connected nodes and writes a complete trace.")
+        ),
+        _.div(
+          { class: "tl-flow-orchestrator-metrics" },
+          _.span(_.strong(String((state.runtime.dependencies || []).filter((dependency) => dependency.sourceNodeId === node.id).length)), " links"),
+          _.span(_.strong(String((node.outputs || []).length || 4)), " outputs"),
+          _.span(_.strong(draft.config.executionMode), " mode")
+        )
+      ),
+      _.div(
+        { class: "tl-flow-orchestrator-grid" },
+        _.section(
+          { class: "tl-flow-orchestrator-card is-wide" },
+          _.h3("Goal"),
+          _.Input({
+            size: "sm",
+            label: "Node title",
+            value: draft.label,
+            autocomplete: "off",
+            onInput: (event) => {
+              draft.label = String(readCmsValue(event) || "");
+            },
+          }),
+          _.label(
+            { class: "tl-flow-config-field" },
+            _.span("Goal"),
+            _.textarea({
+              rows: 3,
+              value: draft.config.goal,
+              placeholder: "What should this orchestrator accomplish?",
+              oninput: (event) => update("goal", event.currentTarget.value),
+            })
+          ),
+          _.label(
+            { class: "tl-flow-config-field" },
+            _.span("System policy"),
+            _.textarea({
+              rows: 4,
+              value: draft.config.systemPrompt,
+              placeholder: "Decision policy, constraints, tone and safety rules.",
+              oninput: (event) => update("systemPrompt", event.currentTarget.value),
+            })
+          )
+        ),
+        _.section(
+          { class: "tl-flow-orchestrator-card" },
+          _.h3("Execution"),
+          _.Select({
+            size: "sm",
+            label: "Execution mode",
+            value: draft.config.executionMode,
+            options: selectOptions(["manual", "on_event", "continuous"]),
+            slots: { arrow: () => icon("keyboard_arrow_down", "sm") },
+            onChange: (value) => update("executionMode", String(readCmsValue(value) || "on_event")),
+          }),
+          _.Select({
+            size: "sm",
+            label: "Runtime state",
+            value: draft.runtimeStatus,
+            options: selectOptions(["idle", "active", "running", "warning", "paused", "error", "disconnected"]),
+            slots: { arrow: () => icon("keyboard_arrow_down", "sm") },
+            onChange: (value) => {
+              draft.runtimeStatus = String(readCmsValue(value) || "idle");
+            },
+          }),
+          _.Input({
+            size: "sm",
+            label: "Decision name",
+            value: draft.config.decisionName,
+            autocomplete: "off",
+            onInput: (event) => update("decisionName", String(readCmsValue(event) || "")),
+          })
+        ),
+        _.section(
+          { class: "tl-flow-orchestrator-card" },
+          _.h3("Capacity"),
+          _.Input({
+            size: "sm",
+            label: "Max concurrent tasks",
+            value: draft.config.maxConcurrentTasks,
+            autocomplete: "off",
+            onInput: (event) => update("maxConcurrentTasks", String(readCmsValue(event) || "1")),
+          }),
+          _.Input({
+            size: "sm",
+            label: "Queue limit",
+            value: draft.config.queueLimit,
+            autocomplete: "off",
+            onInput: (event) => update("queueLimit", String(readCmsValue(event) || "10")),
+          }),
+          _.Input({
+            size: "sm",
+            label: "Timeout (ms)",
+            value: draft.config.timeoutMs,
+            autocomplete: "off",
+            onInput: (event) => update("timeoutMs", String(readCmsValue(event) || "30000")),
+          }),
+          _.Select({
+            size: "sm",
+            label: "Drop policy",
+            value: draft.config.dropPolicy,
+            options: selectOptions(["queue", "reject", "latest"]),
+            slots: { arrow: () => icon("keyboard_arrow_down", "sm") },
+            onChange: (value) => update("dropPolicy", String(readCmsValue(value) || "queue")),
+          })
+        ),
+        _.section(
+          { class: "tl-flow-orchestrator-card" },
+          _.h3("Dispatch"),
+          _.Input({
+            size: "sm",
+            label: "Allowed node types",
+            value: draft.config.allowedNodeTypes,
+            autocomplete: "off",
+            onInput: (event) => update("allowedNodeTypes", String(readCmsValue(event) || "")),
+          }),
+          _.Input({
+            size: "sm",
+            label: "Max steps",
+            value: draft.config.maxSteps,
+            autocomplete: "off",
+            onInput: (event) => update("maxSteps", String(readCmsValue(event) || "6")),
+          }),
+          _.div(
+            { class: "tl-flow-orchestrator-tip" },
+            icon("account_tree", "sm"),
+            _.span("The runtime only dispatches nodes linked directly from this Orchestrator.")
+          )
+        ),
+        _.section(
+          { class: "tl-flow-orchestrator-card" },
+          _.h3("Safety"),
+          _.div(
+            { class: "tl-flow-config-toggle-row" },
+            _.span("Require confirmation for external Actions"),
+            _.Toggle({
+              size: "sm",
+              checked: Boolean(draft.config.requireConfirmation),
+              onChange: (checked) => update("requireConfirmation", Boolean(checked)),
+            })
+          ),
+          _.div(
+            { class: "tl-flow-config-toggle-row" },
+            _.span("Verbose trace logs"),
+            _.Toggle({
+              size: "sm",
+              checked: Boolean(draft.config.verboseTrace),
+              onChange: (checked) => update("verboseTrace", Boolean(checked)),
+            })
+          )
+        ),
+        _.section(
+          { class: "tl-flow-orchestrator-card is-wide" },
+          _.h3("Direct test payload"),
+          _.label(
+            { class: "tl-flow-config-field" },
+            _.span("Payload"),
+            _.textarea({
+              rows: 4,
+              value: draft.config.testPayload,
+              placeholder: "{ \"task\": \"...\" }",
+              oninput: (event) => update("testPayload", event.currentTarget.value),
+            })
+          )
+        )
+      )
+    ),
+    actions: ({ close }) => _.Toolbar(
+      { align: "end", gap: 8 },
+      btn({ onclick: close }, "Cancel"),
+      btn({ class: "is-primary", onclick: () => save(close) }, icon("save", "sm"), "Save Orchestrator")
+    ),
+  });
+  dialog.open();
+};
+
 const requestRuntimeNodeConfig = (node) => {
   if (!node?.id) return;
   const defaults = runtimeNodeConfigDefaults(node);
@@ -2075,6 +2411,11 @@ const requestRuntimeNodeConfig = (node) => {
         { class: "tl-flow-config-section" },
         _.h3(`${subtype} settings`),
         ...configFields.map(configField)
+      ),
+      _.section(
+        { class: "tl-flow-config-section" },
+        _.h3("Execution capacity"),
+        ...executionFieldDefinitions().map(configField)
       )
     ),
     actions: ({ close }) => _.Toolbar(
@@ -2107,9 +2448,39 @@ const deletedNodeSnapshot = (node) => {
   };
 };
 
+const nodeConnectionIds = async (node = {}) => {
+  if (!node?.id || !window.TrackerLensConnectionsStore?.list) return [];
+  const connections = await window.TrackerLensConnectionsStore.list().catch(() => []);
+  return [...new Set((connections || [])
+    .filter((connection) =>
+      connection.sourceNodeId === node.id ||
+      connection.targetNodeId === node.id ||
+      connection.fromBoxId === node.id ||
+      connection.toBoxId === node.id ||
+      connection.fromNodeId === node.id ||
+      connection.toNodeId === node.id)
+    .map((connection) => connection.id)
+    .filter(Boolean))];
+};
+
+const cleanupNodeConnections = async (node = {}) => {
+  const connectionIds = await nodeConnectionIds(node);
+  if (!connectionIds.length) return [];
+  await window.TrackerLensConnectionsStore?.removeMany?.(connectionIds);
+  await Promise.all(connectionIds.map((connectionId) =>
+    Promise.all([
+      window.TrackerLensRuntimeGraphStore?.cleanupConnectionReferences?.({ connectionId }),
+      window.TrackerLensEventLogStore?.cleanupConnectionReferences?.({ connectionId, workspaceId: node.workspaceId || "" }),
+      window.TrackerLensConnectionsStore?.removeWorkspaceContentConnection?.(connectionId, { workspaceId: node.workspaceId || "" }),
+    ])
+  ));
+  return connectionIds;
+};
+
 const performDraftNodeDelete = async (node, closeDialog = null) => {
   if (!node?.id) return;
   state.lastDeletedNode = deletedNodeSnapshot(node);
+  const deletedConnectionIds = await cleanupNodeConnections(node);
   await window.TrackerLensRuntimeGraphStore?.deleteRuntimeNodeReferences?.({
     nodeId: node.id,
     workspaceId: node.workspaceId || "",
@@ -2131,6 +2502,7 @@ const performDraftNodeDelete = async (node, closeDialog = null) => {
       action: "runtime-node-deleted",
       nodeType: node.type || "",
       dependencies: state.lastDeletedNode?.dependencies?.length || 0,
+      connections: deletedConnectionIds.length,
     },
   });
 
@@ -2435,11 +2807,17 @@ const channelForConnection = (source, target) => {
 const normalizePortChannel = (channel = "") =>
   !channel || channel === "all" ? "" : channel;
 
-const channelForPortConnection = (source, target, sourcePort = "", targetPort = "") =>
-  normalizePortChannel(sourcePort) ||
-  channelForConnection(source, target) ||
-  normalizePortChannel(targetPort) ||
-  "default";
+const channelForPortConnection = (source, target, sourcePort = "", targetPort = "") => {
+  const normalizedSourcePort = normalizePortChannel(sourcePort);
+  const normalizedTargetPort = normalizePortChannel(targetPort);
+  if (nodeSubtype(target) === "agent-bridge" && normalizedTargetPort && normalizedTargetPort !== AGENT_CONTROL_PORT_NAME) {
+    return normalizedTargetPort;
+  }
+  return normalizedSourcePort ||
+    channelForConnection(source, target) ||
+    normalizedTargetPort ||
+    "default";
+};
 
 const bestTargetPortForChannel = (target = {}, channel = "") => {
   if (!target?.id || !channel) return "all";
@@ -2452,6 +2830,29 @@ const inputPortLabel = (node = {}) =>
 
 const outputPortLabel = (node = {}) =>
   node?.outputs?.[0] || nodeChannels(node)[0] || "output";
+
+const AGENT_CONTROL_PORT_NAME = "agent_control";
+const AGENT_CONTROL_PORT_TYPE = "agent-control";
+const AGENT_CONTROL_PORT = Object.freeze({
+  name: AGENT_CONTROL_PORT_NAME,
+  type: AGENT_CONTROL_PORT_TYPE,
+  schema: null,
+  required: false,
+  virtual: true,
+  description: "Hybrid IN/OUT control port for AI agents.",
+});
+
+const isAgentControlPort = (port = {}) =>
+  port?.type === AGENT_CONTROL_PORT_TYPE || port?.name === AGENT_CONTROL_PORT_NAME;
+
+const isAgentControlNode = (node = {}) =>
+  nodeCategory(node) === "ai-agents" || nodeSubtype(node) === "agent-bridge";
+
+const withAgentControlPort = (node = {}, side = "out", ports = []) => {
+  if (!node?.id) return ports;
+  if (ports.some(isAgentControlPort)) return ports;
+  return [...ports, { ...AGENT_CONTROL_PORT, direction: side === "in" ? "in" : "out" }];
+};
 
 const valueType = (value) => {
   if (Array.isArray(value)) return "array";
@@ -2484,6 +2885,7 @@ const inferPortType = (node = {}, side = "out", name = "") => {
   const subtype = nodeSubtype(node);
   const lowerName = String(name || "").toLowerCase();
   if (lowerName === "all") return side === "in" ? "any" : "object";
+  if (lowerName === AGENT_CONTROL_PORT_NAME || lowerName === "agent-control") return AGENT_CONTROL_PORT_TYPE;
   if (["true", "false"].includes(lowerName)) return "event";
   if (lowerName === "event") return "event";
   if (["image", "thumbnail", "preview"].includes(lowerName)) return "image";
@@ -2527,18 +2929,39 @@ const sampleOutputFields = (node = {}) => {
 
 const nodePorts = (node = {}, side = "out") => {
   if (!node?.id) return [{ name: "all", type: side === "in" ? "any" : "object" }];
+  if (nodeSubtype(node) === "agent-bridge") {
+    return side === "in"
+      ? [
+        { ...AGENT_CONTROL_PORT, direction: "in" },
+        normalizePortDef({ name: "listening", type: "object", description: "Listen for the final response" }, "object"),
+      ]
+      : [
+        normalizePortDef({ name: "action", type: "object", description: "Send payload to the controlled node" }, "object"),
+      ];
+  }
   if (side === "in" && nodeCategory(node) === "sources") {
+    const isCustomSource = Boolean(node.metadata?.customNode || node.metadata?.paletteAction === "node-builder" || node.type === "custom");
     const manifestInputs = node.metadata?.manifest?.inputs || [];
+    const sourceInputs = isCustomSource && Array.isArray(node.inputs) && node.inputs.length
+      ? node.inputs
+      : manifestInputs;
     const legacyDataInputs = new Set(["all", "raw", "input", "output", "channel"]);
-    const declared = manifestInputs
+    const declared = sourceInputs
       .map((port) => normalizePortDef(port, inferPortType(node, "in", typeof port === "object" ? port.name || port.key : port)))
-      .filter((port) => !legacyDataInputs.has(String(port.name || "").toLowerCase()));
+      .filter((port) => isCustomSource || !legacyDataInputs.has(String(port.name || "").toLowerCase()));
     const ports = declared.length ? declared : sourceConfigInputPorts(nodeSubtype(node));
-    return ports.map((port) => normalizePortDef(port, inferPortType(node, "in", port.name || port.key || port)));
+    const unique = new Map();
+    ports
+      .map((port) => normalizePortDef(port, inferPortType(node, "in", port.name || port.key || port)))
+      .forEach((port) => {
+        if (!port.name || unique.has(port.name)) return;
+        unique.set(port.name, port);
+      });
+    return withAgentControlPort(node, "in", [...unique.values()]);
   }
   if (side === "out") {
     const fields = sampleOutputFields(node);
-    if (fields.length) return [{ name: "all", type: "object" }, ...fields];
+    if (fields.length) return withAgentControlPort(node, side, [{ name: "all", type: "object" }, ...fields]);
   }
   const declared = declaredPortDefs(node, side);
   const values = declared.length
@@ -2554,7 +2977,7 @@ const nodePorts = (node = {}, side = "out") => {
     if (!port.name || unique.has(port.name)) return;
     unique.set(port.name, { ...port, type: port.type || inferPortType(node, side, port.name) });
   });
-  return [{ name: "all", type: side === "in" ? "any" : "object" }, ...unique.values()];
+  return withAgentControlPort(node, side, [{ name: "all", type: side === "in" ? "any" : "object" }, ...unique.values()]);
 };
 
 const nodePortLabels = (node = {}, side = "out") => {
@@ -2567,11 +2990,13 @@ const portDisplayLabel = (port = {}, side = "out", ports = []) => {
 };
 
 const portInlineLabel = (port = {}, side = "out", ports = []) => {
+  if (isAgentControlPort(port)) return "";
   const label = port.name === "all" ? "all" : portDisplayLabel(port, side, ports);
   return label.length > 12 ? `${label.slice(0, 10)}...` : label;
 };
 
 const portTooltip = (port = {}, side = "out", ports = []) => {
+  if (isAgentControlPort(port)) return `${side === "in" ? "Agent Control IN" : "Agent Control OUT"}: accepts AI agent control links`;
   const label = port.name === "all" ? "all" : portDisplayLabel(port, side, ports);
   return label.length > 12 ? `${side === "in" ? "Input" : "Output"}: ${label} (${port.type || "any"})` : "";
 };
@@ -2597,9 +3022,14 @@ const normalizedPortType = (type = "any") => {
   return type || "any";
 };
 
-const portsAreCompatible = (sourcePort = {}, targetPort = {}, target = {}) => {
+const portsAreCompatible = (sourcePort = {}, targetPort = {}, target = {}, source = {}) => {
   const sourceType = normalizedPortType(sourcePort.type);
   const targetType = normalizedPortType(targetPort.type);
+  if (sourceType === AGENT_CONTROL_PORT_TYPE || targetType === AGENT_CONTROL_PORT_TYPE) {
+    return sourceType === AGENT_CONTROL_PORT_TYPE &&
+      targetType === AGENT_CONTROL_PORT_TYPE &&
+      isAgentControlNode(source);
+  }
   if (sourceType === "never" || targetType === "never") return false;
   if (sourceType === "any" || targetType === "any") return true;
   if (sourceType === targetType) return true;
@@ -2625,7 +3055,7 @@ const connectionValidation = (source, target, sourcePortName = "all", targetPort
   if (!targetPort) {
     return { ok: false, reason: `input port "${requestedTargetPort}" does not exist on ${target.label || target.id}`, sourcePort, hint: "rilascia su una porta input compatibile o riconfigura gli inputs del nodo" };
   }
-  if (!portsAreCompatible(sourcePort, targetPort, target)) {
+  if (!portsAreCompatible(sourcePort, targetPort, target, source)) {
     return { ok: false, reason: `Incompatible ports: ${sourcePort.name}:${sourcePort.type || "any"} -> ${targetPort.name}:${targetPort.type || "any"}`, sourcePort, targetPort, hint: "usa una porta con tipo compatibile o passa da un Processor Transform/Formatter" };
   }
   const channel = channelForPortConnection(source, target, sourcePortName, targetPortName);
@@ -2741,6 +3171,9 @@ const createRuntimeLink = async (source, target, options = {}) => {
     mapping: {
       sourcePort,
       targetPort,
+      linkType: validation.sourcePort?.type === AGENT_CONTROL_PORT_TYPE || validation.targetPort?.type === AGENT_CONTROL_PORT_TYPE
+        ? AGENT_CONTROL_PORT_TYPE
+        : "data",
     },
   };
   let runtimeConnection = connection;
@@ -2768,7 +3201,14 @@ const createRuntimeLink = async (source, target, options = {}) => {
       channel: runtimeConnection.channel || channel,
       connectionId: runtimeConnection.id || connectionId,
       status: "active",
-      metadata: { source: "flow-map", sourcePort, targetPort },
+      metadata: {
+        source: "flow-map",
+        sourcePort,
+        targetPort,
+        linkType: validation.sourcePort?.type === AGENT_CONTROL_PORT_TYPE || validation.targetPort?.type === AGENT_CONTROL_PORT_TYPE
+          ? AGENT_CONTROL_PORT_TYPE
+          : "data",
+      },
       createdAt: now,
       updatedAt: now,
     };

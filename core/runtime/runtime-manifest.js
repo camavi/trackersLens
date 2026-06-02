@@ -2,7 +2,7 @@ window.TrackerLensRuntimeManifest = (() => {
   const CONTRACT_VERSION = "1.0.0";
   const RUNTIME_VERSION = "0.1.0";
   const NODE_TYPES = new Set(["source", "boxTracker", "processor", "aiAgent", "boxLens", "lens", "action", "storage", "devPreview"]);
-  const PORT_TYPES = new Set(["any", "object", "event", "string", "number", "boolean", "array", "record", "state"]);
+  const PORT_TYPES = new Set(["any", "object", "event", "string", "number", "boolean", "array", "record", "state", "agent-control"]);
 
   const text = (value, fallback = "") =>
     String(value ?? "").trim() || fallback;

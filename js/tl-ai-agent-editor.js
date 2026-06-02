@@ -32,6 +32,8 @@ window.TrackerLensAiAgentEditor = (() => {
 
   const AI_AGENT_TYPES = ["analyzer", "summarizer", "decision", "classifier", "predictor", "memory", "router", "planner", "debugger"];
   const AI_EXECUTION_MODES = ["on_event", "interval", "continuous", "manual", "scheduled"];
+  const AI_DROP_POLICIES = ["queue", "reject", "latest"];
+  const AI_INPUT_DATA_MODES = ["off", "latest", "history", "latest_history"];
   const AI_AGENT_STATUSES = ["active", "paused", "disabled", "experimental"];
   const AI_RESPONSE_FORMATS = ["text", "json", "markdown", "structured", "signal"];
   const AI_PROMPT_STRATEGIES = ["simple", "contextual", "memory-aware", "multi-step", "chain-of-thought", "structured-output"];
@@ -89,6 +91,7 @@ window.TrackerLensAiAgentEditor = (() => {
         cooldownMs: numberValue(form, "cooldownMs", 0),
         queueLimit: numberValue(form, "queueLimit", 25),
         parallelJobs: numberValue(form, "parallelJobs", 1),
+        dropPolicy: agentFormValue(form, "dropPolicy") || "queue",
         state: "idle",
       },
       provider: {
@@ -107,6 +110,8 @@ window.TrackerLensAiAgentEditor = (() => {
         requiredInputs: splitList(agentFormValue(form, "requiredInputs")),
         contextSources: splitList(agentFormValue(form, "contextSources")),
         eventTriggers: splitList(agentFormValue(form, "eventTriggers")),
+        inputDataMode: agentFormValue(form, "inputDataMode") || "latest",
+        inputHistoryLimit: numberValue(form, "inputHistoryLimit", 5),
         outputs: outputChannels,
         outputChannel,
         outputFormat: agentFormValue(form, "outputFormat") || "json",
@@ -276,7 +281,8 @@ window.TrackerLensAiAgentEditor = (() => {
                 agentInput("Timeout (ms)", "timeoutMs", runtime.timeoutMs ?? 30000, { type: "number" }),
                 agentInput("Cooldown (ms)", "cooldownMs", runtime.cooldownMs ?? 0, { type: "number" }),
                 agentInput("Queue Limit", "queueLimit", runtime.queueLimit ?? 25, { type: "number" }),
-                agentInput("Parallel Jobs", "parallelJobs", runtime.parallelJobs ?? 1, { type: "number" })
+                agentInput("Parallel Jobs", "parallelJobs", runtime.parallelJobs ?? 1, { type: "number" }),
+                agentSelect("Drop Policy", "dropPolicy", runtime.dropPolicy || "queue", AI_DROP_POLICIES)
               ),
             },
             {
@@ -305,6 +311,8 @@ window.TrackerLensAiAgentEditor = (() => {
                 agentInput("Required Inputs", "requiredInputs", csvOf(channels.requiredInputs || []), { placeholder: "btc.price" }),
                 agentInput("Context Sources", "contextSources", csvOf(channels.contextSources || []), { placeholder: "workspace, memory, last-event" }),
                 agentInput("Event Triggers", "eventTriggers", csvOf(channels.eventTriggers || inputChannels), { placeholder: "channel.emit, manual.test" }),
+                agentSelect("Input Data Request", "inputDataMode", channels.inputDataMode || raw.inputDataMode || "latest", AI_INPUT_DATA_MODES),
+                agentInput("Input History Limit", "inputHistoryLimit", channels.inputHistoryLimit ?? raw.inputHistoryLimit ?? 5, { type: "number" }),
                 agentTextarea("Payload Mapping", "payloadMapping", channels.payloadMapping || "btc.price -> market_price\nnews.crypto -> latest_news", 5),
                 _.div({ class: "tl-ai-agent-preview-card" }, _.strong("Input Preview"), _.p("Last event, frequency and schema are populated by runtime channel telemetry."), _.code(`channels: ${csvOf(inputChannels) || "input"}`))
               ),

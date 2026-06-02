@@ -327,6 +327,14 @@ const edgeDisplayLabel = (dependency = {}) => {
 const isAllEdge = (dependency = {}) =>
   dependencySourcePort(dependency) === "all";
 
+const isAgentControlEdge = (dependency = {}) =>
+  dependency.metadata?.linkType === AGENT_CONTROL_PORT_TYPE ||
+  dependencyPort(dependency, "out") === AGENT_CONTROL_PORT_NAME ||
+  dependencyPort(dependency, "in") === AGENT_CONTROL_PORT_NAME;
+
+const isAgentBridgeNode = (node = {}) =>
+  nodeSubtype(node) === "agent-bridge";
+
 const edgeRecentEvent = (dependency = {}) =>
   filteredRuntimeEvents()
     .filter((event) => {
@@ -403,9 +411,9 @@ const visibleNodePorts = (node = {}, side = "out", ports = [], graph = {}) => {
   const ordered = orderedNodePorts(node, side, ports);
   const connected = connectedPortNames(graph, node.id, side);
   const hidden = new Set(portUiForNode(node, side).hidden);
-  const eligible = ordered.filter((port) => connected.has(port.name) || !hidden.has(port.name));
+  const eligible = ordered.filter((port) => isAgentControlPort(port) || connected.has(port.name) || !hidden.has(port.name));
   if (!node?.metadata?.collapsed || eligible.length <= 8) return eligible;
-  const visible = eligible.filter((port) => port.name === "all" || connected.has(port.name));
+  const visible = eligible.filter((port) => isAgentControlPort(port) || port.name === "all" || connected.has(port.name));
   if (visible.length > 1) return visible;
   return eligible.slice(0, Math.min(3, eligible.length));
 };
@@ -425,6 +433,25 @@ const nodePortYValue = (portIndex = 0, portCount = 1) => {
 const nodePortY = (portIndex = 0, portCount = 1) => {
   if (portCount > 8) return `${portIndex === 0 ? 84 : 126 + ((portIndex - 1) * 16)}px`;
   return `${nodePortYValue(portIndex, portCount)}%`;
+};
+
+const bridgeNodePortY = (side = "out", portIndex = 0, portCount = 1) => {
+  if (side === "in") return "50%";
+  if (portCount === 2) return portIndex === 0 ? "20%" : "80%";
+  return nodePortY(portIndex, portCount);
+};
+
+const bridgePortY = (port = {}, side = "out", portIndex = 0, portCount = 1) => {
+  if (side === "in" && isAgentControlPort(port)) return "50%";
+  if (side === "in" && port.name === "listening") return "80%";
+  if (side === "out" && port.name === "action") return "20%";
+  return bridgeNodePortY(side, portIndex, portCount);
+};
+
+const runtimeNodePortY = (node = {}, port = {}, side = "out", portIndex = 0, portCount = 1) => {
+  if (isAgentBridgeNode(node)) return bridgePortY(port, side, portIndex, portCount);
+  if (isAgentControlPort(port)) return "25px";
+  return nodePortY(portIndex, portCount);
 };
 
 const nodeMinHeight = (portCount = 1) =>
@@ -485,18 +512,19 @@ const nodeCanvasPoint = ({ canvas, node, index, side = "out", port = "all" }) =>
     return point ? point : canvasPoint(canvas, nodePosition(node, index), side, 0, portPercentForChannel(node, port, side));
   })();
 
-const drawBezier = (ctx, from, to, curveOffset = 0) => {
+const drawBezier = (ctx, from, to, curveOffset = 0, options = {}) => {
   const delta = Math.max(70, Math.abs(to.x - from.x) * 0.42);
+  const targetControlX = options.targetSide === "right" ? to.x + delta : to.x - delta;
   ctx.beginPath();
   ctx.moveTo(from.x, from.y);
-  ctx.bezierCurveTo(from.x + delta, from.y + curveOffset, to.x - delta, to.y + curveOffset, to.x, to.y);
+  ctx.bezierCurveTo(from.x + delta, from.y + curveOffset, targetControlX, to.y + curveOffset, to.x, to.y);
 };
 
-const bezierPoint = (from, to, t, curveOffset = 0) => {
+const bezierPoint = (from, to, t, curveOffset = 0, options = {}) => {
   const delta = Math.max(70, Math.abs(to.x - from.x) * 0.42);
   const p0 = from;
   const p1 = { x: from.x + delta, y: from.y + curveOffset };
-  const p2 = { x: to.x - delta, y: to.y + curveOffset };
+  const p2 = { x: options.targetSide === "right" ? to.x + delta : to.x - delta, y: to.y + curveOffset };
   const p3 = to;
   const mt = 1 - t;
   return {
@@ -504,6 +532,11 @@ const bezierPoint = (from, to, t, curveOffset = 0) => {
     y: (mt ** 3) * p0.y + 3 * (mt ** 2) * t * p1.y + 3 * mt * (t ** 2) * p2.y + (t ** 3) * p3.y,
   };
 };
+
+const edgeBezierOptions = (dependency = {}, targetNode = {}) =>
+  isAgentBridgeNode(targetNode) && dependencyPort(dependency, "in") === "listening"
+    ? { targetSide: "right" }
+    : {};
 
 const distanceToSegment = (point, a, b) => {
   const dx = b.x - a.x;
@@ -543,9 +576,10 @@ const edgeAtPointer = (event) => {
     const offset = edgePortOffset(dependency, graph.dependencies);
     const from = edgePoint(nodeCanvasPoint({ canvas: { width: rect.width, height: rect.height }, node: sourceNode, index: fromIndex, side: "out", port: dependencyPort(dependency, "out") }), bounds);
     const to = edgePoint(nodeCanvasPoint({ canvas: { width: rect.width, height: rect.height }, node: targetNode, index: toIndex, side: "in", port: dependencyPort(dependency, "in") }), bounds);
+    const bezierOptions = edgeBezierOptions(dependency, targetNode);
     let previous = from;
     for (let step = 1; step <= 24; step += 1) {
-      const current = bezierPoint(from, to, step / 24, offset);
+      const current = bezierPoint(from, to, step / 24, offset, bezierOptions);
       const distance = distanceToSegment(point, previous, current);
       if (distance < best.distance) best = { dependency, distance };
       previous = current;
@@ -600,6 +634,7 @@ const drawFlowEdges = () => {
     const offset = edgePortOffset(dependency, graph.dependencies);
     const from = edgePoint(nodeCanvasPoint({ canvas: { width: rect.width, height: rect.height }, node: sourceNode, index: fromIndex, side: "out", port: dependencyPort(dependency, "out") }), bounds);
     const to = edgePoint(nodeCanvasPoint({ canvas: { width: rect.width, height: rect.height }, node: targetNode, index: toIndex, side: "in", port: dependencyPort(dependency, "in") }), bounds);
+    const bezierOptions = edgeBezierOptions(dependency, targetNode);
     const edge = activity.edgeActivity?.get?.(dependency.id);
     const isActiveTestEdge = state.testRun.running && (state.testRun.activeEdgeIds || []).includes(dependency.id);
     const isProcessingEdge = processingEdgeIds.has(dependency.id);
@@ -607,14 +642,15 @@ const drawFlowEdges = () => {
     const isLive = Boolean(edge) || isActiveTestEdge || isProcessingEdge;
     const isSelected = state.focus.edgeId === dependency.id;
     const isBus = isAllEdge(dependency);
+    const isAgentControl = isAgentControlEdge(dependency);
     const isDimmed = state.hoverNodeId && !edgeMatchesHover(dependency);
     if (isLive) hasLiveEdge = true;
-    const rgb = isError ? toneRgb("red") : toneRgb(graphTone(sourceNode));
+    const rgb = isError ? toneRgb("red") : isAgentControl ? toneRgb("cyan") : toneRgb(graphTone(sourceNode));
 
     ctx.save();
     ctx.lineCap = "round";
     ctx.lineJoin = "round";
-    drawBezier(ctx, from, to, offset);
+    drawBezier(ctx, from, to, offset, bezierOptions);
     ctx.globalAlpha = isDimmed ? 0.18 : 1;
     ctx.strokeStyle = rgba(rgb, isSelected ? 0.42 : isLive ? 0.3 : 0.2);
     ctx.lineWidth = isSelected ? 12 : isLive ? (isBus ? 10 : 8) : (isBus ? 8 : 6);
@@ -622,13 +658,25 @@ const drawFlowEdges = () => {
     ctx.shadowBlur = isSelected ? 20 : isLive ? 16 : 10;
     ctx.stroke();
 
-    drawBezier(ctx, from, to, offset);
-    ctx.strokeStyle = rgba(rgb, isError ? 0.96 : 0.86);
-    ctx.lineWidth = isSelected ? 4 : isBus ? 3 : 2;
-    ctx.shadowBlur = 0;
-    ctx.setLineDash(dependency.metadata?.virtual ? [8, 7] : isLive ? [12, 10] : []);
-    ctx.lineDashOffset = isLive ? -state.edgePhase : 0;
-    ctx.stroke();
+    if (isAgentControl) {
+      [-3.4, 3.4].forEach((parallelOffset) => {
+        drawBezier(ctx, { x: from.x, y: from.y + parallelOffset }, { x: to.x, y: to.y + parallelOffset }, offset, bezierOptions);
+        ctx.strokeStyle = rgba(rgb, isError ? 0.96 : 0.9);
+        ctx.lineWidth = isSelected ? 3 : 2;
+        ctx.shadowBlur = 0;
+        ctx.setLineDash(isLive ? [12, 10] : []);
+        ctx.lineDashOffset = isLive ? -state.edgePhase : 0;
+        ctx.stroke();
+      });
+    } else {
+      drawBezier(ctx, from, to, offset, bezierOptions);
+      ctx.strokeStyle = rgba(rgb, isError ? 0.96 : 0.86);
+      ctx.lineWidth = isSelected ? 4 : isBus ? 3 : 2;
+      ctx.shadowBlur = 0;
+      ctx.setLineDash(dependency.metadata?.virtual ? [8, 7] : isLive ? [12, 10] : []);
+      ctx.lineDashOffset = isLive ? -state.edgePhase : 0;
+      ctx.stroke();
+    }
     ctx.setLineDash([]);
 
     ctx.fillStyle = rgba(rgb, 1);
@@ -715,7 +763,7 @@ const positionEdgeLabels = () => {
     const offset = edgePortOffset(dependency, graph.dependencies);
     const from = nodeCanvasPoint({ canvas: { width: rect.width, height: rect.height }, node: sourceNode, index: fromIndex, side: "out", port: dependencyPort(dependency, "out") });
     const to = nodeCanvasPoint({ canvas: { width: rect.width, height: rect.height }, node: targetNode, index: toIndex, side: "in", port: dependencyPort(dependency, "in") });
-    const midpoint = bezierPoint(from, to, 0.52, offset);
+    const midpoint = bezierPoint(from, to, 0.52, offset, edgeBezierOptions(dependency, targetNode));
     label.style.setProperty("--x", `${midpoint.x}px`);
     label.style.setProperty("--y", `${midpoint.y}px`);
     label.classList.toggle("is-related", Boolean(state.hoverNodeId && edgeMatchesHover(dependency)));
@@ -754,9 +802,11 @@ const refreshNodeRuntimeDom = (graph, activity) => {
     if (footerInfo) {
       const fieldCount = sampleOutputFields(node).length;
       const perf = nodePerformance(node);
+      const runtimeStatus = ["busy", "queued", "overloaded"].includes(live?.status) ? live.status : "";
       footerInfo.textContent = perf
         ? `${performanceLabel(perf)} · ${perf.health || perf.status || "perf"}`
-        : live ? `${live.count} events · ${formatShortDate(live.lastAt)}` : fieldCount ? `${fieldCount} outputs` : node.metadata?.library ? "library" : node.status || "idle";
+        : runtimeStatus ? `${runtimeStatus} · ${live.count} events`
+          : live ? `${live.count} events · ${formatShortDate(live.lastAt)}` : fieldCount ? `${fieldCount} outputs` : node.metadata?.library ? "library" : node.status || "idle";
     }
 
     if (isPreviewNode(node)) {
@@ -1067,14 +1117,14 @@ const renderCanvas = () => {
           const to = rect
             ? nodeCanvasPoint({ canvas: { width: rect.width, height: rect.height }, node: targetNode, index: toIndex, side: "in", port: dependencyPort(dependency, "in") })
             : canvasPoint({ width: 100, height: 100 }, nodePosition(targetNode, toIndex), "in", 0, portPercentForChannel(targetNode, dependencyPort(dependency, "in"), "in"));
-          const midpoint = bezierPoint(from, to, 0.52, rect ? offset : offset * 0.12);
+          const midpoint = bezierPoint(from, to, 0.52, rect ? offset : offset * 0.12, edgeBezierOptions(dependency, targetNode));
           const recentEvent = edgeRecentEvent(dependency);
           const activeTestEdge = state.testRun.running && (state.testRun.activeEdgeIds || []).includes(dependency.id);
           const processingEdge = activeProcessingEdgeIds(graph).includes(dependency.id);
           return _.button(
             {
               type: "button",
-              class: `tl-flow-edge-label${state.focus.edgeId === dependency.id ? " is-selected" : ""}${impactClassForEdge(dependency, impact)}${dependency.metadata?.virtual ? " is-virtual" : ""}${isAllEdge(dependency) ? " is-bus" : ""}${recentEvent || activeTestEdge || processingEdge ? " is-live" : ""}${recentEvent?.status === "error" ? " is-error" : ""}${activeTestEdge || processingEdge ? " is-test-path" : ""}`,
+              class: `tl-flow-edge-label${state.focus.edgeId === dependency.id ? " is-selected" : ""}${impactClassForEdge(dependency, impact)}${dependency.metadata?.virtual ? " is-virtual" : ""}${isAllEdge(dependency) ? " is-bus" : ""}${isAgentControlEdge(dependency) ? " is-agent-control" : ""}${recentEvent || activeTestEdge || processingEdge ? " is-live" : ""}${recentEvent?.status === "error" ? " is-error" : ""}${activeTestEdge || processingEdge ? " is-test-path" : ""}`,
               "data-edge-id": dependency.id,
               title: edgeDebugTitle(dependency),
               style: { "--x": rect ? `${midpoint.x}px` : `${midpoint.x}%`, "--y": rect ? `${midpoint.y}px` : `${midpoint.y}%` },
@@ -1093,7 +1143,8 @@ const renderCanvas = () => {
           const fullInputPorts = nodePorts(node, "in");
           const fullOutputPorts = nodePorts(node, "out");
           const inputPorts = visibleNodePorts(node, "in", fullInputPorts, graph);
-          const outputPorts = visibleNodePorts(node, "out", fullOutputPorts, graph);
+          const outputPorts = visibleNodePorts(node, "out", fullOutputPorts, graph)
+            .filter((port) => !isAgentControlPort(port) || nodeCategory(node) === "ai-agents");
           const portCount = Math.max(inputPorts.length, outputPorts.length);
           const fieldCount = sampleOutputFields(node).length;
           const live = activity.nodeActivity.get(node.id);
@@ -1113,12 +1164,13 @@ const renderCanvas = () => {
           const testButtonTitle = canRunNodeTest
             ? "Run real one-shot live test from this root node through connected children"
             : rootStartBlockedReason(node, ruleGraph);
+          const isAgentBridge = isAgentBridgeNode(node);
           return _.div(
             {
               role: "button",
               tabindex: 0,
-              class: `tl-flow-node is-${graphTone(node)} is-runtime-${view.runtime.status}${node.metadata?.collapsed ? " is-collapsed" : ""}${state.frontNodeId === node.id ? " is-front" : ""}${state.focus.nodeId === node.id ? " is-selected" : ""}${impactClassForNode(node, impact)}${live || processingNode ? " is-live is-event-active" : ""}${processingNode ? " is-ai-processing" : ""}${live?.status === "error" ? " is-error" : ""}${isLinkSource ? " is-link-source" : ""}${isLinkTarget ? " is-link-target" : ""}${isLinkHover ? " is-link-hover" : ""}${isInTestRun ? " is-test-path" : ""}`,
-              style: { "--x": pos.x, "--y": pos.y, "--port-count": portCount, minHeight: `${nodeMinHeight(portCount)}px` },
+              class: `tl-flow-node is-${graphTone(node)} is-runtime-${view.runtime.status}${isAgentBridge ? " is-agent-bridge" : ""}${node.metadata?.collapsed ? " is-collapsed" : ""}${state.frontNodeId === node.id ? " is-front" : ""}${state.focus.nodeId === node.id ? " is-selected" : ""}${impactClassForNode(node, impact)}${live || processingNode ? " is-live is-event-active" : ""}${processingNode ? " is-ai-processing" : ""}${live?.status === "error" ? " is-error" : ""}${isLinkSource ? " is-link-source" : ""}${isLinkTarget ? " is-link-target" : ""}${isLinkHover ? " is-link-hover" : ""}${isInTestRun ? " is-test-path" : ""}`,
+              style: { "--x": pos.x, "--y": pos.y, "--port-count": portCount, minHeight: isAgentBridge ? "58px" : `${nodeMinHeight(portCount)}px` },
               "data-flow-node-id": node.id,
               "data-input-port-count": fullInputPorts.length,
               "data-output-port-count": fullOutputPorts.length,
@@ -1137,9 +1189,9 @@ const renderCanvas = () => {
               },
             },
             ...inputPorts.map((port, portIndex) => _.span({
-              class: `tl-flow-node-port is-input is-${port.type}${port.name === "all" ? " is-pass" : ""}${isPortConnected(graph, node.id, "in", port.name) ? " is-connected" : ""}${live ? " is-event-active" : ""}`,
+              class: `tl-flow-node-port is-input is-${port.type}${isAgentBridge && isAgentControlPort(port) ? " is-bridge-agent-input" : ""}${isAgentBridge && port.name === "listening" ? " is-bridge-right-input is-bridge-listening" : ""}${isAgentControlPort(port) ? " is-agent-control-port" : ""}${port.name === "all" ? " is-pass" : ""}${isPortConnected(graph, node.id, "in", port.name) ? " is-connected" : ""}${live ? " is-event-active" : ""}`,
               title: portTooltip(port, "in", inputPorts),
-              style: { "--port-y": nodePortY(portIndex, inputPorts.length) },
+              style: { "--port-y": runtimeNodePortY(node, port, "in", portIndex, inputPorts.length) },
               "data-port-side": "in",
               "data-port-label": port.name,
               "data-port-display": portInlineLabel(port, "in", inputPorts),
@@ -1150,11 +1202,11 @@ const renderCanvas = () => {
                 setGraphHover(node.id, `in:${port.name}`);
               },
               onPointerLeave: () => setGraphHover(node.id, ""),
-            })),
+            }, ...(isAgentControlPort(port) ? [icon(isAgentBridge ? "psychology" : "network_intel_node", "sm")] : []))),
             ...outputPorts.map((port, portIndex) => _.span({
-              class: `tl-flow-node-port is-output is-${port.type}${port.name === "all" ? " is-pass" : ""}${isPortConnected(graph, node.id, "out", port.name) ? " is-connected" : ""}${live ? " is-event-active" : ""}`,
+              class: `tl-flow-node-port is-output is-${port.type}${isAgentBridge && port.name === "action" ? " is-bridge-action" : ""}${isAgentControlPort(port) ? " is-agent-control-port" : ""}${port.name === "all" ? " is-pass" : ""}${isPortConnected(graph, node.id, "out", port.name) ? " is-connected" : ""}${live ? " is-event-active" : ""}`,
               title: portTooltip(port, "out", outputPorts),
-              style: { "--port-y": nodePortY(portIndex, outputPorts.length) },
+              style: { "--port-y": runtimeNodePortY(node, port, "out", portIndex, outputPorts.length) },
               "data-port-side": "out",
               "data-port-label": port.name,
               "data-port-display": portInlineLabel(port, "out", outputPorts),
@@ -1166,7 +1218,7 @@ const renderCanvas = () => {
               },
               onPointerLeave: () => setGraphHover(node.id, ""),
               onPointerDown: (event) => beginPortLinkDrag(event, node, index, "out", port.name),
-            })),
+            }, ...(isAgentControlPort(port) ? [icon("network_intel_node", "sm")] : []))),
             _.span(
               { class: "tl-flow-node-title" },
               icon(graphIcon(node), "sm"),
@@ -1191,18 +1243,25 @@ const renderCanvas = () => {
               { class: "tl-flow-node-badges", "data-flow-node-badges": node.id },
               ...nodeBadges(node, live).map((badge) => _.span({ class: `tl-flow-node-badge is-${badge.tone}` }, badge.label))
             ),
-            renderNodeQuickActions(node, view),
+            isAgentBridge ? null : renderNodeQuickActions(node, view),
             node.metadata?.collapsed ? null : _.div(
               { class: "tl-flow-node-body" },
-              _.small({ class: "tl-flow-node-meta" }, `${view.category} · ${view.subtype} · ${channelName || "no channel"}`),
-              _.p(view.description),
-              renderInlineNodeSettings(node),
-              _.span(
-                { class: "tl-flow-node-metrics" },
-                _.em(`${view.runtime.eventsPerMin}/min`),
-                _.em(`${view.runtime.latency || 0}ms`),
-                _.em(`${view.metrics.listeners || 0} listeners`)
-              )
+              ...(isAgentBridge
+                ? [_.div(
+                  { class: "tl-flow-agent-bridge-core" },
+                  icon("network_node", "lg")
+                )]
+                : [
+                  _.small({ class: "tl-flow-node-meta" }, `${view.category} · ${view.subtype} · ${channelName || "no channel"}`),
+                  _.p(view.description),
+                  renderInlineNodeSettings(node),
+                  _.span(
+                    { class: "tl-flow-node-metrics" },
+                    _.em(`${view.runtime.eventsPerMin}/min`),
+                    _.em(`${view.runtime.latency || 0}ms`),
+                    _.em(`${view.metrics.listeners || 0} listeners`)
+                  ),
+                ])
             ),
             _.span(
               { class: "tl-flow-node-footer", "data-flow-node-footer": node.id },
@@ -1225,7 +1284,7 @@ const renderCanvas = () => {
                   runFlowMapLiveTest(node);
                 },
               }, icon((state.testRun.running && isInTestRun) || processingNode ? "hourglass_top" : "play_arrow", "sm")) : null,
-              _.span({ "data-flow-node-footer-ports": "true" }, `${fullInputPorts.length} in · ${fullOutputPorts.length} out`)
+              _.span({ "data-flow-node-footer-ports": "true" }, isAgentBridge ? "1 agent · 1 in/out" : `${fullInputPorts.length} in · ${fullOutputPorts.length} out`)
             )
           );
         })
@@ -1492,7 +1551,7 @@ const renderInspectorPorts = (node, side = "in") => {
   const ports = orderedNodePorts(node, normalizedSide, nodePorts(node, normalizedSide));
   const connected = connectedPortNames(graph, node.id, normalizedSide);
   const hidden = new Set(portUiForNode(node, normalizedSide).hidden);
-  const hideablePorts = ports.filter((port) => !connected.has(port.name) && !hidden.has(port.name));
+  const hideablePorts = ports.filter((port) => !isAgentControlPort(port) && !connected.has(port.name) && !hidden.has(port.name));
   const updatePortUi = (patch = {}) => {
     const current = node.metadata?.portUi || {};
     const currentSide = portUiForNode(node, normalizedSide);
@@ -1512,7 +1571,7 @@ const renderInspectorPorts = (node, side = "in") => {
     });
   };
   const togglePortVisibility = (port) => {
-    if (connected.has(port.name)) return;
+    if (isAgentControlPort(port) || connected.has(port.name)) return;
     const nextHidden = hidden.has(port.name)
       ? [...hidden].filter((name) => name !== port.name)
       : [...hidden, port.name];
@@ -1536,13 +1595,16 @@ const renderInspectorPorts = (node, side = "in") => {
     ),
     ...(ports.length ? ports.map((port) => {
       const isConnected = connected.has(port.name);
-      const isHidden = hidden.has(port.name) && !isConnected;
-      const visibilityTitle = isConnected
+      const isControlPort = isAgentControlPort(port);
+      const isHidden = hidden.has(port.name) && !isConnected && !isControlPort;
+      const visibilityTitle = isControlPort
+        ? "Agent Control port always visible"
+        : isConnected
         ? "Porta collegata, non può essere nascosta"
         : isHidden
           ? "Show port on node"
           : "Hide port on node";
-      const stateIcon = isConnected ? "link" : isHidden ? "visibility_off" : "visibility";
+      const stateIcon = isControlPort ? "network_intel_node" : isConnected ? "link" : isHidden ? "visibility_off" : "visibility";
       return _.div(
         {
           class: `tl-flow-port-manager-row${isConnected ? " is-linked" : ""}${isHidden ? " is-hidden" : ""}`,
@@ -1559,7 +1621,7 @@ const renderInspectorPorts = (node, side = "in") => {
           { class: "tl-flow-port-manager-actions" },
           btn({
             class: `tl-flow-port-icon${isConnected ? " is-linked" : ""}${isHidden ? " is-hidden" : ""}`,
-            disabled: isConnected,
+            disabled: isConnected || isControlPort,
             "aria-label": visibilityTitle,
             title: visibilityTitle,
             onclick: () => togglePortVisibility(port),

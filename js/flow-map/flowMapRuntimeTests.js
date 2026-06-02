@@ -23,6 +23,9 @@ const isDirectAiTestNode = (node = {}) =>
   node.type === "aiAgent" &&
   !["paused", "disabled", "disconnected"].includes(String(node.runtime?.status || node.metadata?.runtimeStatus || node.status || "").toLowerCase());
 
+const isOrchestratorAgentNode = (node = {}) =>
+  node.type === "aiAgent" && String(nodeSubtype(node) || "").toLowerCase() === "orchestrator";
+
 const isManualInputSource = (node = {}) => {
   const subtype = String(nodeSubtype(node) || "").toLowerCase();
   return nodeCategory(node) === "sources" && ["manual-json", "text-input", "manual-input", "image-source", "audio-source", "file-source", "files-source"].includes(subtype);
@@ -469,6 +472,60 @@ const executeDirectAiAgentNode = async ({ node, workspaceId, runId, graph } = {}
     context: { action: "flow-map-ai-direct-test", runId, inputChannel: channel, payloadPreview: compactPayloadPreview(payload, 220) },
   });
   return { channels: [channel, outputChannel].filter(Boolean), payload: result || payload };
+};
+
+const executeDirectOrchestratorAgentNode = async ({ node, workspaceId, runId, graph } = {}) => {
+  const channel = aiDirectInputChannel(node, graph);
+  const payload = nodeTestPayload(node, runId);
+  const bus = workspaceEventBus(workspaceId);
+  const event = await bus?.emit?.(channel, payload, {
+    workspaceId,
+    flowId: flowIdForWorkspace(workspaceId),
+    eventType: "flow_live_orchestrator_direct",
+    sourceNodeId: "flow-map-orchestrator-direct-test",
+    targetNodeId: node.id,
+    latencyMs: 1,
+    meta: {
+      live: true,
+      runId,
+      origin: "orchestrator-direct-test",
+      targetNodeId: node.id,
+      inputChannel: channel,
+      flowMapDirectOrchestratorExecution: true,
+    },
+  });
+  if (event) mergeRuntimeEvent(event);
+  const runtime = window.TrackerLensOrchestratorAgentRuntime?.get?.(workspaceId);
+  if (!runtime?.execute) return { channels: [channel], result: null };
+  const result = await runtime.execute({
+    node,
+    payload,
+    event: event || {
+      channel,
+      payload,
+      meta: { runId },
+      sourceNodeId: "flow-map-orchestrator-direct-test",
+      targetNodeId: node.id,
+    },
+    runtime: graph,
+  });
+  await recordFlowAction({
+    workspaceId,
+    nodeId: node.id,
+    message: `Direct Orchestrator executed: ${node.label || node.id}`,
+    context: {
+      action: "flow-map-orchestrator-direct-response",
+      runId,
+      inputChannel: channel,
+      decision: result?.decision || "",
+      emitted: result?.emitted || [],
+      skipped: result?.skipped || [],
+    },
+  });
+  return {
+    channels: [channel, ...(result?.emitted || []).map((item) => item.channel).filter(Boolean)],
+    result,
+  };
 };
 
 const downstreamTestPath = (graph = {}, starterIds = []) => {
@@ -1067,6 +1124,7 @@ const waitForMinimumTestAnimation = async (startedAt = "") => {
 };
 
 const runtimeKindForNode = (node = {}) => {
+  if (isOrchestratorAgentNode(node)) return "orchestrator";
   if (node.type === "aiAgent") return "ai";
   if (node.type === "storage") return "storage";
   if (node.type === "action") return "action";
@@ -1654,8 +1712,10 @@ const runFlowMapLiveTest = async (starterNode = null) => {
     for (const node of starters) {
       if (abortController.signal.aborted) return;
       setTestRunActiveNodes(graph, [node.id]);
-      const result = isDirectAiTestNode(node)
-        ? await executeDirectAiAgentNode({ node, workspaceId, runId, graph, signal: abortController.signal })
+      const result = isOrchestratorAgentNode(node)
+        ? await executeDirectOrchestratorAgentNode({ node, workspaceId, runId, graph, signal: abortController.signal })
+        : isDirectAiTestNode(node)
+          ? await executeDirectAiAgentNode({ node, workspaceId, runId, graph, signal: abortController.signal })
         : await executeLiveNode({ node, workspaceId, runId, graph, signal: abortController.signal });
       if (abortController.signal.aborted) return;
       (result.channels || []).forEach((channel) => emittedChannels.add(channel));

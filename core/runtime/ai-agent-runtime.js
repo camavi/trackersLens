@@ -51,6 +51,8 @@ window.TrackerLensAiAgentRuntime = (() => {
     cooldownMs: agent.runtime?.cooldownMs ?? 0,
     queueLimit: agent.runtime?.queueLimit ?? 25,
     parallelJobs: agent.runtime?.parallelJobs ?? 1,
+    maxConcurrentTasks: agent.runtime?.parallelJobs ?? agent.runtime?.maxConcurrentTasks ?? 1,
+    dropPolicy: agent.runtime?.dropPolicy || "queue",
     providerProfile: agent.provider?.profileId || "",
     provider: agent.provider?.providerType || agent.provider?.provider || "ollama",
     providerType: agent.provider?.providerType || agent.provider?.provider || "ollama",
@@ -65,6 +67,8 @@ window.TrackerLensAiAgentRuntime = (() => {
     requiredInputs: splitList(agent.channels?.requiredInputs).join(", "),
     contextSources: splitList(agent.channels?.contextSources).join(", "),
     eventTriggers: splitList(agent.channels?.eventTriggers).join(", "),
+    inputDataMode: agent.channels?.inputDataMode || "latest",
+    inputHistoryLimit: agent.channels?.inputHistoryLimit ?? 5,
     output: agent.channels?.outputChannel || agent.channels?.outputs?.[0] || `ai.${agent.runtime?.agentType || "agent"}.output`,
     outputFormat: agent.channels?.outputFormat || "json",
     emitStrategy: agent.channels?.emitStrategy || "on_success",
@@ -106,6 +110,7 @@ window.TrackerLensAiAgentRuntime = (() => {
 
   const isRunnableAgent = (node = {}) =>
     (node.type === "aiAgent" || node.metadata?.category === "ai-agents") &&
+    nodeSubtype(node) !== "orchestrator" &&
     !node.metadata?.library &&
     !node.metadata?.draft &&
     isEventDrivenExecutionMode(agentExecutionMode(node)) &&
@@ -121,6 +126,9 @@ window.TrackerLensAiAgentRuntime = (() => {
 
   const agentOutput = (node = {}, config = {}) =>
     config.output || node.outputs?.[0] || node.channels?.[0] || `${nodeSubtype(node) || "ai"}.response`;
+
+  const inputDataMode = (config = {}) =>
+    String(config.inputDataMode || config.inputRequestMode || "latest").toLowerCase();
 
   const compactJson = (value, max = 2600) => {
     let text = "";
@@ -142,8 +150,45 @@ window.TrackerLensAiAgentRuntime = (() => {
       `\nNode: ${node.label || node.id}`,
       `Role: ${config.agentType || subtype || "agent"}`,
       `Input channel: ${event.channel || "default"}`,
+      config.inputDataContext ? `Input data context:\n${compactJson(config.inputDataContext)}` : "",
       `Payload:\n${compactJson(payload)}`,
     ].filter(Boolean).join("\n");
+  };
+
+  const collectInputDataContext = async ({ node, event, workspaceId, config = {}, runtime = {} } = {}) => {
+    const mode = inputDataMode(config);
+    if (mode === "off" || mode === "none") return null;
+    const historyLimit = Math.max(1, Math.min(50, Number(config.inputHistoryLimit || 5)));
+    const dependencyInputs = (runtime.dependencies || [])
+      .filter((dependency) => dependency.targetNodeId === node.id)
+      .map((dependency) => dependency.channel || dependency.metadata?.targetPort)
+      .filter(Boolean);
+    const inputChannels = unique([...(node.inputs || []), ...(node.channels || []), ...dependencyInputs])
+      .filter((channel) => channel && channel !== event?.channel);
+    if (!inputChannels.length) return null;
+    const events = await window.TrackerLensEventLogStore?.listEvents?.().catch(() => []);
+    const byChannel = {};
+    const workspaceAliases = new Set([workspaceId || "workspace_global", workspaceId === "workspace_global" ? "global" : "workspace_global"]);
+    inputChannels.forEach((channel) => {
+      const channelEvents = (events || [])
+        .filter((item) => workspaceAliases.has(item.workspaceId || "global"))
+        .filter((item) => item.channel === channel)
+        .sort((a, b) => Date.parse(b.createdAt || 0) - Date.parse(a.createdAt || 0));
+      byChannel[channel] = {
+        required: String(config.requiredInputChannels || "").split(/[\n,]+/).map((item) => item.trim()).includes(channel),
+        latest: channelEvents[0]?.payload ?? null,
+        latestAt: channelEvents[0]?.createdAt || "",
+        history: mode === "history" || mode === "latest_history"
+          ? channelEvents.slice(0, historyLimit).map((item) => ({
+            eventId: item.id,
+            eventType: item.eventType,
+            createdAt: item.createdAt,
+            payload: item.payload,
+          }))
+          : [],
+      };
+    });
+    return byChannel;
   };
 
   const fallbackResponse = ({ node, payload, event, reason = "" }) => {
@@ -276,6 +321,8 @@ window.TrackerLensAiAgentRuntime = (() => {
       this.signature = "";
       this.bus = null;
       this.executionKeys = new Set();
+      this.runtime = { nodes: [], dependencies: [] };
+      this.execution = window.TrackerLensNodeExecutionController?.get?.(this.workspaceId) || null;
     }
 
     stop() {
@@ -328,6 +375,8 @@ window.TrackerLensAiAgentRuntime = (() => {
 
     start({ runtime = {}, workspaceId = this.workspaceId } = {}) {
       this.workspaceId = workspaceId || this.workspaceId || "workspace_global";
+      this.runtime = runtime || { nodes: [], dependencies: [] };
+      this.execution = window.TrackerLensNodeExecutionController?.get?.(this.workspaceId) || this.execution;
       const nextSignature = this.buildSignature(runtime);
       if (nextSignature === this.signature && this.bus) return this;
       this.stop();
@@ -353,8 +402,10 @@ window.TrackerLensAiAgentRuntime = (() => {
       return this;
     }
 
-    async execute({ node, payload, event }) {
+    async performExecution({ node, payload, event }) {
       const config = await resolveNodeConfig(node);
+      const inputDataContext = await collectInputDataContext({ node, event, workspaceId: this.workspaceId, config, runtime: this.runtime });
+      const promptConfig = inputDataContext ? { ...config, inputDataContext } : config;
       const provider = await pickProvider(config);
       const model = String(config.model || provider?.model || "local-model");
       const memory = await window.TrackerLensAiRuntimeStore?.buildMemoryContext?.({
@@ -363,7 +414,7 @@ window.TrackerLensAiAgentRuntime = (() => {
         query: event.channel || nodeSubtype(node),
         limit: 6,
       }).catch(() => "");
-      const prompt = buildPrompt({ node, payload, event, memory, config });
+      const prompt = buildPrompt({ node, payload, event, memory, config: promptConfig });
       const jobId = `ai_job_${node.id}_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
       const runId = event.meta?.runId || payload?.runId || "";
       await window.TrackerLensAiRuntimeStore?.upsertJob?.({
@@ -375,6 +426,7 @@ window.TrackerLensAiAgentRuntime = (() => {
         task: event.channel || "runtime event",
         prompt,
         memoryContext: memory,
+        inputDataContext,
         status: "running",
         provider: provider?.name || provider?.provider || "fallback",
         model,
@@ -405,6 +457,7 @@ window.TrackerLensAiAgentRuntime = (() => {
           inputChannel: event.channel || "",
           prompt,
           memoryContext: memory,
+          inputDataContext,
         };
         await window.TrackerLensAiRuntimeStore?.upsertJob?.({
           id: jobId,
@@ -421,6 +474,7 @@ window.TrackerLensAiAgentRuntime = (() => {
           cost: result.cost,
           prompt,
           memoryContext: memory,
+          inputDataContext,
           result,
           updatedAt: new Date().toISOString(),
         });
@@ -449,6 +503,22 @@ window.TrackerLensAiAgentRuntime = (() => {
         });
         return result;
       }
+    }
+
+    async execute({ node, payload, event }) {
+      const runner = () => this.performExecution({ node, payload, event });
+      if (!this.execution?.enqueue) return runner();
+      return this.execution.enqueue({
+        node,
+        bus: this.bus,
+        task: runner,
+        context: {
+          runtime: "ai-agent",
+          inputEventId: event?.id || "",
+          inputChannel: event?.channel || "",
+          runId: event?.meta?.runId || payload?.runId || "",
+        },
+      });
     }
 
     async handleEvent({ node, payload, event }) {

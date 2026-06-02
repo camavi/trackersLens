@@ -464,6 +464,15 @@ textarea.tl-flow-menu-input {
   font-weight: 800;
 }
 
+.tl-flow-edge-label.is-agent-control {
+  border-color: rgba(34, 211, 238, 0.7);
+  background:
+    linear-gradient(90deg, rgba(34, 211, 238, 0.18), rgba(3, 9, 14, 0.92)),
+    rgba(3, 9, 14, 0.95);
+  color: rgb(165, 243, 252);
+  box-shadow: 0 0 18px rgba(34, 211, 238, 0.22);
+}
+
 .tl-flow-edge-label.is-live::before {
   content: "";
   width: 5px;
@@ -506,6 +515,61 @@ textarea.tl-flow-menu-input {
   touch-action: none;
 }
 
+.tl-flow-node.is-agent-bridge {
+  width: 58px;
+  min-height: 58px;
+  height: 58px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border-width: 2px;
+  border-radius: 999px;
+  background:
+    radial-gradient(circle at 34% 24%, rgba(255, 255, 255, 0.18), transparent 34%),
+    radial-gradient(circle, rgba(34, 211, 238, 0.18), rgba(3, 9, 14, 0.96) 72%);
+  box-shadow:
+    inset 0 0 0 3px rgba(226, 232, 240, 0.2),
+    0 0 0 1px rgba(34, 211, 238, 0.28),
+    0 0 30px rgba(34, 211, 238, 0.28);
+}
+
+.tl-flow-node.is-agent-bridge .tl-flow-node-title,
+.tl-flow-node.is-agent-bridge .tl-flow-node-badges,
+.tl-flow-node.is-agent-bridge .tl-flow-node-quick-actions,
+.tl-flow-node.is-agent-bridge .tl-flow-node-settings,
+.tl-flow-node.is-agent-bridge .tl-flow-node-footer {
+  display: none;
+}
+
+.tl-flow-node.is-agent-bridge .tl-flow-node-body {
+  display: grid;
+  place-items: center;
+  padding: 0;
+}
+
+.tl-flow-agent-bridge-core {
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  display: grid;
+  place-items: center;
+  color: rgb(248, 250, 252);
+}
+
+.tl-flow-agent-bridge-core>.cms-icon {
+  width: 34px;
+  height: 34px;
+  display: grid;
+  place-items: center;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+  font-size: 40px;
+  margin: 10px 0 0 -10px;
+  transform: rotate(-90deg);
+  filter: drop-shadow(0 1px 0 rgba(3, 9, 14, 0.9)) drop-shadow(0 0 9px rgba(255, 255, 255, 0.32));
+}
+
 .tl-flow-node-port {
   position: absolute;
   z-index: 4;
@@ -533,10 +597,61 @@ textarea.tl-flow-menu-input {
   transform: translate(-100%, -50%);
 }
 
+.tl-flow-node-port.is-bridge-right-input {
+  left: auto;
+  right: 1px;
+  transform: translate(100%, -50%);
+}
+
 .tl-flow-node-port.is-output {
   right: 1px;
   cursor: crosshair;
   transform: translate(100%, -50%);
+}
+
+.tl-flow-node-port.is-agent-control,
+.tl-flow-node-port.is-agent-control-port {
+  min-width: 27px;
+  width: 27px;
+  height: 23px;
+  padding: 0;
+  border-radius: 9px;
+  border-color: rgba(34, 211, 238, 0.92);
+  background:
+    linear-gradient(90deg, rgba(34, 211, 238, 0.2), rgba(34, 211, 238, 0.06)),
+    rgba(3, 9, 14, 0.97);
+  box-shadow:
+    inset 0 0 0 1px rgba(34, 211, 238, 0.28),
+    0 0 18px rgba(34, 211, 238, 0.34);
+  color: rgb(165, 243, 252);
+}
+
+.tl-flow-node-port.is-agent-control .cms-icon,
+.tl-flow-node-port.is-agent-control-port .cms-icon {
+  position: relative;
+  z-index: 1;
+  font-size: 15px;
+  line-height: 1;
+  filter: none;
+}
+
+.tl-flow-node-port.is-agent-control::after,
+.tl-flow-node-port.is-agent-control-port::after {
+  content: "";
+}
+
+.tl-flow-node-port.is-bridge-action {
+  border-color: rgba(34, 211, 238, 0.92);
+  background: rgba(3, 9, 14, 0.95);
+  color: rgba(248, 250, 252, 0.96);
+  box-shadow: 0 0 16px rgba(34, 211, 238, 0.28);
+}
+
+.tl-flow-node-port.is-bridge-listening {
+  border-color: rgba(34, 211, 238, 0.92);
+  background: rgba(3, 9, 14, 0.95);
+  color: rgba(248, 250, 252, 0.96);
+  box-shadow: 0 0 16px rgba(34, 211, 238, 0.28);
 }
 
 .tl-flow-node-port.is-pass {
@@ -548,6 +663,14 @@ textarea.tl-flow-menu-input {
 
 .tl-flow-node-port.is-connected {
   background: rgb(var(--node-rgb, 214, 226, 235));
+}
+
+.tl-flow-node-port.is-agent-control-port.is-connected,
+.tl-flow-node-port.is-agent-control.is-connected {
+  background:
+    linear-gradient(90deg, rgba(34, 211, 238, 0.2), rgba(34, 211, 238, 0.06)),
+    rgba(3, 9, 14, 0.97);
+  color: rgb(165, 243, 252);
 }
 
 .tl-flow-node-port.is-any {
@@ -644,6 +767,17 @@ textarea.tl-flow-menu-input {
   border-color: rgba(255, 199, 44, 0.82);
   box-shadow: 0 0 0 1px rgba(255, 199, 44, 0.24), 0 0 34px rgba(255, 199, 44, 0.2);
   animation: tl-ai-node-thinking 1.45s ease-in-out infinite;
+}
+
+.tl-flow-node.is-busy,
+.tl-flow-node.is-queued {
+  border-color: rgba(255, 199, 44, 0.72);
+  box-shadow: 0 0 0 1px rgba(255, 199, 44, 0.18), 0 0 24px rgba(255, 199, 44, 0.14);
+}
+
+.tl-flow-node.is-overloaded {
+  border-color: rgba(248, 113, 113, 0.82);
+  box-shadow: 0 0 0 1px rgba(248, 113, 113, 0.2), 0 0 28px rgba(248, 113, 113, 0.16);
 }
 
 .tl-flow-node.is-test-path {

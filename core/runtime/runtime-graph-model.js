@@ -12,6 +12,7 @@ window.TrackerLensRuntimeGraphModel = (() => {
     "Existing Tracker": { tone: "orange", icon: "dataset_linked" },
     "Realtime Tracker": { tone: "orange", icon: "sync_alt" },
     "Polling Tracker": { tone: "gold", icon: "update" },
+    "Agent Bridge": { tone: "cyan", icon: "network_node" },
     Filter: { tone: "purple", icon: "filter_alt" },
     Transform: { tone: "purple", icon: "tune" },
     Condition: { tone: "purple", icon: "alt_route" },
@@ -36,6 +37,7 @@ window.TrackerLensRuntimeGraphModel = (() => {
     "AI Router": { tone: "pink", icon: "alt_route" },
     "AI Debugger": { tone: "violet", icon: "bug_report" },
     "AI Decision": { tone: "pink", icon: "rule" },
+    "Orchestrator Agent": { tone: "gold", icon: "hub" },
     "Box Lens": { tone: "blue", icon: "dashboard" },
     "Chart Lens": { tone: "cyan", icon: "insert_chart" },
     "Stats Lens": { tone: "blue", icon: "monitoring" },
@@ -211,9 +213,14 @@ window.TrackerLensRuntimeGraphModel = (() => {
       (graph.nodes || []).forEach((node) => {
         if (related.includes(node.id) || nodeChannels(node).includes(event.channel)) {
           const current = nodeActivity.get(node.id) || { count: 0, status: "ok", lastAt: event.createdAt };
+          const runtimeStatus = ["busy", "queued", "overloaded", "idle"].includes(String(event.status || "").toLowerCase())
+            ? String(event.status).toLowerCase()
+            : "";
           nodeActivity.set(node.id, {
             count: current.count + 1,
-            status: event.status === "error" || event.eventType === "error" || current.status === "error" ? "error" : "ok",
+            status: event.status === "error" || event.eventType === "error" || current.status === "error"
+              ? "error"
+              : runtimeStatus || current.status || "ok",
             lastAt: Date.parse(current.lastAt) > created ? current.lastAt : event.createdAt,
           });
         }

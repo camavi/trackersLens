@@ -244,6 +244,19 @@ const syncAiAgentRuntime = (workspaceId = state.filters.workspaceId) => {
   }
 };
 
+const syncOrchestratorAgentRuntime = (workspaceId = state.filters.workspaceId) => {
+  if (!window.TrackerLensOrchestratorAgentRuntime?.get) return;
+  const id = workspaceId || "workspace_global";
+  try {
+    window.TrackerLensOrchestratorAgentRuntime.get(id).start({
+      workspaceId: id,
+      runtime: state.runtime,
+    });
+  } catch (error) {
+    console.warn("Orchestrator Agent runtime non avviato", error);
+  }
+};
+
 const syncBackgroundRuntime = (workspaceId = state.filters.workspaceId) => {
   if (!window.TrackerLensRuntimeWorker?.start) return false;
   const id = workspaceId || "workspace_global";
@@ -266,6 +279,7 @@ const syncPageRuntimes = (workspaceId = state.filters.workspaceId) => {
   syncActionRuntime(workspaceId);
   syncStorageRuntime(workspaceId);
   syncAiAgentRuntime(workspaceId);
+  syncOrchestratorAgentRuntime(workspaceId);
 };
 
 const setFiltersState = (filters) => {
@@ -968,7 +982,10 @@ const updateLiveClasses = (graph, activity) => {
     element.classList.toggle("is-live", Boolean(live) || activeTestNode || processingNode);
     element.classList.toggle("is-event-active", Boolean(live) || activeTestNode || processingNode);
     element.classList.toggle("is-ai-processing", processingNode);
-    element.classList.toggle("is-error", live?.status === "error");
+    element.classList.toggle("is-busy", live?.status === "busy");
+    element.classList.toggle("is-queued", live?.status === "queued");
+    element.classList.toggle("is-overloaded", live?.status === "overloaded");
+    element.classList.toggle("is-error", live?.status === "error" || live?.status === "overloaded");
   });
 
   (graph.dependencies || []).forEach((dependency) => {
@@ -1044,8 +1061,9 @@ const nodeRuntimeStatus = (node = {}, live = null) => {
   const raw = node.runtime?.status || node.metadata?.runtimeStatus || node.status || (live ? "active" : "idle");
   const status = isDraftNode(node) ? "idle" : String(raw || "idle").toLowerCase();
   if (live?.status === "error") return "error";
+  if (["busy", "queued", "overloaded"].includes(live?.status)) return live.status;
   if (status === "active" && live) return "running";
-  return ["idle", "active", "running", "warning", "paused", "error", "disconnected", "disabled"].includes(status) ? status : "idle";
+  return ["idle", "active", "running", "busy", "queued", "overloaded", "warning", "paused", "error", "disconnected", "disabled"].includes(status) ? status : "idle";
 };
 
 const nodeCategory = (node = {}) =>
@@ -1061,6 +1079,7 @@ const nodeRuntimeDescription = (node = {}, live = null) => {
   if (category === "dev" || node.type === "devPreview") return "Development probe showing raw and JSON payloads passing through the graph.";
   if (category === "trackers" || node.type === "boxTracker") return "Data orchestrator emitting structured runtime channels.";
   if (category === "processors" || node.type === "processor") return "Stateless transformation node for runtime events.";
+  if (node.type === "aiAgent" && nodeSubtype(node) === "orchestrator") return "Central runtime brain that decides and dispatches connected nodes.";
   if (category === "ai-agents" || node.type === "aiAgent") return "AI decision node for analysis, routing and interpretation.";
   if (category === "lens" || node.type === "boxLens" || node.type === "lens") return "Visual runtime consumer rendering live channel state.";
   if (category === "actions" || node.type === "action") return "Active runtime reaction triggered by events.";

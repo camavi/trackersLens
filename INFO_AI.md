@@ -6227,3 +6227,89 @@ Verifiche eseguite:
 - `node --check core/runtime/runtime-graph-model.js`
 - `curl -I http://127.0.0.1:3031/js/flowMapView.js`
 - `curl -I http://127.0.0.1:3031/core/runtime/runtime-graph-model.js`
+
+## Aggiornamento 2026-06-01 - Orchestrator Agent Flow Map
+
+Obiettivo della sessione: introdurre il primo nodo centrale di orchestrazione runtime dentro Flow Map, senza trasformarlo in un clone di ComfyUI ma mantenendo la direzione Trackers Lens come AI Runtime Operating Environment locale.
+
+Fatto:
+
+- `js/flow-map/flowMapNodeBuilder.js`:
+  - aggiunto `Orchestrator Agent` nella palette `AI Agents`;
+  - il nodo usa subtype `orchestrator`, porte `task`, `decision`, `action`, `done`, `error` e permessi `ai.invoke`, `graph.dispatch`, `channel.emit`.
+- `core/runtime/orchestrator-agent-runtime.js`:
+  - nuovo runtime workspace-scoped;
+  - ascolta i channel input dell'Orchestrator;
+  - legge i nodi direttamente collegati in uscita;
+  - costruisce un piano decisionale tracciabile;
+  - emette step verso i channel downstream tramite Event Bus;
+  - registra decisioni, step saltati, payload preview, runId e latenza nei flow log e AI logs;
+  - blocca target non permessi, non configurati o action esterne quando `requireConfirmation` e' attivo.
+- `core/runtime/runtime-worker.js` e `js/flow-map/flowMapState.js`:
+  - il runtime Orchestrator viene avviato dal worker condiviso e dal fallback in-page della Flow Map.
+- `js/flow-map/flowMapRuntimeNodes.js` e `css/flow-map/inspector-config.css`:
+  - aggiunto dialog professionale `Orchestrator Agent` con sezioni Goal, Execution, Dispatch, Safety e Direct test payload;
+  - il salvataggio aggiorna runtime node, manifest, channel registry e flow log.
+- `js/flow-map/flowMapRuntimeTests.js`:
+  - il play diretto dei nodi Orchestrator esegue il runtime dedicato e propaga gli step collegati.
+
+Verifiche eseguite:
+
+- `node --check core/runtime/orchestrator-agent-runtime.js`
+- `node --check core/runtime/runtime-worker.js`
+- `node --check js/flow-map/flowMapState.js`
+- `node --check js/flow-map/flowMapRuntimeNodes.js`
+- `node --check js/flow-map/flowMapRuntimeTests.js`
+- `node --check core/runtime/ai-agent-runtime.js`
+
+Punto ancora da estendere: in una milestone successiva l'Orchestrator potra usare un provider AI locale/cloud per generare piani piu ricchi; la prima versione e gia operativa e deterministica sul grafo collegato, cosi resta ispezionabile e sicura.
+
+## Aggiornamento 2026-06-01 - Node Execution Capacity e Agent Data Request
+
+Obiettivo della sessione: rendere i nodi runtime piu robusti sotto carico e rendere gli AI Agent piu autonomi sui dati in ingresso.
+
+Fatto:
+
+- `core/runtime/node-execution-controller.js`:
+  - aggiunto controller condiviso `TrackerLensNodeExecutionController`;
+  - ogni nodo puo definire `maxConcurrentTasks` / `parallelJobs`, `queueLimit`, `timeoutMs` e `dropPolicy` (`queue`, `reject`, `latest`);
+  - quando un nodo lavora emette eventi `node_busy`, `node_queued`, `node_overloaded` e `node_idle` sul bus runtime.
+- Runtime integrati:
+  - `core/runtime/processor-runtime.js`;
+  - `core/runtime/action-runtime.js`;
+  - `core/runtime/storage-runtime.js`;
+  - `core/runtime/ai-agent-runtime.js`;
+  - `core/runtime/orchestrator-agent-runtime.js`.
+- `js/tl-ai-agent-editor.js`:
+  - il tab Runtime espone anche `Drop Policy`;
+  - il tab Inputs espone `Input Data Request` e `Input History Limit`.
+- `core/runtime/ai-agent-runtime.js`:
+  - prima di costruire il prompt, l'agente puo leggere latest/history dagli eventi recenti dei channel IN collegati;
+  - il contesto viene salvato nei job AI come `inputDataContext` e incluso nel prompt.
+- `js/flow-map/flowMapRuntimeNodes.js`:
+  - i settings generici dei nodi runtime includono la sezione `Execution capacity`;
+  - il dialog Orchestrator include anche Capacity (`Max concurrent tasks`, `Queue limit`, `Timeout`, `Drop policy`).
+- Flow Map visuale:
+  - `core/runtime/runtime-graph-model.js`, `js/flow-map/flowMapState.js`, `js/flow-map/flowMapCanvasInspector.js` e `css/flow-map/canvas-nodes.css` mostrano busy/queued/overloaded come stato live del nodo.
+
+Verifiche eseguite:
+
+- `node --check core/runtime/node-execution-controller.js`
+- `node --check core/runtime/ai-agent-runtime.js`
+- `node --check core/runtime/orchestrator-agent-runtime.js`
+- `node --check core/runtime/processor-runtime.js`
+- `node --check core/runtime/action-runtime.js`
+- `node --check core/runtime/storage-runtime.js`
+- `node --check js/tl-ai-agent-editor.js`
+- `node --check js/flow-map/flowMapRuntimeNodes.js`
+- `node --check js/flow-map/flowMapState.js`
+- `node --check js/flow-map/flowMapCanvasInspector.js`
+
+Nota: l'Input Data Request in questa prima versione legge gli eventi gia disponibili nei channel IN collegati. Il passo successivo sara un protocollo esplicito request/response fra agenti e nodi provider dati.
+
+Update 2026-06-01 - Agent Control Port:
+- Aggiunta porta virtuale `agent_control` di tipo `agent-control` su ogni nodo runtime, separata dalle porte dati reali.
+- La porta usa icona `network_intel_node`, colore cyan e link canvas a doppia linea.
+- La compatibilita dei link permette `agent_control` solo da AI Agent o dal nuovo `Agent Bridge`.
+- Aggiunto `Agent Bridge` in palette `Processors` con icona `network_node`, card tonda compatta, input AI/control a sinistra e output `action`/`listening` a destra.
+- `Agent Bridge` gestisce la direzione runtime: eventi agentici/control emettono su `action`; `listening` rappresenta la porta di aggancio per l'attesa/risposta del nodo controllato.

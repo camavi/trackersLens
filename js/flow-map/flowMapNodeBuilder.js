@@ -76,14 +76,16 @@ const nodeManifest = ({
   execute = null,
   persist = null,
 }) => {
+  const manifestInputs = category === "sources" && !inputs.length
+    ? sourceConfigInputPorts(subtype)
+    : inputs;
   const manifest = {
     version: "1.0.0",
     runtimeVersion: window.TrackerLensRuntimeManifest?.RUNTIME_VERSION || "0.1.0",
     type,
     subtype,
     category,
-    inputs: (category === "sources" ? sourceConfigInputPorts(subtype) : inputs)
-      .map((port) => manifestPortDef(port, category === "lens" ? "any" : "object")),
+    inputs: manifestInputs.map((port) => manifestPortDef(port, category === "lens" ? "any" : "object")),
     outputs: outputs.map((port) => manifestPortDef(port, "object")),
     permissions,
     settingsSchema,
@@ -174,6 +176,7 @@ const nodePalette = [
     paletteNode({ label: "Polling Tracker", icon: "update", tone: "gold", nodeType: "boxTracker", subtype: "polling", category: "trackers", inputs: ["raw"], outputs: ["channel"], permissions: ["channel.emit"], trackerSource: "rest", runtimeMode: "interval" }),
   ]],
   ["Processors", [
+    paletteNode({ label: "Agent Bridge", icon: "network_node", tone: "cyan", nodeType: "processor", subtype: "agent-bridge", category: "processors", inputs: ["agent_control", "listening"], outputs: ["action"], permissions: ["graph.dispatch", "channel.emit"], settingsSchema: { support: "single-agent" }, runtime: { bridge: true, controlPort: "agent_control", compact: true }, connectionType: "Agent Bridge" }),
     paletteNode({ label: "Filter", icon: "filter_alt", tone: "purple", nodeType: "processor", subtype: "filter", category: "processors", inputs: ["input"], outputs: ["output"], connectionType: "Processor: Filter" }),
     paletteNode({ label: "Transform", icon: "tune", tone: "purple", nodeType: "processor", subtype: "transform", category: "processors", inputs: ["input"], outputs: ["output"], connectionType: "Processor: Transform" }),
     paletteNode({ label: "Condition", icon: "alt_route", tone: "purple", nodeType: "processor", subtype: "condition", category: "processors", inputs: ["input"], outputs: ["true", "false"], connectionType: "Processor: Condition" }),
@@ -191,6 +194,7 @@ const nodePalette = [
   ]],
   ["AI Agents", [
     paletteNode({ label: "Existing Agents", icon: "inventory_2", tone: "gold", nodeType: "aiAgent", subtype: "existing", category: "ai-agents", inputs: ["input"], outputs: ["analysis"], permissions: ["ai.invoke"] }),
+    paletteNode({ label: "Orchestrator Agent", icon: "hub", tone: "gold", nodeType: "aiAgent", subtype: "orchestrator", category: "ai-agents", inputs: ["task"], outputs: ["decision", "action", "done", "error"], permissions: ["ai.invoke", "graph.dispatch", "channel.emit"], settingsSchema: { goal: "string", executionMode: "on_event|manual|continuous", allowedNodeTypes: "array", maxSteps: "number", requireConfirmation: "boolean" }, runtime: { executionMode: "on_event", orchestrator: true }, connectionType: "AI Orchestrator" }),
     paletteNode({ label: "AI Analyzer", icon: "psychology", tone: "gold", nodeType: "aiAgent", subtype: "analyzer", category: "ai-agents", inputs: ["input"], outputs: ["analysis"], permissions: ["ai.invoke"], url: "ai.html" }),
     paletteNode({ label: "AI Sentiment", icon: "mood", tone: "pink", nodeType: "aiAgent", subtype: "sentiment", category: "ai-agents", inputs: ["input"], outputs: ["sentiment"], permissions: ["ai.invoke"], url: "ai.html" }),
     paletteNode({ label: "AI Summarizer", icon: "summarize", tone: "violet", nodeType: "aiAgent", subtype: "summarizer", category: "ai-agents", inputs: ["input"], outputs: ["summary"], permissions: ["ai.invoke"], url: "ai.html" }),

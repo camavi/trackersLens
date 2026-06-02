@@ -135,6 +135,7 @@ window.TrackerLensStorageRuntime = (() => {
       this.signature = "";
       this.bus = null;
       this.memory = new Map();
+      this.execution = window.TrackerLensNodeExecutionController?.get?.(this.workspaceId) || null;
     }
 
     stop() {
@@ -176,6 +177,7 @@ window.TrackerLensStorageRuntime = (() => {
 
     start({ runtime = {}, workspaceId = this.workspaceId } = {}) {
       this.workspaceId = workspaceId || this.workspaceId || "workspace_global";
+      this.execution = window.TrackerLensNodeExecutionController?.get?.(this.workspaceId) || this.execution;
       const nextSignature = this.buildSignature(runtime);
       if (nextSignature === this.signature && this.bus) return this;
       this.stop();
@@ -234,6 +236,22 @@ window.TrackerLensStorageRuntime = (() => {
 
     async handleEvent({ node, payload, event }) {
       if (!node?.id || event?.sourceNodeId === node.id || event?.meta?.storageRuntime === node.id) return;
+      const runner = () => this.performEvent({ node, payload, event });
+      if (!this.execution?.enqueue) return runner();
+      return this.execution.enqueue({
+        node,
+        bus: this.bus,
+        task: runner,
+        context: {
+          runtime: "storage",
+          inputEventId: event?.id || "",
+          inputChannel: event?.channel || "",
+          runId: event?.meta?.runId || payload?.runId || "",
+        },
+      });
+    }
+
+    async performEvent({ node, payload, event }) {
       const startedAt = performance.now();
       try {
         const record = await this.persist({ node, payload, event });
