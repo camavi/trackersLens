@@ -462,13 +462,8 @@ body.is-dragging-workspace-asset .tl-canvas {
   min-width: min(620px, 78vw);
 }
 
-.tl-tracker-link-search {
-  margin-bottom: 12px;
-}
-
-.tl-tracker-link-search .cms-control {
-  border-color: var(--tl-border-soft);
-  background: rgba(4, 9, 14, 0.54);
+.cms-field.tl-tracker-link-search {
+  margin-bottom: 16px;
 }
 
 .tl-tracker-link-card>.cms-card-body,
@@ -1058,7 +1053,7 @@ body.is-dragging-workspace-asset .tl-canvas {
   width: 100%;
 }
 
-.tl-shortcuts-row > span,
+.tl-shortcuts-row>span,
 .tl-help {
   min-height: 24px;
   display: inline-flex;

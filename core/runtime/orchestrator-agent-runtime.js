@@ -639,12 +639,33 @@ window.TrackerLensOrchestratorAgentRuntime = (() => {
     }, source);
   };
 
-  const transformValue = (source, expression = "") => {
+  const signalFromChangePercent = (value) => {
+    const numeric = Number(value);
+    if (!Number.isFinite(numeric)) return "normal";
+    if (numeric <= -3) return "drop_alert";
+    if (numeric >= 3) return "pump_alert";
+    return "normal";
+  };
+
+  const btcAlertMessage = (current = {}, source = {}) => {
+    const symbol = current.symbol || valueAtPath(source, "data.s") || "BTCUSDT";
+    const price = current.price ?? valueAtPath(source, "data.c") ?? "";
+    const changePercent = current.changePercent ?? valueAtPath(source, "data.P") ?? "";
+    const signal = current.signal || signalFromChangePercent(changePercent);
+    return [
+      `${symbol}${price !== "" ? ` ${price} USDT` : ""}`,
+      changePercent !== "" ? `Change: ${changePercent}%` : "",
+      `Signal: ${signal}`,
+    ].filter(Boolean).join("\n");
+  };
+
+  const transformValue = (source, expression = "", current = {}) => {
     if (typeof expression !== "string") return expression;
     const text = expression.trim();
     const numberPrefix = "number:";
     const stringPrefix = "string:";
     const boolPrefix = "bool:";
+    const signalPrefix = "signal:";
     if (text.startsWith(numberPrefix)) {
       const value = valueAtPath(source, text.slice(numberPrefix.length));
       const numeric = Number(value);
@@ -655,16 +676,24 @@ window.TrackerLensOrchestratorAgentRuntime = (() => {
       return value === undefined || value === null ? "" : String(value);
     }
     if (text.startsWith(boolPrefix)) return Boolean(valueAtPath(source, text.slice(boolPrefix.length)));
+    if (text === "btc_signal" || text === "signal") {
+      return signalFromChangePercent(current.changePercent ?? source.changePercent ?? valueAtPath(source, "data.P"));
+    }
+    if (text.startsWith(signalPrefix)) {
+      const path = text.slice(signalPrefix.length);
+      return signalFromChangePercent(current[path] ?? valueAtPath(source, path));
+    }
+    if (text === "btc_alert_message") return btcAlertMessage(current, source);
     const pathValue = valueAtPath(source, text);
     return pathValue === undefined ? expression : pathValue;
   };
 
   const applyTransform = (source, transform = null) => {
     if (!transform || typeof transform !== "object" || Array.isArray(transform)) return source;
-    return Object.fromEntries(Object.entries(transform).map(([key, expression]) => [
-      key,
-      transformValue(source, expression),
-    ]));
+    return Object.entries(transform).reduce((result, [key, expression]) => {
+      result[key] = transformValue(source, expression, result);
+      return result;
+    }, {});
   };
 
   const inferTransformFromTask = (taskPayload = {}) => {
@@ -675,6 +704,8 @@ window.TrackerLensOrchestratorAgentRuntime = (() => {
     if (/changepercent|change percent|percentuale|variazione/.test(text)) transform.changePercent = "number:data.P";
     if (/source|sorgente/.test(text)) transform.source = "Binance";
     if (/receivedat|received at|timestamp/.test(text)) transform.receivedAt = "receivedAt";
+    if (/signal|segnale/.test(text)) transform.signal = "btc_signal";
+    if (/message|messaggio/.test(text)) transform.message = "btc_alert_message";
     return Object.keys(transform).length ? transform : null;
   };
 
@@ -1017,7 +1048,10 @@ window.TrackerLensOrchestratorAgentRuntime = (() => {
       const rawPayload = payload?.payload && payload.nodeId && payload.channels
         ? payload.payload
         : payload;
-      const transform = step.transform || inferTransformFromTask(taskPayload);
+      const inferredTransform = inferTransformFromTask(taskPayload);
+      const transform = step.transform && inferredTransform
+        ? { ...inferredTransform, ...step.transform }
+        : step.transform || inferredTransform;
       const resultPayload = applyTransform(rawPayload, transform);
       const emittedEvent = await this.bus?.emit?.(emitChannel, resultPayload, {
         workspaceId: this.workspaceId,
