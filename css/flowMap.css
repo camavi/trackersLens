@@ -1,6 +1,7 @@
 /* Flow Map CSS entrypoint. Keep imports ordered; edit partials in css/flow-map/. */
 @import url("./flow-map/shell-palette.css");
 @import url("./flow-map/node-builder.css");
+@import url("./flow-map/prompt-chat.css");
 @import url("./flow-map/canvas-nodes.css");
 @import url("./flow-map/inspector-config.css");
 @import url("./flow-map/status-responsive.css");

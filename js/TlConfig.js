@@ -22,6 +22,7 @@ const tlConfig = {
     TL_FLOWS: 'tl_flows',
     TL_EVENTS: 'tl_events',
     TL_FLOW_LOGS: 'tl_flow_logs',
+    TL_FLOW_PROMPT_CHATS: 'tl_flow_prompt_chats',
     TL_AGENTS: 'tl_agents',
     TL_RUNTIME_NODES: 'tl_runtime_nodes',
     TL_RUNTIME_DEPENDENCIES: 'tl_runtime_dependencies',

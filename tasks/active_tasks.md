@@ -1,5 +1,62 @@
 # Active Tasks
 
+## [TASK-024]
+
+Title: Flow Map Prompt Chat Node Creator
+
+Priority: High
+
+Status: Complete
+
+Files:
+
+- `flowMap.html`
+- `js/TlConfig.js`
+- `js/flow-map/flowMapPromptChat.js`
+- `js/flow-map/flowMapCanvasInspector.js`
+- `css/flowMap.css`
+- `css/flow-map/prompt-chat.css`
+
+Dependencies:
+
+- `TrackerLensRuntimeGraphStore`
+- `TrackerLensChannelRegistry`
+- `CMSwift`
+
+Regression Risk:
+
+Medium
+
+Description:
+
+Add a Flow Map chat surface that turns a user prompt into runtime nodes and links, while checking existing workspace nodes before creating duplicates.
+
+Runtime Notes:
+
+- 2026-06-09: Added `AI Chat` above `Create Node` in the Flow Map palette.
+- 2026-06-09: The prompt skill builds a local plan for Sources/Task Node, Orchestrator Agent, AI Agents, Processors, Actions, Storage and Lens/Preview nodes.
+- 2026-06-09: Before materialization, the skill compares requested node characteristics against the current workspace graph and marks nodes/links as `reuse` or `create`.
+- 2026-06-09: `Create flow` persists new runtime nodes with `TrackerLensRuntimeGraphStore.upsertRuntimeNode`, registers channels through `TrackerLensChannelRegistry`, and creates missing dependencies with `upsertDependency`.
+- 2026-06-09: The dialog is now a real workspace-scoped chat with persistent IndexedDB history in `tl_flow_prompt_chats`: sessions, user prompts, assistant plans, materialization results and errors survive close/reload.
+- 2026-06-09: The chat now reads the global AI settings from `tl_settings`, uses the selected provider/model for planning (`Ollama` via `/api/generate`, LM Studio/OpenAI-compatible via `/v1/chat/completions`), normalizes the JSON plan against the Flow Map palette and falls back to the local heuristic planner if the provider is unavailable or returns invalid JSON.
+- 2026-06-09: Level 1 Flow Map Agent behavior added: the chat now routes read-only operational questions to an internal command layer instead of the node planner. It can report workspace inventory, links, channels, recent events/flow logs and basic structural diagnostics, with scoped IndexedDB fallback for runtime stores when in-memory state is not enough. Mutation requests are acknowledged as read-only until Level 2 apply-plan support.
+- 2026-06-09: Added GPT-style visible activity states to the Flow Map chat timeline. While busy, the dialog now shows an assistant thinking card with the current operation and step list for prompt receipt, intent classification, runtime/DB inspection, AI planning, duplicate checks and flow materialization.
+- 2026-06-09: Refined the prompt chat history sidebar with compact modern chat rows, active-state treatment and per-chat delete action backed by IndexedDB deletion.
+- 2026-06-09: Improved chat response routing so read-only Flow Map questions render intent-specific answers instead of the same generic report. Channel questions show channels, diagnostics questions show issues, runtime questions show logs/events, and non-Flow questions use the configured AI provider for a conversational answer without creating nodes.
+- 2026-06-09: Added the first Flow Map Agent query parser and tool layer. The chat now extracts entity/metric/filter for questions such as `quanti canali action`, returns filtered/synthetic results, exposes query tools for nodes/edges/channels/runtime/diagnostics, and supports a conservative Level 2 apply plan for simple `collega A a B` requests between unambiguous existing nodes.
+- 2026-06-09: Expanded Level 2 Flow Map Agent apply plans. The chat can now preview and apply safe batches for broken-link cleanup, node rename, simple node config/channel edits and node connections. Every apply captures a Time Travel snapshot first and result messages expose Undo when a snapshot is available.
+- 2026-06-09: Added AI command normalization before tool execution. Mutation prompts are first parsed locally, then unresolved/blocked commands can be normalized through the configured AI provider into a strict JSON action (`rename`, `connect`, `setConfig`, `setChannel`, `fix`); the app still validates the result through local Flow Map tools before showing Apply. Local aliases now include natural phrasing such as `cambia di nome X in Y`.
+- 2026-06-09: Fixed Apply button stale disabled state after agent reports by refreshing the dialog inside the `finally` block that clears `draft.busy`, including branches that return early after producing an agent report or conversational reply.
+- 2026-06-09: Agent apply plans are now single-use. After a successful Apply, the original plan is marked `applied`, persisted in chat history and rendered without an Apply button; older ready plans are also checked against the current runtime graph and treated as applied when their effect already exists. Undo is shown only on the result message when Time Travel produced a valid `snapshotId`.
+- 2026-06-09: Fixed the agent report diagnostics rendering so mutation prompts with query filters no longer show generic `Issue` rows; diagnostics now always render the real Flow Map issue title/detail with defensive fallbacks.
+- 2026-06-09: Mutation command responses are now task-focused: rename/connect/config apply plans no longer render global KPI cards or unrelated diagnostics unless the user explicitly asks for analysis, errors, runtime, nodes, links or channels.
+- 2026-06-09: Diagnostics reports now render as a compact expandable panel with error/warning counts in the summary, keeping agent answers minimal while preserving full issue details on demand.
+- 2026-06-09: The live AI activity card is now collapsible. The compact row shows `AI Flow Agent`, the current operation and the thinking animation, while expanding reveals detailed steps and can be closed again.
+- 2026-06-09: Compact prompt composer textarea to `rows=2` with reduced min-height and padding so the chat leaves more space for the conversation.
+- 2026-06-09: The Flow Chat intro suggestion now appears only for empty/new chats and includes a close button; dismissing it hides the suggestion for the current chat while new chats show it again.
+- 2026-06-09: Fixed prompt composer clipping by reducing Flow Chat body height on constrained viewports and reserving bottom space so the textarea stays above the dialog action bar.
+- Remaining: expose planner prompt/debug details in a developer inspector.
+
 ## [TASK-023]
 
 Title: AI Runtime Agent Architecture Editor

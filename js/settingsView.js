@@ -171,6 +171,14 @@ const settingsState = {
   notice: "",
   settings: clone(defaultSettings),
   providers: [],
+  aiModels: {
+    provider: "",
+    loading: false,
+    error: "",
+    items: [],
+    selected: "",
+    updatedAt: "",
+  },
   connections: [],
   stores: [],
   storage: {
@@ -479,6 +487,171 @@ const renderSelect = (label, value, options, onChange = null) =>
 const renderSettingSelect = (label, path, options) =>
   renderSelect(label, readPath(path), options, (value) => mutateSetting(path, value, { persist: true }));
 
+const normalizeProviderName = (value = "") =>
+  normalizeText(value).toLowerCase().replace(/[\s_-]+/g, "");
+
+const selectedAiProvider = () => {
+  const selected = normalizeProviderName(settingsState.settings.ai.provider);
+  return settingsState.providers.find((provider) =>
+    [provider.name, provider.provider, provider.id].some((value) => normalizeProviderName(value) === selected)
+  ) || null;
+};
+
+const fallbackProviderConfig = (name = settingsState.settings.ai.provider) => {
+  const key = normalizeProviderName(name);
+  if (key.includes("lmstudio")) {
+    return {
+      id: "local_lm_studio",
+      name: "LM Studio",
+      provider: "lm-studio",
+      endpoint: "http://127.0.0.1:1234/v1",
+      modelPath: "/models",
+    };
+  }
+  if (key.includes("ollama")) {
+    return {
+      id: "local_ollama",
+      name: "Ollama",
+      provider: "ollama",
+      endpoint: "http://127.0.0.1:11434",
+      modelPath: "/api/tags",
+    };
+  }
+  return null;
+};
+
+const activeAiProviderConfig = () =>
+  selectedAiProvider() || fallbackProviderConfig();
+
+const joinEndpointPath = (base = "", path = "") => {
+  const cleanBase = normalizeText(base).replace(/\/+$/, "");
+  const cleanPath = normalizeText(path).replace(/^\/+/, "");
+  if (!cleanBase) return "";
+  return cleanPath ? `${cleanBase}/${cleanPath}` : cleanBase;
+};
+
+const aiProviderModelPaths = (provider = {}) => {
+  const kind = normalizeProviderName(provider.provider || provider.name || provider.id);
+  if (kind.includes("ollama")) return [provider.modelPath || "/api/tags", "/api/tags"];
+  if (kind.includes("lmstudio") || kind.includes("lm-studio")) return [provider.modelPath || "/models", "/api/v1/models", "/v1/models"];
+  return [provider.modelPath, provider.healthPath, "/models", "/api/v1/models"].filter(Boolean);
+};
+
+const aiProviderModelUrls = (provider = {}) => {
+  const base = normalizeText(provider.endpoint).replace(/\/+$/, "");
+  if (!base) return [];
+  const kind = normalizeProviderName(provider.provider || provider.name || provider.id);
+  const paths = aiProviderModelPaths(provider);
+  const urls = paths.map((path) => joinEndpointPath(base, path));
+  if (kind.includes("lmstudio") || kind.includes("lm-studio")) {
+    const root = base.replace(/\/v1$/i, "");
+    urls.push(joinEndpointPath(root, "/api/v1/models"));
+    urls.push(joinEndpointPath(root, "/v1/models"));
+    urls.push(joinEndpointPath(root, "/models"));
+  }
+  return [...new Set(urls.filter(Boolean))];
+};
+
+const parseAiModelList = (payload = {}) => {
+  const source = Array.isArray(payload)
+    ? payload
+    : Array.isArray(payload.data)
+      ? payload.data
+      : Array.isArray(payload.models)
+        ? payload.models
+        : Array.isArray(payload.tags)
+          ? payload.tags
+          : [];
+  return [...new Set(source
+    .map((item) => normalizeText(item?.id || item?.name || item?.model || item))
+    .filter(Boolean))]
+    .sort((a, b) => a.localeCompare(b));
+};
+
+const fetchAiProviderModels = async (provider = activeAiProviderConfig()) => {
+  if (!provider?.endpoint) return { models: [], error: "Provider endpoint non configurato" };
+  const urls = aiProviderModelUrls(provider);
+  let lastError = "";
+  for (const url of urls) {
+    if (!url) continue;
+    let timeout = 0;
+    try {
+      const controller = new AbortController();
+      timeout = window.setTimeout(() => controller.abort(), 3500);
+      const response = await fetch(url, { method: "GET", signal: controller.signal });
+      if (!response.ok) {
+        lastError = `${response.status} ${response.statusText}`;
+        continue;
+      }
+      const payload = await response.json();
+      const models = parseAiModelList(payload);
+      if (models.length) return { models, url };
+      lastError = "Nessun modello nella risposta";
+    } catch (error) {
+      lastError = error?.name === "AbortError" ? "Timeout richiesta modelli" : error?.message || "Errore lettura modelli";
+    } finally {
+      if (timeout) window.clearTimeout(timeout);
+    }
+  }
+  return { models: [], error: lastError || "Nessun endpoint modelli disponibile" };
+};
+
+const patchSettingsAiPanel = () => {
+  const panel = document.querySelector("[data-settings-panel-id=\"ai\"]");
+  if (panel) panel.replaceWith(renderAiProvider());
+  syncSettingsNavigation();
+};
+
+const loadAiModelsForSelectedProvider = async ({ force = false } = {}) => {
+  const provider = activeAiProviderConfig();
+  const providerKey = provider?.id || provider?.name || settingsState.settings.ai.provider || "";
+  if (!force && settingsState.aiModels.provider === providerKey && (settingsState.aiModels.items.length || settingsState.aiModels.loading)) return;
+  settingsState.aiModels = {
+    provider: providerKey,
+    loading: true,
+    error: "",
+    items: [],
+    selected: "",
+    updatedAt: "",
+  };
+  patchSettingsAiPanel();
+  const result = await fetchAiProviderModels(provider);
+  settingsState.aiModels = {
+    provider: providerKey,
+    loading: false,
+    error: result.error || "",
+    items: result.models || [],
+    selected: result.models?.[0] || "",
+    updatedAt: new Date().toISOString(),
+  };
+  settingsState.notice = result.models?.length
+    ? `${result.models.length} modelli caricati da ${provider?.name || settingsState.settings.ai.provider}`
+    : settingsState.notice;
+  patchSettingsAiPanel();
+  patchSettingsRuntimeChrome();
+};
+
+const handleAiProviderChange = (value) => {
+  mutateSetting("ai.provider", value, { persist: true });
+  settingsState.aiModels = { provider: "", loading: false, error: "", items: [], selected: "", updatedAt: "" };
+  patchSettingsAiPanel();
+  loadAiModelsForSelectedProvider({ force: true });
+};
+
+const setSelectedAiModelAsDefault = async () => {
+  const model = normalizeText(settingsState.aiModels.selected);
+  if (!model) {
+    settingsState.error = "Seleziona un modello prima di usare Set";
+    patchSettingsRuntimeChrome();
+    return;
+  }
+  mutateSetting("ai.model", model);
+  await saveSettings(true);
+  settingsState.notice = `Modello predefinito impostato: ${model}`;
+  patchSettingsAiPanel();
+  patchSettingsRuntimeChrome();
+};
+
 const renderToggleRow = (label, checked = true, onChange = null) =>
   _.div(
     { class: "tl-settings-toggle-row" },
@@ -541,14 +714,46 @@ const renderAiProvider = () =>
   _.Card(
     buildPanelProps("ai", "tl-settings-panel tl-settings-ai-card"),
     _.Row({ align: "center", justify: "space-between" }, _.h3("AI Provider Predefinito"), _.span({ class: "tl-settings-status is-online" }, dot(settingsState.providers.length ? "online" : "warn"), settingsState.providers.length ? "Connesso" : "Non configurato")),
-    renderSettingSelect("Provider", "ai.provider", [
-      option("OpenAI"),
-      option("Anthropic"),
-      option("Gemini"),
-      option("Ollama"),
-      option("LM Studio"),
-      ...settingsState.providers.map((provider) => option(provider.name)),
-    ]),
+    _.div(
+      { class: "tl-settings-ai-provider-row" },
+      renderSelect("Provider", readPath("ai.provider"), [
+        option("OpenAI"),
+        option("Anthropic"),
+        option("Gemini"),
+        option("Ollama"),
+        option("LM Studio"),
+        ...settingsState.providers.map((provider) => option(provider.name)),
+      ], handleAiProviderChange),
+      _.div(
+        { class: "tl-settings-ai-model-picker" },
+        renderSelect(
+          settingsState.aiModels.loading ? "Loading models..." : "Available models",
+          settingsState.aiModels.selected,
+          settingsState.aiModels.items.length
+            ? settingsState.aiModels.items.map((model) => option(model))
+            : [option("", settingsState.aiModels.loading ? "Loading..." : "No models loaded")],
+          (value) => {
+            settingsState.aiModels.selected = value;
+            patchSettingsAiPanel();
+          }
+        ),
+        btn({
+          class: "tl-settings-model-set",
+          disabled: !settingsState.aiModels.selected || settingsState.aiModels.loading,
+          onclick: setSelectedAiModelAsDefault,
+        }, icon("check", "sm"), "Set")
+      )
+    ),
+    _.div(
+      { class: `tl-settings-ai-model-meta${settingsState.aiModels.error ? " is-error" : ""}` },
+      settingsState.aiModels.loading
+        ? [icon("hourglass_empty", "sm"), _.span("Fetching model list from selected provider...")]
+        : settingsState.aiModels.error
+          ? [icon("warning", "sm"), _.span(settingsState.aiModels.error), btn({ class: "tl-settings-model-refresh", onclick: () => loadAiModelsForSelectedProvider({ force: true }) }, icon("refresh", "sm"), "Retry")]
+          : settingsState.aiModels.items.length
+            ? [icon("dns", "sm"), _.span(`${settingsState.aiModels.items.length} models available`), btn({ class: "tl-settings-model-refresh", onclick: () => loadAiModelsForSelectedProvider({ force: true }) }, icon("refresh", "sm"), "Refresh")]
+            : [icon("info", "sm"), _.span("Select a local provider to load models automatically."), btn({ class: "tl-settings-model-refresh", onclick: () => loadAiModelsForSelectedProvider({ force: true }) }, icon("refresh", "sm"), "Load")]
+    ),
     renderField("Modello predefinito", renderSettingInput("ai.model")),
     renderToggleRow("Local AI first", Boolean(settingsState.settings.ai.localFirst), (checked) => mutateSetting("ai.localFirst", Boolean(checked), { persist: true })),
     renderSettingRange("Temperatura", "ai.temperature", 0, 2, 0.01),
@@ -928,6 +1133,7 @@ const refreshSettings = async () => {
     settingsState.notice = "Dati aggiornati";
     await loadSettingsStores();
     await updateStorageEstimate();
+    await loadAiModelsForSelectedProvider({ force: true });
   } catch (error) {
     settingsState.error = error?.message || "Errore aggiornamento impostazioni";
   }
@@ -1106,6 +1312,7 @@ const bootSettings = async () => {
       settingsState.error = "Timeout caricamento store impostazioni";
     }
     await updateStorageEstimate();
+    await loadAiModelsForSelectedProvider({ force: true });
     if (!settingsState.error) settingsState.error = "";
   } catch (error) {
     settingsState.error = error?.message || "Errore caricamento impostazioni";

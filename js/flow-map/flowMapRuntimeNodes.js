@@ -305,8 +305,11 @@ const configFieldDefinitions = (node = {}) => {
     const fields = [
       { key: "endpoint", label: "Endpoint / Source", placeholder: "https://api.example.com/data" },
       { key: "method", label: "Method", type: "select", options: ["GET", "POST", "PUT", "PATCH"] },
+      { key: "headers", label: "Headers JSON", type: "textarea", placeholder: "{ \"Authorization\": \"Bearer ...\" }" },
+      { key: "queryParams", label: "Query Params JSON", type: "textarea", placeholder: "{ \"limit\": 10, \"page\": 1 }" },
+      { key: "requestBody", label: "Request Body JSON", type: "textarea", placeholder: "{ \"value\": \"{{payload.value}}\" }" },
       { key: "intervalMs", label: "Poll interval (ms)", placeholder: "5000" },
-      { key: "testPayload", label: "Test Payload", type: "textarea", placeholder: "{ \"value\": 100, \"status\": \"active\" }" },
+      { key: "testPayload", label: "Manual Test Payload", type: "textarea", placeholder: "{ \"value\": 100, \"status\": \"active\" }" },
     ];
     if (subtype === "websocket") fields.splice(2, 0, { key: "keepWebSocketOpen", label: "Keep WebSocket open", type: "checkbox" });
     return fields;
@@ -412,6 +415,20 @@ const executionFieldDefinitions = () => [
   { key: "timeoutMs", label: "Timeout (ms)", placeholder: "30000" },
   { key: "dropPolicy", label: "Drop policy", type: "select", options: ["queue", "reject", "latest"] },
 ];
+
+const agentCapabilityFieldDefinitions = (node = {}) => {
+  const subtype = nodeSubtype(node);
+  if (subtype === "task" || subtype === "orchestrator") return [];
+  return [
+    { key: "agentVisible", label: "Agent visible", type: "checkbox", defaultValue: true },
+    { key: "agentPurpose", label: "Purpose", type: "textarea", placeholder: "Describe what this node does for agents." },
+    { key: "agentKeywords", label: "Keywords", type: "textarea", placeholder: "One keyword per line or comma separated." },
+    { key: "agentProduces", label: "Produces", type: "textarea", placeholder: "Data, events, files or results this node produces." },
+    { key: "agentConsumes", label: "Consumes", type: "textarea", placeholder: "Payloads or commands this node expects." },
+    { key: "agentOutputSchema", label: "Output schema / paths", type: "textarea", placeholder: "Example: symbol=data.s, price=data.c, status=payload.status" },
+    { key: "agentSampleOutput", label: "Sample output", type: "textarea", placeholder: "{ \"value\": 42, \"status\": \"ok\" }" },
+  ];
+};
 
 const channelSetKey = (values = []) =>
   [...new Set(values.filter(Boolean).map(String))].sort().join("|");
@@ -1326,7 +1343,7 @@ const aiAgentFromRuntimeNode = (node = {}) => {
       executionMode: config.executionMode || "on_event",
       priority: config.priority ?? 5,
       retryPolicy: config.retryPolicy || "exponential",
-      timeoutMs: config.timeoutMs ?? 30000,
+      timeoutMs: config.timeoutMs ?? 120000,
       cooldownMs: config.cooldownMs ?? 0,
       queueLimit: config.queueLimit ?? 25,
       parallelJobs: config.parallelJobs ?? 1,
@@ -1412,7 +1429,7 @@ const aiAgentPayloadConfig = (payload = {}) => ({
   executionMode: payload.runtime?.executionMode || "on_event",
   priority: payload.runtime?.priority ?? 5,
   retryPolicy: payload.runtime?.retryPolicy || "exponential",
-  timeoutMs: payload.runtime?.timeoutMs ?? 30000,
+  timeoutMs: payload.runtime?.timeoutMs ?? 120000,
   cooldownMs: payload.runtime?.cooldownMs ?? 0,
   queueLimit: payload.runtime?.queueLimit ?? 25,
   parallelJobs: payload.runtime?.parallelJobs ?? 1,
@@ -2446,6 +2463,7 @@ const requestRuntimeNodeConfig = (node) => {
   const subtype = nodeSubtype(node);
   const category = nodeCategory(node);
   const configFields = configFieldDefinitions(node);
+  const capabilityFields = agentCapabilityFieldDefinitions(node);
   const formId = `tl-flow-config-${String(node.id).replace(/[^A-Za-z0-9_-]/g, "_")}`;
   let formRef = null;
   const field = (name, label, value, placeholder = "") =>
@@ -2489,7 +2507,7 @@ const requestRuntimeNodeConfig = (node) => {
     if (targetInput) targetInput.value = url;
   };
   const configField = (definition) => {
-    const value = defaults[definition.key] ?? defaults.configObject?.[definition.key] ?? "";
+    const value = defaults[definition.key] ?? defaults.configObject?.[definition.key] ?? definition.defaultValue ?? "";
     if (definition.type === "checkbox") {
       const inputId = `${formId}-${definition.key}`;
       return _.div(
@@ -2647,6 +2665,11 @@ const requestRuntimeNodeConfig = (node) => {
         _.h3(`${subtype} settings`),
         ...configFields.map(configField)
       ),
+      capabilityFields.length ? _.section(
+        { class: "tl-flow-config-section" },
+        _.h3("Agent Capability"),
+        ...capabilityFields.map(configField)
+      ) : null,
       _.section(
         { class: "tl-flow-config-section" },
         _.h3("Execution capacity"),

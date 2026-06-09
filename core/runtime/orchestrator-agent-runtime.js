@@ -81,6 +81,60 @@ window.TrackerLensOrchestratorAgentRuntime = (() => {
     return null;
   };
 
+  const parseObjectLoose = (value = null) => {
+    if (!value) return {};
+    if (typeof value === "object" && !Array.isArray(value)) return value;
+    const parsed = parseJsonLoose(value);
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : {};
+  };
+
+  const urlWithQueryParams = (endpoint = "", params = {}) => {
+    const clean = String(endpoint || "").trim();
+    const entries = Object.entries(params || {}).filter(([, value]) => value !== undefined && value !== null && value !== "");
+    if (!clean || !entries.length) return clean;
+    try {
+      const url = new URL(clean, window.location?.origin || "http://localhost");
+      entries.forEach(([key, value]) => {
+        if (Array.isArray(value)) {
+          value.forEach((item) => url.searchParams.append(key, String(item)));
+        } else {
+          url.searchParams.set(key, String(value));
+        }
+      });
+      return url.toString();
+    } catch {
+      const query = entries
+        .flatMap(([key, value]) => Array.isArray(value)
+          ? value.map((item) => [key, item])
+          : [[key, value]])
+        .map(([key, value]) => `${encodeURIComponent(key)}=${encodeURIComponent(String(value))}`)
+        .join("&");
+      return `${clean}${clean.includes("?") ? "&" : "?"}${query}`;
+    }
+  };
+
+  const getPath = (source, path = "") =>
+    String(path || "")
+      .replace(/\[(\d+)\]/g, ".$1")
+      .split(".")
+      .filter(Boolean)
+      .reduce((value, key) => value?.[key], source);
+
+  const renderTemplate = (template = "", context = {}) =>
+    String(template || "").replace(/\{\{\s*([^}]+?)\s*\}\}/g, (_, token) => {
+      const key = String(token || "").trim();
+      const value = key === "payload"
+        ? context.payload
+        : key.startsWith("payload.")
+          ? getPath(context.payload, key.replace(/^payload\./, ""))
+          : getPath(context.payload, key);
+      if (value === undefined || value === null) return "";
+      return typeof value === "object" ? JSON.stringify(value) : String(value);
+    });
+
+  const configValueWithTemplate = (value = "", context = {}) =>
+    typeof value === "string" ? renderTemplate(value, context) : value;
+
   const listFromConfig = (value = "", fallback = []) => {
     const source = Array.isArray(value) ? value : String(value || "").split(/[\n,]+/);
     const items = source.map((item) => String(item || "").trim()).filter(Boolean);
@@ -106,6 +160,44 @@ window.TrackerLensOrchestratorAgentRuntime = (() => {
       ...(node.channels || []),
       ...(node.metadata?.manifest?.inputs || []).map((port) => typeof port === "object" ? port.name || port.key : port),
     ]);
+
+  const splitList = (value = "") =>
+    Array.isArray(value)
+      ? value.map((item) => String(item || "").trim()).filter(Boolean)
+      : String(value || "").split(/[\n,]+/).map((item) => item.trim()).filter(Boolean);
+
+  const nodeCapability = (node = {}) => {
+    const config = nodeConfig(node);
+    return {
+      visible: String(config.agentVisible ?? config.agent_visible ?? "true") !== "false",
+      purpose: String(config.agentPurpose || config.purpose || node.description || node.metadata?.description || "").trim(),
+      keywords: splitList(config.agentKeywords || config.keywords),
+      produces: splitList(config.agentProduces || config.produces),
+      consumes: splitList(config.agentConsumes || config.consumes),
+      outputSchema: String(config.agentOutputSchema || config.outputSchema || "").trim(),
+      sampleOutput: String(config.agentSampleOutput || config.sampleOutput || config.testPayload || "").trim(),
+    };
+  };
+
+  const capabilitySearchText = (node = {}) => {
+    const capability = nodeCapability(node);
+    const config = nodeConfig(node);
+    return [
+      node.label,
+      nodeSubtype(node),
+      nodeCategory(node),
+      nodeEndpoint(node),
+      config.endpoint,
+      config.url,
+      config.wsUrl,
+      capability.purpose,
+      capability.keywords.join(" "),
+      capability.produces.join(" "),
+      capability.consumes.join(" "),
+      capability.outputSchema,
+      capability.sampleOutput,
+    ].filter(Boolean).join(" ").toLowerCase();
+  };
 
   const outgoingDependencies = ({ node, runtime }) =>
     (runtime.dependencies || [])
@@ -153,6 +245,7 @@ window.TrackerLensOrchestratorAgentRuntime = (() => {
         status: nodeStatus(item),
         inputs: nodeInputPorts(item),
         outputs: nodeOutputs(item),
+        capability: nodeCapability(item),
         config: {
           endpoint: nodeConfig(item).endpoint || nodeConfig(item).url || nodeConfig(item).wsUrl || "",
           method: nodeConfig(item).method || "",
@@ -275,7 +368,8 @@ window.TrackerLensOrchestratorAgentRuntime = (() => {
       "Schema:",
       "{\"canExecute\":true,\"reason\":\"\",\"steps\":[{\"action\":\"run_node\",\"nodeId\":\"...\",\"outputChannel\":\"raw\"},{\"action\":\"send_result\",\"nodeId\":\"...\",\"inputChannel\":\"done\",\"from\":\"lastResult\",\"transform\":{\"price\":\"number:data.c\"}},{\"action\":\"finish\"}]}",
       "Rules:",
-      "- If the user asks to fetch BTC price, choose the Binance/BTC source before Preview.",
+      "- Choose source nodes by matching the task intent against node capability, purpose, keywords, produces, schema, label, and endpoint.",
+      "- If the task asks for multiple distinct items and multiple matching source nodes exist, run each matching source and send each transformed result to the requested targets.",
       "- Never choose the Task Node as run_node; the Task Node is only the instruction source.",
       "- Do not send the task itself to Preview unless no data source exists.",
       "- If the task asks for a clean JSON, include transform in send_result.",
@@ -357,7 +451,7 @@ window.TrackerLensOrchestratorAgentRuntime = (() => {
   const isWebSocketEndpoint = (endpoint = "") =>
     /^wss?:\/\//i.test(String(endpoint || "").trim());
 
-  const executeSourceNode = ({ runtime, bus, workspaceId, runId, node, outputChannel = "" } = {}) =>
+  const executeSourceNode = ({ runtime, bus, workspaceId, runId, node, outputChannel = "", inputPayload = null } = {}) =>
     new Promise((resolve, reject) => {
       const endpoint = nodeEndpoint(node);
       const subtype = nodeSubtype(node);
@@ -458,14 +552,19 @@ window.TrackerLensOrchestratorAgentRuntime = (() => {
       }
 
       const method = String(config.method || "GET").toUpperCase();
-      const headers = { Accept: "application/json" };
-      const body = parseJsonLoose(config.requestBody || config.body || config.testPayload || config.payload);
+      const templateContext = { payload: inputPayload || {} };
+      const headers = { Accept: "application/json", ...parseObjectLoose(configValueWithTemplate(config.headers, templateContext)) };
+      const requestEndpoint = urlWithQueryParams(
+        endpoint,
+        parseObjectLoose(configValueWithTemplate(config.queryParams || config.params, templateContext))
+      );
+      const body = parseJsonLoose(configValueWithTemplate(config.requestBody || config.body || config.testPayload || config.payload, templateContext));
       const init = { method, headers };
       if (method !== "GET" && body) {
-        headers["Content-Type"] = "application/json";
+        if (!headers["Content-Type"] && !headers["content-type"]) headers["Content-Type"] = "application/json";
         init.body = JSON.stringify(body);
       }
-      fetch(endpoint, init)
+      fetch(requestEndpoint, init)
         .then(async (response) => {
           const text = await response.text();
           return emitResult({
@@ -473,7 +572,7 @@ window.TrackerLensOrchestratorAgentRuntime = (() => {
             runId,
             status: response.status,
             ok: response.ok,
-            endpoint,
+            endpoint: requestEndpoint,
             method,
             data: parseResponsePayload(text),
             receivedAt: new Date().toISOString(),
@@ -488,15 +587,41 @@ window.TrackerLensOrchestratorAgentRuntime = (() => {
 
   const sourceScoreForTask = (node = {}, text = "") => {
     if (isTaskSourceNode(node)) return -100;
-    const source = `${node.label || ""} ${nodeSubtype(node)} ${nodeCategory(node)} ${nodeEndpoint(node)}`.toLowerCase();
+    const capability = nodeCapability(node);
+    if (!capability.visible) return -100;
+    const source = capabilitySearchText(node);
     const task = String(text || "").toLowerCase();
+    const taskTokens = taskTerms(task);
     let score = 0;
     if (nodeCategory(node) === "sources" || node.type === "source" || node.type === "boxTracker") score += 4;
-    if (task.includes("btc") && source.includes("btc")) score += 8;
-    if (task.includes("bitcoin") && /btc|bitcoin/.test(source)) score += 8;
-    if (task.includes("binance") && source.includes("binance")) score += 6;
-    if ((task.includes("price") || task.includes("prezzo")) && /price|prezzo|ticker|trade|ws|websocket/.test(source)) score += 3;
+    if (nodeCategory(node) === "trackers") score += 3;
+    taskTokens.forEach((term) => {
+      if (source.includes(term)) score += 2;
+      if (capability.keywords.some((item) => item.toLowerCase().includes(term))) score += 4;
+      if (capability.produces.some((item) => item.toLowerCase().includes(term))) score += 4;
+      if (capability.purpose.toLowerCase().includes(term)) score += 3;
+    });
     return score;
+  };
+
+  const taskTerms = (text = "") => {
+    const stopwords = new Set([
+      "the", "and", "then", "with", "from", "into", "this", "that", "per", "con", "del", "della", "dello", "degli", "delle",
+      "uno", "una", "poi", "che", "come", "node", "nodo", "prezzo", "price", "attuale", "current", "manda", "send",
+      "preview", "telegram", "message", "messaggio", "json", "pulito", "clean", "source", "sorgente", "monitora",
+    ]);
+    return unique(String(text || "").toLowerCase()
+      .match(/[a-z0-9][a-z0-9_-]{1,}/g) || [])
+      .filter((term) => !stopwords.has(term) && term.length > 1)
+      .slice(0, 40);
+  };
+
+  const requestedDiscriminators = (text = "", candidates = []) => {
+    const candidateTexts = candidates.map(capabilitySearchText);
+    return taskTerms(text).filter((term) => {
+      const matches = candidateTexts.filter((candidateText) => candidateText.includes(term)).length;
+      return matches > 0 && matches < Math.max(2, candidates.length);
+    });
   };
 
   const outgoingCandidateNodes = ({ node, runtime, payload } = {}) => {
@@ -515,20 +640,36 @@ window.TrackerLensOrchestratorAgentRuntime = (() => {
 
   const preferredSourceForTask = ({ node, runtime, payload } = {}) => {
     const taskText = [payload?.objective, payload?.task, payload?.context, compactJson(payload?.payload || {}, 300)].filter(Boolean).join("\n");
+    return preferredSourcesForTask({ node, runtime, payload, taskText })[0] || null;
+  };
+
+  const preferredSourcesForTask = ({ node, runtime, payload, taskText = "" } = {}) => {
+    const text = taskText || [payload?.objective, payload?.task, payload?.context, compactJson(payload?.payload || {}, 300)].filter(Boolean).join("\n");
     const candidateNodes = outgoingCandidateNodes({ node, runtime, payload });
-    return candidateNodes
+    const sourceCandidates = candidateNodes.filter((target) =>
+      !isTaskSourceNode(target) &&
+      (nodeCategory(target) === "sources" || nodeCategory(target) === "trackers" || target.type === "source" || target.type === "boxTracker"));
+    const discriminators = requestedDiscriminators(text, sourceCandidates);
+    if (discriminators.length) {
+      const byDiscriminator = discriminators
+        .map((term) => sourceCandidates
+          .map((target) => ({ target, score: sourceScoreForTask(target, text), text: capabilitySearchText(target) }))
+          .filter((item) => item.score > 0 && item.text.includes(term))
+          .sort((a, b) => b.score - a.score)[0]?.target)
+        .filter(Boolean);
+      if (byDiscriminator.length) return [...new Map(byDiscriminator.map((item) => [item.id, item])).values()];
+    }
+    const best = sourceCandidates
       .map((target) => ({ target, score: sourceScoreForTask(target, taskText) }))
       .filter((item) => item.score > 0)
-      .sort((a, b) => b.score - a.score)[0]?.target ||
-      candidateNodes.find((target) =>
-        !isTaskSourceNode(target) &&
-        (nodeCategory(target) === "sources" || target.type === "source" || target.type === "boxTracker")) ||
-      null;
+      .sort((a, b) => b.score - a.score)[0]?.target;
+    return best ? [best] : [sourceCandidates[0]].filter(Boolean);
   };
 
   const repairPlannerSteps = ({ node, runtime, payload, event, steps = [] } = {}) => {
     const normalized = (steps || []).map(normalizePlannerStep).filter((step) => step.action);
-    const source = preferredSourceForTask({ node, runtime, payload });
+    const sources = preferredSourcesForTask({ node, runtime, payload });
+    const source = sources[0] || null;
     if (!source) return normalized;
     const nodesById = new Map((runtime.nodes || []).map((item) => [item.id, item]));
     const inputSourceId = event.sourceNodeId || payload?.sourceNodeId || "";
@@ -557,14 +698,33 @@ window.TrackerLensOrchestratorAgentRuntime = (() => {
         reason: "planner-inserted-source",
       });
     }
-    return replaced ? repaired : normalized;
+    const result = replaced ? repaired : normalized;
+    if (sources.length <= 1) return result;
+    const existingRunIds = new Set(result.filter((step) => step.action === "run_node").map((step) => step.nodeId));
+    const sendTargets = result.filter((step) => step.action === "send_result");
+    const finishSteps = result.filter((step) => step.action === "finish");
+    const withoutFinish = result.filter((step) => step.action !== "finish");
+    const appended = [];
+    sources
+      .filter((item) => !existingRunIds.has(item.id))
+      .forEach((item) => {
+        appended.push({
+          action: "run_node",
+          nodeId: item.id,
+          outputChannel: nodeOutputs(item).find((channel) => channel === "raw") || nodeConfig(item).emitChannel || nodeOutputs(item)[0] || "raw",
+          inputChannel: "",
+          from: "",
+          reason: "planner-inserted-missing-source",
+        });
+        sendTargets.forEach((targetStep) => appended.push({ ...targetStep, reason: targetStep.reason || "planner-reused-target-for-missing-source" }));
+      });
+    return appended.length ? [...withoutFinish, ...appended, ...(finishSteps.length ? finishSteps : [{ action: "finish" }])] : result;
   };
 
   const fallbackAiPlan = ({ node, runtime, payload, event } = {}) => {
     const config = nodeConfig(node);
     const dependencies = outgoingDependencies({ node, runtime });
     const candidateNodes = outgoingCandidateNodes({ node, runtime, payload });
-    const source = preferredSourceForTask({ node, runtime, payload });
     const taskText = [
       payload?.objective,
       payload?.task,
@@ -572,6 +732,7 @@ window.TrackerLensOrchestratorAgentRuntime = (() => {
       payload?.successCondition,
       JSON.stringify(payload?.payload || {}),
     ].filter(Boolean).join(" ").toLowerCase();
+    const sources = preferredSourcesForTask({ node, runtime, payload, taskText });
     const preview = candidateNodes.find((target) => target.type === "devPreview" || nodeSubtype(target) === "preview" || nodeCategory(target) === "dev") || null;
     const actionTargets = candidateNodes.filter((target) => {
       if (nodeCategory(target) !== "actions" && target.type !== "action") return false;
@@ -583,39 +744,40 @@ window.TrackerLensOrchestratorAgentRuntime = (() => {
       return /messaggio|message|invia|send/.test(taskText);
     });
     const steps = [];
-    if (source) {
+    sources.forEach((source) => {
       const outputChannel = nodeOutputs(source).find((channel) => channel === "raw") || nodeConfig(source).emitChannel || nodeOutputs(source)[0] || "raw";
       steps.push({ action: "run_node", nodeId: source.id, outputChannel, reason: "fallback-source-match" });
-    }
-    if (preview) {
-      const previewDependency = dependencies.find((dependency) => dependency.targetNode?.id === preview.id);
-      steps.push({
-        action: "send_result",
-        nodeId: preview.id,
-        inputChannel: previewDependency?.channel || previewDependency?.metadata?.targetPort || "done",
-        from: "lastResult",
-        reason: "fallback-preview-target",
-      });
-    }
-    actionTargets.forEach((target) => {
-      const dependency = dependencies.find((item) => item.targetNode?.id === target.id);
-      steps.push({
-        action: "send_result",
-        nodeId: target.id,
-        inputChannel: dependency?.channel || dependency?.metadata?.targetPort || "event",
-        from: "lastResult",
-        reason: "fallback-action-target",
+      if (preview) {
+        const previewDependency = dependencies.find((dependency) => dependency.targetNode?.id === preview.id);
+        steps.push({
+          action: "send_result",
+          nodeId: preview.id,
+          inputChannel: previewDependency?.channel || previewDependency?.metadata?.targetPort || "done",
+          from: "lastResult",
+          reason: "fallback-preview-target",
+        });
+      }
+      actionTargets.forEach((target) => {
+        const dependency = dependencies.find((item) => item.targetNode?.id === target.id);
+        steps.push({
+          action: "send_result",
+          nodeId: target.id,
+          inputChannel: dependency?.channel || dependency?.metadata?.targetPort || "event",
+          from: "lastResult",
+          reason: "fallback-action-target",
+        });
       });
     });
     steps.push({ action: "finish" });
+    const canRoute = Boolean(sources.length && (preview || actionTargets.length));
     return {
       provider: "fallback",
       model: "rule-planner",
       canExecute: Boolean(steps.length > 1),
-      reason: source && (preview || actionTargets.length) ? "source-target-route" : "fallback route incomplete",
+      reason: canRoute ? "source-target-route" : "fallback route incomplete",
       steps,
       runId: event.meta?.runId || payload?.runId || `orch_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
-      decision: source && (preview || actionTargets.length) ? String(config.decisionName || "execute_downstream") : "blocked",
+      decision: canRoute ? String(config.decisionName || "execute_downstream") : "blocked",
     };
   };
 
@@ -1195,6 +1357,7 @@ window.TrackerLensOrchestratorAgentRuntime = (() => {
               runId: decision.runId,
               node: target,
               outputChannel: step.outputChannel,
+              inputPayload: lastResult?.payload || payload,
             });
             lastResult = result;
             observations.push({
@@ -1234,6 +1397,7 @@ window.TrackerLensOrchestratorAgentRuntime = (() => {
               .filter((item) => item.action && item.action !== "run_node");
             if (nextSteps.length) {
               const pending = stepQueue.map(normalizePlannerStep);
+              const hasPendingRunNode = pending.some((item) => item.action === "run_node");
               const seenTargets = new Set(nextSteps
                 .filter((item) => item.action === "send_result")
                 .map((item) => `${item.action}:${item.nodeId}:${item.inputChannel}`));
@@ -1242,7 +1406,9 @@ window.TrackerLensOrchestratorAgentRuntime = (() => {
                 const key = `${item.action}:${item.nodeId}:${item.inputChannel}`;
                 return !seenTargets.has(key);
               });
-              stepQueue.splice(0, stepQueue.length, ...nextSteps, ...preservedPending);
+              const followUpSteps = hasPendingRunNode ? nextSteps.filter((item) => item.action !== "finish") : nextSteps;
+              const finishSteps = hasPendingRunNode ? nextSteps.filter((item) => item.action === "finish") : [];
+              stepQueue.splice(0, stepQueue.length, ...followUpSteps, ...preservedPending, ...finishSteps);
             }
           } catch (error) {
             skipped.push({ ...step, label: target.label || target.id, reason: "run-node-error", error: error.message || String(error) });

@@ -12,9 +12,11 @@ window.TrackerLensNodeExecutionController = (() => {
     const source = { ...runtimeExecution, ...config };
     const subtype = String(node.metadata?.subtype || node.metadata?.manifest?.subtype || node.metadata?.agentRole || node.type || "").toLowerCase();
     const isOrchestrator = subtype === "orchestrator";
+    const isAiAgent = node.type === "aiAgent" || node.metadata?.category === "ai-agents";
     const maxConcurrentTasks = Math.max(1, Math.min(20, Number(source.maxConcurrentTasks || source.parallelJobs || 1)));
-    const requestedTimeoutMs = Number(source.timeoutMs || (isOrchestrator ? 120000 : 30000));
-    const timeoutMs = isOrchestrator && requestedTimeoutMs <= 30000 ? 120000 : requestedTimeoutMs;
+    const defaultTimeoutMs = isOrchestrator || isAiAgent ? 120000 : 30000;
+    const requestedTimeoutMs = Number(source.timeoutMs || defaultTimeoutMs);
+    const timeoutMs = (isOrchestrator || isAiAgent) && requestedTimeoutMs <= 30000 ? 120000 : requestedTimeoutMs;
     return {
       mode: maxConcurrentTasks > 1 ? "parallel" : "single",
       maxConcurrentTasks,

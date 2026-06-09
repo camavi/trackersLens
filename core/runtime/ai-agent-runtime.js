@@ -47,7 +47,7 @@ window.TrackerLensAiAgentRuntime = (() => {
     executionMode: agent.runtime?.executionMode || "on_event",
     priority: agent.runtime?.priority ?? 5,
     retryPolicy: agent.runtime?.retryPolicy || "exponential",
-    timeoutMs: agent.runtime?.timeoutMs ?? 30000,
+    timeoutMs: agent.runtime?.timeoutMs ?? 120000,
     cooldownMs: agent.runtime?.cooldownMs ?? 0,
     queueLimit: agent.runtime?.queueLimit ?? 25,
     parallelJobs: agent.runtime?.parallelJobs ?? 1,
@@ -140,18 +140,43 @@ window.TrackerLensAiAgentRuntime = (() => {
     return text.length > max ? `${text.slice(0, max)}\n...` : text;
   };
 
+  const renderPromptTemplate = (template = "", context = {}) =>
+    String(template || "").replace(/\{\{\s*([^}]+?)\s*\}\}/g, (_, token) => {
+      const key = String(token || "").trim();
+      const value = context[key];
+      if (value === undefined || value === null) return "";
+      return typeof value === "string" ? value : compactJson(value, 3600);
+    });
+
   const buildPrompt = ({ node, payload, event, memory = "", config = nodeConfig(node) }) => {
     const subtype = nodeSubtype(node);
-    const instruction = String(config.prompt || config.instruction || "").trim() ||
-      `Act as a Trackers Lens ${subtype || "AI"} runtime node. Analyze the incoming event and return a compact JSON-like result.`;
+    const systemPrompt = String(config.systemPrompt || "").trim() ||
+      `You are a Trackers Lens ${subtype || "AI"} runtime node.`;
+    const template = String(config.promptTemplate || config.prompt || config.instruction || "").trim() ||
+      "Analyze this runtime event:\n\nChannel: {{channel}}\nPayload: {{payload}}\nMemory: {{memory}}";
+    const outputInstructions = String(config.outputInstructions || "").trim() ||
+      "Return structured runtime output ready for channel emission.";
+    const context = {
+      channel: event.channel || "default",
+      timestamp: new Date().toISOString(),
+      workspace: node.workspaceId || "",
+      memory,
+      event,
+      payload,
+      node: {
+        id: node.id,
+        label: node.label || node.id,
+        role: config.agentType || subtype || "agent",
+      },
+      inputDataContext: config.inputDataContext || null,
+    };
     return [
-      instruction,
-      memory ? `\nWorkspace memory:\n${memory}` : "",
+      systemPrompt,
       `\nNode: ${node.label || node.id}`,
       `Role: ${config.agentType || subtype || "agent"}`,
-      `Input channel: ${event.channel || "default"}`,
       config.inputDataContext ? `Input data context:\n${compactJson(config.inputDataContext)}` : "",
-      `Payload:\n${compactJson(payload)}`,
+      `\nTask:\n${renderPromptTemplate(template, context)}`,
+      `\nOutput instructions:\n${outputInstructions}`,
     ].filter(Boolean).join("\n");
   };
 
@@ -210,10 +235,16 @@ window.TrackerLensAiAgentRuntime = (() => {
   const pickProvider = async (config = {}) => {
     const data = await window.TrackerLensAiRuntimeStore?.list?.().catch(() => null);
     const providers = data?.providers || window.TrackerLensAiRuntimeStore?.localProviderDefaults?.() || [];
-    const requested = String(config.provider || "").toLowerCase();
-    return providers.find((provider) =>
-      requested &&
-      [provider.id, provider.name, provider.provider].some((value) => String(value || "").toLowerCase().includes(requested)))
+    const requestedProfile = String(config.providerProfile || config.profileId || "").trim();
+    const requestedType = String(config.providerType || config.provider || "").toLowerCase();
+    const requested = String(config.provider || config.providerType || "").toLowerCase();
+    return providers.find((provider) => requestedProfile && provider.id === requestedProfile)
+      || providers.find((provider) =>
+        requestedType &&
+        [provider.id, provider.name, provider.provider, provider.providerType].some((value) => String(value || "").toLowerCase() === requestedType))
+      || providers.find((provider) =>
+        requested &&
+        [provider.id, provider.name, provider.provider, provider.providerType].some((value) => String(value || "").toLowerCase().includes(requested)))
       || providers.find((provider) => provider.local && provider.status === "online")
       || providers.find((provider) => provider.local)
       || providers[0]
@@ -247,13 +278,18 @@ window.TrackerLensAiAgentRuntime = (() => {
 
   const resolveLmStudioModel = async ({ provider = {}, model = "" } = {}) => {
     const requested = String(model || provider.model || "").trim();
-    if (requested && requested !== "local-model") return requested;
     const endpoint = withLmStudioApiBase(provider.endpoint);
     try {
       const response = await fetch(`${endpoint}/models`);
       if (!response.ok) return requested || "local-model";
       const data = await response.json();
       const models = Array.isArray(data?.data) ? data.data : [];
+      const exact = models.find((item) => String(item.id || "") === requested);
+      if (exact) return exact.id;
+      const fuzzy = requested && requested !== "local-model"
+        ? models.find((item) => String(item.id || "").toLowerCase().includes(requested.toLowerCase()))
+        : null;
+      if (fuzzy) return fuzzy.id;
       const chatModel = models.find((item) => !/embed/i.test(String(item.id || ""))) || models[0];
       return chatModel?.id || requested || "local-model";
     } catch {
@@ -290,14 +326,37 @@ window.TrackerLensAiAgentRuntime = (() => {
     };
   };
 
+  const stripJsonFence = (text = "") => {
+    const clean = String(text || "").trim();
+    const fenced = clean.match(/^```(?:json)?\s*([\s\S]*?)\s*```$/i);
+    return fenced ? fenced[1].trim() : clean;
+  };
+
+  const firstJsonObject = (text = "") => {
+    const clean = String(text || "");
+    const start = clean.indexOf("{");
+    const end = clean.lastIndexOf("}");
+    return start >= 0 && end > start ? clean.slice(start, end + 1).trim() : "";
+  };
+
   const parseAiText = (text = "") => {
     const clean = String(text || "").trim();
     if (!clean) return { text: "" };
-    try {
-      return JSON.parse(clean);
-    } catch {
-      return { text: clean };
+    const candidates = unique([
+      clean,
+      stripJsonFence(clean),
+      firstJsonObject(stripJsonFence(clean)),
+      firstJsonObject(clean),
+    ]);
+    for (const candidate of candidates) {
+      if (!candidate) continue;
+      try {
+        return JSON.parse(candidate);
+      } catch {
+        // Continue with the next normalized candidate.
+      }
     }
+    return { text: clean };
   };
 
   const estimateCost = ({ usage = {}, provider = {}, config = {} } = {}) => {

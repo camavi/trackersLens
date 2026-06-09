@@ -101,6 +101,38 @@ const parseTestPayload = (value) => {
   }
 };
 
+const parseObjectPayload = (value) => {
+  if (!value) return {};
+  if (typeof value === "object" && !Array.isArray(value)) return value;
+  const parsed = parseTestPayload(value);
+  return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : {};
+};
+
+const endpointWithQueryParams = (endpoint = "", params = {}) => {
+  const clean = String(endpoint || "").trim();
+  const entries = Object.entries(params || {}).filter(([, value]) => value !== undefined && value !== null && value !== "");
+  if (!clean || !entries.length) return clean;
+  try {
+    const url = new URL(clean, window.location?.origin || "http://localhost");
+    entries.forEach(([key, value]) => {
+      if (Array.isArray(value)) {
+        value.forEach((item) => url.searchParams.append(key, String(item)));
+      } else {
+        url.searchParams.set(key, String(value));
+      }
+    });
+    return url.toString();
+  } catch (_) {
+    const query = entries
+      .flatMap(([key, value]) => Array.isArray(value)
+        ? value.map((item) => [key, item])
+        : [[key, value]])
+      .map(([key, value]) => `${encodeURIComponent(key)}=${encodeURIComponent(String(value))}`)
+      .join("&");
+    return `${clean}${clean.includes("?") ? "&" : "?"}${query}`;
+  }
+};
+
 const parseManualJsonPayload = (value) => {
   const parsed = parseTestPayload(value);
   if (parsed) return parsed;
@@ -862,11 +894,12 @@ const executeLiveRestNode = async ({ node, workspaceId, runId, graph, signal = n
   const endpoint = nodeEndpoint(node);
   if (!endpoint) throw new Error(`${node.label || node.id}: endpoint mancante`);
   const method = String(config.method || "GET").toUpperCase();
-  const headers = { Accept: "application/json" };
+  const headers = { Accept: "application/json", ...parseObjectPayload(config.headers) };
+  const requestEndpoint = endpointWithQueryParams(endpoint, parseObjectPayload(config.queryParams || config.params));
   const bodyPayload = parseTestPayload(config.requestBody || config.body || config.testPayload || config.payload);
   const init = { method, headers, ...(signal ? { signal } : {}) };
   if (method !== "GET" && bodyPayload) {
-    headers["Content-Type"] = "application/json";
+    if (!headers["Content-Type"] && !headers["content-type"]) headers["Content-Type"] = "application/json";
     init.body = JSON.stringify(bodyPayload);
   }
   const started = performance.now();
@@ -874,17 +907,17 @@ const executeLiveRestNode = async ({ node, workspaceId, runId, graph, signal = n
     workspaceId,
     nodeId: node.id,
     level: "info",
-    message: `Live REST test connecting ${endpoint}`,
-    context: { action: "flow-map-live-rest-start", runId, endpoint, method },
+    message: `Live REST test connecting ${requestEndpoint}`,
+    context: { action: "flow-map-live-rest-start", runId, endpoint: requestEndpoint, method },
   });
-  const response = await fetch(endpoint, init);
+  const response = await fetch(requestEndpoint, init);
   const text = await response.text();
   const payload = {
     live: true,
     runId,
     status: response.status,
     ok: response.ok,
-    endpoint,
+    endpoint: requestEndpoint,
     method,
     data: parseResponsePayload(text),
     receivedAt: new Date().toISOString(),
