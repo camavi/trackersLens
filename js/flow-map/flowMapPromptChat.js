@@ -219,6 +219,7 @@ const flowPromptIsMutationRequest = (prompt = "") =>
   flowPromptHasAny(prompt, [
     "modifica", "modificare", "cambia", "cambiare", "aggiorna", "aggiornare", "rinomina", "rimuovi",
     "elimina", "cancella", "sistema", "fix", "repair", "update", "rename", "remove", "delete",
+    "scollega", "disconnetti", "unlink", "disconnect",
   ]);
 
 const flowPromptIsAgentQuestion = (prompt = "") => {
@@ -237,10 +238,11 @@ const flowPromptIsAgentQuestion = (prompt = "") => {
 
 const flowPromptAgentIntent = (prompt = "") => {
   const text = flowPromptNormalize(prompt);
+  if (flowPromptHasAny(text, ["scollega", "disconnetti", "unlink", "disconnect", "rimuovi collegamento"]) && flowPromptHasAny(text, [" a ", " da ", " ad ", " to ", "->"])) return "disconnect";
   if (flowPromptHasAny(text, ["collega", "connetti", "connect", "link"]) && flowPromptHasAny(text, [" a ", " ad ", " to ", "->"])) return "connect";
   if (flowPromptHasAny(text, ["sistema", "fix", "ripara", "proponi fix"]) && flowPromptHasAny(text, ["errore", "errori", "rotto", "rotti", "broken", "collegamenti"])) return "fix";
   if (flowPromptHasAny(text, ["rinomina", "rename", "cambia di nome", "cambiare di nome"])) return "rename";
-  if (flowPromptHasAny(text, ["cambia", "imposta", "set", "aggiorna"]) && flowPromptHasAny(text, ["modello", "model", "chatid", "chat id", "canale", "channel", "output", "input"])) return "config";
+  if (flowPromptHasAny(text, ["cambia", "imposta", "set", "aggiorna"]) && flowPromptHasAny(text, ["provider", "modello", "model", "chatid", "chat id", "url", "endpoint", "method", "metodo", "canale", "channel", "output", "input"])) return "config";
   if (flowPromptIsMutationRequest(text)) return "mutation";
   if (flowPromptHasAny(text, ["errore", "errori", "warning", "problema", "problemi", "diagnosi", "diagnostica", "controlla", "rotto", "broken", "invalid"])) return "diagnostics";
   if (flowPromptHasAny(text, ["canali", "channels", "channel"])) return "channels";
@@ -383,6 +385,12 @@ const flowPromptDiagnoseContext = (context = {}) => {
         severity: "error",
         title: "Collegamento con nodo mancante",
         detail: `${edge.sourceNodeId || "N/D"} -> ${edge.targetNodeId || "N/D"} non punta a due nodi validi.`,
+        fixAction: edge.id ? {
+          type: "deleteDependencies",
+          status: "ready",
+          dependencyIds: [edge.id],
+          summary: "Rimuovi questo collegamento rotto.",
+        } : null,
       });
       return;
     }
@@ -458,6 +466,47 @@ const flowPromptFindNodeByText = (context = {}, text = "") => {
     .sort((a, b) => b.score - a.score);
   return scored.length && scored[0].score > (scored[1]?.score || 0) ? scored[0].node : null;
 };
+
+const flowPromptFindNodeCandidates = (context = {}, text = "", limit = 3) => {
+  const normalized = flowPromptNormalize(text);
+  if (!normalized) return [];
+  const nodes = context.nodes || [];
+  const tokens = normalized.split(/\s+/).filter((token) => token.length > 2);
+  return nodes
+    .map((node) => {
+      const haystack = flowPromptNodeSearchText(node);
+      let score = 0;
+      if (haystack === normalized) score += 100;
+      if (haystack.includes(normalized)) score += 50;
+      if (normalized.includes(flowPromptNormalize(node.label || ""))) score += 35;
+      tokens.forEach((token) => {
+        if (haystack.includes(token)) score += 8;
+      });
+      return { node, score };
+    })
+    .filter((item) => item.score > 0)
+    .sort((a, b) => b.score - a.score || String(a.node.label || "").localeCompare(String(b.node.label || "")))
+    .slice(0, limit)
+    .map((item) => item.node);
+};
+
+const flowPromptBlockedChoice = ({ type = "action", summary = "", sourceHint = "", targetHint = "", value = "", context = {}, promptBuilder = null } = {}) => ({
+  type,
+  status: "blocked",
+  summary,
+  choices: [
+    ...flowPromptFindNodeCandidates(context, sourceHint).map((node) => ({
+      label: node.label || node.id,
+      detail: `${node.type || "node"} · ${node.subtype || node.category || "runtime"}`,
+      prompt: typeof promptBuilder === "function" ? promptBuilder({ source: node, target: null, value }) : "",
+    })),
+    ...flowPromptFindNodeCandidates(context, targetHint).map((node) => ({
+      label: node.label || node.id,
+      detail: `${node.type || "node"} · ${node.subtype || node.category || "runtime"}`,
+      prompt: typeof promptBuilder === "function" ? promptBuilder({ source: null, target: node, value }) : "",
+    })),
+  ].filter((choice) => choice.prompt),
+});
 
 const flowPromptRuntimeNodeById = (nodeId = "") =>
   (state.runtime.nodes || []).find((node) => node.id === nodeId) || null;
@@ -535,16 +584,32 @@ const flowPromptBuildConnectPlan = (context = {}, prompt = "") => {
   const source = flowPromptFindNodeByText(context, match[1]);
   const target = flowPromptFindNodeByText(context, match[2]);
   if (!source?.id || !target?.id) {
-    return {
+    return flowPromptBlockedChoice({
       type: "connect",
-      status: "blocked",
       summary: "Non ho trovato in modo univoco i due nodi da collegare.",
       sourceHint: match[1],
       targetHint: match[2],
-    };
+      context,
+      promptBuilder: ({ source: pickedSource, target: pickedTarget }) =>
+        `collega ${pickedSource?.label || match[1]} a ${pickedTarget?.label || match[2]}`,
+    });
   }
   const sourcePort = source.outputs?.[0] || source.channels?.[0] || "output";
   const targetPort = target.inputs?.[0] || "input";
+  if (!source.outputs?.length && !source.channels?.length) {
+    return {
+      type: "connect",
+      status: "blocked",
+      summary: `${source.label} non espone output/channel validi per creare il collegamento.`,
+    };
+  }
+  if (!target.inputs?.length) {
+    return {
+      type: "connect",
+      status: "blocked",
+      summary: `${target.label} non espone input validi per ricevere dati.`,
+    };
+  }
   const channel = sourcePort || source.channels?.[0] || "runtime";
   const duplicate = (context.edges || []).find((edge) =>
     edge.sourceNodeId === source.id &&
@@ -564,6 +629,41 @@ const flowPromptBuildConnectPlan = (context = {}, prompt = "") => {
     channel,
     duplicateId: duplicate?.id || "",
   };
+};
+
+const flowPromptBuildDisconnectPlan = (context = {}, prompt = "") => {
+  const text = String(prompt || "").trim();
+  const match = text.match(/(?:scollega|disconnetti|unlink|disconnect|rimuovi\s+collegamento)\s+(.+?)\s+(?:da|a|ad|to|->)\s+(.+)$/i);
+  if (!match) return null;
+  const source = flowPromptFindNodeByText(context, match[1]);
+  const target = flowPromptFindNodeByText(context, match[2]);
+  if (!source?.id || !target?.id) {
+    return flowPromptBatchPlan([
+      flowPromptBlockedChoice({
+        type: "deleteDependencies",
+        summary: "Non ho trovato in modo univoco i due nodi da scollegare.",
+        sourceHint: match[1],
+        targetHint: match[2],
+        context,
+        promptBuilder: ({ source: pickedSource, target: pickedTarget }) =>
+          `scollega ${pickedSource?.label || match[1]} da ${pickedTarget?.label || match[2]}`,
+      }),
+    ], "Non posso scollegare: source o target non chiaro.");
+  }
+  const links = (context.edges || []).filter((edge) =>
+    edge.sourceNodeId === source.id && edge.targetNodeId === target.id
+  );
+  if (!links.length) {
+    return flowPromptBatchPlan([], `${source.label} e ${target.label} non risultano collegati.`);
+  }
+  return flowPromptBatchPlan([
+    {
+      type: "deleteDependencies",
+      status: "ready",
+      dependencyIds: links.map((edge) => edge.id).filter(Boolean),
+      summary: `Scollego ${source.label} da ${target.label}.`,
+    },
+  ], `Posso rimuovere ${links.length} collegamento/i tra ${source.label} e ${target.label}.`);
 };
 
 const flowPromptBuildFixPlan = (context = {}) => {
@@ -590,7 +690,17 @@ const flowPromptBuildRenamePlan = (context = {}, prompt = "") => {
   const node = flowPromptFindNodeByText(context, match[1]);
   const nextLabel = String(match[2] || "").trim();
   if (!node?.id || !nextLabel) {
-    return flowPromptBatchPlan([{ type: "renameNode", status: "blocked", summary: "Nodo o nuovo nome non trovato." }], "Non posso rinominare: nodo o nuovo nome non chiaro.");
+    return flowPromptBatchPlan([
+      flowPromptBlockedChoice({
+        type: "renameNode",
+        summary: "Nodo o nuovo nome non trovato.",
+        sourceHint: match[1],
+        value: nextLabel,
+        context,
+        promptBuilder: ({ source: pickedNode, value: pickedValue }) =>
+          `rinomina ${pickedNode?.label || match[1]} in ${pickedValue || nextLabel}`,
+      }),
+    ], "Non posso rinominare: nodo o nuovo nome non chiaro.");
   }
   return flowPromptBatchPlan([
     {
@@ -607,8 +717,11 @@ const flowPromptBuildRenamePlan = (context = {}, prompt = "") => {
 
 const flowPromptParseConfigField = (prompt = "") => {
   const text = flowPromptNormalize(prompt);
+  if (flowPromptHasAny(text, ["provider"])) return { field: "provider", target: "config" };
   if (flowPromptHasAny(text, ["modello", "model"])) return { field: "model", target: "config" };
   if (flowPromptHasAny(text, ["chatid", "chat id"])) return { field: "chatId", target: "config" };
+  if (flowPromptHasAny(text, ["url", "endpoint"])) return { field: "url", target: "config" };
+  if (flowPromptHasAny(text, ["method", "metodo"])) return { field: "method", target: "config" };
   if (flowPromptHasAny(text, ["canale output", "output channel", "output"])) return { field: "output", target: "output" };
   if (flowPromptHasAny(text, ["canale input", "input channel", "input"])) return { field: "input", target: "input" };
   if (flowPromptHasAny(text, ["canale", "channel"])) return { field: "channel", target: "channel" };
@@ -630,7 +743,17 @@ const flowPromptBuildConfigPlan = (context = {}, prompt = "") => {
   const node = flowPromptFindNodeByText(context, nodeHint);
   const field = flowPromptParseConfigField(prompt);
   if (!node?.id || !value) {
-    return flowPromptBatchPlan([{ type: "updateNodeConfig", status: "blocked", summary: "Nodo o valore non chiaro." }], "Non posso aggiornare config: nodo o valore non chiaro.");
+    return flowPromptBatchPlan([
+      flowPromptBlockedChoice({
+        type: "updateNodeConfig",
+        summary: "Nodo o valore non chiaro.",
+        sourceHint: nodeHint,
+        value,
+        context,
+        promptBuilder: ({ source: pickedNode, value: pickedValue }) =>
+          `imposta ${field.field} di ${pickedNode?.label || nodeHint} a ${pickedValue || value}`,
+      }),
+    ], "Non posso aggiornare config: nodo o valore non chiaro.");
   }
   return flowPromptBatchPlan([
     {
@@ -648,6 +771,7 @@ const flowPromptBuildConfigPlan = (context = {}, prompt = "") => {
 
 const flowPromptBuildActionPlan = (context = {}, prompt = "") => {
   const intent = flowPromptAgentIntent(prompt);
+  if (intent === "disconnect") return flowPromptBuildDisconnectPlan(context, prompt);
   if (intent === "connect") return flowPromptBuildConnectPlan(context, prompt);
   if (intent === "fix") return flowPromptBuildFixPlan(context, prompt);
   if (intent === "rename") return flowPromptBuildRenamePlan(context, prompt);
@@ -681,6 +805,15 @@ const flowPromptBuildActionPlanFromNormalized = (context = {}, command = {}) => 
       return flowPromptBatchPlan([{ type: "connect", status: "blocked", summary: "AI normalize: source o target non chiaro." }], "Non posso collegare: source o target non chiaro.");
     }
     return flowPromptBuildConnectPlan(context, `collega ${source.label} a ${target.label}`);
+  }
+
+  if (action === "disconnect" || action === "unlink" || action === "removeconnection") {
+    const source = flowPromptFindNodeByText(context, command.source || command.sourceNode || "");
+    const target = flowPromptFindNodeByText(context, command.target || command.targetNode || "");
+    if (!source?.id || !target?.id) {
+      return flowPromptBatchPlan([{ type: "deleteDependencies", status: "blocked", summary: "AI normalize: source o target non chiaro." }], "Non posso scollegare: source o target non chiaro.");
+    }
+    return flowPromptBuildDisconnectPlan(context, `scollega ${source.label} da ${target.label}`);
   }
 
   if (action === "setconfig" || action === "config" || action === "updateconfig" || action === "setchannel") {
@@ -725,11 +858,13 @@ const flowPromptNormalizeCommandWithAi = async (context = {}, prompt = "") => {
   }));
   const normalizerPrompt = [
     "Normalize the user's Flow Map command into JSON only.",
-    "Allowed actions: rename, connect, setConfig, setChannel, fix.",
+    "Allowed actions: rename, connect, disconnect, setConfig, setChannel, fix.",
     "Schema examples:",
     "{\"action\":\"rename\",\"node\":\"Telegram 2\",\"nextLabel\":\"Telegram Vuoto\"}",
     "{\"action\":\"connect\",\"source\":\"Telegram Message\",\"target\":\"Preview\"}",
+    "{\"action\":\"disconnect\",\"source\":\"Telegram Message\",\"target\":\"Preview\"}",
     "{\"action\":\"setConfig\",\"node\":\"AI Analyzer\",\"field\":\"model\",\"value\":\"llama3.1\"}",
+    "{\"action\":\"setConfig\",\"node\":\"REST API\",\"field\":\"method\",\"value\":\"POST\"}",
     "{\"action\":\"setChannel\",\"node\":\"Telegram Message\",\"target\":\"output\",\"field\":\"output\",\"value\":\"action.telegram\"}",
     "{\"action\":\"fix\"}",
     "Rules:",
@@ -1483,9 +1618,9 @@ const openFlowPromptChatDialog = async () => {
     refresh();
   };
 
-  const analyze = async () => {
+  const analyze = async (promptOverride = null) => {
     draft.error = "";
-    const prompt = String(draft.prompt || "").trim();
+    const prompt = String(promptOverride ?? draft.prompt ?? "").trim();
     if (!prompt) {
       draft.error = "Scrivi un prompt per generare nodi e collegamenti.";
       refresh();
@@ -1656,6 +1791,21 @@ const openFlowPromptChatDialog = async () => {
     }
   };
 
+  const focusAgentNode = (nodeId = "") => {
+    const node = flowPromptRuntimeNodeById(nodeId);
+    if (!node) return;
+    setFocusState({
+      mode: "dependencies",
+      nodeId: node.id,
+      nodeType: node.type || "",
+      edgeId: "",
+      channel: node.channels?.[0] || node.outputs?.[0] || "",
+      connectionId: "",
+    });
+    state.inspectorOpen = true;
+    mount({ preserveScroll: true });
+  };
+
   const applySingleAgentAction = async (action = {}) => {
     if (action.type === "connect") {
       const workspaceId = await ensureRuntimeWorkspaceScope();
@@ -1677,7 +1827,7 @@ const openFlowPromptChatDialog = async () => {
         createdAt: new Date().toISOString(),
       };
       await window.TrackerLensRuntimeGraphStore?.upsertDependency?.({ dependency });
-      return { type: "connect", label: `${action.source.label} -> ${action.target.label}` };
+      return { type: "connect", label: `${action.source.label} -> ${action.target.label}`, focusNodeId: action.target.id };
     }
 
     if (action.type === "renameNode") {
@@ -1686,7 +1836,7 @@ const openFlowPromptChatDialog = async () => {
       await window.TrackerLensRuntimeGraphStore?.upsertRuntimeNode?.({
         node: { ...node, label: action.nextLabel, updatedAt: new Date().toISOString() },
       });
-      return { type: "renameNode", label: `${action.previousLabel} -> ${action.nextLabel}` };
+      return { type: "renameNode", label: `${action.previousLabel} -> ${action.nextLabel}`, focusNodeId: node.id };
     }
 
     if (action.type === "updateNodeConfig") {
@@ -1711,7 +1861,7 @@ const openFlowPromptChatDialog = async () => {
       if (window.TrackerLensChannelRegistry?.upsertChannelsForRuntimeNode) {
         await window.TrackerLensChannelRegistry.upsertChannelsForRuntimeNode({ node: nextNode }).catch(() => null);
       }
-      return { type: "updateNodeConfig", label: `${node.label}: ${action.field} = ${action.value}` };
+      return { type: "updateNodeConfig", label: `${node.label}: ${action.field} = ${action.value}`, focusNodeId: node.id };
     }
 
     if (action.type === "deleteDependencies") {
@@ -1779,6 +1929,8 @@ const openFlowPromptChatDialog = async () => {
           createdEdges: applied.filter((item) => item.type === "connect").length,
           reusedEdges: 0,
           snapshotId: snapshot?.id || "",
+          focusNodeId: applied.find((item) => item.focusNodeId)?.focusNodeId || "",
+          applied,
         },
       });
       mount({ preserveScroll: true });
@@ -1898,9 +2050,23 @@ const openFlowPromptChatDialog = async () => {
     const showRuntime = ["runtime", "database"].includes(intent);
     const showNodes = ["nodes", "explain"].includes(intent);
     const showEdges = ["edges", "explain"].includes(intent);
+    const renderChoiceButtons = (item = {}) =>
+      item.choices?.length ? _.div(
+        { class: "tl-flow-prompt-choice-list" },
+        ...item.choices.slice(0, 3).map((choice) =>
+          btn({
+            class: "is-ghost",
+            disabled: draft.busy,
+            onclick: () => analyze(choice.prompt),
+            title: choice.detail || "",
+          }, icon("ads_click", "sm"), choice.label)
+        )
+      ) : null;
     const renderDiagnosticsPanel = () => {
       const errors = diagnostics.filter((issue) => issue.severity === "error").length;
       const warnings = diagnostics.length - errors;
+      const fixActions = diagnostics.map((issue) => issue.fixAction).filter((action) => action?.status === "ready");
+      const canFixAll = fixActions.length > 1 && fixActions.every((action) => action.type === "deleteDependencies");
       return _.details(
         { class: "tl-flow-prompt-diagnostics-panel" },
         _.summary(
@@ -1915,13 +2081,32 @@ const openFlowPromptChatDialog = async () => {
         ),
         diagnostics.length ? _.div(
           { class: "tl-flow-prompt-diagnostics-list" },
+          canFixAll ? _.div(
+            { class: "tl-flow-prompt-diagnostics-actions" },
+            btn({
+              class: "is-primary",
+              disabled: draft.busy,
+              onclick: (event) => {
+                event.preventDefault();
+                applyAgentAction(flowPromptBatchPlan(fixActions, `Rimuovo ${fixActions.length} collegamenti rotti.`));
+              },
+            }, icon("auto_fix_high", "sm"), "Fix all")
+          ) : null,
           ...diagnostics.map((issue) => {
             const title = issue.title || issue.message || issue.summary || "Problema Flow Map";
             const detail = issue.detail || issue.description || issue.reason || issue.id || "";
             return _.div(
               { class: `tl-flow-prompt-diagnostic is-${issue.severity || "warning"}` },
               icon(issue.severity === "error" ? "error" : "warning", "sm"),
-              _.span(_.strong(title), _.em(detail))
+              _.span(_.strong(title), _.em(detail)),
+              issue.fixAction ? btn({
+                class: "is-ghost",
+                disabled: draft.busy,
+                onclick: (event) => {
+                  event.preventDefault();
+                  applyAgentAction(flowPromptBatchPlan([issue.fixAction], issue.fixAction.summary || title));
+                },
+              }, icon("build", "sm"), "Fix") : null
             );
           })
         ) : null
@@ -1958,7 +2143,8 @@ const openFlowPromptChatDialog = async () => {
             return _.div(
               { class: `tl-flow-prompt-action-step is-${itemStatus}` },
               icon(itemStatus === "ready" || itemStatus === "applied" ? "check_circle" : "warning", "sm"),
-              _.span(_.strong(item.type || "action"), _.em(flowPromptActionSummary(item)))
+              _.span(_.strong(item.type || "action"), _.em(flowPromptActionSummary(item))),
+              renderChoiceButtons(item)
             );
           })
           : [_.p({ class: "tl-flow-prompt-inventory-empty" }, pendingAction.summary || "Nessuna azione applicabile.")])
@@ -2067,7 +2253,16 @@ const openFlowPromptChatDialog = async () => {
       message.kind === "result" && message.result ? _.div(
         { class: "tl-flow-prompt-result is-inline" },
         icon("check_circle", "sm"),
-        _.span(`${message.result.createdNodes} creati · ${message.result.reusedNodes} aggiornati · ${message.result.createdEdges} link creati · ${message.result.reusedEdges} link riusati`),
+        _.span(
+          message.result.applied?.length
+            ? message.result.applied.map((item) => item.label).join(" · ")
+            : `${message.result.createdNodes} creati · ${message.result.reusedNodes} aggiornati · ${message.result.createdEdges} link creati · ${message.result.reusedEdges} link riusati`
+        ),
+        message.result.focusNodeId ? btn({
+          class: "is-ghost",
+          disabled: draft.busy,
+          onclick: () => focusAgentNode(message.result.focusNodeId),
+        }, icon("center_focus_strong", "sm"), "Focus") : null,
         message.result.snapshotId ? btn({
           class: "is-ghost",
           disabled: draft.busy,
@@ -2184,9 +2379,18 @@ const openFlowPromptChatDialog = async () => {
                 draft.result = null;
               },
               onkeydown: (event) => {
-                if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {
+                if (event.key === "Enter" && !event.shiftKey) {
                   event.preventDefault();
-                  analyze();
+                  const prompt = String(event.currentTarget.value || "").trim();
+                  if (!prompt) {
+                    analyze("");
+                    return;
+                  }
+                  draft.prompt = "";
+                  event.currentTarget.value = "";
+                  draft.analysis = null;
+                  draft.result = null;
+                  analyze(prompt);
                 }
               },
             })
@@ -2212,13 +2416,6 @@ const openFlowPromptChatDialog = async () => {
     icon: "auto_awesome",
     closeButton: true,
     content: () => renderContent(),
-    actions: ({ close }) => _.Toolbar(
-      { class: "tl-flow-prompt-actions", align: "end", gap: 8 },
-      btn({ class: "is-ghost", onclick: close }, "Cancel"),
-      btn({ onclick: startNewChat, disabled: draft.busy }, icon("add", "sm"), "Nuova chat"),
-      btn({ onclick: analyze, disabled: draft.busy }, icon("send", "sm"), "Invia"),
-      btn({ class: "is-primary", onclick: create, disabled: draft.busy }, icon(draft.busy ? "hourglass_empty" : "add_link", "sm"), draft.busy ? "Creazione..." : "Crea flow")
-    ),
   });
   dialog.open();
   loadHistory();

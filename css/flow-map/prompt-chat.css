@@ -27,7 +27,7 @@
 
 .tl-flow-prompt-panel {
   display: grid;
-  grid-template-rows: auto minmax(0, 1fr) auto;
+  grid-template-rows: auto minmax(0, 1fr);
   width: min(1120px, calc(100vw - 48px));
   max-width: calc(100vw - 48px);
   max-height: calc(100vh - 48px);
@@ -52,7 +52,7 @@
   gap: 14px;
   width: 100%;
   min-width: 0;
-  height: min(640px, calc(100vh - 250px));
+  height: min(680px, calc(100vh - 160px));
   min-height: 0;
   max-height: 100%;
 }
@@ -668,7 +668,7 @@
 
 .tl-flow-prompt-diagnostic {
   display: grid;
-  grid-template-columns: 18px minmax(0, 1fr);
+  grid-template-columns: 18px minmax(0, 1fr) auto;
   align-items: start;
   gap: 8px;
   padding: 7px 0;
@@ -693,6 +693,12 @@
 .tl-flow-prompt-diagnostic em {
   color: var(--tl-text-muted);
   font-style: normal;
+}
+
+.tl-flow-prompt-diagnostics-actions {
+  display: flex;
+  justify-content: flex-end;
+  padding: 6px 0 4px;
 }
 
 .tl-flow-prompt-diagnostic.is-error .cms-icon,
@@ -805,6 +811,15 @@
 .tl-flow-prompt-action-step.is-blocked>.cms-icon,
 .tl-flow-prompt-action-step.is-blocked>.material-symbols-outlined {
   color: #ffe27a;
+}
+
+.tl-flow-prompt-choice-list {
+  grid-column: 2;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  min-width: 0;
+  padding-top: 4px;
 }
 
 .tl-flow-prompt-mini-grid section {
@@ -1044,10 +1059,18 @@
 
 .tl-flow-prompt-result.is-inline {
   display: grid;
-  grid-template-columns: 18px minmax(0, 1fr) auto;
+  grid-template-columns: 18px minmax(0, 1fr) auto auto;
   align-items: center;
+  gap: 8px;
   padding: 8px 10px;
   font-size: 11px;
+}
+
+.tl-flow-prompt-result.is-inline>span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .tl-flow-prompt-error {
@@ -1073,7 +1096,7 @@
   .tl-flow-prompt-chat {
     grid-template-columns: 1fr;
     min-width: 0;
-    height: calc(100vh - 240px);
+    height: calc(100vh - 150px);
     max-height: 100%;
     min-height: 0;
   }

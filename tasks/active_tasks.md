@@ -55,6 +55,9 @@ Runtime Notes:
 - 2026-06-09: Compact prompt composer textarea to `rows=2` with reduced min-height and padding so the chat leaves more space for the conversation.
 - 2026-06-09: The Flow Chat intro suggestion now appears only for empty/new chats and includes a close button; dismissing it hides the suggestion for the current chat while new chats show it again.
 - 2026-06-09: Fixed prompt composer clipping by reducing Flow Chat body height on constrained viewports and reserving bottom space so the textarea stays above the dialog action bar.
+- 2026-06-09: Removed the Flow Chat footer actions. The textarea now submits with Enter, keeps Shift+Enter for new lines, and the dialog layout no longer reserves footer space.
+- 2026-06-09: Enter submit now clears the prompt textarea immediately while passing the captured text into the agent pipeline, so the composer resets as soon as the request is sent.
+- 2026-06-09: Extended Level 2 Flow Map Agent commands with safer connect validation, disconnect/unlink, provider/model/url/method/chatId/channel config updates, clickable node disambiguation choices, cleaner post-Apply result cards with Focus/Undo, and actionable expandable diagnostics with Fix/Fix all for safe broken-link cleanup.
 - Remaining: expose planner prompt/debug details in a developer inspector.
 
 ## [TASK-023]
