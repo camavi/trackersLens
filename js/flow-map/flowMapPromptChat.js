@@ -452,9 +452,20 @@ const flowPromptFindNodeByText = (context = {}, text = "") => {
   const normalized = flowPromptNormalize(text);
   if (!normalized) return null;
   const nodes = context.nodes || [];
-  const exact = nodes.find((node) => flowPromptNodeSearchText(node) === normalized);
-  if (exact) return exact;
-  const contains = nodes.filter((node) => flowPromptNodeSearchText(node).includes(normalized) || normalized.includes(flowPromptNormalize(node.label || "")));
+  const exactVisible = nodes.filter((node) =>
+    flowPromptNormalize(node.label || "") === normalized ||
+    flowPromptNormalize(node.name || "") === normalized ||
+    flowPromptNormalize(node.id || "") === normalized
+  );
+  if (exactVisible.length === 1) return exactVisible[0];
+  const exact = nodes.filter((node) => flowPromptNodeSearchText(node) === normalized);
+  if (exact.length === 1) return exact[0];
+  const visibleContains = nodes.filter((node) => {
+    const label = flowPromptNormalize(node.label || node.name || "");
+    return label && (label.includes(normalized) || normalized.includes(label));
+  });
+  if (visibleContains.length === 1) return visibleContains[0];
+  const contains = nodes.filter((node) => flowPromptNodeSearchText(node).includes(normalized));
   if (contains.length === 1) return contains[0];
   const tokens = normalized.split(/\s+/).filter((token) => token.length > 2);
   const scored = nodes
@@ -507,6 +518,9 @@ const flowPromptBlockedChoice = ({ type = "action", summary = "", sourceHint = "
     })),
   ].filter((choice) => choice.prompt),
 });
+
+const flowPromptPlanHasChoices = (action = {}) =>
+  !!(action?.choices?.length || (action?.actions || []).some((item) => flowPromptPlanHasChoices(item)));
 
 const flowPromptRuntimeNodeById = (nodeId = "") =>
   (state.runtime.nodes || []).find((node) => node.id === nodeId) || null;
@@ -785,7 +799,18 @@ const flowPromptBuildActionPlanFromNormalized = (context = {}, command = {}) => 
     const node = flowPromptFindNodeByText(context, command.node || command.nodeLabel || command.source || "");
     const nextLabel = String(command.nextLabel || command.label || command.value || "").trim();
     if (!node?.id || !nextLabel) {
-      return flowPromptBatchPlan([{ type: "renameNode", status: "blocked", summary: "AI normalize: nodo o nome non chiaro." }], "Non posso rinominare: nodo o nuovo nome non chiaro.");
+      const nodeHint = command.node || command.nodeLabel || command.source || "";
+      return flowPromptBatchPlan([
+        flowPromptBlockedChoice({
+          type: "renameNode",
+          summary: "AI normalize: nodo o nome non chiaro.",
+          sourceHint: nodeHint,
+          value: nextLabel,
+          context,
+          promptBuilder: ({ source: pickedNode, value }) =>
+            `rinomina ${pickedNode?.label || nodeHint} in ${value || nextLabel}`,
+        }),
+      ], "Non posso rinominare: nodo o nuovo nome non chiaro.");
     }
     return flowPromptBatchPlan([{
       type: "renameNode",
@@ -799,32 +824,67 @@ const flowPromptBuildActionPlanFromNormalized = (context = {}, command = {}) => 
   }
 
   if (action === "connect" || action === "link") {
-    const source = flowPromptFindNodeByText(context, command.source || command.sourceNode || "");
-    const target = flowPromptFindNodeByText(context, command.target || command.targetNode || "");
+    const sourceHint = command.source || command.sourceNode || "";
+    const targetHint = command.target || command.targetNode || "";
+    const source = flowPromptFindNodeByText(context, sourceHint);
+    const target = flowPromptFindNodeByText(context, targetHint);
     if (!source?.id || !target?.id) {
-      return flowPromptBatchPlan([{ type: "connect", status: "blocked", summary: "AI normalize: source o target non chiaro." }], "Non posso collegare: source o target non chiaro.");
+      return flowPromptBatchPlan([
+        flowPromptBlockedChoice({
+          type: "connect",
+          summary: "AI normalize: source o target non chiaro.",
+          sourceHint,
+          targetHint,
+          context,
+          promptBuilder: ({ source: pickedSource, target: pickedTarget }) =>
+            `collega ${pickedSource?.label || sourceHint} a ${pickedTarget?.label || targetHint}`,
+        }),
+      ], "Non posso collegare: source o target non chiaro.");
     }
     return flowPromptBuildConnectPlan(context, `collega ${source.label} a ${target.label}`);
   }
 
   if (action === "disconnect" || action === "unlink" || action === "removeconnection") {
-    const source = flowPromptFindNodeByText(context, command.source || command.sourceNode || "");
-    const target = flowPromptFindNodeByText(context, command.target || command.targetNode || "");
+    const sourceHint = command.source || command.sourceNode || "";
+    const targetHint = command.target || command.targetNode || "";
+    const source = flowPromptFindNodeByText(context, sourceHint);
+    const target = flowPromptFindNodeByText(context, targetHint);
     if (!source?.id || !target?.id) {
-      return flowPromptBatchPlan([{ type: "deleteDependencies", status: "blocked", summary: "AI normalize: source o target non chiaro." }], "Non posso scollegare: source o target non chiaro.");
+      return flowPromptBatchPlan([
+        flowPromptBlockedChoice({
+          type: "deleteDependencies",
+          summary: "AI normalize: source o target non chiaro.",
+          sourceHint,
+          targetHint,
+          context,
+          promptBuilder: ({ source: pickedSource, target: pickedTarget }) =>
+            `scollega ${pickedSource?.label || sourceHint} da ${pickedTarget?.label || targetHint}`,
+        }),
+      ], "Non posso scollegare: source o target non chiaro.");
     }
     return flowPromptBuildDisconnectPlan(context, `scollega ${source.label} da ${target.label}`);
   }
 
   if (action === "setconfig" || action === "config" || action === "updateconfig" || action === "setchannel") {
-    const node = flowPromptFindNodeByText(context, command.node || command.nodeLabel || command.source || "");
+    const nodeHint = command.node || command.nodeLabel || command.source || "";
+    const node = flowPromptFindNodeByText(context, nodeHint);
     const field = String(command.field || command.key || "config").trim();
     const value = String(command.value || command.nextValue || "").trim();
     const target = ["output", "input", "channel"].includes(flowPromptNormalize(command.target || field))
       ? flowPromptNormalize(command.target || field)
       : "config";
     if (!node?.id || !value) {
-      return flowPromptBatchPlan([{ type: "updateNodeConfig", status: "blocked", summary: "AI normalize: nodo o valore non chiaro." }], "Non posso aggiornare config: nodo o valore non chiaro.");
+      return flowPromptBatchPlan([
+        flowPromptBlockedChoice({
+          type: "updateNodeConfig",
+          summary: "AI normalize: nodo o valore non chiaro.",
+          sourceHint: nodeHint,
+          value,
+          context,
+          promptBuilder: ({ source: pickedNode, value: pickedValue }) =>
+            `imposta ${field} di ${pickedNode?.label || nodeHint} a ${pickedValue || value}`,
+        }),
+      ], "Non posso aggiornare config: nodo o valore non chiaro.");
     }
     return flowPromptBatchPlan([{
       type: "updateNodeConfig",
@@ -892,6 +952,9 @@ const flowPromptBuildActionPlanWithAiNormalize = async (context = {}, prompt = "
   if (!flowPromptIsMutationRequest(prompt) && flowPromptAgentIntent(prompt) !== "connect") return localPlan;
   const normalized = await flowPromptNormalizeCommandWithAi(context, prompt);
   const aiPlan = normalized ? flowPromptBuildActionPlanFromNormalized(context, normalized) : null;
+  if (aiPlan?.status === "blocked" && localPlan && flowPromptPlanHasChoices(localPlan) && !flowPromptPlanHasChoices(aiPlan)) {
+    return localPlan;
+  }
   return aiPlan || localPlan;
 };
 
@@ -2043,8 +2106,8 @@ const openFlowPromptChatDialog = async () => {
     const queryItems = query.items || [];
     const pendingAction = report.pendingAction || null;
     const pendingStatus = flowPromptEffectiveActionStatus(pendingAction);
-    const isMutationPlan = intent === "mutation" && !!pendingAction;
-    const showOverview = !isMutationPlan;
+    const isApplyPlan = !!pendingAction && ["mutation", "connect", "disconnect", "rename", "config", "fix"].includes(intent);
+    const showOverview = !isApplyPlan;
     const showDiagnostics = intent === "diagnostics";
     const showChannels = ["channels", "database"].includes(intent);
     const showRuntime = ["runtime", "database"].includes(intent);

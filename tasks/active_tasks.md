@@ -58,6 +58,9 @@ Runtime Notes:
 - 2026-06-09: Removed the Flow Chat footer actions. The textarea now submits with Enter, keeps Shift+Enter for new lines, and the dialog layout no longer reserves footer space.
 - 2026-06-09: Enter submit now clears the prompt textarea immediately while passing the captured text into the agent pipeline, so the composer resets as soon as the request is sent.
 - 2026-06-09: Extended Level 2 Flow Map Agent commands with safer connect validation, disconnect/unlink, provider/model/url/method/chatId/channel config updates, clickable node disambiguation choices, cleaner post-Apply result cards with Focus/Undo, and actionable expandable diagnostics with Fix/Fix all for safe broken-link cleanup.
+- 2026-06-09: Fixed ambiguous command handling after AI normalization. When the local parser can offer candidate nodes but the AI normalizer returns a generic blocked command, the chat keeps the local disambiguation buttons instead of replacing them with `source or target not clear`; normalized blocked plans now also include clickable candidates when possible.
+- 2026-06-09: Improved node matching for agent commands by prioritizing exact visible label/name/id matches before broad search text. This prevents renamed nodes whose old id still contains another label from making commands like `collega Telegram Message a Preview 2` appear ambiguous.
+- 2026-06-09: Removed global KPI cards from operational Apply plans such as connect, disconnect, rename, config and fix, keeping the response focused on the requested modification.
 - Remaining: expose planner prompt/debug details in a developer inspector.
 
 ## [TASK-023]
