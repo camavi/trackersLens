@@ -398,12 +398,10 @@ textarea.tl-flow-menu-input {
   left: var(--x);
   top: var(--y);
   z-index: 2;
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  max-width: 156px;
+  max-width: 118px;
   min-height: 20px;
-  padding: 2px 4px 2px 8px;
+  padding: 2px 7px;
+  overflow: visible;
   color: var(--tl-text);
   border: 1px solid rgba(56, 189, 248, 0.24);
   border-radius: 999px;
@@ -418,6 +416,7 @@ textarea.tl-flow-menu-input {
 }
 
 .tl-flow-edge-label-text {
+  display: block;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -425,12 +424,14 @@ textarea.tl-flow-menu-input {
 }
 
 .tl-flow-edge-label-delete {
+  position: absolute;
+  right: -10px;
+  top: 50%;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 18px;
-  height: 18px;
-  flex: 0 0 18px;
+  width: 22px;
+  height: 22px;
   padding: 0;
   color: rgba(248, 113, 113, 0.9);
   border: 1px solid rgba(248, 113, 113, 0.28);
@@ -438,6 +439,7 @@ textarea.tl-flow-menu-input {
   background: rgba(127, 29, 29, 0.24);
   opacity: 0;
   pointer-events: none;
+  transform: translateY(-50%);
   cursor: pointer;
 }
 
