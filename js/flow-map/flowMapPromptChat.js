@@ -507,11 +507,13 @@ const flowPromptBlockedChoice = ({ type = "action", summary = "", sourceHint = "
   summary,
   choices: [
     ...flowPromptFindNodeCandidates(context, sourceHint).map((node) => ({
+      role: "source",
       label: node.label || node.id,
       detail: `${node.type || "node"} · ${node.subtype || node.category || "runtime"}`,
       prompt: typeof promptBuilder === "function" ? promptBuilder({ source: node, target: null, value }) : "",
     })),
     ...flowPromptFindNodeCandidates(context, targetHint).map((node) => ({
+      role: "target",
       label: node.label || node.id,
       detail: `${node.type || "node"} · ${node.subtype || node.category || "runtime"}`,
       prompt: typeof promptBuilder === "function" ? promptBuilder({ source: null, target: node, value }) : "",
@@ -521,6 +523,33 @@ const flowPromptBlockedChoice = ({ type = "action", summary = "", sourceHint = "
 
 const flowPromptPlanHasChoices = (action = {}) =>
   !!(action?.choices?.length || (action?.actions || []).some((item) => flowPromptPlanHasChoices(item)));
+
+const flowPromptDebugPlan = (action = {}) => {
+  if (!action) return null;
+  if (action.type === "batch") {
+    return {
+      type: "batch",
+      status: action.status || "",
+      summary: action.summary || "",
+      actions: (action.actions || []).map(flowPromptDebugPlan),
+    };
+  }
+  return {
+    type: action.type || "",
+    status: action.status || "",
+    summary: action.summary || "",
+    nodeId: action.nodeId || action.node?.id || "",
+    source: action.source?.label || action.sourceHint || "",
+    target: action.target?.label || action.targetHint || "",
+    field: action.field || "",
+    value: action.value || "",
+    choices: (action.choices || []).map((choice) => ({
+      role: choice.role || "",
+      label: choice.label || "",
+      prompt: choice.prompt || "",
+    })),
+  };
+};
 
 const flowPromptRuntimeNodeById = (nodeId = "") =>
   (state.runtime.nodes || []).find((node) => node.id === nodeId) || null;
@@ -742,20 +771,27 @@ const flowPromptParseConfigField = (prompt = "") => {
   return { field: "config", target: "config" };
 };
 
-const flowPromptBuildConfigPlan = (context = {}, prompt = "") => {
+const flowPromptExtractConfigChange = (prompt = "") => {
   const text = String(prompt || "").trim();
-  const valueMatch = text.match(/\s(?:in|a|to|=)\s+([^\s].+)$/i);
-  const value = String(valueMatch?.[1] || "").trim();
+  const valueMatch = text.match(/\s(?:in|a|to|su|come|con|=)\s+(['"]?)([^\n]+?)\1\s*$/i);
+  const value = String(valueMatch?.[2] || "").trim();
   const beforeValue = valueMatch ? text.slice(0, valueMatch.index).trim() : text;
-  const nodeMatch = beforeValue.match(/\s(?:di|del|della|dell|for)\s+(.+)$/i);
+  const nodeMatch = beforeValue.match(/\s(?:di|del|della|dello|dell'|for|nel|nella|sul|su)\s+(.+)$/i);
+  const field = flowPromptParseConfigField(prompt);
   const fallbackHint = beforeValue
-    .replace(/^(cambia|imposta|set|aggiorna)\s+/i, "")
-    .replace(/\b(il|la|lo|un|una|nodo|node|modello|model|chatid|chat id|canale|channel|output|input)\b/gi, " ")
+    .replace(/^(cambia|imposta|set|aggiorna|modifica)\s+/i, "")
+    .replace(/\b(il|la|lo|un|una|nodo|node|provider|url|endpoint|method|metodo|modello|model|chatid|chat id|canale|channel|output|input)\b/gi, " ")
     .replace(/\s+/g, " ")
     .trim();
-  const nodeHint = String(nodeMatch?.[1] || fallbackHint).replace(/^(il|la|lo|nodo)\s+/i, "").trim();
+  const nodeHint = String(nodeMatch?.[1] || fallbackHint)
+    .replace(/^(il|la|lo|un|una|nodo|node)\s+/i, "")
+    .trim();
+  return { field, value, nodeHint };
+};
+
+const flowPromptBuildConfigPlan = (context = {}, prompt = "") => {
+  const { field, value, nodeHint } = flowPromptExtractConfigChange(prompt);
   const node = flowPromptFindNodeByText(context, nodeHint);
-  const field = flowPromptParseConfigField(prompt);
   if (!node?.id || !value) {
     return flowPromptBatchPlan([
       flowPromptBlockedChoice({
@@ -946,15 +982,27 @@ const flowPromptNormalizeCommandWithAi = async (context = {}, prompt = "") => {
   }
 };
 
-const flowPromptBuildActionPlanWithAiNormalize = async (context = {}, prompt = "") => {
+const flowPromptBuildActionPlanWithAiNormalize = async (context = {}, prompt = "", debug = {}) => {
   const localPlan = flowPromptBuildActionPlan(context, prompt);
-  if (localPlan && localPlan.status !== "blocked") return localPlan;
-  if (!flowPromptIsMutationRequest(prompt) && flowPromptAgentIntent(prompt) !== "connect") return localPlan;
-  const normalized = await flowPromptNormalizeCommandWithAi(context, prompt);
-  const aiPlan = normalized ? flowPromptBuildActionPlanFromNormalized(context, normalized) : null;
-  if (aiPlan?.status === "blocked" && localPlan && flowPromptPlanHasChoices(localPlan) && !flowPromptPlanHasChoices(aiPlan)) {
+  debug.localPlan = flowPromptDebugPlan(localPlan);
+  if (localPlan && localPlan.status !== "blocked") {
+    debug.selectedPlan = "local";
     return localPlan;
   }
+  if (!flowPromptIsMutationRequest(prompt) && flowPromptAgentIntent(prompt) !== "connect") {
+    debug.selectedPlan = localPlan ? "local" : "none";
+    return localPlan;
+  }
+  const normalized = await flowPromptNormalizeCommandWithAi(context, prompt);
+  debug.normalizedCommand = normalized || null;
+  const aiPlan = normalized ? flowPromptBuildActionPlanFromNormalized(context, normalized) : null;
+  debug.aiPlan = flowPromptDebugPlan(aiPlan);
+  if (aiPlan?.status === "blocked" && localPlan && flowPromptPlanHasChoices(localPlan) && !flowPromptPlanHasChoices(aiPlan)) {
+    debug.selectedPlan = "local";
+    debug.reason = "AI normalizer returned a generic blocked plan without useful choices.";
+    return localPlan;
+  }
+  debug.selectedPlan = aiPlan ? "ai-normalized" : localPlan ? "local" : "none";
   return aiPlan || localPlan;
 };
 
@@ -963,7 +1011,13 @@ const flowPromptBuildAgentReport = async (prompt = "") => {
   const diagnostics = flowPromptDiagnoseContext(context);
   const intent = flowPromptAgentIntent(prompt);
   const query = flowPromptAgentQuery(context, prompt);
-  const pendingAction = await flowPromptBuildActionPlanWithAiNormalize(context, prompt);
+  const debug = {
+    prompt,
+    intent,
+    metric: query.metric,
+    filter: query.filter,
+  };
+  const pendingAction = await flowPromptBuildActionPlanWithAiNormalize(context, prompt, debug);
   const lower = flowPromptNormalize(prompt);
   const wantsDb = flowPromptHasAny(lower, ["db", "database", "indexeddb"]);
   const mutation = flowPromptIsMutationRequest(prompt);
@@ -1022,6 +1076,7 @@ const flowPromptBuildAgentReport = async (prompt = "") => {
     diagnostics,
     query,
     pendingAction,
+    debug,
   };
 };
 
@@ -2113,18 +2168,59 @@ const openFlowPromptChatDialog = async () => {
     const showRuntime = ["runtime", "database"].includes(intent);
     const showNodes = ["nodes", "explain"].includes(intent);
     const showEdges = ["edges", "explain"].includes(intent);
-    const renderChoiceButtons = (item = {}) =>
-      item.choices?.length ? _.div(
-        { class: "tl-flow-prompt-choice-list" },
-        ...item.choices.slice(0, 3).map((choice) =>
-          btn({
-            class: "is-ghost",
-            disabled: draft.busy,
-            onclick: () => analyze(choice.prompt),
-            title: choice.detail || "",
-          }, icon("ads_click", "sm"), choice.label)
+    const renderChoiceGroup = (label = "", choices = []) =>
+      choices.length ? _.div(
+        { class: "tl-flow-prompt-choice-group" },
+        _.em(label),
+        _.div(
+          { class: "tl-flow-prompt-choice-buttons" },
+          ...choices.slice(0, 3).map((choice) =>
+            btn({
+              class: "is-ghost",
+              disabled: draft.busy,
+              onclick: () => analyze(choice.prompt),
+              title: choice.detail || "",
+            }, icon("ads_click", "sm"), choice.label)
+          )
         )
       ) : null;
+    const renderChoiceButtons = (item = {}) => {
+      if (!item.choices?.length) return null;
+      const sourceChoices = item.choices.filter((choice) => choice.role === "source");
+      const targetChoices = item.choices.filter((choice) => choice.role === "target");
+      const otherChoices = item.choices.filter((choice) => !["source", "target"].includes(choice.role));
+      return _.div(
+        { class: "tl-flow-prompt-choice-list" },
+        renderChoiceGroup("Source", sourceChoices),
+        renderChoiceGroup("Target", targetChoices),
+        renderChoiceGroup("Opzioni", otherChoices)
+      );
+    };
+    const renderDebugPanel = () => {
+      const debug = report.debug || {};
+      if (!debug.intent && !debug.localPlan && !debug.normalizedCommand) return null;
+      return _.details(
+        { class: "tl-flow-prompt-debug-panel" },
+        _.summary(
+          icon("bug_report", "sm"),
+          _.span(
+            _.strong("Dev inspector"),
+            _.em(`${debug.intent || "intent"} · ${debug.selectedPlan || "no plan"}`)
+          ),
+          icon("expand_more", "sm")
+        ),
+        _.pre(JSON.stringify({
+          intent: debug.intent,
+          metric: debug.metric,
+          filter: debug.filter,
+          selectedPlan: debug.selectedPlan,
+          reason: debug.reason,
+          normalizedCommand: debug.normalizedCommand,
+          localPlan: debug.localPlan,
+          aiPlan: debug.aiPlan,
+        }, null, 2))
+      );
+    };
     const renderDiagnosticsPanel = () => {
       const errors = diagnostics.filter((issue) => issue.severity === "error").length;
       const warnings = diagnostics.length - errors;
@@ -2260,7 +2356,8 @@ const openFlowPromptChatDialog = async () => {
             _.code(record.level || record.status || "info")
           )
         )
-      ) : null
+      ) : null,
+      pendingAction ? renderDebugPanel() : null
     );
   };
 
@@ -2325,7 +2422,7 @@ const openFlowPromptChatDialog = async () => {
           class: "is-ghost",
           disabled: draft.busy,
           onclick: () => focusAgentNode(message.result.focusNodeId),
-        }, icon("center_focus_strong", "sm"), "Focus") : null,
+        }, icon("right_panel_open", "sm"), "Inspector") : null,
         message.result.snapshotId ? btn({
           class: "is-ghost",
           disabled: draft.busy,

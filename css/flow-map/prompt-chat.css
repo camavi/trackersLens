@@ -815,11 +815,95 @@
 
 .tl-flow-prompt-choice-list {
   grid-column: 2;
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+  padding-top: 4px;
+}
+
+.tl-flow-prompt-choice-group {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.tl-flow-prompt-choice-group>em {
+  color: var(--tl-text-muted);
+  font-size: 10px;
+  font-style: normal;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.tl-flow-prompt-choice-buttons {
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
   min-width: 0;
-  padding-top: 4px;
+}
+
+.tl-flow-prompt-debug-panel {
+  border: 1px solid rgba(214, 226, 235, 0.08);
+  border-radius: 8px;
+  background: rgba(7, 13, 20, 0.42);
+  overflow: hidden;
+}
+
+.tl-flow-prompt-debug-panel summary {
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr) 18px;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 9px;
+  cursor: pointer;
+  list-style: none;
+}
+
+.tl-flow-prompt-debug-panel summary::-webkit-details-marker {
+  display: none;
+}
+
+.tl-flow-prompt-debug-panel summary>span {
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+}
+
+.tl-flow-prompt-debug-panel summary strong,
+.tl-flow-prompt-debug-panel summary em {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tl-flow-prompt-debug-panel summary em {
+  color: var(--tl-text-muted);
+  font-size: 10px;
+  font-style: normal;
+}
+
+.tl-flow-prompt-debug-panel summary>.cms-icon:last-child,
+.tl-flow-prompt-debug-panel summary>.material-symbols-outlined:last-child {
+  color: var(--tl-text-muted);
+  transition: transform 0.16s ease;
+}
+
+.tl-flow-prompt-debug-panel[open] summary>.cms-icon:last-child,
+.tl-flow-prompt-debug-panel[open] summary>.material-symbols-outlined:last-child {
+  transform: rotate(180deg);
+}
+
+.tl-flow-prompt-debug-panel pre {
+  max-height: 220px;
+  margin: 0;
+  padding: 9px;
+  overflow: auto;
+  border-top: 1px solid rgba(214, 226, 235, 0.07);
+  color: rgba(214, 226, 235, 0.82);
+  font-size: 10px;
+  line-height: 1.45;
+  white-space: pre-wrap;
 }
 
 .tl-flow-prompt-mini-grid section {
