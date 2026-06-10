@@ -229,7 +229,7 @@ const FLOW_PROMPT_AGENT_TOOLS = Object.freeze([
     name: "validateEndpoint",
     label: "Validate Endpoint",
     category: "external",
-    status: "planned",
+    status: "ready",
     mutates: false,
     description: "Verify URL shape, method, expected response and safety before saving.",
   },
@@ -549,6 +549,90 @@ const flowPromptAgentContext = async () => {
     channels: Array.from(dbChannels || []),
     events: flowPromptRecentRecords(dbEvents, 20),
     flowLogs: flowPromptRecentRecords(dbFlowLogs, 20),
+  };
+};
+
+const flowPromptReadWorkspaceMemory = async (prompt = "") => {
+  if (!window.TrackerLensAiRuntimeStore?.buildMemoryContext) return [];
+  return window.TrackerLensAiRuntimeStore.buildMemoryContext({
+    workspaceId: currentWorkspaceId() || "runtime",
+    agentId: "flow-map-agent",
+    query: prompt,
+    limit: 8,
+  }).catch(() => []);
+};
+
+const flowPromptRememberWorkspaceEvent = async ({ kind = "note", prompt = "", summary = "", result = null } = {}) => {
+  if (!window.TrackerLensAiRuntimeStore?.remember) return null;
+  const workspaceId = currentWorkspaceId() || "runtime";
+  const text = [prompt, summary].filter(Boolean).join(" -> ").slice(0, 600);
+  if (!text) return null;
+  return window.TrackerLensAiRuntimeStore.remember({
+    scope: "workspace",
+    workspaceId,
+    agentId: "flow-map-agent",
+    kind,
+    name: kind === "apply" ? "Flow Agent apply" : "Flow Agent context",
+    text,
+    summary: summary || prompt,
+    tags: ["flow-map", "flow-agent", kind].filter(Boolean),
+    weight: kind === "apply" ? 4 : 2,
+    meta: result ? JSON.stringify(result).slice(0, 1200) : "",
+  }).catch(() => null);
+};
+
+const flowPromptRuntimeQueryInsights = (context = {}, query = {}) => {
+  const filter = query.filter || "";
+  const nodes = context.nodes || [];
+  const edges = context.edges || [];
+  const channels = context.channels || [];
+  const normalizedFilter = flowPromptNormalize(filter);
+  const channelMatches = channels.filter((channel) => flowPromptMatchFilter(channel, filter));
+  const nodeMatches = nodes.filter((node) => flowPromptMatchFilter(node, filter));
+  const edgeMatches = edges.filter((edge) => flowPromptMatchFilter(edge, filter));
+  const relatedNodeIds = new Set(edgeMatches.flatMap((edge) => [edge.sourceNodeId, edge.targetNodeId]).filter(Boolean));
+  const channelByName = new Map(channels.map((channel) => [String(channel.name || channel.id || channel.channel || ""), channel]));
+  const producerCounts = nodes.reduce((map, node) => {
+    (node.outputs || []).concat(node.channels || []).forEach((channel) => {
+      const key = String(channel || "").trim();
+      if (key) map.set(key, (map.get(key) || 0) + 1);
+    });
+    return map;
+  }, new Map());
+  const consumerCounts = nodes.reduce((map, node) => {
+    (node.inputs || []).forEach((channel) => {
+      const key = String(channel || "").trim();
+      if (key) map.set(key, (map.get(key) || 0) + 1);
+    });
+    return map;
+  }, new Map());
+  return {
+    filter,
+    normalizedFilter,
+    memoryScope: currentWorkspaceId() || "runtime",
+    channels: {
+      total: channels.length,
+      matched: channelMatches.length,
+      names: channelMatches.slice(0, 12).map((channel) => channel.name || channel.id || channel.channel).filter(Boolean),
+      producerCounts: Array.from(producerCounts.entries()).slice(0, 12),
+      consumerCounts: Array.from(consumerCounts.entries()).slice(0, 12),
+    },
+    nodes: {
+      total: nodes.length,
+      matched: nodeMatches.length,
+      labels: nodeMatches.slice(0, 12).map((node) => node.label || node.id).filter(Boolean),
+      relatedToMatchedEdges: Array.from(relatedNodeIds).map((id) => nodes.find((node) => node.id === id)?.label || id).slice(0, 12),
+    },
+    edges: {
+      total: edges.length,
+      matched: edgeMatches.length,
+      labels: edgeMatches.slice(0, 12).map((edge) =>
+        `${edge.sourceLabel || edge.sourceNodeId} -> ${edge.targetLabel || edge.targetNodeId}`
+      ),
+    },
+    channelExists: normalizedFilter
+      ? Array.from(channelByName.keys()).some((name) => flowPromptNormalize(name).includes(normalizedFilter))
+      : false,
   };
 };
 
@@ -1128,6 +1212,37 @@ const flowPromptLooksLikePlaceholderValue = (value = "") => {
   return flowPromptHasAny(flowPromptNormalize(text), ["placeholder", "example endpoint", "api endpoint"]);
 };
 
+const FLOW_PROMPT_ENDPOINT_METHODS = new Set(["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"]);
+
+const flowPromptValidateEndpointCandidate = ({ value = "", method = "GET" } = {}) => {
+  const endpoint = String(value || "").trim();
+  const httpMethod = String(method || "GET").trim().toUpperCase();
+  if (!endpoint) return { ok: false, reason: "Endpoint vuoto.", endpoint, method: httpMethod };
+  if (flowPromptLooksLikePlaceholderValue(endpoint)) {
+    return { ok: false, reason: "Endpoint placeholder: serve un URL reale.", endpoint, method: httpMethod };
+  }
+  if (!flowPromptIsExplicitRuntimeUrl(endpoint)) {
+    return { ok: false, reason: "L'endpoint deve iniziare con http://, https://, ws:// o wss://.", endpoint, method: httpMethod };
+  }
+  if (!FLOW_PROMPT_ENDPOINT_METHODS.has(httpMethod)) {
+    return { ok: false, reason: `Metodo HTTP non supportato: ${httpMethod}.`, endpoint, method: httpMethod };
+  }
+  try {
+    const parsed = new URL(endpoint);
+    if (!parsed.hostname) return { ok: false, reason: "URL senza host.", endpoint, method: httpMethod };
+    return {
+      ok: true,
+      reason: "URL valido per configurazione runtime.",
+      endpoint: parsed.toString(),
+      method: httpMethod,
+      protocol: parsed.protocol.replace(":", ""),
+      host: parsed.host,
+    };
+  } catch (_) {
+    return { ok: false, reason: "URL non parsabile.", endpoint, method: httpMethod };
+  }
+};
+
 const flowPromptLooksLikeEndpointLookup = (prompt = "") => {
   const text = flowPromptNormalize(prompt);
   return flowPromptHasAny(text, ["cerca", "cerchi", "cercami", "trova", "trovami", "lookup"])
@@ -1232,7 +1347,13 @@ const flowPromptBuildConfigPlan = (context = {}, prompt = "") => {
       }),
     ], "Non posso aggiornare config: nodo o valore non chiaro.");
   }
-  if (field.field === "endpoint" && (!flowPromptIsExplicitRuntimeUrl(value) || flowPromptLooksLikePlaceholderValue(value))) {
+  const endpointValidation = field.field === "endpoint"
+    ? flowPromptValidateEndpointCandidate({
+      value,
+      method: node?.metadata?.config?.method || "GET",
+    })
+    : null;
+  if (field.field === "endpoint" && !endpointValidation.ok) {
     return flowPromptBatchPlan([
       {
         type: "updateNodeConfig",
@@ -1243,9 +1364,10 @@ const flowPromptBuildConfigPlan = (context = {}, prompt = "") => {
         field: field.field,
         target: field.target,
         value,
-        summary: `Non salvo endpoint in ${node.label}: "${value}" non e un URL runtime valido.`,
+        validation: endpointValidation,
+        summary: `Non salvo endpoint in ${node.label}: ${endpointValidation.reason}`,
       },
-    ], "Non posso aggiornare l'URL: serve un endpoint esplicito che inizi con http://, https://, ws:// o wss://.");
+    ], endpointValidation.reason);
   }
   return flowPromptBatchPlan([
     {
@@ -1257,6 +1379,7 @@ const flowPromptBuildConfigPlan = (context = {}, prompt = "") => {
       field: field.field,
       target: field.target,
       value,
+      validation: endpointValidation,
       summary: `Imposto ${field.field} di ${node.label} a ${value}.`,
     },
   ], `Posso aggiornare ${node.label}: ${field.field} = ${value}.`);
@@ -1402,7 +1525,13 @@ const flowPromptBuildActionPlanFromNormalized = (context = {}, command = {}) => 
         }),
       ], "Non posso aggiornare config: nodo o valore non chiaro.");
     }
-    if (target === "config" && field === "endpoint" && (!flowPromptIsExplicitRuntimeUrl(value) || flowPromptLooksLikePlaceholderValue(value))) {
+    const endpointValidation = target === "config" && field === "endpoint"
+      ? flowPromptValidateEndpointCandidate({
+        value,
+        method: node?.metadata?.config?.method || command.method || "GET",
+      })
+      : null;
+    if (target === "config" && field === "endpoint" && !endpointValidation.ok) {
       return flowPromptBatchPlan([{
         type: "updateNodeConfig",
         tool: "updateNodeConfig",
@@ -1412,8 +1541,9 @@ const flowPromptBuildActionPlanFromNormalized = (context = {}, command = {}) => 
         field,
         target,
         value,
-        summary: `AI normalize ha proposto un endpoint non valido per ${node.label}: "${value}".`,
-      }], "Non posso applicare l'endpoint: serve un URL esplicito che inizi con http://, https://, ws:// o wss://.");
+        validation: endpointValidation,
+        summary: `AI normalize ha proposto un endpoint non valido per ${node.label}: ${endpointValidation.reason}`,
+      }], endpointValidation.reason);
     }
     return flowPromptBatchPlan([{
       type: "updateNodeConfig",
@@ -1424,6 +1554,7 @@ const flowPromptBuildActionPlanFromNormalized = (context = {}, command = {}) => 
       field,
       target,
       value,
+      validation: endpointValidation,
       summary: `Imposto ${field} di ${node.label} a ${value}.`,
     }], `Posso aggiornare ${node.label}: ${field} = ${value}.`);
   }
@@ -1511,16 +1642,21 @@ const flowPromptBuildActionPlanWithAiNormalize = async (context = {}, prompt = "
 
 const flowPromptBuildAgentReport = async (prompt = "") => {
   const context = await flowPromptAgentContext();
+  const memory = await flowPromptReadWorkspaceMemory(prompt);
   const diagnostics = flowPromptDiagnoseContext(context);
   const intent = flowPromptAgentIntent(prompt);
   const query = flowPromptAgentQuery(context, prompt);
+  const queryInsights = flowPromptRuntimeQueryInsights(context, query);
   const debug = {
     prompt,
     intent,
     metric: query.metric,
     filter: query.filter,
+    queryInsights,
+    memory,
   };
   const pendingAction = await flowPromptBuildActionPlanWithAiNormalize(context, prompt, debug);
+  if (pendingAction && typeof pendingAction === "object") pendingAction.prompt = prompt;
   const agentPlan = flowPromptBuildGenericAgentPlan(pendingAction, {
     prompt,
     source: debug.selectedPlan || "local",
@@ -1576,13 +1712,19 @@ const flowPromptBuildAgentReport = async (prompt = "") => {
     parts.push("Ho interrogato gli store runtime scoped disponibili come fallback read-only quando lo stato in memoria non contiene dati sufficienti.");
   }
 
+  if (memory.length && !pendingAction) {
+    parts.push(`Memoria workspace rilevante: ${memory.slice(0, 2).map((item) => item.text).filter(Boolean).join(" | ")}.`);
+  }
+
   return {
     kind: mutation ? "readonly-mutation-request" : "agent-report",
     intent,
     content: parts.join(" "),
     context,
+    memory,
     diagnostics,
     query,
+    queryInsights,
     pendingAction,
     agentPlan,
     debug,
@@ -2460,6 +2602,70 @@ const openFlowPromptChatDialog = async () => {
     return tool;
   };
 
+  const flowPromptValidateAgentAction = (action = {}) => {
+    const tool = assertAgentActionToolReady(action);
+    if (!action || action.status !== "ready") {
+      return { ok: false, reason: "Azione non pronta per Apply.", action, tool };
+    }
+    if (flowPromptActionAlreadyApplied(action)) {
+      return { ok: false, reason: "Azione gia applicata nel runtime corrente.", action, tool };
+    }
+    if (action.type === "connect") {
+      const source = flowPromptRuntimeNodeById(action.source?.id || action.sourceNodeId || "");
+      const target = flowPromptRuntimeNodeById(action.target?.id || action.targetNodeId || "");
+      if (!source) return { ok: false, reason: "Nodo sorgente non trovato.", action, tool };
+      if (!target) return { ok: false, reason: "Nodo target non trovato.", action, tool };
+      if (!source.outputs?.length && !source.channels?.length) {
+        return { ok: false, reason: `${source.label || source.id} non espone output/channel validi.`, action, tool };
+      }
+      if (!target.inputs?.length) {
+        return { ok: false, reason: `${target.label || target.id} non espone input validi.`, action, tool };
+      }
+      const sourcePort = action.sourcePort || source.outputs?.[0] || source.channels?.[0] || "output";
+      const targetPort = action.targetPort || target.inputs?.[0] || "input";
+      const channel = action.channel || sourcePort || source.channels?.[0] || "runtime";
+      if (flowPromptRuntimeDependencyExists({ ...action, source, target, channel, sourcePort })) {
+        return { ok: false, reason: "Il collegamento esiste gia nel runtime corrente.", action, tool };
+      }
+      return { ok: true, action: { ...action, source, target, sourcePort, targetPort, channel }, tool };
+    }
+    if (action.type === "renameNode") {
+      const node = flowPromptRuntimeNodeById(action.nodeId);
+      const nextLabel = String(action.nextLabel || "").trim();
+      if (!node) return { ok: false, reason: "Nodo da rinominare non trovato.", action, tool };
+      if (!nextLabel) return { ok: false, reason: "Nuovo nome vuoto.", action, tool };
+      if (String(node.label || "") === nextLabel) return { ok: false, reason: "Il nodo ha gia questo nome.", action, tool };
+      return { ok: true, action: { ...action, node, previousLabel: node.label, nextLabel }, tool };
+    }
+    if (action.type === "updateNodeConfig") {
+      const node = flowPromptRuntimeNodeById(action.nodeId);
+      const value = String(action.value || "").trim();
+      const field = flowPromptNormalizeConfigFieldName(action.field);
+      if (!node) return { ok: false, reason: "Nodo da aggiornare non trovato.", action, tool };
+      if (!value) return { ok: false, reason: "Valore configurazione vuoto.", action, tool };
+      const target = action.target || "config";
+      if (target === "config" && field === "endpoint") {
+        const validation = flowPromptValidateEndpointCandidate({
+          value,
+          method: node.metadata?.config?.method || "GET",
+        });
+        if (!validation.ok) return { ok: false, reason: validation.reason, action: { ...action, validation }, tool };
+        return { ok: true, action: { ...action, node, field, target, value: validation.endpoint, validation }, tool };
+      }
+      return { ok: true, action: { ...action, node, field, target }, tool };
+    }
+    if (action.type === "deleteDependencies") {
+      const ids = (action.dependencyIds || []).filter(Boolean);
+      const existingIds = ids.filter((id) =>
+        (state.runtime.dependencies || []).some((dependency) => dependency.id === id)
+      );
+      if (!ids.length) return { ok: false, reason: "Nessun collegamento indicato per la rimozione.", action, tool };
+      if (!existingIds.length) return { ok: false, reason: "I collegamenti sono gia stati rimossi.", action, tool };
+      return { ok: true, action: { ...action, dependencyIds: existingIds }, tool };
+    }
+    return { ok: false, reason: `Azione non supportata dall'executor: ${action.type || "unknown"}.`, action, tool };
+  };
+
   const applySingleAgentAction = async (action = {}) => {
     assertAgentActionToolReady(action);
     if (action.type === "connect") {
@@ -2575,24 +2781,61 @@ const openFlowPromptChatDialog = async () => {
     setActivity({
       label: "Applico modifica",
       detail: "Sto applicando il piano sul runtime graph.",
-      steps: ["Snapshot undo", "Esecuzione azioni", "Refresh Flow Map"],
+      steps: ["Validazione step", "Snapshot per step", "Esecuzione azioni", "Refresh Flow Map"],
     });
     try {
-      const snapshot = await captureAgentSnapshot(action.summary || "Flow Map Agent apply");
+      const executionPlan = flowPromptBuildGenericAgentPlan(action, {
+        prompt: action.summary || "",
+        source: "executor",
+      });
       const applied = [];
+      const snapshots = [];
       for (const item of runnable) {
-        applied.push(await applySingleAgentAction(item));
+        const validation = flowPromptValidateAgentAction(item);
+        if (!validation.ok) {
+          item.status = "blocked";
+          item.validation = validation;
+          throw new Error(`${flowPromptPlannerStepTitle(item)} bloccato: ${validation.reason}`);
+        }
+        const stepTitle = flowPromptPlannerStepTitle(validation.action);
+        setActivity({
+          label: "Applico modifica",
+          detail: stepTitle,
+          steps: ["Validazione completata", "Snapshot undo", "Scrittura runtime", "Refresh Flow Map"],
+        });
+        const stepSnapshot = await captureAgentSnapshot(`${action.summary || "Flow Map Agent apply"} · ${stepTitle}`);
+        if (stepSnapshot?.id) snapshots.push(stepSnapshot);
+        const result = await applySingleAgentAction(validation.action);
+        applied.push({
+          ...result,
+          stepId: item.stepId || "",
+          tool: flowPromptAgentToolForAction(item),
+          snapshotId: stepSnapshot?.id || "",
+          validation: { ok: true, reason: validation.reason || "validated" },
+        });
       }
+      const snapshotId = snapshots[0]?.id || "";
       const appliedAt = flowPromptNow();
       action.status = "applied";
       action.appliedAt = appliedAt;
-      action.snapshotId = snapshot?.id || "";
+      action.snapshotId = snapshotId;
+      action.execution = {
+        plan: flowPromptDebugAgentPlan(executionPlan),
+        snapshots: snapshots.map((snapshot) => ({ id: snapshot.id, label: snapshot.label || "" })),
+        appliedSteps: applied,
+      };
       runnable.forEach((item) => {
         item.status = "applied";
         item.appliedAt = appliedAt;
-        item.snapshotId = snapshot?.id || "";
+        item.snapshotId = applied.find((result) => result.stepId && result.stepId === item.stepId)?.snapshotId || snapshotId;
       });
       await loadRuntime({ force: true });
+      await flowPromptRememberWorkspaceEvent({
+        kind: "apply",
+        prompt: action.prompt || action.summary || "",
+        summary: `Apply completato: ${applied.map((item) => item.label).join("; ")}.`,
+        result: { applied, snapshotId },
+      });
       await appendMessage({
         role: "assistant",
         kind: "result",
@@ -2602,14 +2845,16 @@ const openFlowPromptChatDialog = async () => {
           reusedNodes: applied.filter((item) => item.type === "renameNode" || item.type === "updateNodeConfig").length,
           createdEdges: applied.filter((item) => item.type === "connect").length,
           reusedEdges: 0,
-          snapshotId: snapshot?.id || "",
+          snapshotId,
           focusNodeId: applied.find((item) => item.focusNodeId)?.focusNodeId || "",
           applied,
+          snapshots: snapshots.map((snapshot) => snapshot.id).filter(Boolean),
         },
       });
       mount({ preserveScroll: true });
     } catch (error) {
       draft.error = error?.message || "Errore applicazione piano agente.";
+      await persistActiveChat().catch(() => null);
       await appendMessage({ role: "assistant", kind: "error", content: draft.error }).catch(() => null);
     } finally {
       draft.busy = false;
@@ -2769,7 +3014,13 @@ const openFlowPromptChatDialog = async () => {
       if (!steps.length) {
         return [_.p({ class: "tl-flow-prompt-inventory-empty" }, pendingAction.summary || "Nessuna azione applicabile.")];
       }
-      return steps.map((step) => {
+      return [
+        _.div(
+          { class: `tl-flow-prompt-agent-plan-meta is-${agentPlan.status || "blocked"}` },
+          _.span(_.strong(agentPlan.planner || "flow-agent-plan"), _.em(`${steps.length} step · ${agentPlan.status || "blocked"}`)),
+          _.span((agentPlan.tools || []).map((tool) => tool.name).join(", ") || "no tools")
+        ),
+        ...steps.map((step) => {
         const action = step.action || {};
         const itemStatus = step.status === "done" ? "applied" : step.status;
         const itemIcon = action.type === "researchEndpoint"
@@ -2779,16 +3030,21 @@ const openFlowPromptChatDialog = async () => {
             : "warning";
         return _.div(
           { class: `tl-flow-prompt-action-step is-${itemStatus}` },
-          icon(itemIcon, "sm"),
+          _.span({ class: "tl-flow-prompt-step-index" }, String(step.order || "")),
           _.span(
-            _.strong(`${step.order}. ${step.title || action.type || "Step"}`),
+            _.strong(icon(itemIcon, "sm"), step.title || action.type || "Step"),
             _.em(step.summary || flowPromptActionSummary(action)),
-            step.tool ? _.code(`${step.tool} · ${step.toolStatus || "unknown"}`) : null,
+            _.span(
+              { class: "tl-flow-prompt-step-meta" },
+              step.tool ? _.code(`${step.tool} · ${step.toolStatus || "unknown"}`) : null,
+              step.mutates ? _.small("write") : _.small("read")
+            ),
             step.dependsOn?.length ? _.small(`depends on ${step.dependsOn.join(", ")}`) : null
           ),
           renderChoiceButtons(action)
         );
-      });
+        }),
+      ];
     };
     const renderDebugPanel = () => {
       const debug = report.debug || {};
@@ -2811,6 +3067,8 @@ const openFlowPromptChatDialog = async () => {
           reason: debug.reason,
           toolRegistry: flowPromptAgentToolManifest(),
           genericPlan: debug.genericPlan || flowPromptDebugAgentPlan(report.agentPlan),
+          queryInsights: report.queryInsights || debug.queryInsights,
+          memory: report.memory || debug.memory,
           normalizedCommand: debug.normalizedCommand,
           localPlan: debug.localPlan,
           aiPlan: debug.aiPlan,
