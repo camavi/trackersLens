@@ -76,7 +76,8 @@ Runtime Notes:
 - 2026-06-10: Endpoint lookup prompts now produce an explicit multi-step agent plan: `researchEndpoint` first, then `updateNodeConfig` on the REST API `endpoint` field. Without a real endpoint search/verification tool the plan remains blocked, but the chat now represents the full compound task instead of collapsing it into a single failed config edit.
 - 2026-06-10: Runtime plan saved for global Flow Agent evolution. Target sequence: 1) Tool Registry, 2) generic multi-step planner model, 3) safe executor with per-step validation/snapshots, 4) endpoint research/validation tool, 5) workspace memory, 6) richer DB/runtime query tools, 7) improved step UI.
 - 2026-06-10: Started Step 1 Tool Registry inside `flowMapPromptChat.js`. The registry defines read/write/external tools such as `inspectGraph`, `findNode`, `diagnoseGraph`, `queryRuntime`, `createNode`, `connectNodes`, `updateNodeConfig`, `fixGraph`, `researchEndpoint` and `validateEndpoint`, exposes tool status in Dev inspector, and annotates action-plan steps with tool metadata.
-- Remaining: complete Step 1 by routing all existing local planners through the registry contract, then implement Step 2 generic multi-step planner model.
+- 2026-06-10: Completed Step 1 Tool Registry routing. Existing local planners now emit tool metadata for connect/disconnect/rename/config/fix/research actions, batch plans carry their tool list, Dev inspector shows tool category/status/mutability, and Apply validates that every mutation uses a registered `ready` mutating tool before writing to the runtime graph.
+- Remaining: implement Step 2 generic multi-step planner model.
 
 ## [TASK-023]
 

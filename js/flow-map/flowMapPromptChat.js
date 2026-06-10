@@ -254,6 +254,56 @@ const flowPromptAgentToolForAction = (action = {}) => {
   return action.type || "";
 };
 
+const flowPromptAgentToolIsReady = (name = "") =>
+  flowPromptAgentTool(name)?.status === "ready";
+
+const flowPromptAnnotateActionTool = (action = {}, forcedTool = "") => {
+  const toolName = forcedTool || flowPromptAgentToolForAction(action);
+  const tool = flowPromptAgentTool(toolName);
+  return {
+    ...action,
+    tool: toolName || action.tool || "",
+    toolStatus: tool?.status || action.toolStatus || "",
+    toolMutates: typeof tool?.mutates === "boolean" ? tool.mutates : Boolean(action.toolMutates),
+    toolCategory: tool?.category || action.toolCategory || "",
+  };
+};
+
+const flowPromptAnnotateActionPlan = (plan = null) => {
+  if (!plan) return plan;
+  if (plan.type === "batch") {
+    const actions = (plan.actions || []).map((action) => flowPromptAnnotateActionPlan(action));
+    return flowPromptAnnotateActionTool({
+      ...plan,
+      actions,
+      status: flowPromptPlanStatus(actions),
+      tools: flowPromptPlanTools({ ...plan, actions }),
+    });
+  }
+  return flowPromptAnnotateActionTool(plan);
+};
+
+const flowPromptPlanTools = (plan = null) => {
+  const tools = new Map();
+  const visit = (action = {}) => {
+    if (!action) return;
+    if (action.type === "batch") {
+      (action.actions || []).forEach(visit);
+      return;
+    }
+    const toolName = flowPromptAgentToolForAction(action);
+    const tool = flowPromptAgentTool(toolName);
+    if (tool) tools.set(tool.name, {
+      name: tool.name,
+      status: tool.status,
+      category: tool.category,
+      mutates: tool.mutates,
+    });
+  };
+  visit(plan);
+  return Array.from(tools.values());
+};
+
 const flowPromptAgentToolManifest = () =>
   FLOW_PROMPT_AGENT_TOOLS.map(({ name, status, category, mutates, description }) => ({
     name,
@@ -514,6 +564,7 @@ const flowPromptDiagnoseContext = (context = {}) => {
         detail: `${edge.sourceNodeId || "N/D"} -> ${edge.targetNodeId || "N/D"} non punta a due nodi validi.`,
         fixAction: edge.id ? {
           type: "deleteDependencies",
+          tool: "fixGraph",
           status: "ready",
           dependencyIds: [edge.id],
           summary: "Rimuovi questo collegamento rotto.",
@@ -628,25 +679,26 @@ const flowPromptFindNodeCandidates = (context = {}, text = "", limit = 3) => {
     .map((item) => item.node);
 };
 
-const flowPromptBlockedChoice = ({ type = "action", summary = "", sourceHint = "", targetHint = "", value = "", context = {}, promptBuilder = null } = {}) => ({
-  type,
-  status: "blocked",
-  summary,
-  choices: [
-    ...flowPromptFindNodeCandidates(context, sourceHint).map((node) => ({
-      role: "source",
-      label: node.label || node.id,
-      detail: `${node.type || "node"} · ${node.subtype || node.category || "runtime"}`,
-      prompt: typeof promptBuilder === "function" ? promptBuilder({ source: node, target: null, value }) : "",
-    })),
-    ...flowPromptFindNodeCandidates(context, targetHint).map((node) => ({
-      role: "target",
-      label: node.label || node.id,
-      detail: `${node.type || "node"} · ${node.subtype || node.category || "runtime"}`,
-      prompt: typeof promptBuilder === "function" ? promptBuilder({ source: null, target: node, value }) : "",
-    })),
-  ].filter((choice) => choice.prompt),
-});
+const flowPromptBlockedChoice = ({ type = "action", tool = "", summary = "", sourceHint = "", targetHint = "", value = "", context = {}, promptBuilder = null } = {}) =>
+  flowPromptAnnotateActionTool({
+    type,
+    status: "blocked",
+    summary,
+    choices: [
+      ...flowPromptFindNodeCandidates(context, sourceHint).map((node) => ({
+        role: "source",
+        label: node.label || node.id,
+        detail: `${node.type || "node"} · ${node.subtype || node.category || "runtime"}`,
+        prompt: typeof promptBuilder === "function" ? promptBuilder({ source: node, target: null, value }) : "",
+      })),
+      ...flowPromptFindNodeCandidates(context, targetHint).map((node) => ({
+        role: "target",
+        label: node.label || node.id,
+        detail: `${node.type || "node"} · ${node.subtype || node.category || "runtime"}`,
+        prompt: typeof promptBuilder === "function" ? promptBuilder({ source: null, target: node, value }) : "",
+      })),
+    ].filter((choice) => choice.prompt),
+  }, tool);
 
 const flowPromptPlanHasChoices = (action = {}) =>
   !!(action?.choices?.length || (action?.actions || []).some((item) => flowPromptPlanHasChoices(item)));
@@ -658,14 +710,19 @@ const flowPromptDebugPlan = (action = {}) => {
       type: "batch",
       status: action.status || "",
       summary: action.summary || "",
+      tools: flowPromptPlanTools(action),
       actions: (action.actions || []).map(flowPromptDebugPlan),
     };
   }
+  const toolName = flowPromptAgentToolForAction(action);
+  const tool = flowPromptAgentTool(toolName);
   return {
     type: action.type || "",
     status: action.status || "",
-    tool: flowPromptAgentToolForAction(action),
-    toolStatus: flowPromptAgentTool(flowPromptAgentToolForAction(action))?.status || "",
+    tool: toolName,
+    toolStatus: tool?.status || action.toolStatus || "",
+    toolCategory: tool?.category || action.toolCategory || "",
+    toolMutates: typeof tool?.mutates === "boolean" ? tool.mutates : action.toolMutates,
     summary: action.summary || "",
     nodeId: action.nodeId || action.node?.id || "",
     source: action.source?.label || action.sourceHint || "",
@@ -723,8 +780,13 @@ const flowPromptActionAlreadyApplied = (action = {}) => {
   return false;
 };
 
-const flowPromptEffectiveActionStatus = (action = {}) =>
-  action?.status === "ready" && flowPromptActionAlreadyApplied(action) ? "applied" : (action?.status || "blocked");
+const flowPromptEffectiveActionStatus = (action = {}) => {
+  if (action?.status === "ready" && flowPromptActionAlreadyApplied(action)) return "applied";
+  if (action?.type === "batch") return action.status || "blocked";
+  const toolName = flowPromptAgentToolForAction(action);
+  if (action?.status === "ready" && toolName && !flowPromptAgentToolIsReady(toolName)) return "blocked";
+  return action?.status || "blocked";
+};
 
 const flowPromptActionSummary = (action = {}) => {
   if (!action) return "";
@@ -740,16 +802,21 @@ const flowPromptActionSummary = (action = {}) => {
 const flowPromptPlanStatus = (actions = []) => {
   if (!actions.length) return "blocked";
   if (actions.some((action) => action.status === "blocked")) return "blocked";
+  if (actions.some((action) => action.status === "ready" && action.tool && !flowPromptAgentToolIsReady(action.tool))) return "blocked";
   if (actions.every((action) => action.status === "duplicate")) return "duplicate";
   return "ready";
 };
 
-const flowPromptBatchPlan = (actions = [], summary = "") => ({
-  type: "batch",
-  status: flowPromptPlanStatus(actions),
-  summary: summary || `${actions.length} azioni preparate.`,
-  actions,
-});
+const flowPromptBatchPlan = (actions = [], summary = "") => {
+  const annotatedActions = actions.map((action) => flowPromptAnnotateActionPlan(action));
+  return flowPromptAnnotateActionTool({
+    type: "batch",
+    status: flowPromptPlanStatus(annotatedActions),
+    summary: summary || `${annotatedActions.length} azioni preparate.`,
+    actions: annotatedActions,
+    tools: flowPromptPlanTools({ type: "batch", actions: annotatedActions }),
+  });
+};
 
 const flowPromptSplitCompoundCommands = (prompt = "") => {
   const text = String(prompt || "").trim();
@@ -790,18 +857,18 @@ const flowPromptBuildConnectPlan = (context = {}, prompt = "") => {
   const sourcePort = source.outputs?.[0] || source.channels?.[0] || "output";
   const targetPort = target.inputs?.[0] || "input";
   if (!source.outputs?.length && !source.channels?.length) {
-    return {
+    return flowPromptAnnotateActionTool({
       type: "connect",
       status: "blocked",
       summary: `${source.label} non espone output/channel validi per creare il collegamento.`,
-    };
+    }, "connectNodes");
   }
   if (!target.inputs?.length) {
-    return {
+    return flowPromptAnnotateActionTool({
       type: "connect",
       status: "blocked",
       summary: `${target.label} non espone input validi per ricevere dati.`,
-    };
+    }, "connectNodes");
   }
   const channel = sourcePort || source.channels?.[0] || "runtime";
   const duplicate = (context.edges || []).find((edge) =>
@@ -809,7 +876,7 @@ const flowPromptBuildConnectPlan = (context = {}, prompt = "") => {
     edge.targetNodeId === target.id &&
     String(edge.channel || "") === String(channel || "")
   );
-  return {
+  return flowPromptAnnotateActionTool({
     type: "connect",
     status: duplicate ? "duplicate" : "ready",
     summary: duplicate
@@ -821,7 +888,7 @@ const flowPromptBuildConnectPlan = (context = {}, prompt = "") => {
     targetPort,
     channel,
     duplicateId: duplicate?.id || "",
-  };
+  }, "connectNodes");
 };
 
 const flowPromptBuildDisconnectPlan = (context = {}, prompt = "") => {
@@ -852,6 +919,7 @@ const flowPromptBuildDisconnectPlan = (context = {}, prompt = "") => {
   return flowPromptBatchPlan([
     {
       type: "deleteDependencies",
+      tool: "disconnectNodes",
       status: "ready",
       dependencyIds: links.map((edge) => edge.id).filter(Boolean),
       summary: `Scollego ${source.label} da ${target.label}.`,
@@ -868,6 +936,7 @@ const flowPromptBuildFixPlan = (context = {}) => {
   return flowPromptBatchPlan([
     {
       type: "deleteDependencies",
+      tool: "fixGraph",
       status: "ready",
       dependencyIds: broken.map((edge) => edge.id).filter(Boolean),
       summary: `Rimuovo ${broken.length} collegamenti con nodo mancante.`,
@@ -898,6 +967,7 @@ const flowPromptBuildRenamePlan = (context = {}, prompt = "") => {
   return flowPromptBatchPlan([
     {
       type: "renameNode",
+      tool: "renameNode",
       status: "ready",
       node,
       nodeId: node.id,
@@ -1053,6 +1123,7 @@ const flowPromptBuildConfigPlan = (context = {}, prompt = "") => {
     return flowPromptBatchPlan([
       {
         type: "updateNodeConfig",
+        tool: "updateNodeConfig",
         status: "blocked",
         node,
         nodeId: node.id,
@@ -1066,6 +1137,7 @@ const flowPromptBuildConfigPlan = (context = {}, prompt = "") => {
   return flowPromptBatchPlan([
     {
       type: "updateNodeConfig",
+      tool: "updateNodeConfig",
       status: "ready",
       node,
       nodeId: node.id,
@@ -1132,6 +1204,7 @@ const flowPromptBuildActionPlanFromNormalized = (context = {}, command = {}) => 
     }
     return flowPromptBatchPlan([{
       type: "renameNode",
+      tool: "renameNode",
       status: "ready",
       node,
       nodeId: node.id,
@@ -1207,6 +1280,7 @@ const flowPromptBuildActionPlanFromNormalized = (context = {}, command = {}) => 
     if (target === "config" && field === "endpoint" && (!flowPromptIsExplicitRuntimeUrl(value) || flowPromptLooksLikePlaceholderValue(value))) {
       return flowPromptBatchPlan([{
         type: "updateNodeConfig",
+        tool: "updateNodeConfig",
         status: "blocked",
         node,
         nodeId: node.id,
@@ -1218,6 +1292,7 @@ const flowPromptBuildActionPlanFromNormalized = (context = {}, command = {}) => 
     }
     return flowPromptBatchPlan([{
       type: "updateNodeConfig",
+      tool: "updateNodeConfig",
       status: "ready",
       node,
       nodeId: node.id,
@@ -2238,7 +2313,23 @@ const openFlowPromptChatDialog = async () => {
     mount({ preserveScroll: true });
   };
 
+  const assertAgentActionToolReady = (action = {}) => {
+    const toolName = flowPromptAgentToolForAction(action);
+    const tool = flowPromptAgentTool(toolName);
+    if (!tool) {
+      throw new Error(`Tool Flow Agent non registrato per azione: ${action.type || "unknown"}`);
+    }
+    if (tool.status !== "ready") {
+      throw new Error(`Tool Flow Agent non disponibile: ${tool.name} (${tool.status}).`);
+    }
+    if (!tool.mutates) {
+      throw new Error(`Tool Flow Agent non mutativo: ${tool.name}.`);
+    }
+    return tool;
+  };
+
   const applySingleAgentAction = async (action = {}) => {
+    assertAgentActionToolReady(action);
     if (action.type === "connect") {
       const workspaceId = await ensureRuntimeWorkspaceScope();
       const dependency = {
@@ -2313,6 +2404,24 @@ const openFlowPromptChatDialog = async () => {
     if (!action || draft.busy) return;
     const actions = action.type === "batch" ? (action.actions || []) : [action];
     const runnable = actions.filter((item) => item.status === "ready" && !flowPromptActionAlreadyApplied(item));
+    const blockedByTool = runnable.find((item) => {
+      const toolName = flowPromptAgentToolForAction(item);
+      return !toolName || !flowPromptAgentToolIsReady(toolName);
+    });
+    if (blockedByTool) {
+      const toolName = flowPromptAgentToolForAction(blockedByTool);
+      const tool = flowPromptAgentTool(toolName);
+      draft.error = tool
+        ? `Tool non disponibile: ${tool.label || tool.name} (${tool.status}).`
+        : `Tool non registrato per azione: ${blockedByTool.type || "unknown"}.`;
+      await appendMessage({
+        role: "assistant",
+        kind: "error",
+        content: draft.error,
+      }).catch(() => null);
+      refresh();
+      return;
+    }
     if (!runnable.length || flowPromptEffectiveActionStatus(action) !== "ready") {
       if (flowPromptActionAlreadyApplied(action)) {
         const appliedAt = flowPromptNow();
