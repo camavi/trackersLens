@@ -66,6 +66,7 @@ Runtime Notes:
 - 2026-06-10: Added a compact Dev inspector for Apply plans showing intent, selected planner, AI-normalized JSON, local plan, AI plan and fallback reason when available.
 - 2026-06-10: Post-Apply result actions now expose `Inspector` for the changed node/target, while Undo remains tied to the Time Travel snapshot.
 - 2026-06-10: Replaced the AI Flow Chat modal with a fixed right-side aside, similar to the VS Code chat panel. The panel keeps history, messages, composer and close control visible without covering the Flow Map nodes.
+- 2026-06-10: Fixed Flow Chat aside composer clipping by changing the conversation body from fixed grid rows to a flex column, keeping the prompt textarea visible at the bottom.
 - Remaining: add broader command coverage for multi-step edits and richer graph path queries.
 
 ## [TASK-023]

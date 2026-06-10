@@ -169,6 +169,10 @@
   padding: 10px;
 }
 
+.tl-flow-prompt-aside .tl-flow-prompt-composer {
+  padding-bottom: 4px;
+}
+
 .tl-flow-prompt-aside .tl-flow-prompt-message {
   max-width: 100%;
 }
@@ -189,8 +193,8 @@
 
 .tl-flow-prompt-conversation {
   min-width: 0;
-  display: grid;
-  grid-template-rows: auto minmax(0, 1fr) auto auto auto;
+  display: flex;
+  flex-direction: column;
   gap: 26px;
   padding: 12px;
   overflow: hidden;
@@ -354,6 +358,7 @@
 }
 
 .tl-flow-prompt-thread {
+  flex: 1 1 auto;
   display: grid;
   align-content: start;
   gap: 10px;
@@ -1058,6 +1063,7 @@
 }
 
 .tl-flow-prompt-composer {
+  flex: 0 0 auto;
   display: grid;
   gap: 8px;
   padding-bottom: 2px;
