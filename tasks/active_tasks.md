@@ -74,7 +74,9 @@ Runtime Notes:
 - 2026-06-10: Hardened endpoint Apply validation after AI normalization. `url` is normalized to the runtime `endpoint` config key, placeholder values such as `[ETH Price API Endpoint]` are blocked, and endpoint lookup prompts without an explicit URL keep the local blocked plan instead of being converted into Apply.
 - 2026-06-10: Removed the legacy inline `Piano corrente` / result panels from the Flow Chat body. Plans and results now render only as chat timeline messages, avoiding duplicate-looking responses after prompts such as adding a WebSocket node.
 - 2026-06-10: Endpoint lookup prompts now produce an explicit multi-step agent plan: `researchEndpoint` first, then `updateNodeConfig` on the REST API `endpoint` field. Without a real endpoint search/verification tool the plan remains blocked, but the chat now represents the full compound task instead of collapsing it into a single failed config edit.
-- Remaining: add broader command coverage for multi-step edits and richer graph path queries.
+- 2026-06-10: Runtime plan saved for global Flow Agent evolution. Target sequence: 1) Tool Registry, 2) generic multi-step planner model, 3) safe executor with per-step validation/snapshots, 4) endpoint research/validation tool, 5) workspace memory, 6) richer DB/runtime query tools, 7) improved step UI.
+- 2026-06-10: Started Step 1 Tool Registry inside `flowMapPromptChat.js`. The registry defines read/write/external tools such as `inspectGraph`, `findNode`, `diagnoseGraph`, `queryRuntime`, `createNode`, `connectNodes`, `updateNodeConfig`, `fixGraph`, `researchEndpoint` and `validateEndpoint`, exposes tool status in Dev inspector, and annotates action-plan steps with tool metadata.
+- Remaining: complete Step 1 by routing all existing local planners through the registry contract, then implement Step 2 generic multi-step planner model.
 
 ## [TASK-023]
 

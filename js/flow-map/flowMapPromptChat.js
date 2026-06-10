@@ -136,6 +136,133 @@ const flowPromptNormalize = (value = "") =>
     .replace(/[^a-z0-9]+/g, " ")
     .trim();
 
+const FLOW_PROMPT_AGENT_TOOLS = Object.freeze([
+  {
+    name: "inspectGraph",
+    label: "Inspect Runtime Graph",
+    category: "read",
+    status: "ready",
+    mutates: false,
+    description: "Read current workspace nodes, edges, channels, events and flow logs.",
+  },
+  {
+    name: "findNode",
+    label: "Find Node",
+    category: "read",
+    status: "ready",
+    mutates: false,
+    description: "Resolve a user label/id into a concrete Flow Map runtime node.",
+  },
+  {
+    name: "diagnoseGraph",
+    label: "Diagnose Graph",
+    category: "read",
+    status: "ready",
+    mutates: false,
+    description: "Detect broken links, missing nodes and structural runtime issues.",
+  },
+  {
+    name: "queryRuntime",
+    label: "Query Runtime",
+    category: "read",
+    status: "ready",
+    mutates: false,
+    description: "Query channels, events, logs and runtime activity in the current workspace.",
+  },
+  {
+    name: "createNode",
+    label: "Create Node",
+    category: "write",
+    status: "ready",
+    mutates: true,
+    description: "Materialize a new runtime node from the Flow Map palette contract.",
+  },
+  {
+    name: "connectNodes",
+    label: "Connect Nodes",
+    category: "write",
+    status: "ready",
+    mutates: true,
+    description: "Create a validated runtime dependency between compatible nodes.",
+  },
+  {
+    name: "disconnectNodes",
+    label: "Disconnect Nodes",
+    category: "write",
+    status: "ready",
+    mutates: true,
+    description: "Remove selected runtime dependencies.",
+  },
+  {
+    name: "renameNode",
+    label: "Rename Node",
+    category: "write",
+    status: "ready",
+    mutates: true,
+    description: "Rename one existing runtime node.",
+  },
+  {
+    name: "updateNodeConfig",
+    label: "Update Node Config",
+    category: "write",
+    status: "ready",
+    mutates: true,
+    description: "Update validated node config, input/output or channel fields.",
+  },
+  {
+    name: "fixGraph",
+    label: "Fix Graph",
+    category: "write",
+    status: "ready",
+    mutates: true,
+    description: "Apply safe graph repairs such as broken-link cleanup.",
+  },
+  {
+    name: "researchEndpoint",
+    label: "Research Endpoint",
+    category: "external",
+    status: "planned",
+    mutates: false,
+    description: "Find a suitable external API endpoint for a user goal.",
+  },
+  {
+    name: "validateEndpoint",
+    label: "Validate Endpoint",
+    category: "external",
+    status: "planned",
+    mutates: false,
+    description: "Verify URL shape, method, expected response and safety before saving.",
+  },
+]);
+
+const FLOW_PROMPT_AGENT_TOOL_MAP = Object.freeze(
+  FLOW_PROMPT_AGENT_TOOLS.reduce((map, tool) => ({ ...map, [tool.name]: tool }), {})
+);
+
+const flowPromptAgentTool = (name = "") =>
+  FLOW_PROMPT_AGENT_TOOL_MAP[name] || null;
+
+const flowPromptAgentToolForAction = (action = {}) => {
+  if (action.tool && flowPromptAgentTool(action.tool)) return action.tool;
+  if (action.type === "researchEndpoint") return "researchEndpoint";
+  if (action.type === "connect") return "connectNodes";
+  if (action.type === "deleteDependencies") return "disconnectNodes";
+  if (action.type === "renameNode") return "renameNode";
+  if (action.type === "updateNodeConfig") return "updateNodeConfig";
+  if (action.type === "fix") return "fixGraph";
+  if (action.type === "batch") return "";
+  return action.type || "";
+};
+
+const flowPromptAgentToolManifest = () =>
+  FLOW_PROMPT_AGENT_TOOLS.map(({ name, status, category, mutates, description }) => ({
+    name,
+    status,
+    category,
+    mutates,
+    description,
+  }));
+
 const flowPromptTokenSet = (value = "") =>
   new Set(flowPromptNormalize(value).split(/\s+/).filter(Boolean));
 
@@ -537,6 +664,8 @@ const flowPromptDebugPlan = (action = {}) => {
   return {
     type: action.type || "",
     status: action.status || "",
+    tool: flowPromptAgentToolForAction(action),
+    toolStatus: flowPromptAgentTool(flowPromptAgentToolForAction(action))?.status || "",
     summary: action.summary || "",
     nodeId: action.nodeId || action.node?.id || "",
     source: action.source?.label || action.sourceHint || "",
@@ -884,6 +1013,7 @@ const flowPromptBuildConfigPlan = (context = {}, prompt = "") => {
     return flowPromptBatchPlan([
       {
         type: "researchEndpoint",
+        tool: "researchEndpoint",
         status: "blocked",
         query: researchQuery,
         targetField: field.field,
@@ -894,6 +1024,7 @@ const flowPromptBuildConfigPlan = (context = {}, prompt = "") => {
       },
       {
         type: "updateNodeConfig",
+        tool: "updateNodeConfig",
         status: "blocked",
         node,
         nodeId: node.id,
@@ -1118,6 +1249,8 @@ const flowPromptNormalizeCommandWithAi = async (context = {}, prompt = "") => {
   const normalizerPrompt = [
     "Normalize the user's Flow Map command into JSON only.",
     "Allowed actions: rename, connect, disconnect, setConfig, setChannel, fix.",
+    "Available tools:",
+    JSON.stringify(flowPromptAgentToolManifest()),
     "Schema examples:",
     "{\"action\":\"rename\",\"node\":\"Telegram 2\",\"nextLabel\":\"Telegram Vuoto\"}",
     "{\"action\":\"connect\",\"source\":\"Telegram Message\",\"target\":\"Preview\"}",
@@ -2405,6 +2538,7 @@ const openFlowPromptChatDialog = async () => {
           filter: debug.filter,
           selectedPlan: debug.selectedPlan,
           reason: debug.reason,
+          toolRegistry: flowPromptAgentToolManifest(),
           normalizedCommand: debug.normalizedCommand,
           localPlan: debug.localPlan,
           aiPlan: debug.aiPlan,
@@ -2489,6 +2623,8 @@ const openFlowPromptChatDialog = async () => {
         ...((pendingAction.actions || (pendingAction.type === "batch" ? [] : [pendingAction])).length
           ? (pendingAction.actions || [pendingAction]).map((item) => {
             const itemStatus = flowPromptEffectiveActionStatus(item);
+            const toolName = flowPromptAgentToolForAction(item);
+            const tool = flowPromptAgentTool(toolName);
             const itemIcon = item.type === "researchEndpoint"
               ? "travel_explore"
               : itemStatus === "ready" || itemStatus === "applied"
@@ -2497,7 +2633,11 @@ const openFlowPromptChatDialog = async () => {
             return _.div(
               { class: `tl-flow-prompt-action-step is-${itemStatus}` },
               icon(itemIcon, "sm"),
-              _.span(_.strong(item.type || "action"), _.em(flowPromptActionSummary(item))),
+              _.span(
+                _.strong(tool?.label || item.type || "action"),
+                _.em(flowPromptActionSummary(item)),
+                tool ? _.code(`${tool.name} · ${tool.status}`) : null
+              ),
               renderChoiceButtons(item)
             );
           })
