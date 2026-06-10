@@ -73,6 +73,7 @@ Runtime Notes:
 - 2026-06-10: Removed Flow Agent crypto/BTC/Binance bias from local planning, runtime fallback transforms and form placeholders. The normalizer must stay domain-neutral and convert user intent into validated Flow Map tool actions, similar to command-line normalization, without inventing domain-specific endpoints or payloads.
 - 2026-06-10: Hardened endpoint Apply validation after AI normalization. `url` is normalized to the runtime `endpoint` config key, placeholder values such as `[ETH Price API Endpoint]` are blocked, and endpoint lookup prompts without an explicit URL keep the local blocked plan instead of being converted into Apply.
 - 2026-06-10: Removed the legacy inline `Piano corrente` / result panels from the Flow Chat body. Plans and results now render only as chat timeline messages, avoiding duplicate-looking responses after prompts such as adding a WebSocket node.
+- 2026-06-10: Endpoint lookup prompts now produce an explicit multi-step agent plan: `researchEndpoint` first, then `updateNodeConfig` on the REST API `endpoint` field. Without a real endpoint search/verification tool the plan remains blocked, but the chat now represents the full compound task instead of collapsing it into a single failed config edit.
 - Remaining: add broader command coverage for multi-step edits and richer graph path queries.
 
 ## [TASK-023]

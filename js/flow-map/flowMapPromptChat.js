@@ -600,6 +600,7 @@ const flowPromptEffectiveActionStatus = (action = {}) =>
 const flowPromptActionSummary = (action = {}) => {
   if (!action) return "";
   if (action.type === "batch") return action.summary || `${action.actions?.length || 0} azioni pronte.`;
+  if (action.type === "researchEndpoint") return action.summary || `Cerca endpoint per ${action.query || "la richiesta"}.`;
   if (action.type === "connect") return action.summary || "";
   if (action.type === "renameNode") return `Rinomina ${action.node?.label || action.nodeId} in ${action.nextLabel}.`;
   if (action.type === "updateNodeConfig") return action.summary || `Aggiorna ${action.node?.label || action.nodeId}: ${action.field} = ${action.value}.`;
@@ -821,6 +822,15 @@ const flowPromptLooksLikeEndpointLookup = (prompt = "") => {
     && flowPromptHasAny(text, ["endpoint", "url", "api", "rest api"]);
 };
 
+const flowPromptEndpointResearchQuery = (prompt = "") => {
+  const text = String(prompt || "").trim();
+  const match = text.match(/(?:per|to)\s+(.+?)(?:\s+(?:e poi|poi|and then|then|metti|inserisci|configura|nel|nella|in)\b|$)/i);
+  return String(match?.[1] || text)
+    .replace(/\b(endpoint|url|api|rest api)\b/gi, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+};
+
 const flowPromptExtractConfigChange = (prompt = "") => {
   const text = String(prompt || "").trim();
   const explicitUrl = flowPromptExtractExplicitUrl(prompt);
@@ -857,6 +867,7 @@ const flowPromptBuildConfigPlan = (context = {}, prompt = "") => {
   const { field, value, nodeHint, requiresEndpointLookup } = flowPromptExtractConfigChange(prompt);
   const node = flowPromptFindNodeByText(context, nodeHint);
   if (requiresEndpointLookup) {
+    const researchQuery = flowPromptEndpointResearchQuery(prompt);
     if (!node?.id) {
       return flowPromptBatchPlan([
         flowPromptBlockedChoice({
@@ -868,9 +879,19 @@ const flowPromptBuildConfigPlan = (context = {}, prompt = "") => {
           promptBuilder: ({ source: pickedNode }) =>
             `imposta endpoint di ${pickedNode?.label || nodeHint}`,
         }),
-      ], "Non posso cercare o salvare endpoint automaticamente: scegli prima il nodo REST API e fornisci un URL esplicito.");
+      ], "Piano agente bloccato: scegli prima il nodo REST API, poi il tool di ricerca endpoint potra completare il valore.");
     }
     return flowPromptBatchPlan([
+      {
+        type: "researchEndpoint",
+        status: "blocked",
+        query: researchQuery,
+        targetField: field.field,
+        targetNodeId: node.id,
+        node,
+        summary: `Cerca un endpoint affidabile per "${researchQuery || "la richiesta"}".`,
+        detail: "Serve un tool di ricerca/verifica endpoint prima di poter scrivere il valore nel nodo.",
+      },
       {
         type: "updateNodeConfig",
         status: "blocked",
@@ -879,9 +900,10 @@ const flowPromptBuildConfigPlan = (context = {}, prompt = "") => {
         field: field.field,
         target: field.target,
         value: "",
-        summary: `Non salvo endpoint in ${node.label}: serve un URL esplicito o un tool di ricerca confermato.`,
+        dependsOn: "researchEndpoint",
+        summary: `Dopo la ricerca, inserisci l'endpoint trovato nel campo URL di ${node.label}.`,
       },
-    ], `Ho capito che vuoi configurare un endpoint su ${node.label}, ma non posso inventare o salvare un URL senza una fonte esplicita.`);
+    ], `Piano agente: 1) cercare endpoint per "${researchQuery || "la richiesta"}"; 2) inserire l'URL verificato in ${node.label}. Manca il tool di ricerca endpoint, quindi non applico valori inventati.`);
   }
   if (!node?.id || !value) {
     return flowPromptBatchPlan([
@@ -2467,9 +2489,14 @@ const openFlowPromptChatDialog = async () => {
         ...((pendingAction.actions || (pendingAction.type === "batch" ? [] : [pendingAction])).length
           ? (pendingAction.actions || [pendingAction]).map((item) => {
             const itemStatus = flowPromptEffectiveActionStatus(item);
+            const itemIcon = item.type === "researchEndpoint"
+              ? "travel_explore"
+              : itemStatus === "ready" || itemStatus === "applied"
+                ? "check_circle"
+                : "warning";
             return _.div(
               { class: `tl-flow-prompt-action-step is-${itemStatus}` },
-              icon(itemStatus === "ready" || itemStatus === "applied" ? "check_circle" : "warning", "sm"),
+              icon(itemIcon, "sm"),
               _.span(_.strong(item.type || "action"), _.em(flowPromptActionSummary(item))),
               renderChoiceButtons(item)
             );
