@@ -1629,6 +1629,7 @@ const openFlowPromptChatDialog = async () => {
     result: null,
     error: "",
     dismissedIntroChatIds: new Set(),
+    view: "chat",
   };
   let aside = null;
 
@@ -1636,6 +1637,7 @@ const openFlowPromptChatDialog = async () => {
 
   const setActiveChat = (chat) => {
     draft.activeChat = chat || flowPromptNewChat(draft.workspaceId);
+    draft.view = "chat";
     draft.prompt = "";
     draft.analysis = null;
     draft.result = null;
@@ -1678,11 +1680,14 @@ const openFlowPromptChatDialog = async () => {
   };
 
   const refresh = () => {
+    const asideRoot = document.querySelector("[data-flow-prompt-aside]");
     const root = document.querySelector("[data-flow-prompt-chat]");
-    if (!root) return;
-    root.replaceChildren(...renderContentBody());
+    if (asideRoot) asideRoot.replaceChildren(...renderAsideShell());
+    else if (root) root.replaceChildren(...renderContentBody());
+    else return;
     requestAnimationFrame(() => {
-      const timeline = root.querySelector(".tl-flow-prompt-thread");
+      const currentRoot = document.querySelector("[data-flow-prompt-chat]");
+      const timeline = currentRoot?.querySelector(".tl-flow-prompt-thread");
       if (timeline) timeline.scrollTop = timeline.scrollHeight;
     });
   };
@@ -1716,6 +1721,7 @@ const openFlowPromptChatDialog = async () => {
 
   const startNewChat = async () => {
     setActiveChat(flowPromptNewChat(draft.workspaceId));
+    draft.view = "chat";
     refresh();
   };
 
@@ -2458,6 +2464,7 @@ const openFlowPromptChatDialog = async () => {
                 class: "tl-flow-prompt-history-open",
                 onclick: () => {
                   setActiveChat(chat);
+                  draft.view = "chat";
                   refresh();
                 },
               },
@@ -2487,8 +2494,10 @@ const openFlowPromptChatDialog = async () => {
   function renderContentBody() {
     const analysis = draft.analysis;
     const showIntro = !activeMessages().length && !draft.dismissedIntroChatIds.has(draft.activeChat?.id);
+    if (draft.view === "history") {
+      return [renderChatList()];
+    }
     return [
-      renderChatList(),
       _.section(
         { class: "tl-flow-prompt-conversation" },
         showIntro ? _.div(
@@ -2568,7 +2577,7 @@ const openFlowPromptChatDialog = async () => {
 
   function renderContent() {
     return _.div(
-      { class: "tl-flow-prompt-chat", "data-flow-prompt-chat": "true" },
+      { class: `tl-flow-prompt-chat is-${draft.view}`, "data-flow-prompt-chat": "true" },
       ...renderContentBody()
     );
   }
@@ -2579,19 +2588,39 @@ const openFlowPromptChatDialog = async () => {
     window.setTimeout(() => aside?.remove?.(), 180);
   };
 
-  aside = _.aside(
-    { class: "tl-flow-prompt-aside", "data-flow-prompt-aside": "true", "aria-label": "AI Flow Chat" },
-    _.header(
+  function renderAsideHeader() {
+    const isHistory = draft.view === "history";
+    const activeTitle = draft.activeChat?.title || "Nuova chat";
+    return _.header(
       { class: "tl-flow-prompt-aside-head" },
-      _.span({ class: "tl-flow-prompt-aside-icon" }, icon("auto_awesome", "sm")),
+      isHistory ? _.span({ class: "tl-flow-prompt-aside-icon" }, icon("forum", "sm")) : btn({
+        class: "is-ghost tl-flow-prompt-aside-back",
+        "aria-label": "Mostra storico chat",
+        title: "Storico chat",
+        onclick: () => {
+          draft.view = "history";
+          refresh();
+        },
+      }, icon("arrow_back", "sm")),
       _.span(
         { class: "tl-flow-prompt-aside-title" },
-        _.strong("AI Flow Chat"),
-        _.em("Flow Map agent")
+        _.strong(isHistory ? "Chat history" : activeTitle),
+        _.em(isHistory ? `${draft.chats.length} chat salvate` : "Flow Map agent")
       ),
       btn({ class: "is-ghost", "aria-label": "Chiudi AI Flow Chat", title: "Chiudi", onclick: closeAside }, icon("close", "sm"))
-    ),
-    renderContent()
+    );
+  }
+
+  function renderAsideShell() {
+    return [
+      renderAsideHeader(),
+      renderContent(),
+    ];
+  }
+
+  aside = _.aside(
+    { class: "tl-flow-prompt-aside", "data-flow-prompt-aside": "true", "aria-label": "AI Flow Chat" },
+    ...renderAsideShell()
   );
   document.body.appendChild(aside);
   requestAnimationFrame(() => {

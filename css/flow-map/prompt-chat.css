@@ -73,6 +73,23 @@
   background: rgba(0, 217, 255, 0.08);
 }
 
+.tl-flow-prompt-aside-back.cms-btn {
+  width: 34px;
+  min-width: 34px;
+  height: 34px;
+  padding: 0;
+  justify-content: center;
+  border-color: rgba(0, 217, 255, 0.18);
+  color: #dbeafe;
+  background: rgba(0, 217, 255, 0.045);
+}
+
+.tl-flow-prompt-aside-back.cms-btn:hover {
+  border-color: rgba(0, 217, 255, 0.36);
+  color: #67e8f9;
+  background: rgba(0, 217, 255, 0.1);
+}
+
 .tl-flow-prompt-aside-title {
   display: grid;
   gap: 2px;
@@ -127,14 +144,16 @@
 
 .tl-flow-prompt-aside .tl-flow-prompt-chat {
   grid-template-columns: 1fr;
-  grid-template-rows: minmax(116px, 156px) minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr);
   gap: 10px;
   height: 100%;
   padding: 10px;
 }
 
-.tl-flow-prompt-aside .tl-flow-prompt-history {
+.tl-flow-prompt-aside .tl-flow-prompt-history,
+.tl-flow-prompt-aside .tl-flow-prompt-conversation {
   min-height: 0;
+  height: 100%;
 }
 
 .tl-flow-prompt-aside .tl-flow-prompt-history-list {
@@ -142,7 +161,7 @@
 }
 
 .tl-flow-prompt-aside .tl-flow-prompt-history-item {
-  min-height: 52px;
+  min-height: 56px;
 }
 
 .tl-flow-prompt-aside .tl-flow-prompt-conversation {
