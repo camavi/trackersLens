@@ -1198,6 +1198,11 @@
   margin-left: auto;
 }
 
+.tl-flow-prompt-plan-actions {
+  display: flex;
+  justify-content: flex-end;
+}
+
 .tl-flow-prompt-plan-grid {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);

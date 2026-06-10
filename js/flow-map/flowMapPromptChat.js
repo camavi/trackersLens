@@ -2142,6 +2142,30 @@ const openFlowPromptChatDialog = async () => {
     );
   };
 
+  const planFromSnapshot = (snapshot = {}) => ({
+    prompt: snapshot.summary || "Flow Chat plan",
+    summary: snapshot.summary || `Piano: ${snapshot.nodes?.length || 0} nodi e ${snapshot.edges?.length || 0} collegamenti.`,
+    planner: snapshot.planner || {},
+    nodes: (snapshot.nodes || []).map((node) =>
+      flowPromptSpecFromPalette(node.label || "Generated Node", {
+        type: node.type || "",
+        subtype: node.subtype || "",
+        icon: node.icon || "extension",
+      })
+    ),
+    edges: (snapshot.edges || []).map((edge) => ({
+      sourceKey: edge.sourceLabel || edge.sourceKey || "",
+      targetKey: edge.targetLabel || edge.targetKey || "",
+    })).filter((edge) => edge.sourceKey && edge.targetKey),
+  });
+
+  const createPlanSnapshot = async (snapshot = {}) => {
+    if (!draft.analysis) {
+      draft.analysis = flowPromptAnalyzePlan(planFromSnapshot(snapshot));
+    }
+    await create();
+  };
+
   const renderPlanSnapshot = (plan = {}) =>
     _.div(
       { class: "tl-flow-prompt-message-plan" },
@@ -2172,7 +2196,15 @@ const openFlowPromptChatDialog = async () => {
             )
           )
         )
-      )
+      ),
+      (plan.nodes || []).length ? _.div(
+        { class: "tl-flow-prompt-plan-actions" },
+        btn({
+          class: "is-primary",
+          disabled: draft.busy,
+          onclick: () => createPlanSnapshot(plan),
+        }, icon("add_link", "sm"), "Create flow")
+      ) : null
     );
 
   const renderInventorySnapshot = (inventory = {}) =>
