@@ -425,8 +425,8 @@ textarea.tl-flow-menu-input {
 
 .tl-flow-edge-label-delete {
   position: absolute;
-  right: -10px;
-  top: 50%;
+  left: 50%;
+  top: -2px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -439,7 +439,7 @@ textarea.tl-flow-menu-input {
   background: rgba(127, 29, 29, 0.24);
   opacity: 0;
   pointer-events: none;
-  transform: translateY(-50%);
+  transform: translate(-50%, -50%);
   cursor: pointer;
 }
 
