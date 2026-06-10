@@ -584,7 +584,8 @@ const flowPromptActionAlreadyApplied = (action = {}) => {
     if (action.target === "output") return String(node.outputs?.[0] || "") === value;
     if (action.target === "input") return String(node.inputs?.[0] || "") === value;
     if (action.target === "channel") return (node.channels || []).some((channel) => String(channel || "") === value);
-    return String(node.metadata?.config?.[action.field] ?? "") === value;
+    const field = flowPromptNormalizeConfigFieldName(action.field);
+    return String(node.metadata?.config?.[field] ?? "") === value;
   }
   if (action.type === "deleteDependencies") {
     const ids = action.dependencyIds || [];
@@ -790,9 +791,28 @@ const flowPromptParseConfigField = (prompt = "") => {
   return { field: "config", target: "config" };
 };
 
+const flowPromptNormalizeConfigFieldName = (field = "") => {
+  const key = flowPromptNormalize(field).replace(/\s+/g, "");
+  if (["url", "uri", "endpoint", "sourceurl", "sourceendpoint"].includes(key)) return "endpoint";
+  if (["metodo", "method", "httpmethod"].includes(key)) return "method";
+  if (["modello", "model"].includes(key)) return "model";
+  if (["chatid", "chat"].includes(key)) return "chatId";
+  return String(field || "config").trim() || "config";
+};
+
 const flowPromptExtractExplicitUrl = (prompt = "") => {
-  const match = String(prompt || "").match(/\bhttps?:\/\/[^\s"'<>]+/i);
+  const match = String(prompt || "").match(/\b(?:https?|wss?):\/\/[^\s"'<>]+/i);
   return String(match?.[0] || "").replace(/[),.;]+$/g, "");
+};
+
+const flowPromptIsExplicitRuntimeUrl = (value = "") =>
+  /^(https?|wss?):\/\/[^\s"'<>]+$/i.test(String(value || "").trim());
+
+const flowPromptLooksLikePlaceholderValue = (value = "") => {
+  const text = String(value || "").trim();
+  if (!text) return true;
+  if (/^\[[^\]]+\]$/.test(text)) return true;
+  return flowPromptHasAny(flowPromptNormalize(text), ["placeholder", "example endpoint", "api endpoint"]);
 };
 
 const flowPromptLooksLikeEndpointLookup = (prompt = "") => {
@@ -875,6 +895,20 @@ const flowPromptBuildConfigPlan = (context = {}, prompt = "") => {
           `imposta ${field.field} di ${pickedNode?.label || nodeHint} a ${pickedValue || value}`,
       }),
     ], "Non posso aggiornare config: nodo o valore non chiaro.");
+  }
+  if (field.field === "endpoint" && (!flowPromptIsExplicitRuntimeUrl(value) || flowPromptLooksLikePlaceholderValue(value))) {
+    return flowPromptBatchPlan([
+      {
+        type: "updateNodeConfig",
+        status: "blocked",
+        node,
+        nodeId: node.id,
+        field: field.field,
+        target: field.target,
+        value,
+        summary: `Non salvo endpoint in ${node.label}: "${value}" non e un URL runtime valido.`,
+      },
+    ], "Non posso aggiornare l'URL: serve un endpoint esplicito che inizi con http://, https://, ws:// o wss://.");
   }
   return flowPromptBatchPlan([
     {
@@ -999,7 +1033,7 @@ const flowPromptBuildActionPlanFromNormalized = (context = {}, command = {}) => 
   if (action === "setconfig" || action === "config" || action === "updateconfig" || action === "setchannel") {
     const nodeHint = command.node || command.nodeLabel || command.source || "";
     const node = flowPromptFindNodeByText(context, nodeHint);
-    const field = String(command.field || command.key || "config").trim();
+    const field = flowPromptNormalizeConfigFieldName(command.field || command.key || "config");
     const value = String(command.value || command.nextValue || "").trim();
     const target = ["output", "input", "channel"].includes(flowPromptNormalize(command.target || field))
       ? flowPromptNormalize(command.target || field)
@@ -1016,6 +1050,18 @@ const flowPromptBuildActionPlanFromNormalized = (context = {}, command = {}) => 
             `imposta ${field} di ${pickedNode?.label || nodeHint} a ${pickedValue || value}`,
         }),
       ], "Non posso aggiornare config: nodo o valore non chiaro.");
+    }
+    if (target === "config" && field === "endpoint" && (!flowPromptIsExplicitRuntimeUrl(value) || flowPromptLooksLikePlaceholderValue(value))) {
+      return flowPromptBatchPlan([{
+        type: "updateNodeConfig",
+        status: "blocked",
+        node,
+        nodeId: node.id,
+        field,
+        target,
+        value,
+        summary: `AI normalize ha proposto un endpoint non valido per ${node.label}: "${value}".`,
+      }], "Non posso applicare l'endpoint: serve un URL esplicito che inizi con http://, https://, ws:// o wss://.");
     }
     return flowPromptBatchPlan([{
       type: "updateNodeConfig",
@@ -1083,6 +1129,11 @@ const flowPromptBuildActionPlanWithAiNormalize = async (context = {}, prompt = "
   debug.localPlan = flowPromptDebugPlan(localPlan);
   if (localPlan && localPlan.status !== "blocked") {
     debug.selectedPlan = "local";
+    return localPlan;
+  }
+  if (flowPromptLooksLikeEndpointLookup(prompt) && !flowPromptExtractExplicitUrl(prompt)) {
+    debug.selectedPlan = localPlan ? "local" : "none";
+    debug.reason = "Endpoint lookup without explicit URL must not be converted into an Apply plan.";
     return localPlan;
   }
   if (!flowPromptIsMutationRequest(prompt) && flowPromptAgentIntent(prompt) !== "connect") {
@@ -2070,6 +2121,7 @@ const openFlowPromptChatDialog = async () => {
       if (!node) throw new Error(`Nodo non trovato: ${action.nodeId}`);
       const metadata = { ...(node.metadata || {}) };
       const config = { ...(metadata.config || {}) };
+      const field = flowPromptNormalizeConfigFieldName(action.field);
       let nextNode = { ...node, metadata: { ...metadata, config } };
       if (action.target === "output") {
         nextNode.outputs = [action.value, ...(node.outputs || []).slice(1)].filter(Boolean);
@@ -2080,14 +2132,14 @@ const openFlowPromptChatDialog = async () => {
       } else if (action.target === "channel") {
         nextNode.channels = [...new Set([action.value, ...(node.channels || []).slice(1)].filter(Boolean))];
       } else {
-        config[action.field] = action.value;
+        config[field] = action.value;
       }
       nextNode.updatedAt = new Date().toISOString();
       await window.TrackerLensRuntimeGraphStore?.upsertRuntimeNode?.({ node: nextNode });
       if (window.TrackerLensChannelRegistry?.upsertChannelsForRuntimeNode) {
         await window.TrackerLensChannelRegistry.upsertChannelsForRuntimeNode({ node: nextNode }).catch(() => null);
       }
-      return { type: "updateNodeConfig", label: `${node.label}: ${action.field} = ${action.value}`, focusNodeId: node.id };
+      return { type: "updateNodeConfig", label: `${node.label}: ${field} = ${action.value}`, focusNodeId: node.id };
     }
 
     if (action.type === "deleteDependencies") {

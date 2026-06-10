@@ -71,6 +71,7 @@ Runtime Notes:
 - 2026-06-10: Plan messages now include a `Create flow` action inside the assistant card itself, including a snapshot reload path for saved chat history plans.
 - 2026-06-10: Endpoint lookup-style prompts such as “trova un endpoint e mettilo in REST API” no longer hardcode or save any URL. The Flow Agent only prepares an Apply config plan when the prompt contains an explicit URL; lookup/search requests stay blocked until a real endpoint search/confirmation tool exists.
 - 2026-06-10: Removed Flow Agent crypto/BTC/Binance bias from local planning, runtime fallback transforms and form placeholders. The normalizer must stay domain-neutral and convert user intent into validated Flow Map tool actions, similar to command-line normalization, without inventing domain-specific endpoints or payloads.
+- 2026-06-10: Hardened endpoint Apply validation after AI normalization. `url` is normalized to the runtime `endpoint` config key, placeholder values such as `[ETH Price API Endpoint]` are blocked, and endpoint lookup prompts without an explicit URL keep the local blocked plan instead of being converted into Apply.
 - Remaining: add broader command coverage for multi-step edits and richer graph path queries.
 
 ## [TASK-023]
