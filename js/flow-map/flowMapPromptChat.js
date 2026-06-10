@@ -620,6 +620,25 @@ const flowPromptBatchPlan = (actions = [], summary = "") => ({
   actions,
 });
 
+const flowPromptSplitCompoundCommands = (prompt = "") => {
+  const text = String(prompt || "").trim();
+  if (!text) return [];
+  const commandVerb = "(?:collega|connetti|connect|link|scollega|disconnetti|unlink|disconnect|rinomina|rename|cambia|imposta|set|aggiorna|modifica|sistema|fix|ripara)";
+  return text
+    .replace(/[;\n]+/g, "\n")
+    .replace(new RegExp(`\\s+(?:e\\s+poi|poi|quindi|dopo)\\s+(?=${commandVerb}\\b)`, "gi"), "\n")
+    .replace(new RegExp(`\\s+e\\s+(?=${commandVerb}\\b)`, "gi"), "\n")
+    .split(/\n+/)
+    .map((part) => part.trim())
+    .filter(Boolean);
+};
+
+const flowPromptFlattenActionPlan = (plan = null) => {
+  if (!plan) return [];
+  if (plan.type === "batch") return plan.actions || [];
+  return [plan];
+};
+
 const flowPromptBuildConnectPlan = (context = {}, prompt = "") => {
   const text = String(prompt || "").trim();
   const match = text.match(/(?:collega|connetti|connect|link)\s+(.+?)\s+(?:a|ad|to|->)\s+(.+)$/i);
@@ -819,7 +838,7 @@ const flowPromptBuildConfigPlan = (context = {}, prompt = "") => {
   ], `Posso aggiornare ${node.label}: ${field.field} = ${value}.`);
 };
 
-const flowPromptBuildActionPlan = (context = {}, prompt = "") => {
+const flowPromptBuildSingleActionPlan = (context = {}, prompt = "") => {
   const intent = flowPromptAgentIntent(prompt);
   if (intent === "disconnect") return flowPromptBuildDisconnectPlan(context, prompt);
   if (intent === "connect") return flowPromptBuildConnectPlan(context, prompt);
@@ -829,7 +848,31 @@ const flowPromptBuildActionPlan = (context = {}, prompt = "") => {
   return null;
 };
 
+const flowPromptBuildActionPlan = (context = {}, prompt = "") => {
+  const parts = flowPromptSplitCompoundCommands(prompt);
+  if (parts.length > 1) {
+    const plans = parts.map((part) => flowPromptBuildSingleActionPlan(context, part)).filter(Boolean);
+    const actions = plans.flatMap(flowPromptFlattenActionPlan);
+    if (!actions.length) return null;
+    const ready = actions.filter((action) => action.status === "ready").length;
+    const blocked = actions.filter((action) => action.status === "blocked").length;
+    const duplicate = actions.filter((action) => action.status === "duplicate").length;
+    return flowPromptBatchPlan(
+      actions,
+      `Ho preparato ${actions.length} azioni: ${ready} pronte, ${duplicate} gia presenti, ${blocked} bloccate.`
+    );
+  }
+  return flowPromptBuildSingleActionPlan(context, prompt);
+};
+
 const flowPromptBuildActionPlanFromNormalized = (context = {}, command = {}) => {
+  if (Array.isArray(command.actions)) {
+    const plans = command.actions
+      .map((item) => flowPromptBuildActionPlanFromNormalized(context, item))
+      .filter(Boolean);
+    const actions = plans.flatMap(flowPromptFlattenActionPlan);
+    return actions.length ? flowPromptBatchPlan(actions, `AI normalize ha preparato ${actions.length} azioni.`) : null;
+  }
   const action = flowPromptNormalize(command.action || command.intent || "");
   if (action === "rename" || action === "renamenode") {
     const node = flowPromptFindNodeByText(context, command.node || command.nodeLabel || command.source || "");
@@ -962,11 +1005,12 @@ const flowPromptNormalizeCommandWithAi = async (context = {}, prompt = "") => {
     "{\"action\":\"setConfig\",\"node\":\"AI Analyzer\",\"field\":\"model\",\"value\":\"llama3.1\"}",
     "{\"action\":\"setConfig\",\"node\":\"REST API\",\"field\":\"method\",\"value\":\"POST\"}",
     "{\"action\":\"setChannel\",\"node\":\"Telegram Message\",\"target\":\"output\",\"field\":\"output\",\"value\":\"action.telegram\"}",
+    "{\"actions\":[{\"action\":\"rename\",\"node\":\"Telegram 2\",\"nextLabel\":\"Telegram OK\"},{\"action\":\"connect\",\"source\":\"Telegram OK\",\"target\":\"Preview\"}]}",
     "{\"action\":\"fix\"}",
     "Rules:",
     "- Use only labels or ids that best match existingNodes.",
     "- Do not invent nodes.",
-    "- Return only one JSON object.",
+    "- Return only one JSON object. For multi-step commands, return {\"actions\":[...]} in execution order.",
     `existingNodes: ${JSON.stringify(nodeContext)}`,
     `userCommand: ${prompt}`,
   ].join("\n");
@@ -2532,7 +2576,16 @@ const openFlowPromptChatDialog = async () => {
         draft.error ? _.div({ class: "tl-flow-prompt-error" }, icon("error", "sm"), _.span(draft.error)) : null,
         analysis ? _.div(
           { class: "tl-flow-prompt-plan" },
-          _.div({ class: "tl-flow-prompt-plan-head" }, _.strong(analysis.summary), _.span("Piano corrente")),
+          _.div(
+            { class: "tl-flow-prompt-plan-head" },
+            _.strong(analysis.summary),
+            _.span("Piano corrente"),
+            btn({
+              class: "is-primary",
+              disabled: draft.busy,
+              onclick: create,
+            }, icon("add_link", "sm"), "Create flow")
+          ),
           _.div({ class: "tl-flow-prompt-plan-grid" },
             _.section(_.h3("Nodi"), ...(analysis.analyzedNodes || []).map(renderNodeRow)),
             _.section(_.h3("Collegamenti"), ...(analysis.analyzedEdges || []).map(renderEdgeRow))

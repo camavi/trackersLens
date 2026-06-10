@@ -19,17 +19,15 @@
   backdrop-filter: blur(12px);
 }
 
-.tl-flow-prompt-chat-btn:hover {
-  border-color: rgba(255, 199, 44, 0.55);
-  background: rgba(255, 199, 44, 0.14);
-  transform: translateY(-1px);
+.cms-clickable.cms-singularity:hover {
+  box-shadow: inset 0 0 0 1px rgba(255, 199, 44, 0.28);
 }
 
 .tl-flow-prompt-aside {
   position: fixed;
-  top: 82px;
+  top: 72px;
   right: 12px;
-  bottom: 12px;
+  bottom: 38px;
   z-index: 92;
   display: grid;
   grid-template-rows: auto minmax(0, 1fr);
@@ -1193,6 +1191,11 @@
 .tl-flow-prompt-plan-head {
   justify-content: space-between;
   gap: 12px;
+  flex-wrap: wrap;
+}
+
+.tl-flow-prompt-plan-head .cms-btn {
+  margin-left: auto;
 }
 
 .tl-flow-prompt-plan-grid {
