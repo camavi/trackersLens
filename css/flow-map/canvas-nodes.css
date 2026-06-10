@@ -398,10 +398,12 @@ textarea.tl-flow-menu-input {
   left: var(--x);
   top: var(--y);
   z-index: 2;
-  max-width: 118px;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  max-width: 156px;
   min-height: 20px;
-  padding: 2px 7px;
-  overflow: hidden;
+  padding: 2px 4px 2px 8px;
   color: var(--tl-text);
   border: 1px solid rgba(56, 189, 248, 0.24);
   border-radius: 999px;
@@ -413,6 +415,43 @@ textarea.tl-flow-menu-input {
   white-space: nowrap;
   transform: translate(-50%, -50%);
   cursor: pointer;
+}
+
+.tl-flow-edge-label-text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tl-flow-edge-label-delete {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  flex: 0 0 18px;
+  padding: 0;
+  color: rgba(248, 113, 113, 0.9);
+  border: 1px solid rgba(248, 113, 113, 0.28);
+  border-radius: 999px;
+  background: rgba(127, 29, 29, 0.24);
+  opacity: 0;
+  pointer-events: none;
+  cursor: pointer;
+}
+
+.tl-flow-edge-label:hover .tl-flow-edge-label-delete,
+.tl-flow-edge-label:focus-within .tl-flow-edge-label-delete,
+.tl-flow-edge-label.is-selected .tl-flow-edge-label-delete {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.tl-flow-edge-label-delete:hover {
+  color: #fff;
+  border-color: rgba(248, 113, 113, 0.72);
+  background: rgba(127, 29, 29, 0.72);
 }
 
 .tl-flow-edge-label:hover,

@@ -11,33 +11,55 @@ const createLinkToNode = async (target) => {
 };
 
 const performEdgeDelete = async (edge, closeDialog = null) => {
-  if (!edge?.connectionId) return;
-  const deletedConnection = state.connections.find((connection) => connection.id === edge.connectionId) || null;
+  if (!edge?.id && !edge?.connectionId) return;
+  const deletedConnection = edge.connectionId
+    ? state.connections.find((connection) => connection.id === edge.connectionId) || null
+    : null;
 
-  await window.TrackerLensConnectionsStore?.remove?.(edge.connectionId);
-  await window.TrackerLensConnectionsStore?.removeWorkspaceContentConnection?.(edge.connectionId, {
-    workspaceId: edge.workspaceId || deletedConnection?.workspaceId || "",
-  });
-  await window.TrackerLensRuntimeGraphStore?.cleanupConnectionReferences?.({ connectionId: edge.connectionId });
-  if (window.TrackerLensEventLogStore?.cleanupConnectionReferences) {
-    await window.TrackerLensEventLogStore.cleanupConnectionReferences({ connectionId: edge.connectionId });
+  if (edge.connectionId) {
+    await window.TrackerLensConnectionsStore?.remove?.(edge.connectionId);
+    await window.TrackerLensConnectionsStore?.removeWorkspaceContentConnection?.(edge.connectionId, {
+      workspaceId: edge.workspaceId || deletedConnection?.workspaceId || "",
+    });
+    await window.TrackerLensRuntimeGraphStore?.cleanupConnectionReferences?.({ connectionId: edge.connectionId });
+    if (window.TrackerLensEventLogStore?.cleanupConnectionReferences) {
+      await window.TrackerLensEventLogStore.cleanupConnectionReferences({ connectionId: edge.connectionId });
+    }
+  }
+  if (edge.id && window.TrackerLensRuntimeGraphStore?.deleteRecords) {
+    await window.TrackerLensRuntimeGraphStore.deleteRecords(
+      window.TrackerLensRuntimeGraphStore.STORES.runtimeDependencies,
+      [edge.id]
+    );
   }
   await recordFlowAction({
     workspaceId: edge.workspaceId || deletedConnection?.workspaceId || "global",
-    connectionId: edge.connectionId,
+    connectionId: edge.connectionId || "",
     level: "warning",
-    message: `Runtime link deleted: ${edge.channel || edge.connectionId}`,
+    message: `Runtime link deleted: ${edge.channel || edge.connectionId || edge.id}`,
     context: {
       action: "runtime-link-deleted",
+      dependencyId: edge.id || "",
       sourceNodeId: edge.sourceNodeId || "",
       targetNodeId: edge.targetNodeId || "",
       channel: edge.channel || "",
     },
   });
   state.lastDeletedConnection = deletedConnection;
+  state.optimisticDependencies = (state.optimisticDependencies || []).filter((dependency) =>
+    dependency.id !== edge.id && dependency.connectionId !== edge.connectionId
+  );
+  state.connections = (state.connections || []).filter((connection) => connection.id !== edge.connectionId);
+  setRuntimeState({
+    ...state.runtime,
+    dependencies: (state.runtime.dependencies || []).filter((dependency) =>
+      dependency.id !== edge.id && dependency.connectionId !== edge.connectionId
+    ),
+  });
   closeDialog?.();
   setFocusState({ mode: "", nodeId: "", edgeId: "", nodeType: "", channel: "", connectionId: "" });
-  await loadRuntime();
+  mount({ preserveScroll: true });
+  await loadRuntime({ force: true });
 };
 
 const restoreLastDeletedConnection = async () => {
@@ -98,7 +120,7 @@ const repairGraphIssues = async () => {
 };
 
 const requestEdgeDelete = (edge) => {
-  if (!edge?.connectionId) return;
+  if (!edge?.id && !edge?.connectionId) return;
   const source = nodeById(edge.sourceNodeId);
   const target = nodeById(edge.targetNodeId);
   const dialog = _.Dialog({
@@ -115,7 +137,8 @@ const requestEdgeDelete = (edge) => {
       _.div(_.span("Source"), _.strong(source?.label || edge.sourceNodeId || "N/D")),
       _.div(_.span("Target"), _.strong(target?.label || edge.targetNodeId || "N/D")),
       _.div(_.span("Channel"), _.strong(edge.channel || "runtime")),
-      _.div(_.span("Connection"), _.strong(edge.connectionId))
+      _.div(_.span("Connection"), _.strong(edge.connectionId || "N/D")),
+      _.div(_.span("Dependency"), _.strong(edge.id || "N/D"))
     ),
     actions: ({ close }) => _.Toolbar(
       { align: "end", gap: 8 },
@@ -1173,9 +1196,10 @@ const renderCanvas = () => {
           const recentEvent = edgeRecentEvent(dependency);
           const activeTestEdge = state.testRun.running && (state.testRun.activeEdgeIds || []).includes(dependency.id);
           const processingEdge = activeProcessingEdgeIds(graph).includes(dependency.id);
-          return _.button(
+          return _.div(
             {
-              type: "button",
+              role: "button",
+              tabindex: 0,
               class: `tl-flow-edge-label${state.focus.edgeId === dependency.id ? " is-selected" : ""}${impactClassForEdge(dependency, impact)}${dependency.metadata?.virtual ? " is-virtual" : ""}${isAllEdge(dependency) ? " is-bus" : ""}${isAgentControlEdge(dependency) ? " is-agent-control" : ""}${recentEvent || activeTestEdge || processingEdge ? " is-live" : ""}${recentEvent?.status === "error" ? " is-error" : ""}${activeTestEdge || processingEdge ? " is-test-path" : ""}`,
               "data-edge-id": dependency.id,
               title: edgeDebugTitle(dependency),
@@ -1184,8 +1208,25 @@ const renderCanvas = () => {
                 event.stopPropagation();
                 selectEdge(dependency);
               },
+              onkeydown: (event) => {
+                if (event.key !== "Enter" && event.key !== " ") return;
+                event.preventDefault();
+                event.stopPropagation();
+                selectEdge(dependency);
+              },
             },
-            edgeDisplayLabel(dependency)
+            _.span({ class: "tl-flow-edge-label-text" }, edgeDisplayLabel(dependency)),
+            _.button({
+              type: "button",
+              class: "tl-flow-edge-label-delete",
+              title: "Delete link",
+              "aria-label": `Delete link ${edgeDisplayLabel(dependency)}`,
+              onclick: (event) => {
+                event.preventDefault();
+                event.stopPropagation();
+                requestEdgeDelete(dependency);
+              },
+            }, icon("delete", "sm"))
           );
         }).filter(Boolean),
         ...renderGraph.renderedNodes.map((node) => {

@@ -78,6 +78,7 @@ Runtime Notes:
 - 2026-06-10: Started Step 1 Tool Registry inside `flowMapPromptChat.js`. The registry defines read/write/external tools such as `inspectGraph`, `findNode`, `diagnoseGraph`, `queryRuntime`, `createNode`, `connectNodes`, `updateNodeConfig`, `fixGraph`, `researchEndpoint` and `validateEndpoint`, exposes tool status in Dev inspector, and annotates action-plan steps with tool metadata.
 - 2026-06-10: Completed Step 1 Tool Registry routing. Existing local planners now emit tool metadata for connect/disconnect/rename/config/fix/research actions, batch plans carry their tool list, Dev inspector shows tool category/status/mutability, and Apply validates that every mutation uses a registered `ready` mutating tool before writing to the runtime graph.
 - 2026-06-10: Fixed Flow Chat history compatibility after Tool Registry routing. Older saved agent reports with null/partial actions no longer crash `flowPromptAgentToolForAction`; batch annotation and rendering now filter invalid action entries defensively.
+- 2026-06-10: Fixed Flow Map edge deletion feedback. Deleting an edge now removes matching runtime dependency, connection and optimistic dependency from local state before a forced runtime reload, so the canvas updates immediately instead of waiting for reset. Edge labels also expose a compact delete icon for direct link removal.
 - Remaining: implement Step 2 generic multi-step planner model.
 
 ## [TASK-023]
