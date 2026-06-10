@@ -601,7 +601,7 @@ const flowPromptActionSummary = (action = {}) => {
   if (action.type === "batch") return action.summary || `${action.actions?.length || 0} azioni pronte.`;
   if (action.type === "connect") return action.summary || "";
   if (action.type === "renameNode") return `Rinomina ${action.node?.label || action.nodeId} in ${action.nextLabel}.`;
-  if (action.type === "updateNodeConfig") return `Aggiorna ${action.node?.label || action.nodeId}: ${action.field} = ${action.value}.`;
+  if (action.type === "updateNodeConfig") return action.summary || `Aggiorna ${action.node?.label || action.nodeId}: ${action.field} = ${action.value}.`;
   if (action.type === "deleteDependencies") return `Rimuovi ${action.dependencyIds?.length || 0} collegamenti rotti.`;
   return action.summary || "Azione runtime.";
 };
@@ -790,32 +790,31 @@ const flowPromptParseConfigField = (prompt = "") => {
   return { field: "config", target: "config" };
 };
 
-const flowPromptKnownEndpointConfig = (prompt = "") => {
+const flowPromptExtractExplicitUrl = (prompt = "") => {
+  const match = String(prompt || "").match(/\bhttps?:\/\/[^\s"'<>]+/i);
+  return String(match?.[0] || "").replace(/[),.;]+$/g, "");
+};
+
+const flowPromptLooksLikeEndpointLookup = (prompt = "") => {
   const text = flowPromptNormalize(prompt);
-  const asksEndpoint = flowPromptHasAny(text, ["endpoint", "url", "api", "rest api"]);
-  const asksPrice = flowPromptHasAny(text, ["prezzo", "price", "ticker", "quotazione"]);
-  const asksBtc = flowPromptHasAny(text, ["btc", "bitcoin", "btcusdt"]);
-  if (asksEndpoint && asksPrice && asksBtc) {
-    return {
-      nodeHint: "REST API",
-      endpoint: "https://api.binance.com/api/v3/ticker/price?symbol=BTCUSDT",
-      method: "GET",
-      summary: "Endpoint pubblico Binance per prezzo BTC/USDT.",
-    };
-  }
-  return null;
+  return flowPromptHasAny(text, ["cerca", "cerchi", "cercami", "trova", "trovami", "lookup"])
+    && flowPromptHasAny(text, ["endpoint", "url", "api", "rest api"]);
 };
 
 const flowPromptExtractConfigChange = (prompt = "") => {
   const text = String(prompt || "").trim();
-  const knownEndpoint = flowPromptKnownEndpointConfig(prompt);
-  if (knownEndpoint) {
-    const targetMatch = text.match(/\b(?:in|nel|nella|sul|su)\s+(.+)$/i);
+  const explicitUrl = flowPromptExtractExplicitUrl(prompt);
+  const endpointLookup = flowPromptLooksLikeEndpointLookup(prompt) && !explicitUrl;
+  if (explicitUrl || endpointLookup) {
+    const targetMatch = text.match(/\b(?:in|nel|nella|sul|su|al|alla)\s+(.+?)(?:\s+(?:al|alla|nel|nella|sul|su)\s+(?:url|endpoint))?\s*$/i);
+    const nodeHint = String(targetMatch?.[1] || "REST API")
+      .replace(/\b(al|alla|nel|nella|sul|su)\s+(url|endpoint)\b/gi, "")
+      .trim();
     return {
       field: { field: "endpoint", target: "config" },
-      value: knownEndpoint.endpoint,
-      nodeHint: String(targetMatch?.[1] || knownEndpoint.nodeHint).trim(),
-      knownEndpoint,
+      value: explicitUrl,
+      nodeHint: nodeHint || "REST API",
+      requiresEndpointLookup: endpointLookup,
     };
   }
   const valueMatch = text.match(/\s(?:in|a|to|su|come|con|=)\s+(['"]?)([^\n]+?)\1\s*$/i);
@@ -831,12 +830,39 @@ const flowPromptExtractConfigChange = (prompt = "") => {
   const nodeHint = String(nodeMatch?.[1] || fallbackHint)
     .replace(/^(il|la|lo|un|una|nodo|node)\s+/i, "")
     .trim();
-  return { field, value, nodeHint, knownEndpoint: null };
+  return { field, value, nodeHint, requiresEndpointLookup: false };
 };
 
 const flowPromptBuildConfigPlan = (context = {}, prompt = "") => {
-  const { field, value, nodeHint, knownEndpoint } = flowPromptExtractConfigChange(prompt);
+  const { field, value, nodeHint, requiresEndpointLookup } = flowPromptExtractConfigChange(prompt);
   const node = flowPromptFindNodeByText(context, nodeHint);
+  if (requiresEndpointLookup) {
+    if (!node?.id) {
+      return flowPromptBatchPlan([
+        flowPromptBlockedChoice({
+          type: "updateNodeConfig",
+          summary: "Nodo REST API non chiaro.",
+          sourceHint: nodeHint,
+          value,
+          context,
+          promptBuilder: ({ source: pickedNode }) =>
+            `imposta endpoint di ${pickedNode?.label || nodeHint}`,
+        }),
+      ], "Non posso cercare o salvare endpoint automaticamente: scegli prima il nodo REST API e fornisci un URL esplicito.");
+    }
+    return flowPromptBatchPlan([
+      {
+        type: "updateNodeConfig",
+        status: "blocked",
+        node,
+        nodeId: node.id,
+        field: field.field,
+        target: field.target,
+        value: "",
+        summary: `Non salvo endpoint in ${node.label}: serve un URL esplicito o un tool di ricerca confermato.`,
+      },
+    ], `Ho capito che vuoi configurare un endpoint su ${node.label}, ma non posso inventare o salvare un URL senza una fonte esplicita.`);
+  }
   if (!node?.id || !value) {
     return flowPromptBatchPlan([
       flowPromptBlockedChoice({
@@ -849,30 +875,6 @@ const flowPromptBuildConfigPlan = (context = {}, prompt = "") => {
           `imposta ${field.field} di ${pickedNode?.label || nodeHint} a ${pickedValue || value}`,
       }),
     ], "Non posso aggiornare config: nodo o valore non chiaro.");
-  }
-  if (knownEndpoint) {
-    return flowPromptBatchPlan([
-      {
-        type: "updateNodeConfig",
-        status: "ready",
-        node,
-        nodeId: node.id,
-        field: "endpoint",
-        target: "config",
-        value: knownEndpoint.endpoint,
-        summary: `Imposto endpoint di ${node.label} a ${knownEndpoint.endpoint}.`,
-      },
-      {
-        type: "updateNodeConfig",
-        status: "ready",
-        node,
-        nodeId: node.id,
-        field: "method",
-        target: "config",
-        value: knownEndpoint.method || "GET",
-        summary: `Imposto method di ${node.label} a ${knownEndpoint.method || "GET"}.`,
-      },
-    ], `Ho trovato un endpoint per il prezzo BTC e posso configurarlo in ${node.label}.`);
   }
   return flowPromptBatchPlan([
     {
