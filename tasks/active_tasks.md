@@ -80,7 +80,8 @@ Runtime Notes:
 - 2026-06-10: Fixed Flow Chat history compatibility after Tool Registry routing. Older saved agent reports with null/partial actions no longer crash `flowPromptAgentToolForAction`; batch annotation and rendering now filter invalid action entries defensively.
 - 2026-06-10: Fixed Flow Map edge deletion feedback. Deleting an edge now removes matching runtime dependency, connection and optimistic dependency from local state before a forced runtime reload, so the canvas updates immediately instead of waiting for reset. Edge labels also expose a compact delete icon for direct link removal.
 - 2026-06-10: Fixed link hover crash while dragging connections. Pointer movement outside a valid target node now clears hover/validation state before computing target channels, and `nodeCategory` / `nodeSubtype` tolerate null values defensively.
-- Remaining: implement Step 2 generic multi-step planner model.
+- 2026-06-10: Completed Step 2 generic multi-step planner model base. Flow Agent reports now derive a `flow-agent-plan/v1` object with ordered steps, tool metadata, status, dependencies and executable actions while keeping the existing Apply batch as the safe executor contract. The AI normalizer can now return either `{ actions: [...] }` or `{ steps: [...] }`, preserving step id / dependency metadata into the internal action plan and Dev inspector.
+- Remaining: implement Step 3 safe executor with per-step validation/snapshots; richer compound command coverage can continue on top of the `flow-agent-plan/v1` contract.
 
 ## [TASK-023]
 

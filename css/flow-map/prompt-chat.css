@@ -917,6 +917,15 @@
   font-style: normal;
 }
 
+.tl-flow-prompt-action-step small {
+  min-width: 0;
+  overflow: hidden;
+  color: rgba(148, 163, 184, 0.82);
+  font-size: 10px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .tl-flow-prompt-action-step.is-ready>.cms-icon,
 .tl-flow-prompt-action-step.is-ready>.material-symbols-outlined {
   color: rgba(34, 197, 94, 0.9);

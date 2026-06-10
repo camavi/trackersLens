@@ -825,6 +825,96 @@ const flowPromptBatchPlan = (actions = [], summary = "") => {
   });
 };
 
+const flowPromptPlannerStepTitle = (action = {}) => {
+  const tool = flowPromptAgentTool(flowPromptAgentToolForAction(action));
+  if (tool?.label) return tool.label;
+  if (action.type === "researchEndpoint") return "Research Endpoint";
+  if (action.type === "connect") return "Connect Nodes";
+  if (action.type === "deleteDependencies") return action.tool === "fixGraph" ? "Fix Graph" : "Disconnect Nodes";
+  if (action.type === "renameNode") return "Rename Node";
+  if (action.type === "updateNodeConfig") return "Update Node Config";
+  return action.type || "Agent Step";
+};
+
+const flowPromptPlannerStepStatus = (action = {}) => {
+  const status = flowPromptEffectiveActionStatus(action);
+  if (status === "duplicate") return "done";
+  if (status === "applied") return "done";
+  if (status === "ready") return "ready";
+  return "blocked";
+};
+
+const flowPromptAgentPlanSteps = (plan = null) => {
+  const actions = flowPromptFlattenActionPlan(plan).filter(Boolean);
+  return actions.map((action, index) => {
+    const toolName = flowPromptAgentToolForAction(action);
+    const tool = flowPromptAgentTool(toolName);
+    const stepId = action.stepId || `step_${String(index + 1).padStart(2, "0")}_${toolName || action.type || "action"}`;
+    const dependsOn = Array.isArray(action.dependsOn)
+      ? action.dependsOn
+      : action.dependsOn
+        ? [action.dependsOn]
+        : index > 0
+          ? [`step_${String(index).padStart(2, "0")}_${flowPromptAgentToolForAction(actions[index - 1]) || actions[index - 1]?.type || "action"}`]
+          : [];
+    return {
+      id: stepId,
+      order: index + 1,
+      title: flowPromptPlannerStepTitle(action),
+      summary: flowPromptActionSummary(action),
+      status: flowPromptPlannerStepStatus(action),
+      tool: toolName,
+      toolStatus: tool?.status || action.toolStatus || "",
+      toolCategory: tool?.category || action.toolCategory || "",
+      mutates: typeof tool?.mutates === "boolean" ? tool.mutates : Boolean(action.toolMutates),
+      dependsOn,
+      action,
+    };
+  });
+};
+
+const flowPromptAgentPlanStatus = (steps = []) => {
+  if (!steps.length) return "blocked";
+  if (steps.some((step) => step.status === "blocked")) return "blocked";
+  if (steps.every((step) => step.status === "done")) return "done";
+  return "ready";
+};
+
+const flowPromptBuildGenericAgentPlan = (plan = null, meta = {}) => {
+  if (!plan) return null;
+  const steps = flowPromptAgentPlanSteps(plan);
+  return {
+    version: "flow-agent-plan/v1",
+    planner: "generic-multi-step",
+    source: meta.source || "local",
+    prompt: meta.prompt || "",
+    summary: plan.summary || `${steps.length} step agentici.`,
+    status: flowPromptAgentPlanStatus(steps),
+    tools: flowPromptPlanTools(plan),
+    steps,
+  };
+};
+
+const flowPromptDebugAgentPlan = (agentPlan = null) =>
+  !agentPlan ? null : {
+    version: agentPlan.version,
+    planner: agentPlan.planner,
+    source: agentPlan.source,
+    status: agentPlan.status,
+    summary: agentPlan.summary,
+    tools: agentPlan.tools,
+    steps: (agentPlan.steps || []).map((step) => ({
+      id: step.id,
+      order: step.order,
+      title: step.title,
+      status: step.status,
+      tool: step.tool,
+      toolStatus: step.toolStatus,
+      dependsOn: step.dependsOn,
+      actionType: step.action?.type || "",
+    })),
+  };
+
 const flowPromptSplitCompoundCommands = (prompt = "") => {
   const text = String(prompt || "").trim();
   if (!text) return [];
@@ -842,6 +932,22 @@ const flowPromptFlattenActionPlan = (plan = null) => {
   if (!plan) return [];
   if (plan.type === "batch") return plan.actions || [];
   return [plan];
+};
+
+const flowPromptActionPlanWithStepMeta = (plan = null, meta = {}) => {
+  if (!plan || (!meta.stepId && !meta.dependsOn)) return plan;
+  const applyMeta = (action = {}, index = 0) => ({
+    ...action,
+    stepId: index === 0 && meta.stepId ? meta.stepId : action.stepId,
+    dependsOn: index === 0 && meta.dependsOn ? meta.dependsOn : action.dependsOn,
+  });
+  if (plan.type === "batch") {
+    return {
+      ...plan,
+      actions: (plan.actions || []).map(applyMeta),
+    };
+  }
+  return applyMeta(plan);
 };
 
 const flowPromptBuildConnectPlan = (context = {}, prompt = "") => {
@@ -1184,9 +1290,21 @@ const flowPromptBuildActionPlan = (context = {}, prompt = "") => {
 };
 
 const flowPromptBuildActionPlanFromNormalized = (context = {}, command = {}) => {
-  if (Array.isArray(command.actions)) {
-    const plans = command.actions
-      .map((item) => flowPromptBuildActionPlanFromNormalized(context, item))
+  const normalizedSteps = Array.isArray(command.steps) ? command.steps : null;
+  const normalizedActions = Array.isArray(command.actions) ? command.actions : normalizedSteps;
+  if (Array.isArray(normalizedActions)) {
+    const plans = normalizedActions
+      .map((item) => {
+        const rawAction = item?.action && typeof item.action === "object" ? item.action : item;
+        const plan = flowPromptBuildActionPlanFromNormalized(context, {
+          ...(rawAction || {}),
+          dependsOn: item?.dependsOn || rawAction?.dependsOn || "",
+        });
+        return flowPromptActionPlanWithStepMeta(plan, {
+          stepId: item?.id || rawAction?.id || "",
+          dependsOn: item?.dependsOn || rawAction?.dependsOn || "",
+        });
+      })
       .filter(Boolean);
     const actions = plans.flatMap(flowPromptFlattenActionPlan);
     return actions.length ? flowPromptBatchPlan(actions, `AI normalize ha preparato ${actions.length} azioni.`) : null;
@@ -1341,11 +1459,12 @@ const flowPromptNormalizeCommandWithAi = async (context = {}, prompt = "") => {
     "{\"action\":\"setConfig\",\"node\":\"REST API\",\"field\":\"method\",\"value\":\"POST\"}",
     "{\"action\":\"setChannel\",\"node\":\"Telegram Message\",\"target\":\"output\",\"field\":\"output\",\"value\":\"action.telegram\"}",
     "{\"actions\":[{\"action\":\"rename\",\"node\":\"Telegram 2\",\"nextLabel\":\"Telegram OK\"},{\"action\":\"connect\",\"source\":\"Telegram OK\",\"target\":\"Preview\"}]}",
+    "{\"steps\":[{\"id\":\"step_1\",\"action\":{\"action\":\"rename\",\"node\":\"Telegram 2\",\"nextLabel\":\"Telegram OK\"}},{\"id\":\"step_2\",\"dependsOn\":[\"step_1\"],\"action\":{\"action\":\"connect\",\"source\":\"Telegram OK\",\"target\":\"Preview\"}}]}",
     "{\"action\":\"fix\"}",
     "Rules:",
     "- Use only labels or ids that best match existingNodes.",
     "- Do not invent nodes.",
-    "- Return only one JSON object. For multi-step commands, return {\"actions\":[...]} in execution order.",
+    "- Return only one JSON object. For multi-step commands, return {\"actions\":[...]} or {\"steps\":[...]} in execution order.",
     `existingNodes: ${JSON.stringify(nodeContext)}`,
     `userCommand: ${prompt}`,
   ].join("\n");
@@ -1402,6 +1521,11 @@ const flowPromptBuildAgentReport = async (prompt = "") => {
     filter: query.filter,
   };
   const pendingAction = await flowPromptBuildActionPlanWithAiNormalize(context, prompt, debug);
+  const agentPlan = flowPromptBuildGenericAgentPlan(pendingAction, {
+    prompt,
+    source: debug.selectedPlan || "local",
+  });
+  debug.genericPlan = flowPromptDebugAgentPlan(agentPlan);
   const lower = flowPromptNormalize(prompt);
   const wantsDb = flowPromptHasAny(lower, ["db", "database", "indexeddb"]);
   const mutation = flowPromptIsMutationRequest(prompt);
@@ -1460,6 +1584,7 @@ const flowPromptBuildAgentReport = async (prompt = "") => {
     diagnostics,
     query,
     pendingAction,
+    agentPlan,
     debug,
   };
 };
@@ -2635,6 +2760,36 @@ const openFlowPromptChatDialog = async () => {
         renderChoiceGroup("Opzioni", otherChoices)
       );
     };
+    const renderAgentPlanSteps = () => {
+      const agentPlan = report.agentPlan || flowPromptBuildGenericAgentPlan(pendingAction, {
+        prompt: report.debug?.prompt || "",
+        source: report.debug?.selectedPlan || "local",
+      });
+      const steps = (agentPlan?.steps || []).filter(Boolean);
+      if (!steps.length) {
+        return [_.p({ class: "tl-flow-prompt-inventory-empty" }, pendingAction.summary || "Nessuna azione applicabile.")];
+      }
+      return steps.map((step) => {
+        const action = step.action || {};
+        const itemStatus = step.status === "done" ? "applied" : step.status;
+        const itemIcon = action.type === "researchEndpoint"
+          ? "travel_explore"
+          : itemStatus === "ready" || itemStatus === "applied"
+            ? "check_circle"
+            : "warning";
+        return _.div(
+          { class: `tl-flow-prompt-action-step is-${itemStatus}` },
+          icon(itemIcon, "sm"),
+          _.span(
+            _.strong(`${step.order}. ${step.title || action.type || "Step"}`),
+            _.em(step.summary || flowPromptActionSummary(action)),
+            step.tool ? _.code(`${step.tool} · ${step.toolStatus || "unknown"}`) : null,
+            step.dependsOn?.length ? _.small(`depends on ${step.dependsOn.join(", ")}`) : null
+          ),
+          renderChoiceButtons(action)
+        );
+      });
+    };
     const renderDebugPanel = () => {
       const debug = report.debug || {};
       if (!debug.intent && !debug.localPlan && !debug.normalizedCommand) return null;
@@ -2655,6 +2810,7 @@ const openFlowPromptChatDialog = async () => {
           selectedPlan: debug.selectedPlan,
           reason: debug.reason,
           toolRegistry: flowPromptAgentToolManifest(),
+          genericPlan: debug.genericPlan || flowPromptDebugAgentPlan(report.agentPlan),
           normalizedCommand: debug.normalizedCommand,
           localPlan: debug.localPlan,
           aiPlan: debug.aiPlan,
@@ -2736,28 +2892,7 @@ const openFlowPromptChatDialog = async () => {
             onclick: () => applyAgentAction(pendingAction),
           }, icon("check", "sm"), "Apply") : null
         ),
-        ...((pendingAction.actions || (pendingAction.type === "batch" ? [] : [pendingAction])).filter(Boolean).length
-          ? (pendingAction.actions || [pendingAction]).filter(Boolean).map((item) => {
-            const itemStatus = flowPromptEffectiveActionStatus(item);
-            const toolName = flowPromptAgentToolForAction(item);
-            const tool = flowPromptAgentTool(toolName);
-            const itemIcon = item.type === "researchEndpoint"
-              ? "travel_explore"
-              : itemStatus === "ready" || itemStatus === "applied"
-                ? "check_circle"
-                : "warning";
-            return _.div(
-              { class: `tl-flow-prompt-action-step is-${itemStatus}` },
-              icon(itemIcon, "sm"),
-              _.span(
-                _.strong(tool?.label || item.type || "action"),
-                _.em(flowPromptActionSummary(item)),
-                tool ? _.code(`${tool.name} · ${tool.status}`) : null
-              ),
-              renderChoiceButtons(item)
-            );
-          })
-          : [_.p({ class: "tl-flow-prompt-inventory-empty" }, pendingAction.summary || "Nessuna azione applicabile.")])
+        ...renderAgentPlanSteps()
       ) : null,
       showNodes ? _.section(
         _.h4(`Nodi (${query.filter ? query.total : context.nodes?.length || 0})`),
