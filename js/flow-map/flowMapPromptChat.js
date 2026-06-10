@@ -243,6 +243,7 @@ const flowPromptAgentTool = (name = "") =>
   FLOW_PROMPT_AGENT_TOOL_MAP[name] || null;
 
 const flowPromptAgentToolForAction = (action = {}) => {
+  if (!action || typeof action !== "object") return "";
   if (action.tool && flowPromptAgentTool(action.tool)) return action.tool;
   if (action.type === "researchEndpoint") return "researchEndpoint";
   if (action.type === "connect") return "connectNodes";
@@ -258,21 +259,24 @@ const flowPromptAgentToolIsReady = (name = "") =>
   flowPromptAgentTool(name)?.status === "ready";
 
 const flowPromptAnnotateActionTool = (action = {}, forcedTool = "") => {
-  const toolName = forcedTool || flowPromptAgentToolForAction(action);
+  const safeAction = action && typeof action === "object" ? action : {};
+  const toolName = forcedTool || flowPromptAgentToolForAction(safeAction);
   const tool = flowPromptAgentTool(toolName);
   return {
-    ...action,
-    tool: toolName || action.tool || "",
-    toolStatus: tool?.status || action.toolStatus || "",
-    toolMutates: typeof tool?.mutates === "boolean" ? tool.mutates : Boolean(action.toolMutates),
-    toolCategory: tool?.category || action.toolCategory || "",
+    ...safeAction,
+    tool: toolName || safeAction.tool || "",
+    toolStatus: tool?.status || safeAction.toolStatus || "",
+    toolMutates: typeof tool?.mutates === "boolean" ? tool.mutates : Boolean(safeAction.toolMutates),
+    toolCategory: tool?.category || safeAction.toolCategory || "",
   };
 };
 
 const flowPromptAnnotateActionPlan = (plan = null) => {
   if (!plan) return plan;
   if (plan.type === "batch") {
-    const actions = (plan.actions || []).map((action) => flowPromptAnnotateActionPlan(action));
+    const actions = (plan.actions || [])
+      .map((action) => flowPromptAnnotateActionPlan(action))
+      .filter(Boolean);
     return flowPromptAnnotateActionTool({
       ...plan,
       actions,
@@ -800,15 +804,18 @@ const flowPromptActionSummary = (action = {}) => {
 };
 
 const flowPromptPlanStatus = (actions = []) => {
-  if (!actions.length) return "blocked";
-  if (actions.some((action) => action.status === "blocked")) return "blocked";
-  if (actions.some((action) => action.status === "ready" && action.tool && !flowPromptAgentToolIsReady(action.tool))) return "blocked";
-  if (actions.every((action) => action.status === "duplicate")) return "duplicate";
+  const validActions = (actions || []).filter(Boolean);
+  if (!validActions.length) return "blocked";
+  if (validActions.some((action) => action.status === "blocked")) return "blocked";
+  if (validActions.some((action) => action.status === "ready" && action.tool && !flowPromptAgentToolIsReady(action.tool))) return "blocked";
+  if (validActions.every((action) => action.status === "duplicate")) return "duplicate";
   return "ready";
 };
 
 const flowPromptBatchPlan = (actions = [], summary = "") => {
-  const annotatedActions = actions.map((action) => flowPromptAnnotateActionPlan(action));
+  const annotatedActions = (actions || [])
+    .map((action) => flowPromptAnnotateActionPlan(action))
+    .filter(Boolean);
   return flowPromptAnnotateActionTool({
     type: "batch",
     status: flowPromptPlanStatus(annotatedActions),
@@ -2729,8 +2736,8 @@ const openFlowPromptChatDialog = async () => {
             onclick: () => applyAgentAction(pendingAction),
           }, icon("check", "sm"), "Apply") : null
         ),
-        ...((pendingAction.actions || (pendingAction.type === "batch" ? [] : [pendingAction])).length
-          ? (pendingAction.actions || [pendingAction]).map((item) => {
+        ...((pendingAction.actions || (pendingAction.type === "batch" ? [] : [pendingAction])).filter(Boolean).length
+          ? (pendingAction.actions || [pendingAction]).filter(Boolean).map((item) => {
             const itemStatus = flowPromptEffectiveActionStatus(item);
             const toolName = flowPromptAgentToolForAction(item);
             const tool = flowPromptAgentTool(toolName);
