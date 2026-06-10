@@ -69,6 +69,7 @@ Runtime Notes:
 - 2026-06-10: Fixed Flow Chat aside composer clipping by changing the conversation body from fixed grid rows to a flex column, keeping the prompt textarea visible at the bottom.
 - 2026-06-10: Started richer Level 2 commands: the Flow Chat can now parse compound prompts into ordered batch Apply plans, accepts AI-normalized `{ actions: [...] }` commands, and exposes `Create flow` directly on generated plan cards.
 - 2026-06-10: Plan messages now include a `Create flow` action inside the assistant card itself, including a snapshot reload path for saved chat history plans.
+- 2026-06-10: Endpoint lookup-style prompts such as “trova un endpoint BTC e mettilo in REST API” now route to an Apply config plan on the existing REST API node, setting `endpoint` and `method`, instead of creating/relinking a flow.
 - Remaining: add broader command coverage for multi-step edits and richer graph path queries.
 
 ## [TASK-023]

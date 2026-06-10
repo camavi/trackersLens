@@ -219,7 +219,7 @@ const flowPromptIsMutationRequest = (prompt = "") =>
   flowPromptHasAny(prompt, [
     "modifica", "modificare", "cambia", "cambiare", "aggiorna", "aggiornare", "rinomina", "rimuovi",
     "elimina", "cancella", "sistema", "fix", "repair", "update", "rename", "remove", "delete",
-    "scollega", "disconnetti", "unlink", "disconnect",
+    "scollega", "disconnetti", "unlink", "disconnect", "metti", "inserisci", "configura", "cerca", "cerchi", "trova",
   ]);
 
 const flowPromptIsAgentQuestion = (prompt = "") => {
@@ -231,7 +231,7 @@ const flowPromptIsAgentQuestion = (prompt = "") => {
     "collegamenti", "links", "edges", "canali", "channels", "eventi", "events", "log", "logs",
     "runtime", "stato", "status", "db", "database", "indexeddb", "workspace", "flow map",
     "collega", "connetti", "connect", "link", "rinomina", "rename", "cambia", "imposta", "set", "aggiorna",
-    "sistema", "fix", "ripara",
+    "sistema", "fix", "ripara", "metti", "inserisci", "configura", "cerca", "cerchi", "trova", "endpoint",
     "perche", "perché", "why", "come funziona", "what is", "quali", "che cosa",
   ]);
 };
@@ -242,7 +242,7 @@ const flowPromptAgentIntent = (prompt = "") => {
   if (flowPromptHasAny(text, ["collega", "connetti", "connect", "link"]) && flowPromptHasAny(text, [" a ", " ad ", " to ", "->"])) return "connect";
   if (flowPromptHasAny(text, ["sistema", "fix", "ripara", "proponi fix"]) && flowPromptHasAny(text, ["errore", "errori", "rotto", "rotti", "broken", "collegamenti"])) return "fix";
   if (flowPromptHasAny(text, ["rinomina", "rename", "cambia di nome", "cambiare di nome"])) return "rename";
-  if (flowPromptHasAny(text, ["cambia", "imposta", "set", "aggiorna"]) && flowPromptHasAny(text, ["provider", "modello", "model", "chatid", "chat id", "url", "endpoint", "method", "metodo", "canale", "channel", "output", "input"])) return "config";
+  if (flowPromptHasAny(text, ["cambia", "imposta", "set", "aggiorna", "metti", "inserisci", "configura", "cerca", "cerchi", "trova"]) && flowPromptHasAny(text, ["provider", "modello", "model", "chatid", "chat id", "url", "endpoint", "method", "metodo", "canale", "channel", "output", "input", "rest api"])) return "config";
   if (flowPromptIsMutationRequest(text)) return "mutation";
   if (flowPromptHasAny(text, ["errore", "errori", "warning", "problema", "problemi", "diagnosi", "diagnostica", "controlla", "rotto", "broken", "invalid"])) return "diagnostics";
   if (flowPromptHasAny(text, ["canali", "channels", "channel"])) return "channels";
@@ -782,7 +782,7 @@ const flowPromptParseConfigField = (prompt = "") => {
   if (flowPromptHasAny(text, ["provider"])) return { field: "provider", target: "config" };
   if (flowPromptHasAny(text, ["modello", "model"])) return { field: "model", target: "config" };
   if (flowPromptHasAny(text, ["chatid", "chat id"])) return { field: "chatId", target: "config" };
-  if (flowPromptHasAny(text, ["url", "endpoint"])) return { field: "url", target: "config" };
+  if (flowPromptHasAny(text, ["url", "endpoint"])) return { field: "endpoint", target: "config" };
   if (flowPromptHasAny(text, ["method", "metodo"])) return { field: "method", target: "config" };
   if (flowPromptHasAny(text, ["canale output", "output channel", "output"])) return { field: "output", target: "output" };
   if (flowPromptHasAny(text, ["canale input", "input channel", "input"])) return { field: "input", target: "input" };
@@ -790,8 +790,34 @@ const flowPromptParseConfigField = (prompt = "") => {
   return { field: "config", target: "config" };
 };
 
+const flowPromptKnownEndpointConfig = (prompt = "") => {
+  const text = flowPromptNormalize(prompt);
+  const asksEndpoint = flowPromptHasAny(text, ["endpoint", "url", "api", "rest api"]);
+  const asksPrice = flowPromptHasAny(text, ["prezzo", "price", "ticker", "quotazione"]);
+  const asksBtc = flowPromptHasAny(text, ["btc", "bitcoin", "btcusdt"]);
+  if (asksEndpoint && asksPrice && asksBtc) {
+    return {
+      nodeHint: "REST API",
+      endpoint: "https://api.binance.com/api/v3/ticker/price?symbol=BTCUSDT",
+      method: "GET",
+      summary: "Endpoint pubblico Binance per prezzo BTC/USDT.",
+    };
+  }
+  return null;
+};
+
 const flowPromptExtractConfigChange = (prompt = "") => {
   const text = String(prompt || "").trim();
+  const knownEndpoint = flowPromptKnownEndpointConfig(prompt);
+  if (knownEndpoint) {
+    const targetMatch = text.match(/\b(?:in|nel|nella|sul|su)\s+(.+)$/i);
+    return {
+      field: { field: "endpoint", target: "config" },
+      value: knownEndpoint.endpoint,
+      nodeHint: String(targetMatch?.[1] || knownEndpoint.nodeHint).trim(),
+      knownEndpoint,
+    };
+  }
   const valueMatch = text.match(/\s(?:in|a|to|su|come|con|=)\s+(['"]?)([^\n]+?)\1\s*$/i);
   const value = String(valueMatch?.[2] || "").trim();
   const beforeValue = valueMatch ? text.slice(0, valueMatch.index).trim() : text;
@@ -805,11 +831,11 @@ const flowPromptExtractConfigChange = (prompt = "") => {
   const nodeHint = String(nodeMatch?.[1] || fallbackHint)
     .replace(/^(il|la|lo|un|una|nodo|node)\s+/i, "")
     .trim();
-  return { field, value, nodeHint };
+  return { field, value, nodeHint, knownEndpoint: null };
 };
 
 const flowPromptBuildConfigPlan = (context = {}, prompt = "") => {
-  const { field, value, nodeHint } = flowPromptExtractConfigChange(prompt);
+  const { field, value, nodeHint, knownEndpoint } = flowPromptExtractConfigChange(prompt);
   const node = flowPromptFindNodeByText(context, nodeHint);
   if (!node?.id || !value) {
     return flowPromptBatchPlan([
@@ -823,6 +849,30 @@ const flowPromptBuildConfigPlan = (context = {}, prompt = "") => {
           `imposta ${field.field} di ${pickedNode?.label || nodeHint} a ${pickedValue || value}`,
       }),
     ], "Non posso aggiornare config: nodo o valore non chiaro.");
+  }
+  if (knownEndpoint) {
+    return flowPromptBatchPlan([
+      {
+        type: "updateNodeConfig",
+        status: "ready",
+        node,
+        nodeId: node.id,
+        field: "endpoint",
+        target: "config",
+        value: knownEndpoint.endpoint,
+        summary: `Imposto endpoint di ${node.label} a ${knownEndpoint.endpoint}.`,
+      },
+      {
+        type: "updateNodeConfig",
+        status: "ready",
+        node,
+        nodeId: node.id,
+        field: "method",
+        target: "config",
+        value: knownEndpoint.method || "GET",
+        summary: `Imposto method di ${node.label} a ${knownEndpoint.method || "GET"}.`,
+      },
+    ], `Ho trovato un endpoint per il prezzo BTC e posso configurarlo in ${node.label}.`);
   }
   return flowPromptBatchPlan([
     {
