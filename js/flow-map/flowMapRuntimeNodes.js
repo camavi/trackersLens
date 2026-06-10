@@ -255,7 +255,7 @@ const configFieldDefinitions = (node = {}) => {
         { key: "constraints", label: "Constraints / Policy", type: "textarea", placeholder: "One rule per line, limits, allowed actions or safety policy." },
         { key: "maxIterations", label: "Max iterations", placeholder: "5" },
         { key: "timeoutMs", label: "Timeout (ms)", placeholder: "30000" },
-        { key: "payloadJson", label: "Payload JSON", type: "textarea", placeholder: "{ \"symbol\": \"BTCUSDT\" }" },
+        { key: "payloadJson", label: "Payload JSON", type: "textarea", placeholder: "{ \"itemId\": \"demo-1\", \"value\": 42 }" },
         { key: "emitChannel", label: "Emit channel", placeholder: "task" },
       ];
     }
@@ -316,7 +316,7 @@ const configFieldDefinitions = (node = {}) => {
   }
   if (category === "trackers") {
     return [
-      { key: "emitChannel", label: "Emit channel", placeholder: "btc.price" },
+      { key: "emitChannel", label: "Emit channel", placeholder: "sensor.value" },
       { key: "parser", label: "Parser path", placeholder: "payload.data" },
       { key: "retryPolicy", label: "Retry policy", type: "select", options: ["none", "linear", "exponential"] },
       { key: "testPayload", label: "Test Payload", type: "textarea", placeholder: "{ \"price\": 100000, \"status\": \"active\" }" },
@@ -471,7 +471,7 @@ const inlineConfigFields = (node = {}) => {
   if (category === "sources") {
     if (subtype === "task") {
       return [
-        { key: "objective", label: "Goal", placeholder: "Analyze BTC and report action" },
+        { key: "objective", label: "Goal", placeholder: "Analyze incoming data and report action" },
         { key: "priority", label: "Priority", type: "select", options: ["normal", "high", "urgent"] },
         { key: "successCondition", label: "Done", placeholder: "completed" },
       ];
@@ -521,7 +521,7 @@ const inlineConfigFields = (node = {}) => {
   }
   if (category === "trackers") {
     return [
-      { key: "emitChannel", label: "Emit", placeholder: "btc.price" },
+      { key: "emitChannel", label: "Emit", placeholder: "sensor.value" },
       { key: "parser", label: "Path", placeholder: "payload.data" },
     ];
   }
@@ -1361,7 +1361,7 @@ const aiAgentFromRuntimeNode = (node = {}) => {
     },
     channels: {
       inputs: config.inputChannels ? split(config.inputChannels) : [defaults.input].filter(Boolean),
-      payloadMapping: config.payloadMapping || "btc.price -> market_price\nnews.crypto -> latest_news",
+      payloadMapping: config.payloadMapping || "source.value -> observed_value\nevents.recent -> latest_events",
       requiredInputs: split(config.requiredInputs || defaults.input),
       contextSources: split(config.contextSources || "workspace, memory, last-event"),
       eventTriggers: split(config.eventTriggers || defaults.input),

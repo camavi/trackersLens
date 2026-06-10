@@ -1875,7 +1875,7 @@ const openNodeBuilderDialog = (options = {}) => {
           size: "sm",
           label: "JSON body",
           value: builder.requestBody || "",
-          placeholder: "{\"query\":\"btc\"}",
+          placeholder: "{\"query\":\"status\"}",
           autocomplete: "off",
           "data-node-builder-runtime": "requestBody",
           onInput: (event) => {

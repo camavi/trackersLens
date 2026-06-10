@@ -212,7 +212,7 @@ const flowPromptLooksLikeFlowRequest = (prompt = "") =>
   flowPromptIsCreationRequest(prompt) || flowPromptHasAny(prompt, [
     "flow", "pipeline", "workflow", "agent", "agente", "orchestrator", "orchestratore", "node", "nodo", "nodi",
     "source", "tracker", "processor", "lens", "preview", "telegram", "rss", "websocket", "rest api", "database",
-    "storage", "notification", "notifica", "binance", "crypto", "btc",
+    "storage", "notification", "notifica",
   ]);
 
 const flowPromptIsMutationRequest = (prompt = "") =>
@@ -1476,7 +1476,7 @@ const flowPromptBuildPlan = (prompt = "") => {
   };
 
   if (flowPromptHasAny(lower, ["rss", "feed", "news", "notizie"])) add("RSS Feed", { config: { url: "" } });
-  else if (flowPromptHasAny(lower, ["websocket", "stream", "realtime", "real time", "binance", "crypto", "btc", "price"])) add("WebSocket", { config: { url: lower.includes("binance") ? "wss://stream.binance.com:9443/ws/btcusdt@trade" : "" } });
+  else if (flowPromptHasAny(lower, ["websocket", "stream", "realtime", "real time", "live"])) add("WebSocket", { config: { url: "" } });
   else if (flowPromptHasAny(lower, ["api", "rest", "http", "endpoint"])) add("REST API", { config: { method: "GET", endpoint: "" } });
   else if (flowPromptHasAny(lower, ["manual", "json", "task", "missione", "obiettivo", "prompt"])) add("Task Node", { config: { objective: text } });
   else add("Task Node", { config: { objective: text } });
@@ -2684,7 +2684,7 @@ const openFlowPromptChatDialog = async () => {
             _.textarea({
               rows: 2,
               value: draft.prompt,
-              placeholder: "Esempio: crea un flow crypto con source Binance, orchestrator agent, analyzer, preview e notifica Telegram",
+              placeholder: "Esempio: crea un flow con REST API, orchestrator agent, analyzer, storage, preview e notifica",
               oninput: (event) => {
                 draft.prompt = event.currentTarget.value;
                 draft.analysis = null;

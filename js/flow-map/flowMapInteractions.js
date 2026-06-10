@@ -1608,7 +1608,7 @@ const requestChannelRename = (channel, closeParent = null) => {
       _.label(
         { class: "tl-flow-config-field" },
         _.span("New channel name"),
-        _.input({ name: "channelName", value: current, autocomplete: "off", placeholder: "btc.price" })
+        _.input({ name: "channelName", value: current, autocomplete: "off", placeholder: "sensor.value" })
       )
     ),
     actions: ({ close }) => _.Toolbar(

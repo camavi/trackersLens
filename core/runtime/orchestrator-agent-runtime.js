@@ -804,18 +804,18 @@ window.TrackerLensOrchestratorAgentRuntime = (() => {
   const signalFromChangePercent = (value) => {
     const numeric = Number(value);
     if (!Number.isFinite(numeric)) return "normal";
-    if (numeric <= -3) return "drop_alert";
-    if (numeric >= 3) return "pump_alert";
+    if (numeric <= -3) return "low_alert";
+    if (numeric >= 3) return "high_alert";
     return "normal";
   };
 
-  const btcAlertMessage = (current = {}, source = {}) => {
-    const symbol = current.symbol || valueAtPath(source, "data.s") || "BTCUSDT";
-    const price = current.price ?? valueAtPath(source, "data.c") ?? "";
+  const runtimeAlertMessage = (current = {}, source = {}) => {
+    const label = current.symbol || current.label || valueAtPath(source, "data.s") || valueAtPath(source, "name") || "runtime-event";
+    const value = current.price ?? current.value ?? valueAtPath(source, "data.c") ?? valueAtPath(source, "value") ?? "";
     const changePercent = current.changePercent ?? valueAtPath(source, "data.P") ?? "";
     const signal = current.signal || signalFromChangePercent(changePercent);
     return [
-      `${symbol}${price !== "" ? ` ${price} USDT` : ""}`,
+      `${label}${value !== "" ? ` ${value}` : ""}`,
       changePercent !== "" ? `Change: ${changePercent}%` : "",
       `Signal: ${signal}`,
     ].filter(Boolean).join("\n");
@@ -838,14 +838,14 @@ window.TrackerLensOrchestratorAgentRuntime = (() => {
       return value === undefined || value === null ? "" : String(value);
     }
     if (text.startsWith(boolPrefix)) return Boolean(valueAtPath(source, text.slice(boolPrefix.length)));
-    if (text === "btc_signal" || text === "signal") {
+    if (text === "runtime_signal" || text === "signal") {
       return signalFromChangePercent(current.changePercent ?? source.changePercent ?? valueAtPath(source, "data.P"));
     }
     if (text.startsWith(signalPrefix)) {
       const path = text.slice(signalPrefix.length);
       return signalFromChangePercent(current[path] ?? valueAtPath(source, path));
     }
-    if (text === "btc_alert_message") return btcAlertMessage(current, source);
+    if (text === "runtime_alert_message" || text === "alert_message") return runtimeAlertMessage(current, source);
     const pathValue = valueAtPath(source, text);
     return pathValue === undefined ? expression : pathValue;
   };
@@ -862,12 +862,12 @@ window.TrackerLensOrchestratorAgentRuntime = (() => {
     const text = [taskPayload?.objective, taskPayload?.task, taskPayload?.context].filter(Boolean).join("\n").toLowerCase();
     const transform = {};
     if (/symbol|simbolo/.test(text)) transform.symbol = "data.s";
-    if (/price|prezzo/.test(text)) transform.price = "number:data.c";
+    if (/price|prezzo|value|valore/.test(text)) transform.value = "number:data.c";
     if (/changepercent|change percent|percentuale|variazione/.test(text)) transform.changePercent = "number:data.P";
-    if (/source|sorgente/.test(text)) transform.source = "Binance";
+    if (/source|sorgente/.test(text)) transform.source = "runtime";
     if (/receivedat|received at|timestamp/.test(text)) transform.receivedAt = "receivedAt";
-    if (/signal|segnale/.test(text)) transform.signal = "btc_signal";
-    if (/message|messaggio/.test(text)) transform.message = "btc_alert_message";
+    if (/signal|segnale/.test(text)) transform.signal = "runtime_signal";
+    if (/message|messaggio/.test(text)) transform.message = "runtime_alert_message";
     return Object.keys(transform).length ? transform : null;
   };
 
