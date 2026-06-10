@@ -1068,11 +1068,15 @@ const nodeRuntimeStatus = (node = {}, live = null) => {
   return ["idle", "active", "running", "busy", "queued", "overloaded", "warning", "paused", "error", "disconnected", "disabled"].includes(status) ? status : "idle";
 };
 
-const nodeCategory = (node = {}) =>
-  node.metadata?.category || node.metadata?.manifest?.category || node.metadata?.runtimeType || node.type || "runtime";
+const nodeCategory = (node = {}) => {
+  const safeNode = node && typeof node === "object" ? node : {};
+  return safeNode.metadata?.category || safeNode.metadata?.manifest?.category || safeNode.metadata?.runtimeType || safeNode.type || "runtime";
+};
 
-const nodeSubtype = (node = {}) =>
-  node.metadata?.subtype || node.metadata?.manifest?.subtype || node.metadata?.mode || node.type || "node";
+const nodeSubtype = (node = {}) => {
+  const safeNode = node && typeof node === "object" ? node : {};
+  return safeNode.metadata?.subtype || safeNode.metadata?.manifest?.subtype || safeNode.metadata?.mode || safeNode.type || "node";
+};
 
 const nodeRuntimeDescription = (node = {}, live = null) => {
   const category = nodeCategory(node);

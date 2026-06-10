@@ -79,6 +79,7 @@ Runtime Notes:
 - 2026-06-10: Completed Step 1 Tool Registry routing. Existing local planners now emit tool metadata for connect/disconnect/rename/config/fix/research actions, batch plans carry their tool list, Dev inspector shows tool category/status/mutability, and Apply validates that every mutation uses a registered `ready` mutating tool before writing to the runtime graph.
 - 2026-06-10: Fixed Flow Chat history compatibility after Tool Registry routing. Older saved agent reports with null/partial actions no longer crash `flowPromptAgentToolForAction`; batch annotation and rendering now filter invalid action entries defensively.
 - 2026-06-10: Fixed Flow Map edge deletion feedback. Deleting an edge now removes matching runtime dependency, connection and optimistic dependency from local state before a forced runtime reload, so the canvas updates immediately instead of waiting for reset. Edge labels also expose a compact delete icon for direct link removal.
+- 2026-06-10: Fixed link hover crash while dragging connections. Pointer movement outside a valid target node now clears hover/validation state before computing target channels, and `nodeCategory` / `nodeSubtype` tolerate null values defensively.
 - Remaining: implement Step 2 generic multi-step planner model.
 
 ## [TASK-023]

@@ -803,6 +803,15 @@ const updateLinkHoverTarget = (interaction, event) => {
   const targetNodeElement = targetElement?.closest?.(".tl-flow-node") || nodeElementAtPoint(event, interaction.sourceId);
   const targetNodeId = targetNodeElement?.dataset?.flowNodeId || "";
   const target = targetNodeId ? nodeById(targetNodeId) : null;
+  if (!source?.id || !target?.id) {
+    if (state.linkHoverTargetId) setNodeLinkClass(state.linkHoverTargetId, "is-link-hover", false);
+    document.querySelectorAll(".tl-flow-node.is-link-invalid").forEach((node) => node.classList.remove("is-link-invalid"));
+    document.querySelectorAll(".tl-flow-node-port.is-port-hover, .tl-flow-node-port.is-port-invalid").forEach((port) => port.classList.remove("is-port-hover", "is-port-invalid"));
+    state.linkHoverTargetId = "";
+    state.linkHoverPort = "";
+    state.linkValidation = null;
+    return;
+  }
   const targetPortElement = nearestInputPortElement(targetElement, event) || nearestInputPortElement(targetNodeElement, event);
   const explicitTargetPort = targetPortElement?.dataset?.portLabel || "";
   const targetChannel = channelForPortConnection(source, target, interaction.sourcePort, explicitTargetPort);
