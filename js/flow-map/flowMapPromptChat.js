@@ -1610,6 +1610,12 @@ const flowPromptMaterializePlan = async (analysis = {}) => {
 };
 
 const openFlowPromptChatDialog = async () => {
+  const existingAside = document.querySelector("[data-flow-prompt-aside]");
+  if (existingAside) {
+    existingAside.classList.add("is-open");
+    existingAside.querySelector("textarea")?.focus?.();
+    return;
+  }
   const workspaceId = await ensureRuntimeWorkspaceScope();
   const draft = {
     workspaceId,
@@ -1624,7 +1630,7 @@ const openFlowPromptChatDialog = async () => {
     error: "",
     dismissedIntroChatIds: new Set(),
   };
-  let dialog = null;
+  let aside = null;
 
   const activeMessages = () => Array.isArray(draft.activeChat?.messages) ? draft.activeChat.messages : [];
 
@@ -2567,17 +2573,31 @@ const openFlowPromptChatDialog = async () => {
     );
   }
 
-  dialog = _.Dialog({
-    class: "tl-flow-prompt-dialog",
-    panelClass: "tl-flow-config-panel tl-flow-prompt-panel",
-    size: "lg",
-    title: "AI Flow Chat",
-    subtitle: "Usa AI Settings per generare nodi runtime con controllo duplicati",
-    icon: "auto_awesome",
-    closeButton: true,
-    content: () => renderContent(),
+  const closeAside = () => {
+    if (!aside) return;
+    aside.classList.remove("is-open");
+    window.setTimeout(() => aside?.remove?.(), 180);
+  };
+
+  aside = _.aside(
+    { class: "tl-flow-prompt-aside", "data-flow-prompt-aside": "true", "aria-label": "AI Flow Chat" },
+    _.header(
+      { class: "tl-flow-prompt-aside-head" },
+      _.span({ class: "tl-flow-prompt-aside-icon" }, icon("auto_awesome", "sm")),
+      _.span(
+        { class: "tl-flow-prompt-aside-title" },
+        _.strong("AI Flow Chat"),
+        _.em("Flow Map agent")
+      ),
+      btn({ class: "is-ghost", "aria-label": "Chiudi AI Flow Chat", title: "Chiudi", onclick: closeAside }, icon("close", "sm"))
+    ),
+    renderContent()
+  );
+  document.body.appendChild(aside);
+  requestAnimationFrame(() => {
+    aside?.classList.add("is-open");
+    aside?.querySelector("textarea")?.focus?.();
   });
-  dialog.open();
   loadHistory();
 };
 

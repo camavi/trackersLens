@@ -1,4 +1,4 @@
-/* Flow Map prompt chat dialog. */
+/* Flow Map prompt chat aside. */
 .tl-flow-create-node-btn {
   width: 100%;
   justify-content: center;
@@ -23,6 +23,74 @@
   border-color: rgba(255, 199, 44, 0.55);
   background: rgba(255, 199, 44, 0.14);
   transform: translateY(-1px);
+}
+
+.tl-flow-prompt-aside {
+  position: fixed;
+  top: 82px;
+  right: 12px;
+  bottom: 12px;
+  z-index: 92;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  width: min(460px, calc(100vw - 32px));
+  min-width: 0;
+  overflow: hidden;
+  border: 1px solid rgba(0, 217, 255, 0.18);
+  border-radius: 10px;
+  background: rgba(9, 14, 22, 0.96);
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.48), 0 0 26px rgba(0, 217, 255, 0.08);
+  backdrop-filter: blur(16px);
+  transform: translateX(calc(100% + 24px));
+  opacity: 0;
+  transition: transform 0.18s ease, opacity 0.18s ease;
+}
+
+.tl-flow-prompt-aside.is-open {
+  transform: translateX(0);
+  opacity: 1;
+}
+
+.tl-flow-prompt-aside-head {
+  display: grid;
+  grid-template-columns: 36px minmax(0, 1fr) 34px;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  padding: 12px;
+  border-bottom: 1px solid rgba(214, 226, 235, 0.1);
+  background: rgba(17, 24, 39, 0.68);
+}
+
+.tl-flow-prompt-aside-icon {
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  border: 1px solid rgba(0, 217, 255, 0.24);
+  border-radius: 8px;
+  color: #67e8f9;
+  background: rgba(0, 217, 255, 0.08);
+}
+
+.tl-flow-prompt-aside-title {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.tl-flow-prompt-aside-title strong,
+.tl-flow-prompt-aside-title em {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tl-flow-prompt-aside-title em {
+  color: var(--tl-text-muted);
+  font-size: 11px;
+  font-style: normal;
 }
 
 .tl-flow-prompt-panel {
@@ -55,6 +123,35 @@
   height: min(680px, calc(100vh - 160px));
   min-height: 0;
   max-height: 100%;
+}
+
+.tl-flow-prompt-aside .tl-flow-prompt-chat {
+  grid-template-columns: 1fr;
+  grid-template-rows: minmax(116px, 156px) minmax(0, 1fr);
+  gap: 10px;
+  height: 100%;
+  padding: 10px;
+}
+
+.tl-flow-prompt-aside .tl-flow-prompt-history {
+  min-height: 0;
+}
+
+.tl-flow-prompt-aside .tl-flow-prompt-history-list {
+  padding: 8px;
+}
+
+.tl-flow-prompt-aside .tl-flow-prompt-history-item {
+  min-height: 52px;
+}
+
+.tl-flow-prompt-aside .tl-flow-prompt-conversation {
+  gap: 10px;
+  padding: 10px;
+}
+
+.tl-flow-prompt-aside .tl-flow-prompt-message {
+  max-width: 100%;
 }
 
 .tl-flow-prompt-history,
