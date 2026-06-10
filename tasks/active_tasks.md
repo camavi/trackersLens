@@ -72,6 +72,7 @@ Runtime Notes:
 - 2026-06-10: Endpoint lookup-style prompts such as “trova un endpoint e mettilo in REST API” no longer hardcode or save any URL. The Flow Agent only prepares an Apply config plan when the prompt contains an explicit URL; lookup/search requests stay blocked until a real endpoint search/confirmation tool exists.
 - 2026-06-10: Removed Flow Agent crypto/BTC/Binance bias from local planning, runtime fallback transforms and form placeholders. The normalizer must stay domain-neutral and convert user intent into validated Flow Map tool actions, similar to command-line normalization, without inventing domain-specific endpoints or payloads.
 - 2026-06-10: Hardened endpoint Apply validation after AI normalization. `url` is normalized to the runtime `endpoint` config key, placeholder values such as `[ETH Price API Endpoint]` are blocked, and endpoint lookup prompts without an explicit URL keep the local blocked plan instead of being converted into Apply.
+- 2026-06-10: Removed the legacy inline `Piano corrente` / result panels from the Flow Chat body. Plans and results now render only as chat timeline messages, avoiding duplicate-looking responses after prompts such as adding a WebSocket node.
 - Remaining: add broader command coverage for multi-step edits and richer graph path queries.
 
 ## [TASK-023]

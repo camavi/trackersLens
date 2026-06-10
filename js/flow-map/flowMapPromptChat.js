@@ -2222,30 +2222,6 @@ const openFlowPromptChatDialog = async () => {
     }
   };
 
-  const renderNodeRow = (item) =>
-    _.div(
-      { class: `tl-flow-prompt-row is-${item.action}` },
-      _.span(icon(item.spec.icon || "extension", "sm"), _.strong(item.spec.label)),
-      _.em(item.action === "reuse" ? `riusa ${item.existing?.label || item.existing?.id}` : "crea nuovo nodo")
-    );
-
-  const renderEdgeRow = (edge) =>
-    _.div(
-      { class: `tl-flow-prompt-row is-edge${edge.duplicate ? " is-reuse" : ""}` },
-      _.span(icon(edge.duplicate ? "link" : "add_link", "sm"), _.strong(`${edge.source?.label || edge.sourceKey} -> ${edge.target?.label || edge.targetKey}`)),
-      _.em(edge.duplicate ? "collegamento già presente" : `${edge.sourcePort} -> ${edge.targetPort}`)
-    );
-
-  const renderResult = () => {
-    if (!draft.result) return null;
-    const { savedNodes = [], reusedNodes = [], createdEdges = [], reusedEdges = [] } = draft.result;
-    return _.div(
-      { class: "tl-flow-prompt-result" },
-      icon("check_circle", "sm"),
-      _.span(`${savedNodes.length} nodi creati, ${reusedNodes.length} riusati, ${createdEdges.length} collegamenti creati, ${reusedEdges.length} riusati.`)
-    );
-  };
-
   const planFromSnapshot = (snapshot = {}) => ({
     prompt: snapshot.summary || "Flow Chat plan",
     summary: snapshot.summary || `Piano: ${snapshot.nodes?.length || 0} nodi e ${snapshot.edges?.length || 0} collegamenti.`,
@@ -2672,7 +2648,6 @@ const openFlowPromptChatDialog = async () => {
     );
 
   function renderContentBody() {
-    const analysis = draft.analysis;
     const showIntro = !activeMessages().length && !draft.dismissedIntroChatIds.has(draft.activeChat?.id);
     if (draft.view === "history") {
       return [renderChatList()];
@@ -2710,24 +2685,6 @@ const openFlowPromptChatDialog = async () => {
             )])
         ),
         draft.error ? _.div({ class: "tl-flow-prompt-error" }, icon("error", "sm"), _.span(draft.error)) : null,
-        analysis ? _.div(
-          { class: "tl-flow-prompt-plan" },
-          _.div(
-            { class: "tl-flow-prompt-plan-head" },
-            _.strong(analysis.summary),
-            _.span("Piano corrente"),
-            btn({
-              class: "is-primary",
-              disabled: draft.busy,
-              onclick: create,
-            }, icon("add_link", "sm"), "Create flow")
-          ),
-          _.div({ class: "tl-flow-prompt-plan-grid" },
-            _.section(_.h3("Nodi"), ...(analysis.analyzedNodes || []).map(renderNodeRow)),
-            _.section(_.h3("Collegamenti"), ...(analysis.analyzedEdges || []).map(renderEdgeRow))
-          )
-        ) : null,
-        renderResult(),
         _.div(
           { class: "tl-flow-prompt-composer" },
           _.label(
