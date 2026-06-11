@@ -2780,7 +2780,20 @@ const renderShell = () =>
     window.TrackerLensSidebar.render({ activeId: "flow" }),
     _.div(
       { class: "tl-flow-main" },
-      state.error ? _.div({ class: "tl-flow-error" }, state.error) : null,
+      state.error ? _.div(
+        { class: "tl-flow-error", role: "alert" },
+        _.span({ class: "tl-flow-error-message" }, state.error),
+        _.button(
+          {
+            type: "button",
+            class: "tl-flow-error-close",
+            title: "Chiudi errore",
+            "aria-label": "Chiudi errore",
+            onclick: () => clearFlowMapError({ remount: true }),
+          },
+          icon("close", "sm")
+        )
+      ) : null,
       _.div(
         { class: "tl-flow-grid" },
         renderPalette(),

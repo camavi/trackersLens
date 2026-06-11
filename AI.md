@@ -1,0 +1,46 @@
+# Trackers Lens AI Entry Point
+
+Purpose: minimal entrypoint for AI agents working on Trackers Lens.
+Read when: always, before touching code.
+Do not read when: never; this file is intentionally short.
+Last updated: 2026-06-11.
+
+## Read Order
+
+1. Read this file.
+2. Read `docs/ai/current-focus.md`.
+3. Read only the module file that matches the work area.
+4. Read `docs/ai/task-registry.md` only when changing task status.
+5. Read archive files only when history is explicitly needed.
+
+## Module Map
+
+- Project state: `docs/ai/project-state.md`
+- Current active work: `docs/ai/current-focus.md`
+- Architecture rules: `docs/ai/architecture.md`
+- File ownership map: `docs/ai/file-map.md`
+- CMSwift usage: `docs/ai/cmswift-guidelines.md`
+- Tasks: `docs/ai/task-registry.md`
+- Decisions: `docs/ai/decisions.md`
+- Flow Map overview: `docs/ai/flow-map/overview.md`
+- Flow Chat agent: `docs/ai/flow-map/prompt-chat.md`
+- Safe executor: `docs/ai/flow-map/safe-executor.md`
+- Endpoint research: `docs/ai/flow-map/endpoint-research.md`
+- Runtime graph: `docs/ai/flow-map/runtime-graph.md`
+- Runtime stores/channels/dependencies: `docs/ai/runtime/`
+
+## Non-Negotiable Rules
+
+- Trackers Lens is a local AI Runtime Operating Environment, not a dashboard builder.
+- Use existing runtime modules in `core/runtime/` before adding new systems.
+- Use CMSwift for app UI: dialogs, toolbar, panels, forms, tables, tabs, inspectors and controls.
+- Keep canvas, node cards, graph links and live visual layers custom only where runtime interaction requires it.
+- Do not invent endpoint URLs or domain-specific data. Endpoint discovery must be attributed and confirmed.
+- Mutating Flow Agent commands must go through the registered tool layer and safe executor.
+- Destructive operations must be dependency-aware and must preserve user data unless explicitly confirmed.
+- Update `docs/ai/current-focus.md` and `docs/ai/task-registry.md` when task state changes.
+
+## Legacy Markdown Policy
+
+The old large markdown files were replaced by `docs/ai/*` to reduce token load.
+Do not recreate large monolithic project memory files.

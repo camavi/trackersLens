@@ -889,6 +889,20 @@ const closeLiveSockets = () => {
   state.testRun.liveSockets = [];
 };
 
+const classifyFetchRuntimeError = (error = {}) => {
+  const name = String(error?.name || "");
+  if (name === "AbortError") return "abort";
+  if (name === "TypeError") return "network-or-cors";
+  return "fetch-error";
+};
+
+const fetchErrorDiagnostic = (kind = "") =>
+  kind === "network-or-cors"
+    ? "Browser fetch did not expose an HTTP status. Check URL, DNS, TLS, CORS policy, mixed content or blocked request in DevTools Network."
+    : kind === "abort"
+      ? "Request was cancelled or timed out before an HTTP response was available."
+      : "Fetch failed before a readable HTTP response was available.";
+
 const executeLiveRestNode = async ({ node, workspaceId, runId, graph, signal = null } = {}) => {
   const config = nodeRuntimeConfig(node);
   const endpoint = nodeEndpoint(node);
@@ -910,7 +924,25 @@ const executeLiveRestNode = async ({ node, workspaceId, runId, graph, signal = n
     message: `Live REST test connecting ${requestEndpoint}`,
     context: { action: "flow-map-live-rest-start", runId, endpoint: requestEndpoint, method },
   });
-  const response = await fetch(requestEndpoint, init);
+  let response;
+  try {
+    response = await fetch(requestEndpoint, init);
+  } catch (error) {
+    const errorKind = classifyFetchRuntimeError(error);
+    error.runtimeRequest = {
+      type: "fetch",
+      errorKind,
+      errorName: error?.name || "",
+      diagnostic: fetchErrorDiagnostic(errorKind),
+      nodeId: node.id,
+      nodeLabel: node.label || node.id,
+      requestUrl: requestEndpoint,
+      endpoint: requestEndpoint,
+      method,
+      status: null,
+    };
+    throw error;
+  }
   const text = await response.text();
   const payload = {
     live: true,
@@ -930,9 +962,19 @@ const executeLiveRestNode = async ({ node, workspaceId, runId, graph, signal = n
   await recordFlowAction({
     workspaceId,
     nodeId: node.id,
-    level: response.ok ? "info" : "warning",
+    level: response.ok ? "info" : "error",
     message: `Live REST test ${response.status} from ${node.label || node.id}`,
-    context: { action: "flow-map-live-rest-response", runId, endpoint, method, status: response.status, channels },
+    context: {
+      action: "flow-map-live-rest-response",
+      runId,
+      endpoint: requestEndpoint,
+      requestUrl: requestEndpoint,
+      method,
+      status: response.status,
+      statusText: response.statusText || "",
+      errorKind: response.ok ? "" : "http",
+      channels,
+    },
   });
   return { channels, payload };
 };
@@ -967,11 +1009,29 @@ const executeLiveRssNode = async ({ node, workspaceId, runId, graph, signal = nu
     message: `Live RSS test fetching ${endpoint}`,
     context: { action: "flow-map-live-rss-start", runId, endpoint },
   });
-  const response = await fetch(endpoint, {
-    method: "GET",
-    headers: { Accept: "application/rss+xml, application/atom+xml, application/xml, text/xml, */*" },
-    ...(signal ? { signal } : {}),
-  });
+  let response;
+  try {
+    response = await fetch(endpoint, {
+      method: "GET",
+      headers: { Accept: "application/rss+xml, application/atom+xml, application/xml, text/xml, */*" },
+      ...(signal ? { signal } : {}),
+    });
+  } catch (error) {
+    const errorKind = classifyFetchRuntimeError(error);
+    error.runtimeRequest = {
+      type: "fetch",
+      errorKind,
+      errorName: error?.name || "",
+      diagnostic: fetchErrorDiagnostic(errorKind),
+      nodeId: node.id,
+      nodeLabel: node.label || node.id,
+      requestUrl: endpoint,
+      endpoint,
+      method: "GET",
+      status: null,
+    };
+    throw error;
+  }
   const text = await response.text();
   const payload = {
     live: true,
@@ -992,9 +1052,20 @@ const executeLiveRssNode = async ({ node, workspaceId, runId, graph, signal = nu
   await recordFlowAction({
     workspaceId,
     nodeId: node.id,
-    level: response.ok ? "info" : "warning",
+    level: response.ok ? "info" : "error",
     message: `Live RSS test ${response.status} from ${node.label || node.id}`,
-    context: { action: "flow-map-live-rss-response", runId, endpoint, status: response.status, channels: outputChannels, items: payload.data?.entries?.length || 0 },
+    context: {
+      action: "flow-map-live-rss-response",
+      runId,
+      endpoint,
+      requestUrl: endpoint,
+      method: "GET",
+      status: response.status,
+      statusText: response.statusText || "",
+      errorKind: response.ok ? "" : "http",
+      channels: outputChannels,
+      items: payload.data?.entries?.length || 0,
+    },
   });
   return { channels: outputChannels, payload };
 };
@@ -1844,7 +1915,13 @@ const runFlowMapLiveTest = async (starterNode = null) => {
       workspaceId,
       level: "error",
       message: state.error,
-      context: { action: "flow-map-live-test-error", runId, live: true, error: error.message || String(error) },
+      context: {
+        action: "flow-map-live-test-error",
+        runId,
+        live: true,
+        error: error.message || String(error),
+        ...(error.runtimeRequest || {}),
+      },
     });
     mount({ preserveScroll: true });
   }

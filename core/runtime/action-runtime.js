@@ -136,15 +136,57 @@ window.TrackerLensActionRuntime = (() => {
     }
   };
 
+  const classifyFetchRuntimeError = (error = {}) => {
+    const name = String(error?.name || "");
+    if (name === "AbortError") return "abort";
+    if (name === "TypeError") return "network-or-cors";
+    return "fetch-error";
+  };
+
+  const fetchErrorDiagnostic = (kind = "") =>
+    kind === "network-or-cors"
+      ? "Browser fetch did not expose an HTTP status. Check URL, DNS, TLS, CORS policy, mixed content or blocked request in DevTools Network."
+      : kind === "abort"
+        ? "Request was cancelled or timed out before an HTTP response was available."
+        : "Fetch failed before a readable HTTP response was available.";
+
   const fetchJson = async ({ target, body, method = "POST", headers = {} }) => {
-    const response = await fetch(target, {
-      method,
-      headers: { "Content-Type": "application/json", ...headers },
-      body: JSON.stringify(body),
-    });
+    let response;
+    try {
+      response = await fetch(target, {
+        method,
+        headers: { "Content-Type": "application/json", ...headers },
+        body: JSON.stringify(body),
+      });
+    } catch (error) {
+      const errorKind = classifyFetchRuntimeError(error);
+      error.runtimeRequest = {
+        type: "fetch",
+        errorKind,
+        errorName: error?.name || "",
+        diagnostic: fetchErrorDiagnostic(errorKind),
+        requestUrl: target,
+        endpoint: target,
+        method,
+        status: null,
+      };
+      throw error;
+    }
     const text = await response.text().catch(() => "");
-    if (!response.ok) throw new Error(`HTTP ${response.status}${text ? `: ${text.slice(0, 180)}` : ""}`);
-    return { status: response.status, ok: true, body: text.slice(0, 1000) };
+    if (!response.ok) {
+      const error = new Error(`HTTP ${response.status}${text ? `: ${text.slice(0, 180)}` : ""}`);
+      error.runtimeRequest = {
+        type: "fetch",
+        errorKind: "http",
+        requestUrl: target,
+        endpoint: target,
+        method,
+        status: response.status,
+        statusText: response.statusText || "",
+      };
+      throw error;
+    }
+    return { status: response.status, ok: true, endpoint: target, method, body: text.slice(0, 1000) };
   };
 
   const telegramTarget = (config = {}) => {
@@ -418,7 +460,12 @@ window.TrackerLensActionRuntime = (() => {
           node,
           level: "error",
           message: `Action error: ${error.message || error}`,
-          context: { inputChannel: event.channel, inputEventId: event.id, error: error.message || String(error) },
+          context: {
+            inputChannel: event.channel,
+            inputEventId: event.id,
+            error: error.message || String(error),
+            ...(error.runtimeRequest || {}),
+          },
         });
         return { ok: false, error: error.message || String(error) };
       }

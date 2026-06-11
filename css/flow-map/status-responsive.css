@@ -445,11 +445,46 @@
   right: 24px;
   top: 72px;
   z-index: 20;
-  padding: 12px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 28px;
+  align-items: center;
+  gap: 12px;
+  min-height: 44px;
+  padding: 8px 10px 8px 12px;
   color: #fecaca;
   border: 1px solid rgba(248, 113, 113, 0.24);
   border-radius: 8px;
   background: rgba(127, 29, 29, 0.78);
+  box-shadow: 0 14px 34px rgba(0, 0, 0, 0.28);
+  backdrop-filter: blur(12px);
+}
+
+.tl-flow-error-message {
+  min-width: 0;
+  overflow: hidden;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.35;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tl-flow-error-close {
+  display: inline-grid;
+  width: 28px;
+  height: 28px;
+  place-items: center;
+  color: rgba(254, 226, 226, 0.92);
+  border: 1px solid rgba(254, 202, 202, 0.22);
+  border-radius: 7px;
+  background: rgba(7, 13, 20, 0.24);
+  cursor: pointer;
+}
+
+.tl-flow-error-close:hover {
+  color: #fff;
+  border-color: rgba(254, 202, 202, 0.46);
+  background: rgba(127, 29, 29, 0.58);
 }
 
 @media (max-width: 1120px) {

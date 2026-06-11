@@ -140,6 +140,10 @@ const state = {
   activeStatusPanel: "",
   inspectorOpen: false,
   contextMenu: null,
+  errorToast: {
+    message: "",
+    timerId: 0,
+  },
   testRun: {
     running: false,
     runId: "",
@@ -175,8 +179,47 @@ const EDGE_ACTIVITY_WINDOW_MS = 3000;
 const [getUpdatedAtState, setUpdatedAtSignal] = flowReactive.signal(state.updatedAt);
 const [getLoadingState, setLoadingSignal] = flowReactive.signal(state.loading);
 const [getErrorState, setErrorSignal] = flowReactive.signal(state.error);
+const FLOW_ERROR_TIMEOUT_MS = 7000;
+
+const clearFlowMapError = ({ remount = true } = {}) => {
+  if (state.errorToast.timerId) {
+    window.clearTimeout(state.errorToast.timerId);
+  }
+  state.errorToast = { message: "", timerId: 0 };
+  if (!state.error) return;
+  state.error = "";
+  setErrorSignal("");
+  if (remount && state.mounted && typeof mount === "function") mount({ preserveScroll: true });
+};
+
+const scheduleFlowMapErrorDismiss = () => {
+  const message = String(state.error || "");
+  if (!message) {
+    if (state.errorToast.timerId) window.clearTimeout(state.errorToast.timerId);
+    state.errorToast = { message: "", timerId: 0 };
+    return;
+  }
+  if (state.errorToast.message === message && state.errorToast.timerId) return;
+  if (state.errorToast.timerId) window.clearTimeout(state.errorToast.timerId);
+  const timerId = window.setTimeout(() => {
+    if (state.error === message) clearFlowMapError({ remount: true });
+  }, FLOW_ERROR_TIMEOUT_MS);
+  state.errorToast = { message, timerId };
+};
+
+const setFlowMapError = (message = "", { timeout = true, remount = false } = {}) => {
+  state.error = String(message || "");
+  if (!timeout && state.errorToast.timerId) {
+    window.clearTimeout(state.errorToast.timerId);
+    state.errorToast = { message: "", timerId: 0 };
+  }
+  if (timeout) scheduleFlowMapErrorDismiss();
+  setErrorSignal(state.error);
+  if (remount && state.mounted && typeof mount === "function") mount({ preserveScroll: true });
+};
 
 const syncReactiveState = () => {
+  scheduleFlowMapErrorDismiss();
   flowReactive.batch(() => {
     setRuntimeSignal(state.runtime);
     setFiltersSignal(state.filters);

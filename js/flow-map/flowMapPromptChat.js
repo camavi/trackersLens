@@ -269,6 +269,7 @@ const flowPromptAgentTool = (name = "") =>
 const flowPromptAgentToolForAction = (action = {}) => {
   if (!action || typeof action !== "object") return "";
   if (action.tool && flowPromptAgentTool(action.tool)) return action.tool;
+  if (action.type === "fixRuntimeError") return "diagnoseGraph";
   if (action.type === "researchEndpoint") return "researchEndpoint";
   if (action.type === "connect") return "connectNodes";
   if (action.type === "deleteDependencies") return "disconnectNodes";
@@ -423,6 +424,25 @@ const flowPromptLooksLikeFlowRequest = (prompt = "") =>
     "storage", "notification", "notifica",
   ]);
 
+const flowPromptIsReadOnlyRuntimeQuestion = (prompt = "") => {
+  const text = flowPromptNormalize(prompt);
+  if (flowPromptIsMutationRequest(prompt) || flowPromptIsCreationRequest(prompt)) return false;
+  const asks = flowPromptHasAny(text, [
+    "che", "cosa", "quale", "quali", "quanto", "quanti", "quante", "dimmi", "mostra", "mostrami",
+    "lista", "elenca", "spiega", "sai", "stai usando", "sto usando", "what", "which", "show", "list",
+    "tell me", "how many",
+  ]);
+  const runtimeSubject = flowPromptHasAny(text, [
+    "provider", "modello", "model", "settings", "impostazioni", "config", "configurazione",
+    "node", "nodo", "nodi", "canale", "canali", "channel", "channels", "link", "collegamenti",
+    "edge", "edges", "runtime", "eventi", "events", "log", "logs", "errore", "errori",
+    "error", "errors", "failed", "failure",
+    "impatto", "impact", "dipendenze", "dependencies",
+    "memoria", "memory", "workspace", "flow map", "preview", "telegram", "rest api", "websocket",
+  ]);
+  return asks && runtimeSubject;
+};
+
 const flowPromptIsMutationRequest = (prompt = "") =>
   flowPromptHasAny(prompt, [
     "modifica", "modificare", "cambia", "cambiare", "aggiorna", "aggiornare", "rinomina", "rimuovi",
@@ -434,8 +454,9 @@ const flowPromptIsMutationRequest = (prompt = "") =>
 const flowPromptIsAgentQuestion = (prompt = "") => {
   if (flowPromptIsCreationRequest(prompt)) return false;
   const text = flowPromptNormalize(prompt);
-  return flowPromptIsInventoryQuestion(prompt) || flowPromptHasAny(text, [
+  return flowPromptIsInventoryQuestion(prompt) || flowPromptIsReadOnlyRuntimeQuestion(prompt) || flowPromptHasAny(text, [
     "spiega", "spiegami", "explain", "analizza", "analisi", "diagnosi", "diagnostica", "controlla",
+    "impatto", "impact", "cosa succede", "cosa succederebbe", "dipendenze", "dependencies",
     "errore", "errori", "warning", "problema", "problemi", "rotto", "broken", "invalid",
     "collegamenti", "links", "edges", "canali", "channels", "eventi", "events", "log", "logs",
     "runtime", "stato", "status", "db", "database", "indexeddb", "workspace", "flow map",
@@ -449,6 +470,9 @@ const flowPromptIsAgentQuestion = (prompt = "") => {
 
 const flowPromptAgentIntent = (prompt = "") => {
   const text = flowPromptNormalize(prompt);
+  const asksRuntimeErrors = flowPromptHasAny(text, ["runtime"]) && flowPromptHasAny(text, [
+    "errore", "errori", "error", "errors", "failed", "failure",
+  ]);
   if (
     flowPromptHasAny(text, ["elimina", "elimini", "elimine", "eliminare", "cancella", "cancellare", "rimuovi", "remove", "delete"]) &&
     !flowPromptHasAny(text, ["collegamento", "collegamenti", "link", "edge", "dependency"]) &&
@@ -458,14 +482,18 @@ const flowPromptAgentIntent = (prompt = "") => {
   if (flowPromptHasAny(text, ["sposta", "spostare", "muovi", "move"]) && flowPromptHasAny(text, ["node", "nodo", "telegram", "preview", "rest", "websocket", "agent", "source", "tracker", "destra", "sinistra", "sopra", "sotto", "right", "left", "up", "down"])) return "moveNode";
   if (flowPromptHasAny(text, ["scollega", "disconnetti", "unlink", "disconnect", "rimuovi collegamento"]) && flowPromptHasAny(text, [" a ", " da ", " ad ", " to ", "->"])) return "disconnect";
   if (flowPromptHasAny(text, ["collega", "connetti", "connect", "link"]) && flowPromptHasAny(text, [" a ", " ad ", " to ", "->"])) return "connect";
+  if (flowPromptHasAny(text, ["fix", "sistema", "ripara", "correggi", "prepara fix"]) && flowPromptHasAny(text, ["runtime", "errore", "error", "flowlog", "log"])) return "fixRuntimeError";
   if (flowPromptHasAny(text, ["sistema", "fix", "ripara", "proponi fix"]) && flowPromptHasAny(text, ["errore", "errori", "rotto", "rotti", "broken", "collegamenti"])) return "fix";
   if (flowPromptHasAny(text, ["rinomina", "rename", "cambia di nome", "cambiare di nome"])) return "rename";
   if (flowPromptHasAny(text, ["cambia", "imposta", "set", "aggiorna", "metti", "inserisci", "configura", "cerca", "cerchi", "trova"]) && flowPromptHasAny(text, ["provider", "modello", "model", "chatid", "chat id", "url", "endpoint", "method", "metodo", "canale", "channel", "output", "input", "rest api"])) return "config";
   if (flowPromptIsMutationRequest(text)) return "mutation";
-  if (flowPromptHasAny(text, ["errore", "errori", "warning", "problema", "problemi", "diagnosi", "diagnostica", "controlla", "rotto", "broken", "invalid"])) return "diagnostics";
+  if (asksRuntimeErrors) return "runtime";
+  if (flowPromptHasAny(text, ["errore", "errori", "error", "errors", "warning", "problema", "problemi", "diagnosi", "diagnostica", "controlla", "rotto", "broken", "invalid"])) return "diagnostics";
   if (flowPromptHasAny(text, ["canali", "channels", "channel"])) return "channels";
-  if (flowPromptHasAny(text, ["eventi", "events", "log", "logs", "runtime recente"])) return "runtime";
-  if (flowPromptHasAny(text, ["collegamenti", "links", "edges", "dipendenze", "dependencies"])) return "edges";
+  if (flowPromptHasAny(text, ["eventi", "events", "log", "logs", "runtime", "runtime recente", "recenti", "recent"])) return "runtime";
+  if (flowPromptHasAny(text, ["collegamenti", "links", "edges", "dipendenze", "dependencies", "impatto", "impact"])) return "edges";
+  if (flowPromptHasAny(text, ["config", "configurazione", "settings", "impostazioni", "provider", "modello", "model", "endpoint", "url", "method", "metodo"])) return "config";
+  if (flowPromptHasAny(text, ["memoria", "memory", "ricordi", "remember"])) return "memory";
   if (flowPromptIsInventoryQuestion(text) || flowPromptHasAny(text, ["node", "nodi", "nodes", "inventario", "inventory"])) return "nodes";
   if (flowPromptHasAny(text, ["spiega", "spiegami", "explain", "come funziona", "what is", "workspace", "flow map"])) return "explain";
   if (flowPromptHasAny(text, ["db", "database", "indexeddb"])) return "database";
@@ -481,12 +509,25 @@ const flowPromptQueryMetric = (prompt = "") => {
 
 const flowPromptQueryFilter = (prompt = "") => {
   const text = flowPromptNormalize(prompt);
+  const quoted = String(prompt || "").match(/["'“”](.+?)["'“”]/);
+  if (quoted?.[1]) return quoted[1].trim();
+  const channelMatch = text.match(/\b(?:canale|channel|ch)\s+([a-z0-9._:-]{3,80})/i);
+  if (channelMatch?.[1]) return channelMatch[1].trim();
+  const nodeMatch = text.match(/\b(?:nodo|node)\s+([a-z0-9._:-][a-z0-9._:\-\s]{2,64})/i);
+  if (nodeMatch?.[1]) return nodeMatch[1].trim();
+  if (flowPromptHasAny(text, ["errore", "errori", "error", "errors", "failed", "failure"])) return "error";
   const known = [
     "action", "actions", "telegram", "preview", "ai", "agent", "analyzer", "orchestrator", "source",
     "tracker", "processor", "storage", "lens", "error", "warning", "active", "idle", "draft", "websocket",
-    "rss", "rest", "database", "history", "raw", "output", "input",
+    "rss", "rest", "database", "history", "raw", "output", "input", "provider", "model", "modello", "endpoint",
   ];
-  return known.find((token) => flowPromptHasAny(text, [token])) || "";
+  const knownMatch = known.find((token) => flowPromptHasAny(text, [token]));
+  if (knownMatch) return knownMatch;
+  const relationMatch = text.match(/\b(?:di|del|della|dello|su|sul|sulla|per|from|about)\s+([a-z0-9._:-][a-z0-9._:\-\s]{2,48})$/i);
+  return String(relationMatch?.[1] || "")
+    .replace(/\b(nodi|node|nodes|canali|channels|collegamenti|links|eventi|events|log|runtime|config|settings)\b/gi, " ")
+    .replace(/\s+/g, " ")
+    .trim();
 };
 
 const flowPromptMatchFilter = (item = {}, filter = "") => {
@@ -540,6 +581,8 @@ const flowPromptInventorySnapshot = () => {
     outputs: (node.outputs || []).map((port) => flowPromptPortName(port, "")).filter(Boolean),
     channels: (node.channels || []).map((port) => flowPromptPortName(port, "")).filter(Boolean),
     icon: graphIcon(node) || "extension",
+    metadata: node.metadata || {},
+    runtime: node.runtime || {},
   }));
   const nodeById = new Map(nodes.map((node) => [node.id, node]));
   const edges = (state.runtime.dependencies || []).map((edge) => ({
@@ -586,6 +629,361 @@ const flowPromptAgentContext = async () => {
     channels: Array.from(dbChannels || []),
     events: flowPromptRecentRecords(dbEvents, 20),
     flowLogs: flowPromptRecentRecords(dbFlowLogs, 20),
+  };
+};
+
+const flowPromptReadSettingsSnapshot = async () => {
+  const record = await readRuntimeRecord(runtimeStoreName("TL_SETTINGS", "tl_settings"), "global").catch(() => null);
+  const settings = record?.settings || record || {};
+  const ai = settings.ai || record?.ai || {};
+  return {
+    exists: !!record,
+    ai: {
+      provider: ai.provider || "",
+      model: ai.model || "",
+      temperature: ai.temperature ?? "",
+      maxTokens: ai.maxTokens ?? "",
+      localFirst: typeof ai.localFirst === "boolean" ? ai.localFirst : null,
+    },
+    rawKeys: Object.keys(settings || {}).slice(0, 20),
+  };
+};
+
+const flowPromptReadAiRuntimeSnapshot = async () => {
+  const data = await window.TrackerLensAiRuntimeStore?.list?.().catch(() => null);
+  if (!data) return { providers: [], agents: [], runtimeAgents: [], jobs: [], logs: [], prompts: [] };
+  return {
+    providers: Array.from(data.providers || []),
+    agents: Array.from(data.agents || []),
+    runtimeAgents: Array.from(data.runtimeAgents || data.runtime || []),
+    jobs: flowPromptRecentRecords(data.jobs || [], 10),
+    logs: flowPromptRecentRecords(data.logs || [], 10),
+    prompts: Array.from(data.prompts || data.promptFlows || []),
+  };
+};
+
+const flowPromptNodeConnectivity = (context = {}, node = {}) => {
+  const incoming = (context.edges || []).filter((edge) => edge.targetNodeId === node.id);
+  const outgoing = (context.edges || []).filter((edge) => edge.sourceNodeId === node.id);
+  const nodeChannels = new Set([...(node.inputs || []), ...(node.outputs || []), ...(node.channels || [])].filter(Boolean));
+  const events = (context.events || []).filter((event) =>
+    event.nodeId === node.id ||
+    event.sourceNodeId === node.id ||
+    event.targetNodeId === node.id ||
+    nodeChannels.has(event.channel)
+  );
+  const logs = (context.flowLogs || []).filter((log) =>
+    log.nodeId === node.id ||
+    log.context?.nodeId === node.id ||
+    nodeChannels.has(log.channel)
+  );
+  return {
+    incoming,
+    outgoing,
+    channels: Array.from(nodeChannels),
+    events: flowPromptRecentRecords(events, 5),
+    logs: flowPromptRecentRecords(logs, 5),
+  };
+};
+
+const flowPromptChannelName = (channel = {}) =>
+  String(channel.name || channel.channel || channel.id || "").trim();
+
+const flowPromptBuildChannelLineage = async (context = {}, filter = "") => {
+  const channels = context.channels || [];
+  const candidates = (filter
+    ? channels.filter((channel) =>
+      flowPromptMatchFilter(channel, filter) ||
+      flowPromptNormalize(flowPromptChannelName(channel)).includes(flowPromptNormalize(filter))
+    )
+    : channels).slice(0, 10);
+  const producerMap = new Map();
+  const consumerMap = new Map();
+  (context.nodes || []).forEach((node) => {
+    (node.outputs || []).concat(node.channels || []).forEach((name) => {
+      const key = String(name || "").trim();
+      if (key) producerMap.set(key, [...(producerMap.get(key) || []), node]);
+    });
+    (node.inputs || []).forEach((name) => {
+      const key = String(name || "").trim();
+      if (key) consumerMap.set(key, [...(consumerMap.get(key) || []), node]);
+    });
+  });
+  const inspected = [];
+  for (const channel of candidates.slice(0, 4)) {
+    const name = flowPromptChannelName(channel);
+    if (!name || !window.TrackerLensChannelRegistry?.inspectChannel) continue;
+    const report = await window.TrackerLensChannelRegistry.inspectChannel({
+      workspaceId: currentWorkspaceId() || channel.workspaceId || "global",
+      channel: name,
+    }).catch(() => null);
+    if (report) inspected.push(report);
+  }
+  return candidates.map((channel) => {
+    const name = flowPromptChannelName(channel);
+    const relatedEdges = (context.edges || []).filter((edge) =>
+      edge.channel === name || edge.sourcePort === name || edge.targetPort === name
+    );
+    return {
+      channel,
+      name,
+      producers: producerMap.get(name) || [],
+      consumers: consumerMap.get(name) || [],
+      edges: relatedEdges,
+      recentEvents: flowPromptRecentRecords((context.events || []).filter((event) => event.channel === name), 4),
+      inspect: inspected.find((report) => flowPromptNormalize(report.channel || report.name || "") === flowPromptNormalize(name)) || null,
+    };
+  });
+};
+
+const flowPromptRecordContextValue = (record = {}, keys = []) => {
+  for (const key of keys) {
+    const value = record?.[key] ?? record?.context?.[key] ?? record?.meta?.[key];
+    if (value !== undefined && value !== null && value !== "") return value;
+  }
+  return "";
+};
+
+const flowPromptRuntimeRecordNode = (context = {}, record = {}) => {
+  const id = flowPromptRecordContextValue(record, ["nodeId", "sourceNodeId", "targetNodeId"]);
+  const label = flowPromptRecordContextValue(record, ["nodeLabel", "label", "nodeName"]);
+  return (context.nodes || []).find((node) =>
+    [node.id, node.label, node.name].filter(Boolean).map((item) => flowPromptNormalize(item)).includes(flowPromptNormalize(id || label))
+  ) || null;
+};
+
+const flowPromptRuntimeErrorDiagnosis = (context = {}, record = {}) => {
+  const node = flowPromptRuntimeRecordNode(context, record);
+  const url = flowPromptRecordContextValue(record, ["requestUrl", "endpoint", "url"]);
+  const method = flowPromptRecordContextValue(record, ["method"]) || "";
+  const status = flowPromptRecordContextValue(record, ["status"]);
+  const statusText = flowPromptRecordContextValue(record, ["statusText"]);
+  const kind = flowPromptRecordContextValue(record, ["errorKind", "type"]) || "";
+  const error = flowPromptRecordContextValue(record, ["error", "message"]) || record.message || "";
+  const diagnostic = flowPromptRecordContextValue(record, ["diagnostic"]) || "";
+  const normalizedKind = flowPromptNormalize(kind);
+  const normalizedError = flowPromptNormalize(error);
+  let cause = "Errore runtime registrato nel flow log.";
+  let suggestion = "Apri l'inspector del nodo e verifica configurazione, input e log correlati.";
+  if (normalizedKind === "http" || Number(status) >= 400) {
+    cause = `La chiamata HTTP ha ricevuto una risposta non valida${status ? ` (${status}${statusText ? ` ${statusText}` : ""})` : ""}.`;
+    suggestion = "Controlla endpoint, metodo, parametri, headers e permessi del servizio remoto.";
+  } else if (normalizedKind === "network-or-cors" || normalizedError.includes("failed to fetch")) {
+    cause = "La richiesta non ha ricevuto nessuna risposta HTTP: lo status resta null.";
+    suggestion = "Il dominio/API potrebbe non esistere, non rispondere, avere DNS/TLS non valido, CORS bloccato o mixed content. Verifica l'URL o usa un endpoint confermato/proxy.";
+  } else if (normalizedKind === "abort") {
+    cause = "La richiesta e stata annullata o ha superato il timeout prima della risposta.";
+    suggestion = "Aumenta timeout, controlla rete o riprova il Live Test.";
+  } else if (!url && /endpoint|url.*mancante|mancante/i.test(String(error || record.message || ""))) {
+    cause = "Il nodo non ha un endpoint configurato.";
+    suggestion = "Configura un URL esplicito nel nodo prima di rilanciare il test.";
+  }
+  const canPrepareEndpointConfig = !!node && (
+    !url ||
+    /^https?:\/\/\s*$/i.test(String(url || "")) ||
+    /endpoint|url.*mancante|mancante/i.test(String(error || record.message || ""))
+  );
+  return {
+    recordId: record.id || "",
+    nodeId: node?.id || flowPromptRecordContextValue(record, ["nodeId"]) || "",
+    nodeLabel: node?.label || flowPromptRecordContextValue(record, ["nodeLabel"]) || "",
+    url,
+    method,
+    status,
+    statusText,
+    kind,
+    error,
+    cause,
+    suggestion: diagnostic || suggestion,
+    canRetry: !!node,
+    canInspect: !!node,
+    canPrepareEndpointConfig,
+  };
+};
+
+const flowPromptRuntimeErrorRecords = (context = {}, limit = 20) =>
+  flowPromptRecentRecords([...(context.flowLogs || []), ...(context.events || [])], limit)
+    .filter((record) =>
+      ["error", "failed", "failure"].includes(flowPromptNormalize(record.level || record.status || record.severity || ""))
+    );
+
+const flowPromptFindRuntimeErrorForPrompt = (context = {}, prompt = "") => {
+  const records = flowPromptRuntimeErrorRecords(context, 20);
+  if (!records.length) return null;
+  const text = flowPromptNormalize(prompt);
+  const recordMatch = String(prompt || "").match(/\b(?:record|flowlog|log|id)\s+([a-z0-9_.:-]+)/i);
+  const recordId = String(recordMatch?.[1] || "").trim();
+  if (recordId) {
+    const byId = records.find((record) =>
+      flowPromptNormalize(record.id || "").includes(flowPromptNormalize(recordId))
+    );
+    if (byId) return byId;
+  }
+  const byNode = records.find((record) => {
+    const insight = flowPromptRuntimeErrorDiagnosis(context, record);
+    return [insight.nodeId, insight.nodeLabel]
+      .filter(Boolean)
+      .some((value) => text.includes(flowPromptNormalize(value)));
+  });
+  return byNode || records[0];
+};
+
+const flowPromptBuildRuntimeErrorFixPlan = (context = {}, prompt = "") => {
+  const record = flowPromptFindRuntimeErrorForPrompt(context, prompt);
+  if (!record) {
+    return flowPromptBatchPlan([{
+      type: "fixRuntimeError",
+      tool: "diagnoseGraph",
+      status: "blocked",
+      summary: "Non ho trovato errori runtime recenti da preparare.",
+      detail: "Esegui un Live Test o chiedi prima `mostrami runtime error recenti`.",
+    }], "Nessun errore runtime recente da trasformare in fix.");
+  }
+
+  const insight = flowPromptRuntimeErrorDiagnosis(context, record);
+  const node = flowPromptRuntimeRecordNode(context, record);
+  const explicitUrl = flowPromptExtractExplicitUrl(prompt);
+  if (explicitUrl && node?.id) {
+    return flowPromptBuildConfigPlan(context, `imposta endpoint di ${node.label || node.id} a ${explicitUrl}`);
+  }
+
+  if (!node?.id) {
+    return flowPromptBatchPlan([{
+      type: "fixRuntimeError",
+      tool: "diagnoseGraph",
+      status: "blocked",
+      recordId: record.id || "",
+      summary: "Errore letto, ma il nodo sorgente non e chiaro.",
+      detail: "Il log non contiene un nodeId risolvibile nel workspace corrente.",
+    }], "Fix bloccato: non posso associare l'errore a un nodo Flow Map valido.");
+  }
+
+  const kind = flowPromptNormalize(insight.kind);
+  const status = Number(insight.status || 0);
+  const nodeLabel = node.label || node.id;
+  if (insight.canPrepareEndpointConfig) {
+    return flowPromptBatchPlan([{
+      type: "updateNodeConfig",
+      tool: "updateNodeConfig",
+      status: "blocked",
+      node,
+      nodeId: node.id,
+      field: "endpoint",
+      target: "config",
+      value: "",
+      recordId: record.id || "",
+      summary: `Serve un URL esplicito prima di aggiornare ${nodeLabel}.`,
+      detail: `L'errore indica endpoint mancante/non valido. Scrivi ad esempio: imposta endpoint di ${nodeLabel} a https://...`,
+    }], `Fix preparato per ${nodeLabel}, ma manca un URL esplicito da salvare.`);
+  }
+
+  if (kind === "http" || status >= 400) {
+    return flowPromptBatchPlan([{
+      type: "fixRuntimeError",
+      tool: "diagnoseGraph",
+      status: "blocked",
+      node,
+      nodeId: node.id,
+      recordId: record.id || "",
+      summary: `HTTP ${insight.status || "error"} su ${nodeLabel}: non cambio endpoint/metodo automaticamente.`,
+      detail: "Il server ha risposto con errore: verifica endpoint, metodo, headers, auth e parametri. Se hai il valore corretto, chiedi di impostarlo esplicitamente.",
+    }], `Fix bloccato: ${nodeLabel} ha ricevuto una risposta HTTP non valida.`);
+  }
+
+  if (kind === "network-or-cors" || flowPromptNormalize(insight.error).includes("failed to fetch")) {
+    return flowPromptBatchPlan([{
+      type: "fixRuntimeError",
+      tool: "diagnoseGraph",
+      status: "blocked",
+      node,
+      nodeId: node.id,
+      recordId: record.id || "",
+      summary: `Nessuna risposta HTTP da ${nodeLabel}: status null.`,
+      detail: `URL testato: ${insight.url || "non disponibile"}. Il sito/API potrebbe non esistere, non rispondere, essere bloccato da DNS/TLS/CORS o mixed content. Non modifico automaticamente il nodo: serve un URL confermato.`,
+    }], `Fix bloccato: ${nodeLabel} non ha ricevuto risposta HTTP dall'endpoint configurato.`);
+  }
+
+  return flowPromptBatchPlan([{
+    type: "fixRuntimeError",
+    tool: "diagnoseGraph",
+    status: "blocked",
+    node,
+    nodeId: node.id,
+    recordId: record.id || "",
+    summary: `Errore runtime su ${nodeLabel}: nessun fix automatico sicuro.`,
+    detail: insight.suggestion || "Apri Inspector e verifica il log raw prima di modificare il nodo.",
+  }], `Ho preparato la diagnosi, ma non vedo una modifica sicura da applicare automaticamente.`);
+};
+
+const flowPromptBuildRuntimeQueryModel = async ({ context = {}, prompt = "", query = {}, memory = [] } = {}) => {
+  const filter = query.filter || "";
+  const matchedNode = flowPromptFindNodeByText(context, filter);
+  const nodeCandidates = matchedNode ? [matchedNode] : flowPromptFindNodeCandidates(context, filter, 5);
+  const selectedNodes = (filter ? nodeCandidates : (context.nodes || []).slice(0, 5)).map((node) => ({
+    node,
+    connectivity: flowPromptNodeConnectivity(context, node),
+    config: node.metadata?.config || {},
+    manifest: node.metadata?.manifest || null,
+  }));
+  const [channels, settings, aiRuntime] = await Promise.all([
+    flowPromptBuildChannelLineage(context, filter),
+    flowPromptReadSettingsSnapshot(),
+    flowPromptReadAiRuntimeSnapshot(),
+  ]);
+  const runtimeRecords = flowPromptRecentRecords([...(context.flowLogs || []), ...(context.events || [])], 12);
+  const errors = runtimeRecords.filter((record) =>
+    record.level === "error" || record.status === "error" || record.severity === "error"
+  );
+  const errorInsights = errors.map((record) => ({
+    recordId: record.id || "",
+    ...flowPromptRuntimeErrorDiagnosis(context, record),
+  }));
+  return {
+    version: "flow-agent-query/v1",
+    prompt,
+    intent: flowPromptAgentIntent(prompt),
+    metric: query.metric,
+    filter,
+    workspace: {
+      id: context.workspaceId || currentWorkspaceId() || "",
+      name: context.workspaceName || currentWorkspaceName() || "",
+    },
+    totals: {
+      nodes: context.nodes?.length || 0,
+      edges: context.edges?.length || 0,
+      channels: context.channels?.length || 0,
+      events: context.events?.length || 0,
+      logs: context.flowLogs?.length || 0,
+      memory: memory.length,
+    },
+    nodes: selectedNodes,
+    channels,
+    runtime: {
+      recent: runtimeRecords,
+      errors,
+      errorInsights,
+      last: runtimeRecords[0] || null,
+    },
+    settings,
+    aiRuntime: {
+      providers: aiRuntime.providers.map((provider) => ({
+        id: provider.id,
+        name: provider.name || provider.provider || provider.id,
+        provider: provider.provider || "",
+        model: provider.model || "",
+        status: provider.status || provider.health || "",
+      })).slice(0, 8),
+      agents: aiRuntime.agents.slice(0, 8).map((agent) => ({
+        id: agent.id,
+        name: agent.name || agent.label || agent.id,
+        status: agent.status || "",
+        model: agent.model || agent.providerModel || "",
+      })),
+      jobs: aiRuntime.jobs.slice(0, 5),
+      logs: aiRuntime.logs.slice(0, 5),
+      prompts: aiRuntime.prompts.slice(0, 6).map((item) => ({ id: item.id, title: item.title || item.name || item.prompt || item.id })),
+    },
+    memory: memory.slice(0, 8),
   };
 };
 
@@ -848,7 +1246,10 @@ const flowPromptDebugPlan = (action = {}) => {
     toolStatus: tool?.status || action.toolStatus || "",
     toolCategory: tool?.category || action.toolCategory || "",
     toolMutates: typeof tool?.mutates === "boolean" ? tool.mutates : action.toolMutates,
+    guardReason: action.guardReason || "",
+    impactOnly: Boolean(action.impactOnly),
     summary: action.summary || "",
+    impact: action.impact || null,
     nodeId: action.nodeId || action.node?.id || "",
     source: action.source?.label || action.sourceHint || "",
     target: action.target?.label || action.targetHint || "",
@@ -1061,6 +1462,7 @@ const flowPromptSplitCompoundCommands = (prompt = "") => {
   const commandVerb = "(?:collega|connetti|connect|link|scollega|disconnetti|unlink|disconnect|elimina|elimini|elimine|eliminare|cancella|cancellare|rimuovi|remove|delete|duplica|duplicare|copia|clona|duplicate|clone|sposta|spostare|muovi|move|rinomina|rename|cambia|imposta|set|aggiorna|modifica|sistema|fix|ripara)";
   return text
     .replace(/[;\n]+/g, "\n")
+    .replace(new RegExp(`\\b(?:prima|first)\\s+(?=${commandVerb}\\b)`, "gi"), "")
     .replace(new RegExp(`\\s+(?:e\\s+poi|poi|quindi|dopo)\\s+(?=${commandVerb}\\b)`, "gi"), "\n")
     .replace(new RegExp(`\\s+e\\s+(?=${commandVerb}\\b)`, "gi"), "\n")
     .split(/\n+/)
@@ -1088,6 +1490,335 @@ const flowPromptActionPlanWithStepMeta = (plan = null, meta = {}) => {
     };
   }
   return applyMeta(plan);
+};
+
+const flowPromptCloneAgentContext = (context = {}) => ({
+  ...context,
+  nodes: (context.nodes || []).map((node) => ({
+    ...node,
+    inputs: [...(node.inputs || [])],
+    outputs: [...(node.outputs || [])],
+    channels: [...(node.channels || [])],
+    flowPosition: { ...(node.flowPosition || {}) },
+    position: { ...(node.position || {}) },
+    metadata: {
+      ...(node.metadata || {}),
+      config: { ...(node.metadata?.config || {}) },
+    },
+  })),
+  edges: (context.edges || []).map((edge) => ({ ...edge })),
+  channels: (context.channels || []).map((channel) => ({ ...channel })),
+});
+
+const flowPromptCompoundNodeId = ({ workspaceId = currentWorkspaceId(), node = {}, label = "" } = {}) =>
+  `agent_compound_${safeRuntimeId(workspaceId)}_${safeRuntimeId(node.type || "node")}_${safeRuntimeId(label || node.label || "copy")}_${Date.now()}_${Math.round(Math.random() * 10000)}`;
+
+const flowPromptApplyActionToPlanningContext = (context = {}, action = {}) => {
+  if (!context || !action || action.status !== "ready") return context;
+  const nodes = context.nodes || [];
+  const edges = context.edges || [];
+  if (action.type === "renameNode") {
+    const node = nodes.find((item) => item.id === action.nodeId);
+    if (node) node.label = action.nextLabel || node.label;
+    return context;
+  }
+  if (action.type === "duplicateNode") {
+    const source = nodes.find((item) => item.id === action.nodeId) || action.node;
+    if (source?.id) {
+      const newNodeId = action.newNodeId || flowPromptCompoundNodeId({ node: source, label: action.nextLabel });
+      action.newNodeId = newNodeId;
+      const basePosition = source.flowPosition || source.position || { x: 0, y: 0 };
+      nodes.push({
+        ...source,
+        id: newNodeId,
+        label: action.nextLabel || `${source.label || source.id} Copy`,
+        sourceRef: newNodeId,
+        flowPosition: {
+          x: Number(basePosition.x || 0) + 180,
+          y: Number(basePosition.y || 0) + 120,
+        },
+        metadata: {
+          ...(source.metadata || {}),
+          duplicatedFrom: source.id,
+          generatedBy: "flow-map-agent",
+        },
+      });
+    }
+    return context;
+  }
+  if (action.type === "deleteNode") {
+    context.nodes = nodes.filter((node) => node.id !== action.nodeId);
+    context.edges = edges.filter((edge) => edge.sourceNodeId !== action.nodeId && edge.targetNodeId !== action.nodeId);
+    return context;
+  }
+  if (action.type === "deleteDependencies") {
+    const ids = new Set(action.dependencyIds || []);
+    context.edges = edges.filter((edge) => !ids.has(edge.id));
+    return context;
+  }
+  if (action.type === "connect" && action.source?.id && action.target?.id) {
+    const exists = edges.some((edge) =>
+      edge.sourceNodeId === action.source.id &&
+      edge.targetNodeId === action.target.id &&
+      String(edge.channel || "") === String(action.channel || action.sourcePort || "")
+    );
+    if (!exists) {
+      context.edges = [
+        ...edges,
+        {
+          id: `planned_${safeRuntimeId(action.source.id)}_${safeRuntimeId(action.target.id)}_${Date.now()}`,
+          workspaceId: currentWorkspaceId(),
+          sourceNodeId: action.source.id,
+          targetNodeId: action.target.id,
+          sourceLabel: action.source.label || action.source.id,
+          targetLabel: action.target.label || action.target.id,
+          channel: action.channel || action.sourcePort || "runtime",
+        },
+      ];
+    }
+    return context;
+  }
+  if (action.type === "updateNodeConfig") {
+    const node = nodes.find((item) => item.id === action.nodeId);
+    if (!node) return context;
+    node.metadata = { ...(node.metadata || {}), config: { ...(node.metadata?.config || {}) } };
+    if (action.target === "output") {
+      node.outputs = [action.value, ...(node.outputs || []).slice(1)].filter(Boolean);
+      node.channels = [...new Set([...(node.channels || []), action.value].filter(Boolean))];
+    } else if (action.target === "input") {
+      node.inputs = [action.value, ...(node.inputs || []).slice(1)].filter(Boolean);
+      node.channels = [...new Set([...(node.channels || []), action.value].filter(Boolean))];
+    } else if (action.target === "channel") {
+      node.channels = [...new Set([action.value, ...(node.channels || []).slice(1)].filter(Boolean))];
+    } else {
+      node.metadata.config[flowPromptNormalizeConfigFieldName(action.field)] = action.value;
+    }
+    return context;
+  }
+  if (action.type === "moveNode") {
+    const node = nodes.find((item) => item.id === action.nodeId);
+    if (node) node.flowPosition = { ...(action.nextPosition || node.flowPosition || {}) };
+    return context;
+  }
+  return context;
+};
+
+const flowPromptNodeDependencyImpact = (context = {}, node = {}) => {
+  if (!node?.id) return null;
+  const incoming = (context.edges || []).filter((edge) => edge.targetNodeId === node.id);
+  const outgoing = (context.edges || []).filter((edge) => edge.sourceNodeId === node.id);
+  const channels = [...new Set([
+    ...(node.inputs || []),
+    ...(node.outputs || []),
+    ...(node.channels || []),
+    ...incoming.map((edge) => edge.channel),
+    ...outgoing.map((edge) => edge.channel),
+  ].filter(Boolean))];
+  const recentRuntime = [...(context.flowLogs || []), ...(context.events || [])].filter((record) =>
+    record.nodeId === node.id ||
+    record.context?.nodeId === node.id ||
+    channels.includes(record.channel)
+  );
+  return {
+    nodeId: node.id,
+    nodeLabel: node.label || node.id,
+    incoming,
+    outgoing,
+    channels,
+    recentRuntime: flowPromptRecentRecords(recentRuntime, 5),
+  };
+};
+
+const flowPromptActionImpact = (context = {}, action = {}) => {
+  if (!action || typeof action !== "object") return null;
+  const node = action.node || flowPromptFindNodeByText(context, action.nodeId || action.label || "");
+  const impact = node?.id ? flowPromptNodeDependencyImpact(context, node) : null;
+  const links = [...(impact?.incoming || []), ...(impact?.outgoing || [])];
+  const linkSummary = links.length
+    ? `${links.length} link (${impact.incoming.length} IN, ${impact.outgoing.length} OUT)`
+    : "nessun link diretto";
+  if (action.type === "deleteNode" && impact) {
+    return {
+      severity: links.length ? "high" : "low",
+      title: "Impatto eliminazione",
+      summary: `Eliminare ${impact.nodeLabel} rimuove il nodo e ${linkSummary}.`,
+      items: [
+        ...impact.incoming.slice(0, 4).map((edge) => `IN: ${edge.sourceLabel || edge.sourceNodeId} -> ${impact.nodeLabel} (${edge.channel || "runtime"})`),
+        ...impact.outgoing.slice(0, 4).map((edge) => `OUT: ${impact.nodeLabel} -> ${edge.targetLabel || edge.targetNodeId} (${edge.channel || "runtime"})`),
+      ],
+    };
+  }
+  if (action.type === "deleteDependencies") {
+    const ids = new Set(action.dependencyIds || []);
+    const selected = (context.edges || []).filter((edge) => ids.has(edge.id));
+    return {
+      severity: selected.length ? "medium" : "low",
+      title: "Impatto scollegamento",
+      summary: `Rimuove ${selected.length || action.dependencyIds?.length || 0} collegamento/i runtime.`,
+      items: selected.slice(0, 6).map((edge) =>
+        `${edge.sourceLabel || edge.sourceNodeId} -> ${edge.targetLabel || edge.targetNodeId} (${edge.channel || "runtime"})`
+      ),
+    };
+  }
+  if (action.type === "connect" && action.source && action.target) {
+    return {
+      severity: "low",
+      title: "Impatto collegamento",
+      summary: `Aggiunge un nuovo path ${action.source.label || action.source.id} -> ${action.target.label || action.target.id}.`,
+      items: [`channel: ${action.channel || action.sourcePort || "runtime"}`, `porte: ${action.sourcePort || "output"} -> ${action.targetPort || "input"}`],
+    };
+  }
+  if (action.type === "renameNode" && impact) {
+    return {
+      severity: "low",
+      title: "Impatto rename",
+      summary: `Rinomina solo la label visibile di ${impact.nodeLabel}; id, canali e link restano invariati.`,
+      items: links.length ? [`Link preservati: ${linkSummary}`] : [],
+    };
+  }
+  if (action.type === "updateNodeConfig" && impact) {
+    const target = action.target || "config";
+    const field = action.field || "config";
+    const changesChannel = ["input", "output", "channel"].includes(target) || ["input", "output", "channel"].includes(field);
+    return {
+      severity: changesChannel && links.length ? "medium" : "low",
+      title: "Impatto configurazione",
+      summary: changesChannel
+        ? `Modifica un canale/porta di ${impact.nodeLabel}; verifica i consumer collegati.`
+        : `Modifica ${field} di ${impact.nodeLabel}; i link runtime non vengono cambiati.`,
+      items: [
+        `campo: ${target}.${field}`,
+        links.length ? `Link esistenti: ${linkSummary}` : "Nessun link diretto",
+        impact.recentRuntime.length ? `Runtime recente: ${impact.recentRuntime.length} record correlati` : "",
+      ].filter(Boolean),
+    };
+  }
+  if (action.type === "duplicateNode" && impact) {
+    return {
+      severity: "low",
+      title: "Impatto duplicazione",
+      summary: `Duplica ${impact.nodeLabel} senza copiare automaticamente ${linkSummary}.`,
+      items: impact.channels.slice(0, 5).map((channel) => `canale esistente: ${channel}`),
+    };
+  }
+  if (action.type === "moveNode" && impact) {
+    return {
+      severity: "low",
+      title: "Impatto layout",
+      summary: `Sposta ${impact.nodeLabel} sul canvas; runtime, link e canali restano invariati.`,
+      items: links.length ? [`Link preservati: ${linkSummary}`] : [],
+    };
+  }
+  return null;
+};
+
+const flowPromptWithDependencyImpact = (context = {}, plan = null) => {
+  if (!plan) return plan;
+  if (plan.type === "batch") {
+    return flowPromptAnnotateActionPlan({
+      ...plan,
+      actions: (plan.actions || []).map((action) => flowPromptWithDependencyImpact(context, action)),
+    });
+  }
+  const impact = flowPromptActionImpact(context, plan);
+  return impact ? { ...plan, impact } : plan;
+};
+
+const flowPromptIsImpactOnlyRequest = (prompt = "") => {
+  const text = flowPromptNormalize(prompt);
+  const asksImpact = flowPromptHasAny(text, [
+    "che impatto", "impatto", "impact", "cosa succede", "cosa succederebbe",
+    "prima dimmi", "solo analizza", "analizza impatto", "preview impatto",
+    "che dipendenze", "quali dipendenze", "dependency impact",
+  ]);
+  const mentionsCommand = flowPromptHasAny(text, [
+    "collega", "connetti", "connect", "link", "scollega", "disconnetti", "unlink", "disconnect",
+    "elimina", "elimini", "elimine", "eliminare", "cancella", "cancellare", "rimuovi", "remove", "delete",
+    "rinomina", "rename", "cambia", "imposta", "set", "aggiorna", "modifica",
+    "duplica", "duplicare", "copia", "clona", "duplicate", "clone", "sposta", "move",
+  ]);
+  return asksImpact && mentionsCommand;
+};
+
+const flowPromptPromptHasForce = (prompt = "") =>
+  flowPromptHasAny(flowPromptNormalize(prompt), [
+    "confermo", "conferma", "confirm", "forza", "force", "applica comunque",
+    "procedi comunque", "esegui comunque", "sono sicuro", "sicuro", "yes apply",
+  ]);
+
+const flowPromptMapActionPlan = (plan = null, mapper = (action) => action) => {
+  if (!plan) return plan;
+  if (plan.type === "batch") {
+    return flowPromptAnnotateActionPlan({
+      ...plan,
+      actions: (plan.actions || [])
+        .map((action) => flowPromptMapActionPlan(action, mapper))
+        .filter(Boolean),
+    });
+  }
+  return flowPromptAnnotateActionPlan(mapper(plan));
+};
+
+const flowPromptActionRequiresDependencyConfirm = (action = {}) =>
+  action?.status === "ready" &&
+  action?.type === "deleteNode" &&
+  action?.impact?.severity === "high";
+
+const flowPromptConfirmPromptForAction = (action = {}) => {
+  if (action.type === "deleteNode") {
+    const label = action.node?.label || action.label || action.nodeId || "questo nodo";
+    return `confermo elimina nodo ${label}`;
+  }
+  return `confermo ${action.summary || action.type || "applica modifica"}`;
+};
+
+const flowPromptFinalizeDependencyAwarePlan = (context = {}, plan = null, prompt = "") => {
+  const withImpact = flowPromptWithDependencyImpact(context, plan);
+  if (!withImpact) return withImpact;
+  const impactOnly = flowPromptIsImpactOnlyRequest(prompt);
+  const forced = flowPromptPromptHasForce(prompt);
+  const mapped = flowPromptMapActionPlan(withImpact, (action = {}) => {
+    if (!action || action.type === "researchEndpoint") return action;
+    const toolName = flowPromptAgentToolForAction(action);
+    const tool = flowPromptAgentTool(toolName);
+    const mutates = typeof tool?.mutates === "boolean" ? tool.mutates : Boolean(action.toolMutates);
+    if (impactOnly && action.status === "ready" && mutates) {
+      return {
+        ...action,
+        status: "blocked",
+        impactOnly: true,
+        guardReason: "impact-only",
+        summary: `Solo analisi impatto: ${flowPromptActionSummary(action)}`,
+      };
+    }
+    if (!forced && flowPromptActionRequiresDependencyConfirm(action)) {
+      const confirmPrompt = flowPromptConfirmPromptForAction(action);
+      const choices = [
+        ...(action.choices || []),
+        {
+          role: "confirm",
+          label: "Conferma",
+          detail: "Applica il delete pulendo i collegamenti indicati dall'impatto.",
+          prompt: confirmPrompt,
+        },
+      ];
+      return {
+        ...action,
+        status: "blocked",
+        guardReason: "dependency-confirmation-required",
+        choices,
+        summary: `Richiede conferma esplicita: ${flowPromptActionSummary(action)}`,
+      };
+    }
+    return action;
+  });
+  if (impactOnly && mapped?.summary) {
+    return flowPromptAnnotateActionPlan({
+      ...mapped,
+      summary: `Analisi impatto: ${mapped.summary}`,
+    });
+  }
+  return mapped;
 };
 
 const flowPromptBuildConnectPlan = (context = {}, prompt = "") => {
@@ -1251,6 +1982,7 @@ const flowPromptBuildDuplicateNodePlan = (context = {}, prompt = "") => {
     ], "Non posso duplicare: nodo non chiaro.");
   }
   const duplicateLabel = nextLabel || `${node.label || node.id} Copy`;
+  const newNodeId = flowPromptCompoundNodeId({ node, label: duplicateLabel });
   return flowPromptBatchPlan([
     {
       type: "duplicateNode",
@@ -1258,6 +1990,7 @@ const flowPromptBuildDuplicateNodePlan = (context = {}, prompt = "") => {
       status: "ready",
       node,
       nodeId: node.id,
+      newNodeId,
       nextLabel: duplicateLabel,
       summary: `Duplico ${node.label || node.id} come ${duplicateLabel}. I collegamenti non vengono duplicati automaticamente.`,
     },
@@ -1466,11 +2199,11 @@ const flowPromptNormalizeEndpointCandidate = (candidate = {}, fallbackQuery = ""
     sourceUrl: String(candidate.sourceUrl || candidate.docsUrl || candidate.documentation || "").trim(),
     reason: String(candidate.reason || candidate.notes || candidate.description || "").trim(),
     confidence,
-    sourceConfidence: candidate.sourceUrl || candidate.docsUrl || candidate.documentation
+    sourceConfidence: candidate.sourceConfidence || (candidate.sourceUrl || candidate.docsUrl || candidate.documentation
       ? "source-provided"
       : confidence === "user-provided"
         ? "user-provided"
-        : "ai-suggested",
+        : "ai-suggested"),
     verification: candidate.verification || null,
     validation,
     usable: validation.ok,
@@ -1488,6 +2221,51 @@ const flowPromptEndpointFetchWithTimeout = async (url = "", options = {}, timeou
     });
   } finally {
     clearTimeout(timeoutId);
+  }
+};
+
+const FLOW_PROMPT_ENDPOINT_RESEARCH_HELPER = "api/endpoint-research.php";
+
+const flowPromptLocalEndpointResearchAvailable = () =>
+  /^https?:$/i.test(window.location.protocol || "");
+
+const flowPromptCallLocalEndpointResearch = async ({ query = "", prompt = "", targetNode = null } = {}) => {
+  if (!flowPromptLocalEndpointResearchAvailable()) return [];
+  try {
+    const response = await flowPromptEndpointFetchWithTimeout(FLOW_PROMPT_ENDPOINT_RESEARCH_HELPER, {
+      method: "POST",
+      mode: "same-origin",
+      credentials: "same-origin",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        query,
+        prompt,
+        targetNode: targetNode ? {
+          id: targetNode.id,
+          label: targetNode.label,
+          type: targetNode.type,
+          subtype: targetNode.subtype,
+        } : null,
+      }),
+    }, 12000);
+    if (!response.ok) return [];
+    const data = await response.json().catch(() => null);
+    const rawCandidates = Array.isArray(data?.candidates) ? data.candidates : [];
+    return rawCandidates
+      .map((candidate) => flowPromptNormalizeEndpointCandidate({
+        ...candidate,
+        sourceConfidence: candidate.sourceConfidence || data?.source || "local-helper",
+        confidence: candidate.confidence || "source-discovered",
+      }, query))
+      .filter((candidate) => candidate.endpoint)
+      .map((candidate) => ({
+        ...candidate,
+        verification: candidate.verification || null,
+        usable: candidate.validation.ok && candidate.verification?.status !== "blocked",
+      }))
+      .slice(0, 3);
+  } catch (_) {
+    return [];
   }
 };
 
@@ -1555,6 +2333,8 @@ const flowPromptResearchEndpointCandidates = async ({ query = "", prompt = "", t
     candidate.usable = candidate.validation.ok && candidate.verification.status !== "blocked";
     return [candidate];
   }
+  const localCandidates = await flowPromptCallLocalEndpointResearch({ query, prompt, targetNode });
+  if (localCandidates.length) return localCandidates;
   const aiSettings = await flowPromptReadAiSettings();
   const provider = await flowPromptPickProvider(aiSettings);
   if (!provider) return [];
@@ -1763,6 +2543,7 @@ const flowPromptBuildSingleActionPlan = (context = {}, prompt = "") => {
   if (intent === "moveNode") return flowPromptBuildMoveNodePlan(context, prompt);
   if (intent === "disconnect") return flowPromptBuildDisconnectPlan(context, prompt);
   if (intent === "connect") return flowPromptBuildConnectPlan(context, prompt);
+  if (intent === "fixRuntimeError") return flowPromptBuildRuntimeErrorFixPlan(context, prompt);
   if (intent === "fix") return flowPromptBuildFixPlan(context, prompt);
   if (intent === "rename") return flowPromptBuildRenamePlan(context, prompt);
   if (intent === "config") return flowPromptBuildConfigPlan(context, prompt);
@@ -1772,15 +2553,30 @@ const flowPromptBuildSingleActionPlan = (context = {}, prompt = "") => {
 const flowPromptBuildActionPlan = (context = {}, prompt = "") => {
   const parts = flowPromptSplitCompoundCommands(prompt);
   if (parts.length > 1) {
-    const plans = parts.map((part) => flowPromptBuildSingleActionPlan(context, part)).filter(Boolean);
-    const actions = plans.flatMap(flowPromptFlattenActionPlan);
+    const planningContext = flowPromptCloneAgentContext(context);
+    const actions = [];
+    parts.forEach((part, index) => {
+      const plan = flowPromptBuildSingleActionPlan(planningContext, part);
+      const stepActions = flowPromptFlattenActionPlan(plan)
+        .map((action, actionIndex) => ({
+          ...action,
+          stepId: action.stepId || `step_${String(index + 1).padStart(2, "0")}${actionIndex ? `_${actionIndex + 1}` : ""}`,
+          dependsOn: action.dependsOn || (index > 0 ? [`step_${String(index).padStart(2, "0")}`] : []),
+          compoundIndex: index + 1,
+          compoundPrompt: part,
+        }));
+      stepActions.forEach((action) => {
+        actions.push(action);
+        flowPromptApplyActionToPlanningContext(planningContext, action);
+      });
+    });
     if (!actions.length) return null;
     const ready = actions.filter((action) => action.status === "ready").length;
     const blocked = actions.filter((action) => action.status === "blocked").length;
     const duplicate = actions.filter((action) => action.status === "duplicate").length;
     return flowPromptBatchPlan(
       actions,
-      `Ho preparato ${actions.length} azioni: ${ready} pronte, ${duplicate} gia presenti, ${blocked} bloccate.`
+      `Piano compound: ${actions.length} azioni in ${parts.length} step: ${ready} pronte, ${duplicate} gia presenti, ${blocked} bloccate.`
     );
   }
   return flowPromptBuildSingleActionPlan(context, prompt);
@@ -1790,19 +2586,24 @@ const flowPromptBuildActionPlanFromNormalized = (context = {}, command = {}) => 
   const normalizedSteps = Array.isArray(command.steps) ? command.steps : null;
   const normalizedActions = Array.isArray(command.actions) ? command.actions : normalizedSteps;
   if (Array.isArray(normalizedActions)) {
-    const plans = normalizedActions
-      .map((item) => {
+    const planningContext = flowPromptCloneAgentContext(context);
+    const plans = [];
+    normalizedActions.forEach((item, index) => {
         const rawAction = item?.action && typeof item.action === "object" ? item.action : item;
-        const plan = flowPromptBuildActionPlanFromNormalized(context, {
+        const plan = flowPromptBuildActionPlanFromNormalized(planningContext, {
           ...(rawAction || {}),
           dependsOn: item?.dependsOn || rawAction?.dependsOn || "",
         });
-        return flowPromptActionPlanWithStepMeta(plan, {
-          stepId: item?.id || rawAction?.id || "",
+        const withMeta = flowPromptActionPlanWithStepMeta(plan, {
+          stepId: item?.id || rawAction?.id || `step_${String(index + 1).padStart(2, "0")}`,
           dependsOn: item?.dependsOn || rawAction?.dependsOn || "",
         });
-      })
-      .filter(Boolean);
+        flowPromptFlattenActionPlan(withMeta).forEach((action) => {
+          action.compoundIndex = index + 1;
+          flowPromptApplyActionToPlanningContext(planningContext, action);
+        });
+        if (withMeta) plans.push(withMeta);
+      });
     const actions = plans.flatMap(flowPromptFlattenActionPlan);
     return actions.length ? flowPromptBatchPlan(actions, `AI normalize ha preparato ${actions.length} azioni.`) : null;
   }
@@ -2048,10 +2849,15 @@ const flowPromptNormalizeCommandWithAi = async (context = {}, prompt = "") => {
 };
 
 const flowPromptBuildActionPlanWithAiNormalize = async (context = {}, prompt = "", debug = {}) => {
-  const localPlan = flowPromptBuildActionPlan(context, prompt);
+  const localPlan = flowPromptFinalizeDependencyAwarePlan(context, flowPromptBuildActionPlan(context, prompt), prompt);
   debug.localPlan = flowPromptDebugPlan(localPlan);
   if (localPlan && localPlan.status !== "blocked") {
     debug.selectedPlan = "local";
+    return localPlan;
+  }
+  if (flowPromptAgentIntent(prompt) === "fixRuntimeError") {
+    debug.selectedPlan = localPlan ? "local" : "none";
+    debug.reason = "Runtime error fixes must keep the local diagnosis plan even when blocked.";
     return localPlan;
   }
   if (flowPromptLooksLikeEndpointLookup(prompt) && !flowPromptExtractExplicitUrl(prompt)) {
@@ -2065,7 +2871,9 @@ const flowPromptBuildActionPlanWithAiNormalize = async (context = {}, prompt = "
   }
   const normalized = await flowPromptNormalizeCommandWithAi(context, prompt);
   debug.normalizedCommand = normalized || null;
-  const aiPlan = normalized ? flowPromptBuildActionPlanFromNormalized(context, normalized) : null;
+  const aiPlan = normalized
+    ? flowPromptFinalizeDependencyAwarePlan(context, flowPromptBuildActionPlanFromNormalized(context, normalized), prompt)
+    : null;
   debug.aiPlan = flowPromptDebugPlan(aiPlan);
   if (aiPlan?.status === "blocked" && localPlan && flowPromptPlanHasChoices(localPlan) && !flowPromptPlanHasChoices(aiPlan)) {
     debug.selectedPlan = "local";
@@ -2083,12 +2891,30 @@ const flowPromptBuildAgentReport = async (prompt = "") => {
   const intent = flowPromptAgentIntent(prompt);
   const query = flowPromptAgentQuery(context, prompt);
   const queryInsights = flowPromptRuntimeQueryInsights(context, query);
+  const queryModel = await flowPromptBuildRuntimeQueryModel({ context, prompt, query, memory });
+  const wantsRuntimeErrors = intent === "runtime" && flowPromptNormalize(query.filter) === "error";
+  if (wantsRuntimeErrors && queryModel.runtime?.errors?.length) {
+    const firstError = queryModel.runtime.errors[0];
+    const firstInsight = queryModel.runtime.errorInsights?.[0] || flowPromptRuntimeErrorDiagnosis(context, firstError);
+    await flowPromptRememberWorkspaceEvent({
+      kind: "runtime-error",
+      prompt,
+      summary: [
+        firstInsight.nodeLabel ? `Nodo ${firstInsight.nodeLabel}` : "Errore runtime",
+        firstInsight.kind ? `kind ${firstInsight.kind}` : "",
+        firstInsight.status ? `status ${firstInsight.status}` : "",
+        firstInsight.url ? `url ${firstInsight.url}` : "",
+      ].filter(Boolean).join(" · "),
+      result: { record: firstError, diagnosis: firstInsight },
+    });
+  }
   const debug = {
     prompt,
     intent,
     metric: query.metric,
     filter: query.filter,
     queryInsights,
+    queryModel,
     memory,
   };
   let pendingAction = await flowPromptBuildActionPlanWithAiNormalize(context, prompt, debug);
@@ -2114,7 +2940,13 @@ const flowPromptBuildAgentReport = async (prompt = "") => {
     parts.push(query.filter
       ? `Ho trovato ${query.total} canali che corrispondono a "${query.filter}" su ${query.allTotal} canali runtime.`
       : `Nel workspace corrente ci sono ${context.channels.length} canali runtime.`);
-    if (query.items.length) parts.push(`Risultati: ${query.items.slice(0, 10).map((channel) => channel.name || channel.id).filter(Boolean).join(", ")}.`);
+    if (queryModel.channels.length) {
+      parts.push(`Lineage principale: ${queryModel.channels.slice(0, 4).map((item) =>
+        `${item.name || "channel"} (${item.producers.length} producer, ${item.consumers.length} consumer)`
+      ).join("; ")}.`);
+    } else if (query.items.length) {
+      parts.push(`Risultati: ${query.items.slice(0, 10).map((channel) => channel.name || channel.id).filter(Boolean).join(", ")}.`);
+    }
   } else if (intent === "diagnostics") {
     if (query.items.length) {
       const errors = query.items.filter((item) => item.severity === "error").length;
@@ -2124,11 +2956,17 @@ const flowPromptBuildAgentReport = async (prompt = "") => {
       parts.push("Non vedo problemi strutturali evidenti nel Flow Map corrente.");
     }
   } else if (intent === "runtime") {
-    parts.push(query.filter
-      ? `Ho trovato ${query.total} record runtime che corrispondono a "${query.filter}".`
-      : `Ho trovato ${context.events.length} eventi recenti e ${context.flowLogs.length} flow log recenti.`);
-    const lastRecord = query.items[0] || context.flowLogs[0] || context.events[0];
-    if (lastRecord) parts.push(`Ultimo record: ${lastRecord.message || lastRecord.eventType || lastRecord.channel || lastRecord.id || "runtime"}.`);
+    const wantsErrors = flowPromptNormalize(query.filter) === "error";
+    parts.push(wantsErrors
+      ? (queryModel.runtime.errors.length
+        ? `Ho trovato ${queryModel.runtime.errors.length} errori runtime recenti.`
+        : "Non ho trovato errori runtime recenti nei record caricati.")
+      : query.filter
+        ? `Ho trovato ${query.total} record runtime che corrispondono a "${query.filter}".`
+        : `Ho trovato ${context.events.length} eventi recenti e ${context.flowLogs.length} flow log recenti.`);
+    const lastRecord = queryModel.runtime.last || query.items[0] || context.flowLogs[0] || context.events[0];
+    if (!wantsErrors && lastRecord) parts.push(`Ultimo record: ${lastRecord.message || lastRecord.eventType || lastRecord.channel || lastRecord.id || "runtime"}.`);
+    if (!wantsErrors && queryModel.runtime.errors.length) parts.push(`Errori runtime recenti: ${queryModel.runtime.errors.length}.`);
   } else if (intent === "edges") {
     parts.push(query.filter
       ? `Ho trovato ${query.total} collegamenti che corrispondono a "${query.filter}" su ${query.allTotal}.`
@@ -2137,6 +2975,24 @@ const flowPromptBuildAgentReport = async (prompt = "") => {
     parts.push(query.filter
       ? `Ho trovato ${query.total} nodi che corrispondono a "${query.filter}" su ${query.allTotal}.`
       : `Nel workspace corrente ci sono ${context.nodes.length} nodi.`);
+    if (queryModel.nodes.length === 1) {
+      const item = queryModel.nodes[0];
+      parts.push(`${item.node.label} ha ${item.connectivity.incoming.length} input link, ${item.connectivity.outgoing.length} output link e ${item.connectivity.channels.length} canali dichiarati.`);
+    }
+  } else if (intent === "config") {
+    const ai = queryModel.settings.ai || {};
+    parts.push(`Settings AI: provider ${ai.provider || "non impostato"}, modello ${ai.model || "non impostato"}.`);
+    if (queryModel.nodes.length === 1) {
+      const item = queryModel.nodes[0];
+      const configKeys = Object.keys(item.config || {});
+      parts.push(`${item.node.label} espone ${configKeys.length} campi config${configKeys.length ? `: ${configKeys.slice(0, 8).join(", ")}` : ""}.`);
+    } else if (queryModel.aiRuntime.providers.length) {
+      parts.push(`Provider registrati: ${queryModel.aiRuntime.providers.map((provider) => provider.name).join(", ")}.`);
+    }
+  } else if (intent === "memory") {
+    parts.push(memory.length
+      ? `Ho trovato ${memory.length} record di memoria workspace rilevanti.`
+      : "Non ho trovato memoria workspace rilevante per questa richiesta.");
   } else if (intent === "explain") {
     parts.push(`Questo Flow Map contiene ${context.nodes.length} nodi collegati da ${context.edges.length} link, con ${context.channels.length} canali runtime disponibili.`);
   } else if (intent === "database") {
@@ -2162,6 +3018,7 @@ const flowPromptBuildAgentReport = async (prompt = "") => {
     diagnostics,
     query,
     queryInsights,
+    queryModel,
     pendingAction,
     agentPlan,
     debug,
@@ -3024,6 +3881,28 @@ const openFlowPromptChatDialog = async () => {
     mount({ preserveScroll: true });
   };
 
+  const focusRuntimeNodeOnCanvas = (nodeId = "", { inspector = false } = {}) => {
+    const node = flowPromptRuntimeNodeById(nodeId);
+    if (!node) return;
+    if (typeof bringNodeToFront === "function") bringNodeToFront(node.id);
+    setFocusState({
+      mode: "dependencies",
+      nodeId: node.id,
+      nodeType: node.type || "",
+      edgeId: "",
+      channel: node.channels?.[0] || node.outputs?.[0] || "",
+      connectionId: "",
+    });
+    state.inspectorOpen = Boolean(inspector);
+    mount({ preserveScroll: true });
+  };
+
+  const retryRuntimeNodeTest = (nodeId = "") => {
+    const node = flowPromptRuntimeNodeById(nodeId);
+    if (!node || draft.busy) return;
+    if (typeof runFlowMapLiveTest === "function") runFlowMapLiveTest(node);
+  };
+
   const assertAgentActionToolReady = (action = {}) => {
     const toolName = flowPromptAgentToolForAction(action);
     const tool = flowPromptAgentTool(toolName);
@@ -3089,7 +3968,8 @@ const openFlowPromptChatDialog = async () => {
       if (!node) return { ok: false, reason: "Nodo da duplicare non trovato.", action, tool };
       if (!nextLabel) return { ok: false, reason: "Nome duplicato vuoto.", action, tool };
       const duplicateExists = (state.runtime.nodes || []).some((item) =>
-        String(item.label || "") === nextLabel && item.metadata?.duplicatedFrom === node.id
+        (String(item.label || "") === nextLabel && item.metadata?.duplicatedFrom === node.id) ||
+        (action.newNodeId && item.id === action.newNodeId)
       );
       if (duplicateExists) return { ok: false, reason: "Questo duplicato esiste gia.", action, tool };
       return { ok: true, action: { ...action, node, nodeId: node.id, nextLabel }, tool };
@@ -3196,7 +4076,7 @@ const openFlowPromptChatDialog = async () => {
       const workspaceId = node.workspaceId || await ensureRuntimeWorkspaceScope();
       const now = new Date().toISOString();
       const basePosition = node.flowPosition || node.position || { x: 0, y: 0 };
-      const id = `agent_duplicate_${safeRuntimeId(workspaceId)}_${safeRuntimeId(node.type || "node")}_${Date.now()}`;
+      const id = action.newNodeId || `agent_duplicate_${safeRuntimeId(workspaceId)}_${safeRuntimeId(node.type || "node")}_${Date.now()}`;
       const nextNode = {
         ...node,
         id,
@@ -3353,6 +4233,7 @@ const openFlowPromptChatDialog = async () => {
           snapshotId: stepSnapshot?.id || "",
           validation: { ok: true, reason: validation.reason || "validated" },
         });
+        await loadRuntime({ force: true });
       }
       const snapshotId = snapshots[0]?.id || "";
       const appliedAt = flowPromptNow();
@@ -3507,16 +4388,20 @@ const openFlowPromptChatDialog = async () => {
     const diagnostics = report.diagnostics || [];
     const intent = report.intent || "summary";
     const query = report.query || {};
+    const queryModel = report.queryModel || {};
     const queryItems = query.items || [];
     const pendingAction = report.pendingAction || null;
     const pendingStatus = flowPromptEffectiveActionStatus(pendingAction);
-    const isApplyPlan = !!pendingAction && ["mutation", "connect", "disconnect", "deleteNode", "duplicateNode", "moveNode", "rename", "config", "fix"].includes(intent);
+    const isApplyPlan = !!pendingAction && ["mutation", "connect", "disconnect", "deleteNode", "duplicateNode", "moveNode", "rename", "config", "fix", "fixRuntimeError"].includes(intent);
     const showOverview = !isApplyPlan;
     const showDiagnostics = intent === "diagnostics";
     const showChannels = ["channels", "database"].includes(intent);
     const showRuntime = ["runtime", "database"].includes(intent);
     const showNodes = ["nodes", "explain"].includes(intent);
     const showEdges = ["edges", "explain"].includes(intent);
+    const showConfig = ["config", "database"].includes(intent);
+    const showMemory = intent === "memory";
+    const wantsRuntimeErrors = intent === "runtime" && flowPromptNormalize(query.filter) === "error";
     const renderChoiceGroup = (label = "", choices = []) =>
       choices.length ? _.div(
         { class: "tl-flow-prompt-choice-group" },
@@ -3570,6 +4455,7 @@ const openFlowPromptChatDialog = async () => {
                 { class: "tl-flow-prompt-endpoint-meta" },
                 _.code(verificationLabel),
                 _.code(candidate.sourceConfidence || "ai-suggested"),
+                candidate.verification?.verifier ? _.code(candidate.verification.verifier) : null,
                 candidate.confidence ? _.code(`confidence: ${candidate.confidence}`) : null
               ),
               candidate.sourceUrl ? _.small(`source: ${candidate.sourceUrl}`) : _.small("source: AI suggestion, verify before production"),
@@ -3584,6 +4470,23 @@ const openFlowPromptChatDialog = async () => {
             }, icon("check", "sm"), "Use") : _.code(candidate.validation?.reason || "non valido")
           );
         })
+      );
+    };
+    const renderDependencyImpact = (item = {}) => {
+      const impact = item.impact || null;
+      if (!impact) return null;
+      const severity = impact.severity || "low";
+      return _.div(
+        { class: `tl-flow-prompt-impact is-${severity}` },
+        _.span(
+          icon(severity === "high" ? "report" : severity === "medium" ? "warning" : "info", "sm"),
+          _.strong(impact.title || "Impatto runtime"),
+          _.code(severity)
+        ),
+        impact.summary ? _.p(impact.summary) : null,
+        impact.items?.length ? _.ul(
+          ...impact.items.slice(0, 6).map((item) => _.li(item))
+        ) : null
       );
     };
     const renderAgentPlanSteps = () => {
@@ -3613,9 +4516,13 @@ const openFlowPromptChatDialog = async () => {
           ? "applied"
           : itemStatus === "ready"
             ? (step.mutates ? "ready to apply" : "ready")
-            : action.choices?.length
-              ? "needs choice"
-              : "blocked";
+            : action.impactOnly
+              ? "impact only"
+              : action.guardReason === "dependency-confirmation-required"
+                ? "needs confirm"
+                : action.choices?.length
+                  ? "needs choice"
+                  : "blocked";
         return _.div(
           { class: `tl-flow-prompt-action-step is-${itemStatus}` },
           _.span({ class: "tl-flow-prompt-step-index" }, String(step.order || "")),
@@ -3632,6 +4539,7 @@ const openFlowPromptChatDialog = async () => {
               step.mutates ? _.small("write") : _.small("read")
             ),
             step.dependsOn?.length ? _.small(`depends on ${step.dependsOn.join(", ")}`) : null,
+            renderDependencyImpact(action),
             renderEndpointCandidates(action)
           ),
           renderChoiceButtons(action)
@@ -3661,12 +4569,212 @@ const openFlowPromptChatDialog = async () => {
           toolRegistry: flowPromptAgentToolManifest(),
           genericPlan: debug.genericPlan || flowPromptDebugAgentPlan(report.agentPlan),
           queryInsights: report.queryInsights || debug.queryInsights,
+          queryModel: report.queryModel || debug.queryModel,
           memory: report.memory || debug.memory,
           normalizedCommand: debug.normalizedCommand,
           localPlan: debug.localPlan,
           aiPlan: debug.aiPlan,
         }, null, 2))
       );
+    };
+    const renderRuntimeRecord = (record = {}) => {
+      const status = record.level || record.status || record.severity || "info";
+      const isError = ["error", "failed", "failure"].includes(flowPromptNormalize(status));
+      const runtimeInsight = (queryModel.runtime?.errorInsights || []).find((item) => item.recordId === record.id)
+        || (isError ? flowPromptRuntimeErrorDiagnosis(context, record) : null);
+      const title = record.message || record.eventType || record.channel || record.id || "runtime";
+      const subtitle = record.nodeId || record.sourceNodeId || record.targetNodeId || record.workspaceId || record.channel || "";
+      const timestamp = record.timestamp || record.createdAt || record.updatedAt || record.at || record.time || "";
+      const details = [
+        ["id", record.id],
+        ["workspace", record.workspaceId],
+        ["run", record.runId || record.context?.runId],
+        ["node", record.nodeId || record.context?.nodeId],
+        ["channel", record.channel],
+        ["event", record.eventType],
+        ["url", record.requestUrl || record.endpoint || record.url || record.context?.requestUrl || record.context?.endpoint || record.context?.url],
+        ["method", record.method || record.context?.method],
+        ["status", record.status || record.context?.status],
+        ["status text", record.statusText || record.context?.statusText],
+        ["kind", record.errorKind || record.context?.errorKind],
+        ["diagnostic", record.diagnostic || record.context?.diagnostic],
+        ["time", timestamp ? new Date(timestamp).toLocaleString() : ""],
+      ].filter(([, value]) => value !== undefined && value !== null && value !== "");
+      return _.details(
+        { class: `tl-flow-prompt-runtime-record ${isError ? "is-error" : "is-info"}` },
+        _.summary(
+          { title: "Apri dettagli runtime" },
+          icon(isError ? "error" : "bolt", "sm"),
+          _.span(_.strong(title), _.em(subtitle || "runtime record")),
+          _.code(status),
+          icon("expand_more", "sm")
+        ),
+        _.div(
+          { class: "tl-flow-prompt-runtime-detail" },
+          runtimeInsight ? _.div(
+            { class: "tl-flow-prompt-runtime-diagnosis" },
+            _.span(
+              { class: "tl-flow-prompt-runtime-diagnosis-head" },
+              icon("medical_information", "sm"),
+              _.strong("Diagnosi runtime"),
+              runtimeInsight.kind ? _.code(runtimeInsight.kind) : null
+            ),
+            _.p(runtimeInsight.cause || "Errore runtime registrato nel flow log."),
+            runtimeInsight.suggestion ? _.small(runtimeInsight.suggestion) : null,
+            _.div(
+              { class: "tl-flow-prompt-runtime-actions" },
+              runtimeInsight.nodeId ? btn({
+                class: "is-ghost",
+                disabled: draft.busy,
+                onclick: (event) => {
+                  event.preventDefault();
+                  focusRuntimeNodeOnCanvas(runtimeInsight.nodeId, { inspector: false });
+                },
+              }, icon("center_focus_strong", "sm"), "Focus") : null,
+              runtimeInsight.canInspect ? btn({
+                class: "is-ghost",
+                disabled: draft.busy,
+                onclick: (event) => {
+                  event.preventDefault();
+                  focusRuntimeNodeOnCanvas(runtimeInsight.nodeId, { inspector: true });
+                },
+              }, icon("right_panel_open", "sm"), "Inspector") : null,
+              runtimeInsight.canRetry ? btn({
+                class: "is-ghost",
+                disabled: draft.busy,
+                onclick: (event) => {
+                  event.preventDefault();
+                  retryRuntimeNodeTest(runtimeInsight.nodeId);
+                },
+              }, icon("play_arrow", "sm"), "Retry") : null,
+              runtimeInsight.nodeId ? btn({
+                class: "is-ghost",
+                disabled: draft.busy,
+                onclick: (event) => {
+                  event.preventDefault();
+                  const recordPart = record.id ? ` record ${record.id}` : "";
+                  const nodePart = runtimeInsight.nodeLabel || runtimeInsight.nodeId;
+                  analyze(`prepara fix errore runtime${recordPart} per nodo "${nodePart}"`);
+                },
+              }, icon("build_circle", "sm"), "Prepare Fix") : null,
+              runtimeInsight.canPrepareEndpointConfig ? btn({
+                class: "is-primary",
+                disabled: draft.busy,
+                onclick: (event) => {
+                  event.preventDefault();
+                  analyze(`configura endpoint di ${runtimeInsight.nodeLabel || runtimeInsight.nodeId}`);
+                },
+              }, icon("edit", "sm"), "Configura URL") : null
+            )
+          ) : null,
+          details.length ? _.div(
+            { class: "tl-flow-prompt-runtime-meta" },
+            ...details.map(([label, value]) => _.span(_.strong(label), _.em(String(value))))
+          ) : null,
+          _.pre(JSON.stringify(record, null, 2))
+        )
+      );
+    };
+    const renderQueryModelDetails = () => {
+      const sections = [];
+      if ((showNodes || showConfig) && queryModel.nodes?.length) {
+        sections.push(_.section(
+          _.h4(`Dettaglio nodi (${queryModel.nodes.length})`),
+          ...queryModel.nodes.slice(0, 5).map((item) => {
+            const node = item.node || {};
+            const connectivity = item.connectivity || {};
+            const configKeys = Object.keys(item.config || {});
+            return _.div(
+              { class: "tl-flow-prompt-query-card" },
+              _.span(
+                { class: "tl-flow-prompt-query-card-head" },
+                icon(node.icon || "extension", "sm"),
+                _.strong(node.label || node.id || "Node"),
+                _.code(node.status || "idle")
+              ),
+              _.div(
+                { class: "tl-flow-prompt-query-card-grid" },
+                _.span(_.strong(String(connectivity.incoming?.length || 0)), _.em("in link")),
+                _.span(_.strong(String(connectivity.outgoing?.length || 0)), _.em("out link")),
+                _.span(_.strong(String(connectivity.channels?.length || 0)), _.em("channels")),
+                _.span(_.strong(String(configKeys.length)), _.em("config"))
+              ),
+              configKeys.length ? _.small(`config: ${configKeys.slice(0, 8).join(", ")}`) : null,
+              connectivity.channels?.length ? _.small(`channels: ${connectivity.channels.slice(0, 8).join(", ")}`) : null
+            );
+          })
+        ));
+      }
+      if ((showChannels || intent === "explain") && queryModel.channels?.length) {
+        sections.push(_.section(
+          _.h4(`Lineage canali (${queryModel.channels.length})`),
+          ...queryModel.channels.slice(0, 8).map((item) =>
+            _.div(
+              { class: "tl-flow-prompt-query-card" },
+              _.span(
+                { class: "tl-flow-prompt-query-card-head" },
+                icon("hub", "sm"),
+                _.strong(item.name || "channel"),
+                _.code(item.channel?.status || item.channel?.health || "active")
+              ),
+              _.div(
+                { class: "tl-flow-prompt-query-card-grid" },
+                _.span(_.strong(String(item.producers?.length || 0)), _.em("producer")),
+                _.span(_.strong(String(item.consumers?.length || 0)), _.em("consumer")),
+                _.span(_.strong(String(item.edges?.length || 0)), _.em("link")),
+                _.span(_.strong(String(item.recentEvents?.length || 0)), _.em("eventi"))
+              ),
+              item.producers?.length ? _.small(`produce: ${item.producers.slice(0, 4).map((node) => node.label || node.id).join(", ")}`) : null,
+              item.consumers?.length ? _.small(`consume: ${item.consumers.slice(0, 4).map((node) => node.label || node.id).join(", ")}`) : null,
+              item.inspect?.references?.length ? _.small(`registry refs: ${item.inspect.references.length}`) : null
+            )
+          )
+        ));
+      }
+      if (showConfig) {
+        const ai = queryModel.settings?.ai || {};
+        sections.push(_.section(
+          _.h4("Settings e AI Runtime"),
+          _.div(
+            { class: "tl-flow-prompt-query-card" },
+            _.span({ class: "tl-flow-prompt-query-card-head" }, icon("tune", "sm"), _.strong("AI Provider"), _.code(ai.provider || "not set")),
+            _.div(
+              { class: "tl-flow-prompt-query-card-grid" },
+              _.span(_.strong(ai.model || "-"), _.em("model")),
+              _.span(_.strong(String(ai.temperature ?? "-")), _.em("temp")),
+              _.span(_.strong(String(ai.maxTokens ?? "-")), _.em("tokens")),
+              _.span(_.strong(ai.localFirst === null ? "-" : String(ai.localFirst)), _.em("local first"))
+            )
+          ),
+          ...(queryModel.aiRuntime?.providers || []).slice(0, 5).map((provider) =>
+            _.div(
+              { class: "tl-flow-prompt-inventory-row" },
+              icon("psychology", "sm"),
+              _.span(_.strong(provider.name || provider.id), _.em(provider.provider || "provider")),
+              _.code(provider.model || provider.status || "configured")
+            )
+          )
+        ));
+      }
+      if (showMemory) {
+        sections.push(_.section(
+          _.h4(`Memoria workspace (${queryModel.memory?.length || 0})`),
+          ...(queryModel.memory?.length ? queryModel.memory.slice(0, 8).map((item) =>
+            _.div(
+              { class: "tl-flow-prompt-query-card" },
+              _.span({ class: "tl-flow-prompt-query-card-head" }, icon("memory", "sm"), _.strong(item.name || item.kind || "Memory"), _.code(item.scope || "workspace")),
+              _.small(item.text || item.summary || item.content || "")
+            )
+          ) : [_.p({ class: "tl-flow-prompt-inventory-empty" }, "Nessuna memoria workspace rilevante.")])
+        ));
+      }
+      if (showRuntime && !wantsRuntimeErrors && queryModel.runtime?.recent?.length) {
+        sections.push(_.section(
+          _.h4("Runtime timeline"),
+          ...queryModel.runtime.recent.slice(0, 8).map(renderRuntimeRecord)
+        ));
+      }
+      return sections;
     };
     const renderDiagnosticsPanel = () => {
       const errors = diagnostics.filter((issue) => issue.severity === "error").length;
@@ -3783,17 +4891,25 @@ const openFlowPromptChatDialog = async () => {
           )
         )
       ) : null,
-      showRuntime && (context.flowLogs?.length || context.events?.length) ? _.section(
+      showRuntime && (context.flowLogs?.length || context.events?.length || wantsRuntimeErrors) ? _.section(
         _.h4(`Runtime recente (${query.filter ? query.total : (context.flowLogs?.length || 0) + (context.events?.length || 0)})`),
-        ...(query.filter ? queryItems : [...(context.flowLogs || []).slice(0, 4), ...(context.events || []).slice(0, 4)]).slice(0, 6).map((record) =>
-          _.div(
-            { class: "tl-flow-prompt-inventory-row" },
-            icon(record.level === "error" || record.status === "error" ? "error" : "bolt", "sm"),
-            _.span(_.strong(record.message || record.eventType || record.channel || record.id || "runtime"), _.em(record.nodeId || record.sourceNodeId || record.targetNodeId || record.workspaceId || "")),
-            _.code(record.level || record.status || "info")
+        ...((wantsRuntimeErrors
+          ? (queryModel.runtime?.errors || [])
+          : query.filter
+            ? queryItems
+            : [...(context.flowLogs || []).slice(0, 4), ...(context.events || []).slice(0, 4)]
+        ).slice(0, 6).map(renderRuntimeRecord)),
+        wantsRuntimeErrors && !(queryModel.runtime?.errors || []).length ? _.div(
+          { class: "tl-flow-prompt-query-card" },
+          _.span(
+            { class: "tl-flow-prompt-query-card-head" },
+            icon("check_circle", "sm"),
+            _.strong("Nessun errore runtime recente"),
+            _.code("clean")
           )
-        )
+        ) : null
       ) : null,
+      ...renderQueryModelDetails(),
       pendingAction ? renderDebugPanel() : null
     );
   };
@@ -3860,6 +4976,11 @@ const openFlowPromptChatDialog = async () => {
           disabled: draft.busy,
           onclick: () => focusAgentNode(message.result.focusNodeId),
         }, icon("right_panel_open", "sm"), "Inspector") : null,
+        message.result.focusNodeId ? btn({
+          class: "is-ghost",
+          disabled: draft.busy,
+          onclick: () => retryRuntimeNodeTest(message.result.focusNodeId),
+        }, icon("play_arrow", "sm"), "Retry") : null,
         message.result.snapshotId ? btn({
           class: "is-ghost",
           disabled: draft.busy,
