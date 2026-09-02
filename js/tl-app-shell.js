@@ -6,7 +6,7 @@
   const outlet = _.main({ class: "tl-desktop-view-outlet", "aria-live": "polite" });
   const setActive = (activeId) => rail.replaceChildren(window.TrackerLensSidebar.render({
     activeId,
-    onGlobalChat: (providerId) => window.TrackerLensOpenFlowPromptChat?.({ providerId }),
+    onGlobalChat: () => window.TrackerLensOpenFlowPromptChat?.(),
   }));
   window.TrackerLensAppShell = { setActive };
   setActive("library");

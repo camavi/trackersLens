@@ -54,8 +54,7 @@ window.TrackerLensSidebar = (() => {
         { class: "tl-view-sidebar-bottom" },
         typeof onGlobalChat === "function" ? _.div(
           { class: "tl-view-global-chat-actions", "aria-label": "Apri AI Flow Chat" },
-          _.Btn({ type: "button", class: "tl-view-side-btn", "aria-label": "Apri AI Flow Chat con Codex", title: "AI Flow Chat · Codex", onclick: () => onGlobalChat("codex") }, _.Icon({ name: "terminal", size: "md" })),
-          _.Btn({ type: "button", class: "tl-view-side-btn", "aria-label": "Apri AI Flow Chat con Claude", title: "AI Flow Chat · Claude", onclick: () => onGlobalChat("claude") }, _.Icon({ name: "auto_awesome", size: "md" }))
+          _.Btn({ type: "button", class: "tl-view-side-btn", "aria-label": "Apri AI Chat", title: "AI Chat", onclick: () => onGlobalChat() }, _.Icon({ name: "auto_awesome", size: "md" }))
         ) : null,
         _.Btn(
           {

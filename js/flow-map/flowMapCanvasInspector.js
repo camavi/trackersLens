@@ -389,14 +389,6 @@ const renderCanvasNodeMenu = () =>
     );
   })();
 
-const renderPromptChatTrigger = () =>
-  flowMapBtn({
-    class: "tl-flow-prompt-chat-btn",
-    title: "AI Flow Chat",
-    "aria-label": "Open AI Flow Chat",
-    onclick: () => openFlowPromptChatDialog(),
-  }, flowMapIcon("auto_awesome", "sm"), "AI Chat");
-
 const renderFilterbar = () =>
   _.div(
     { class: "tl-flow-filterbar" },
@@ -9087,7 +9079,6 @@ const renderShell = () =>
         _.div({ class: "tl-flow-center" }, renderCanvas()),
         renderStatusBar()
       ),
-      renderPromptChatTrigger(),
       state.inspectorOpen ? _.div({ class: "tl-flow-inspector-overlay" }, renderInspector()) : null,
       renderNodeContextMenu(),
       renderCanvasNodeMenu()
