@@ -6013,7 +6013,6 @@ const openFlowPromptChatDialog = async (options = {}) => {
   };
   let aside = null;
   let stopLoginProgress = null;
-  let providerStatusTimer = null;
   let stopProviderChoice = null;
 
   const activeMessages = () => Array.isArray(draft.activeChat?.messages) ? draft.activeChat.messages : [];
@@ -6406,6 +6405,21 @@ const openFlowPromptChatDialog = async (options = {}) => {
     const effectivePrompt = String(prompt || "").trim();
     if (!effectivePrompt) return null;
     const conversationContext = flowPromptConversationContext(activeMessages(), effectivePrompt);
+    // An external provider owns the conversational decision.  The legacy Flow
+    // keyword classifier must not turn words such as "model" or "config" into
+    // a TL command before Codex/Claude have seen the user's actual request.
+    if (selectedProviderIsExternal()) {
+      const reply = await buildSelectedConversationalReply(promptForBrain || effectivePrompt, { conversationContext });
+      draft.analysis = null;
+      return appendMessage({
+        role: "assistant",
+        kind: "text",
+        content: reply,
+        providerId: selectedProviderId(),
+        compactNatural: true,
+        refinedFrom,
+      });
+    }
     if (!forceAgentReport && flowPromptIsSimpleDefinitionQuestion(effectivePrompt)) {
       const reply = selectedProviderIsExternal()
         ? await buildSelectedConversationalReply(promptForBrain || effectivePrompt, { conversationContext })
@@ -6770,6 +6784,28 @@ const openFlowPromptChatDialog = async (options = {}) => {
     try {
       await appendMessage({ role: "user", kind: "prompt", content: prompt });
       const conversationContext = flowPromptConversationContext(activeMessages(), prompt);
+      // Codex and Claude are not an extra response style for the legacy Flow
+      // Agent. They are the selected agent: pass the prompt through intact and
+      // let the provider decide whether it needs a TL tool in a later tool loop.
+      if (selectedProviderIsExternal()) {
+        setActivity({
+          label: "Invio al provider",
+          detail: `${flowPromptExternalProviderLabel(selectedProviderId())} riceve il tuo prompt senza classificatori Flow Map intermedi.`,
+          steps: ["Prompt ricevuto", "Provider selezionato", "Risposta del provider"],
+        });
+        const reply = await buildSelectedConversationalReply(prompt, { conversationContext });
+        draft.analysis = null;
+        await appendMessage({
+          role: "assistant",
+          kind: "text",
+          content: reply,
+          providerId: selectedProviderId(),
+          compactNatural: true,
+        });
+        draft.prompt = "";
+        setActivity(null);
+        return;
+      }
       setActivity({
         label: "Analisi richiesta",
         detail: "Sto decidendo se usare i comandi Flow Map o il planner di creazione.",
@@ -9176,8 +9212,6 @@ const openFlowPromptChatDialog = async (options = {}) => {
     stopLoginProgress = null;
     if (stopProviderChoice) window.removeEventListener("trackerslens:flow-prompt-provider", stopProviderChoice);
     stopProviderChoice = null;
-    if (providerStatusTimer) window.clearInterval(providerStatusTimer);
-    providerStatusTimer = null;
     flowPromptSaveOpenState(false, draft.workspaceId || workspaceId);
     aside.classList.remove("is-open");
     window.setTimeout(() => aside?.remove?.(), 180);
@@ -9247,9 +9281,6 @@ const openFlowPromptChatDialog = async (options = {}) => {
       else refresh();
     });
   }
-  providerStatusTimer = window.setInterval(() => {
-    if (selectedProviderIsExternal() && !draft.busy) void refreshProviderStatus({ quiet: false });
-  }, 3500);
   requestAnimationFrame(() => {
     aside?.classList.add("is-open");
     if (!options.restore) aside?.querySelector("textarea")?.focus?.();
