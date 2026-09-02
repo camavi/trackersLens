@@ -37,6 +37,7 @@ const SQLITE_REPOSITORY_STORES = Object.freeze([
   "tl_ai_prompts",
   "tl_ai_prompt_flows",
   "tl_ai_metrics",
+  "tl_ai_global_chats",
   "tl_flow_prompt_chats",
   "tl_knowledge_documents",
   "tl_knowledge_chunks",

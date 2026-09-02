@@ -2,6 +2,7 @@ const { app, BrowserWindow, dialog, ipcMain, nativeImage, shell, session } = req
 const fs = require("node:fs");
 const crypto = require("node:crypto");
 const path = require("node:path");
+const { spawn } = require("node:child_process");
 const { pathToFileURL } = require("node:url");
 const { createTlCore } = require("../core/desktop/tl-core.cjs");
 const { ManagedPythonRuntime } = require("../core/desktop/managed-python-runtime.cjs");
@@ -12,6 +13,7 @@ const { CustomNodeSandboxBroker } = require("../core/desktop/custom-node-sandbox
 const { CustomNodeElectronRunner } = require("../core/desktop/custom-node-electron-runner.cjs");
 const { CustomNodeToolDispatcher } = require("../core/desktop/custom-node-tool-dispatcher.cjs");
 const { DesktopPersistence } = require("../core/desktop/desktop-persistence.cjs");
+const { ExternalAiProviderBridge } = require("../core/desktop/external-ai-provider-bridge.cjs");
 const { PythonPackResolver } = require("../core/runtime/python-pack-resolver.cjs");
 const nlpPackManifest = require("../runtimes/python/packs/nlp/pack.json");
 const ragPackManifest = require("../runtimes/python/packs/rag/pack.json");
@@ -65,6 +67,83 @@ let pythonGraphRelations = null;
 let persistence = null;
 let customNodePackageManager = null;
 let customNodeSandboxRunner = null;
+let externalAiProviderBridge = null;
+const externalAiLoginRuns = new Map();
+const launchExternalAiLogin = async (provider) => {
+  const executable = String(provider?.executable || "");
+  const executablePath = String(provider?.executablePath || "");
+  const command = String(provider?.loginCommand || "");
+  if (executable !== "codex" || command !== "codex login") {
+    throw Object.assign(new Error("Il login in background è al momento disponibile per Codex. Claude mantiene il proprio login ufficiale separato."), { code: "EXTERNAL_AI_BACKGROUND_LOGIN_UNAVAILABLE" });
+  }
+  if (!executablePath || !fs.existsSync(executablePath)) throw Object.assign(new Error("Eseguibile del provider non disponibile."), { code: "EXTERNAL_AI_EXECUTABLE_UNAVAILABLE" });
+  if (externalAiLoginRuns.has(executable)) return { started: true, alreadyRunning: true };
+  const directory = fs.mkdtempSync(path.join(app.getPath("temp"), "trackers-lens-ai-login-"));
+  // This deliberately mirrors the normal `codex login` experience: the CLI
+  // starts its local callback server and returns from the browser OAuth flow.
+  // Device authorization is a separate, opt-in flow requiring a user code.
+  const child = spawn(executablePath, ["login"], { cwd: directory, stdio: ["ignore", "pipe", "pipe"], windowsHide: true });
+  externalAiLoginRuns.set(executable, { child, directory });
+  let browserOpened = false;
+  const publish = (status, message = "") => BrowserWindow.getAllWindows().forEach((window) => window.webContents.send("trackers-core:external-ai-login-progress", { provider: executable, status, message }));
+  const observe = (chunk) => {
+    const message = String(chunk || "").replace(/\u001B\[[0-?]*[ -/]*[@-~]/gu, "");
+    publish("waiting-for-authorization", message);
+    const url = message.match(/https:\/\/[^\s]+/u)?.[0] || "";
+    if (!browserOpened && url) {
+      browserOpened = true;
+      void shell.openExternal(url);
+    }
+  };
+  child.stdout.on("data", observe);
+  child.stderr.on("data", observe);
+  child.once("error", (error) => {
+    externalAiLoginRuns.delete(executable);
+    fs.rmSync(directory, { recursive: true, force: true });
+    publish("error", error?.message || "Login Codex non avviato.");
+  });
+  child.once("close", (code) => {
+    externalAiLoginRuns.delete(executable);
+    fs.rmSync(directory, { recursive: true, force: true });
+    publish(code === 0 ? "completed" : "error", code === 0 ? "Login Codex completato." : `Login Codex terminato con codice ${code}.`);
+  });
+  return { started: true, background: true };
+};
+const collectAssistantText = (value) => {
+  if (!value || typeof value !== "object") return "";
+  if (typeof value.text === "string") return value.text;
+  if (Array.isArray(value)) return value.map(collectAssistantText).filter(Boolean).join("");
+  return Object.values(value).map(collectAssistantText).filter(Boolean).join("");
+};
+const runExternalAiChat = async (provider, prompt) => {
+  const executable = provider.executablePath || provider.executable;
+  const args = provider.id === "codex"
+    ? ["exec", "--json", "--sandbox", "read-only", "--skip-git-repo-check", "--ephemeral", ...(provider.model ? ["--model", provider.model] : []), ...(provider.reasoningEffort ? ["-c", `model_reasoning_effort=${JSON.stringify(provider.reasoningEffort)}`] : []), ...(provider.speed === "fast" ? ["-c", "service_tier=\"fast\""] : []), "-"]
+    : ["-p", "--output-format", "json", "--max-turns", "1", "--permission-mode", "plan", ...(provider.model ? ["--model", provider.model] : [])];
+  const directory = fs.mkdtempSync(path.join(app.getPath("temp"), "trackers-lens-ai-chat-"));
+  return new Promise((resolve, reject) => {
+    const child = spawn(executable, args, { cwd: directory, stdio: ["pipe", "pipe", "pipe"], windowsHide: true });
+    let stdout = "";
+    let stderr = "";
+    child.stdout.on("data", (chunk) => { stdout += String(chunk); });
+    child.stderr.on("data", (chunk) => { stderr += String(chunk); });
+    child.once("error", (error) => { fs.rmSync(directory, { recursive: true, force: true }); reject(error); });
+    child.once("close", (code) => {
+      fs.rmSync(directory, { recursive: true, force: true });
+      if (code !== 0) return reject(Object.assign(new Error(stderr || `${provider.label} ha terminato con codice ${code}.`), { code: "EXTERNAL_AI_CHAT_FAILED" }));
+      let result = null;
+      if (provider.id === "claude") {
+        try { result = JSON.parse(stdout); } catch (_) { result = null; }
+      } else {
+        const events = stdout.split(/\r?\n/).filter(Boolean).map((line) => { try { return JSON.parse(line); } catch (_) { return { raw: line }; } });
+        const completed = events.filter((event) => event.type === "item.completed");
+        result = { result: completed.map((event) => collectAssistantText(event.item || {})).filter(Boolean).join("\n"), events };
+      }
+      resolve({ provider: provider.id, text: String(result?.result || ""), raw: result || { raw: stdout }, stderr: stderr || "", sandbox: "isolated-read-only" });
+    });
+    child.stdin.end(prompt);
+  });
+};
 const pendingCustomNodeImports = new Map();
 const createPythonNlpRuntime = () => {
   if (!fs.existsSync(pythonNlpPythonPath)) return null;
@@ -331,6 +410,7 @@ ipcMain.handle("trackers-custom-node-sandbox:tool", (event, message) => {
 
 app.whenReady().then(() => {
   persistence = new DesktopPersistence({ databasePath: path.join(app.getPath("userData"), "trackers-lens.sqlite") });
+  externalAiProviderBridge = new ExternalAiProviderBridge({ loginLauncher: launchExternalAiLogin, chatRunner: runExternalAiChat });
   customNodePackageManager = new CustomNodePackageManager({
     packagesDirectory: path.join(app.getPath("userData"), "custom-node-packages"),
     persistence
@@ -438,6 +518,7 @@ app.whenReady().then(() => {
       pythonPackInstaller,
       customNodePackages,
       customNodeSandbox: customNodePackages,
+      externalAi: externalAiProviderBridge,
       persistence
     }
   });

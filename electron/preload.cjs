@@ -8,6 +8,18 @@ const trackers = Object.freeze({
   desktop: Object.freeze({
     getStatus: () => request("desktop.getStatus"),
     openExternal: (url) => request("desktop.openExternal", { url: String(url || "") }),
+    externalAi: Object.freeze({
+      getStatus: ({ provider } = {}) => request("desktop.externalAi.getStatus", { provider: String(provider || "") }),
+      onLoginProgress: (listener) => {
+        if (typeof listener !== "function") return () => {};
+        const handler = (_event, progress) => listener(progress && typeof progress === "object" ? progress : {});
+        ipcRenderer.on("trackers-core:external-ai-login-progress", handler);
+        return () => ipcRenderer.removeListener("trackers-core:external-ai-login-progress", handler);
+      },
+      startLogin: ({ provider, confirmed = false } = {}) => request("desktop.externalAi.startLogin", { provider: String(provider || ""), confirmed: Boolean(confirmed) }),
+      sendMessage: ({ provider, prompt, model, reasoningEffort, speed } = {}) => request("desktop.externalAi.sendMessage", { provider: String(provider || ""), prompt: String(prompt || ""), model: String(model || ""), reasoningEffort: String(reasoningEffort || ""), speed: String(speed || "") }),
+      logout: ({ provider, confirmed = false } = {}) => request("desktop.externalAi.logout", { provider: String(provider || ""), confirmed: Boolean(confirmed) })
+    }),
     persistence: Object.freeze({
       getStatus: () => request("desktop.persistence.getStatus"),
       planImport: (bundle = {}) => request("desktop.persistence.planImport", { bundle }),

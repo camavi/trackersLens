@@ -77,6 +77,11 @@ body .tl-brand-lockup .cms-icon {
   justify-items: center;
 }
 
+.tl-view-global-chat-actions {
+  display: grid;
+  gap: 8px;
+}
+
 .tl-view-profile.cms-btn {
   position: relative;
   width: 48px;

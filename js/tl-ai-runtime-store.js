@@ -9,6 +9,7 @@ window.TrackerLensAiRuntimeStore = (() => {
     prompts: "tl_ai_prompts",
     promptFlows: "tl_ai_prompt_flows",
     metrics: "tl_ai_metrics",
+    globalChats: "tl_ai_global_chats",
   };
   const BASE_STORES = ["tl_widgets", "tl_pages", "tl_connections"];
   const MEMORY_SCOPES = ["short", "workspace", "global"];
@@ -112,6 +113,7 @@ window.TrackerLensAiRuntimeStore = (() => {
       local,
       priority: Number(content.priority || (local ? 50 : 100)),
       icon: normalizeText(content.icon, local ? "memory" : "psychology"),
+      activation: content.activation && typeof content.activation === "object" ? content.activation : {},
       updatedAt: normalizeText(content.updatedAt || record?.updatedAt || content.createdAt || record?.createdAt),
       raw: record,
     };
@@ -555,7 +557,7 @@ window.TrackerLensAiRuntimeStore = (() => {
 
   const list = async () => {
     const persistence = await ensureStores();
-    const [providerRecords, agentRecords, runtimeRecords, jobRecords, logRecords, memoryRecords, promptRecords, promptFlowRecords, metricRecords, widgetRecords, pageRecords, connectionRecords] = await Promise.all([
+    const [providerRecords, agentRecords, runtimeRecords, jobRecords, logRecords, memoryRecords, promptRecords, promptFlowRecords, metricRecords, globalChatRecords, widgetRecords, pageRecords, connectionRecords] = await Promise.all([
       readAllFromDb(persistence, STORES.providers),
       readAllFromDb(persistence, STORES.agents),
       readAllFromDb(persistence, STORES.runtime),
@@ -565,6 +567,7 @@ window.TrackerLensAiRuntimeStore = (() => {
       readAllFromDb(persistence, STORES.prompts),
       readAllFromDb(persistence, STORES.promptFlows),
       readAllFromDb(persistence, STORES.metrics),
+      readAllFromDb(persistence, STORES.globalChats),
       readAllFromDb(persistence, "tl_widgets"),
       readAllFromDb(persistence, "tl_pages"),
       window.TrackerLensConnectionsStore?.list?.() || readAllFromDb(persistence, "tl_connections"),
@@ -604,6 +607,7 @@ window.TrackerLensAiRuntimeStore = (() => {
       promptFlows: [...promptRecords, ...promptFlowRecords].map(normalizePromptFlow),
       runtime: runtimeRecords.map(normalizeRuntimeAgent),
       metrics: metricRecords.map(normalizeMetric),
+      globalChats: globalChatRecords,
       widgets,
       pages,
       connections,
@@ -638,6 +642,15 @@ window.TrackerLensAiRuntimeStore = (() => {
     upsertLog: (record) => write(STORES.logs, record),
     upsertMemory: remember,
     upsertMetric: (record) => write(STORES.metrics, record),
+    listGlobalChats: async (provider = "") => {
+      const persistence = await ensureStores();
+      const records = await readAllFromDb(persistence, STORES.globalChats);
+      return records
+        .filter((record) => !provider || String(record.provider || record.content?.provider || "") === provider)
+        .sort((a, b) => new Date(b.updatedAt || 0) - new Date(a.updatedAt || 0));
+    },
+    upsertGlobalChat: (record) => write(STORES.globalChats, record),
+    deleteGlobalChat: (id) => deleteRecord(STORES.globalChats, id),
     upsertPrompt: (record) => write(STORES.prompts, record),
     upsertPromptFlow: (record) => write(STORES.prompts, record),
     deletePromptFlow: async (id) => {

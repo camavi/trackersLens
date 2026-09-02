@@ -4,7 +4,10 @@
 
   const rail = _.div({ class: "tl-desktop-nav-rail" });
   const outlet = _.main({ class: "tl-desktop-view-outlet", "aria-live": "polite" });
-  const setActive = (activeId) => rail.replaceChildren(window.TrackerLensSidebar.render({ activeId }));
+  const setActive = (activeId) => rail.replaceChildren(window.TrackerLensSidebar.render({
+    activeId,
+    onGlobalChat: (providerId) => window.TrackerLensOpenFlowPromptChat?.({ providerId }),
+  }));
   window.TrackerLensAppShell = { setActive };
   setActive("library");
   root.replaceChildren(

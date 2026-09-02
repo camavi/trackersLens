@@ -11,6 +11,7 @@ const { RuntimeManager } = require("../core/runtime/runtime-manager.js");
 const { PythonPackResolver } = require("../core/runtime/python-pack-resolver.cjs");
 const { PythonRuntimeCatalog } = require("../core/desktop/python-runtime-catalog.cjs");
 const { ManagedPythonPackInstaller } = require("../core/desktop/managed-python-pack-installer.cjs");
+const { ExternalAiProviderBridge } = require("../core/desktop/external-ai-provider-bridge.cjs");
 const ragPackManifest = require("../runtimes/python/packs/rag/pack.json");
 const annotationsPackManifest = require("../runtimes/python/packs/annotations/pack.json");
 const graphRelationsPackManifest = require("../runtimes/python/packs/graph-relations/pack.json");
@@ -150,6 +151,37 @@ test("TL Core permits only validated external URL requests", async () => {
   await assert.rejects(core.request("desktop.openExternal", { url: "file:///etc/passwd" }), /not allowed/);
   await assert.rejects(core.request("storage.read"), /Unsupported TL Core command/);
   assert.deepEqual(opened, ["https://trackerslens.com"]);
+});
+
+test("external AI provider bridge reports only CLI availability and never credentials", async () => {
+  const launches = [];
+  const bridge = new ExternalAiProviderBridge({
+    versionReader: (executable) => executable === "codex" ? { installed: true, version: "codex 1.2.3" } : { installed: false, version: "" },
+    executableResolver: (executable) => executable,
+    authenticationReader: (provider) => ({ authenticated: provider.id === "codex" }),
+    logoutRunner: () => ({ loggedOut: true }),
+    loginLauncher: async (provider) => launches.push(provider),
+    chatRunner: async (provider, prompt) => ({ provider: provider.id, text: `risposta: ${prompt}`, raw: { type: "fixture" }, sandbox: "isolated-read-only" })
+  });
+  const core = createTlCore({ adapters: { externalAi: bridge } });
+  const codex = await core.request("desktop.externalAi.getStatus", { provider: "codex" });
+  const claude = await core.request("desktop.externalAi.getStatus", { provider: "claude" });
+
+  assert.equal(codex.installed, true);
+  assert.equal(codex.authenticated, true);
+  assert.equal(codex.version, "codex 1.2.3");
+  assert.equal(codex.credentialAccess, "provider-owned-only");
+  assert.equal(claude.installed, false);
+  await assert.rejects(core.request("desktop.externalAi.startLogin", { provider: "codex" }), /requires confirmation/);
+  const login = await core.request("desktop.externalAi.startLogin", { provider: "codex", confirmed: true });
+  assert.equal(login.launched, true);
+  assert.deepEqual(launches.map((provider) => provider.loginCommand), ["codex login"]);
+  const response = await core.request("desktop.externalAi.sendMessage", { provider: "codex", prompt: "ciao" });
+  assert.equal(response.text, "risposta: ciao");
+  await assert.rejects(core.request("desktop.externalAi.sendMessage", { provider: "codex", prompt: "" }), /non può essere vuoto/);
+  await assert.rejects(core.request("desktop.externalAi.logout", { provider: "codex" }), /requires confirmation/);
+  assert.equal((await core.request("desktop.externalAi.logout", { provider: "codex", confirmed: true })).loggedOut, true);
+  await assert.rejects(core.request("desktop.externalAi.getStatus", { provider: "unknown" }), /non supportato/);
 });
 
 test("desktop persistence exposes only status and an allow-listed import plan", async (context) => {

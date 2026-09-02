@@ -30,6 +30,7 @@ const createTlCore = ({ appVersion = "0.0.0", platform = "unknown", mode = "prod
   const customNodePackages = adapters.customNodePackages || null;
   const customNodeSandbox = adapters.customNodeSandbox || null;
   const persistence = adapters.persistence || null;
+  const externalAi = adapters.externalAi || null;
   const flags = { ...DEFAULT_FEATURE_FLAGS, ...featureFlags };
 
   const getDesktopStatus = () => ({
@@ -61,6 +62,20 @@ const createTlCore = ({ appVersion = "0.0.0", platform = "unknown", mode = "prod
         await openExternal(url);
         return { opened: true };
       }
+      case "desktop.externalAi.getStatus":
+        if (!externalAi?.getStatus) throw errorWithCode("External AI provider bridge is unavailable", "EXTERNAL_AI_UNAVAILABLE");
+        return externalAi.getStatus({ provider: String(payload?.provider || "") });
+      case "desktop.externalAi.startLogin":
+        if (!externalAi?.startLogin) throw errorWithCode("External AI provider bridge is unavailable", "EXTERNAL_AI_UNAVAILABLE");
+        if (!payload?.confirmed) throw errorWithCode("External AI login requires confirmation", "EXTERNAL_AI_LOGIN_CONFIRMATION_REQUIRED");
+        return externalAi.startLogin({ provider: String(payload?.provider || "") });
+      case "desktop.externalAi.sendMessage":
+        if (!externalAi?.sendMessage) throw errorWithCode("External AI provider bridge is unavailable", "EXTERNAL_AI_UNAVAILABLE");
+        return externalAi.sendMessage({ provider: String(payload?.provider || ""), prompt: String(payload?.prompt || ""), model: String(payload?.model || ""), reasoningEffort: String(payload?.reasoningEffort || ""), speed: String(payload?.speed || "") });
+      case "desktop.externalAi.logout":
+        if (!externalAi?.logout) throw errorWithCode("External AI provider bridge is unavailable", "EXTERNAL_AI_UNAVAILABLE");
+        if (!payload?.confirmed) throw errorWithCode("External AI logout requires confirmation", "EXTERNAL_AI_LOGOUT_CONFIRMATION_REQUIRED");
+        return externalAi.logout({ provider: String(payload?.provider || "") });
       case "desktop.persistence.getStatus":
         if (!persistence?.getStatus) throw errorWithCode("Desktop persistence is unavailable", "PERSISTENCE_UNAVAILABLE");
         return persistence.getStatus();

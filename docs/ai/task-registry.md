@@ -7,6 +7,24 @@ Last updated: 2026-09-02.
 
 ## Active
 
+### TASK-032: Unified Flow Map Chat Providers
+
+Status: Started. Add Codex and Claude as explicit providers of the existing single Flow Map Chat without replacing TL's local-first Agent Runtime.
+Priority: High.
+Risk: High because provider authentication, credential storage, external context transfer and mutation authority must remain explicit and secure.
+
+Current sub-steps:
+
+- Unified surface: implemented. The separate dock is retired, while the persistent desktop sidebar keeps Codex (`terminal`) and Claude (`auto_awesome`) entry buttons on every route. Both open the one persistent Flow Map Chat, select the requested provider and preserve its open state across navigation. Every saved Flow chat records its selected `Locale`, `Codex` or `Claude` provider and renders one compact provider selector above the thread.
+- Chat settings and consent: implemented. A compact header `Impostazioni chat` dialog owns provider, optional model and per-chat consent. Codex and Claude pass an explicitly selected model as a process argument only; leaving it empty retains the provider default. The only external context permission currently available is user-confirmed Flow-summary sharing (node/link/channel/event counts). Filesystem, document contents and mutation access cannot be enabled there.
+- Activation: implemented in the settings dialog. Selecting Codex/Claude reads status through the Core bridge and exposes `Salva e accedi` only through an explicit user action. The dialog refreshes after login lifecycle events; it never invents an endpoint, performs a fake login or accepts an API key in the renderer.
+- CLI bridge status: implemented. `core/desktop/external-ai-provider-bridge.cjs` owns an allow-listed `codex --version` / `claude --version` availability check. It resolves only the standard local CLI locations and the installed OpenAI VS Code extension binary when Electron's PATH omits it; the preload exposes only installed/version status and never returns a path, shell handle, credential or token. The activation dialog now reports installed/not installed and opens only each vendor's official installation guide.
+- Official login launcher: implemented for macOS. After an explicit click, Core creates a mode-`0700` one-shot temporary Terminal command containing only `codex login` or `claude`; it rejects every other executable/command and deletes the launcher before executing. The renderer cannot provide shell text, paths or credentials.
+- Codex background login: implemented. The former visible-Terminal launcher is replaced for Codex by the same official `codex login` local-callback OAuth flow, owned by Main and never exposed to the renderer. Device authorization is deliberately not used because it is a distinct user-code flow that requires an account security opt-in. Core observes output only to open the official HTTPS authorization page and publish `waiting-for-authorization` / completion/error lifecycle events to the dock. The temporary isolated working directory is removed on termination. Claude remains on its separate official login path until its equivalent background OAuth lifecycle is implemented.
+- Authentication state: implemented. Core queries only the official `codex login status` / `claude auth status` commands and returns the boolean authenticated state, never credentials or raw output. The selector disables its composer until the selected external provider is connected.
+- Restricted first chat transport: implemented. A user message is passed to the installed CLI through Core stdin only. Codex runs `exec --json` with `read-only`, `--ephemeral` and an isolated temporary working directory; Claude runs documented non-interactive JSON mode, `--max-turns 1`, plan permission mode and the same isolation. The selected provider receives the prompt and limited chat history, not filesystem or Flow access.
+- Next: show provider/session provenance per message, add supported conversation continuation and an explicit, inspectable Flow-context attachment flow. Flow mutations stay registered-tool plus safe-executor only.
+
 ### TASK-031: Persistent Desktop Shell Navigation
 
 Status: Started. Replace document-level sidebar navigation with one Electron renderer shell, internal History API routes and explicit view lifecycles. This is a desktop-app migration, not a cosmetic SPA overlay.

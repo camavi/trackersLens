@@ -74,9 +74,58 @@ const flowPromptNewChat = (workspaceId = currentWorkspaceId()) => ({
   workspaceId,
   title: "Nuova chat",
   messages: [],
+  // The chat owns its provider choice.  "local" keeps the configured TL AI
+  // provider; external providers are intentionally explicit per chat.
+  providerId: "local",
+  providerModel: "",
+  providerReasoningEffort: "medium",
+  providerSpeed: "standard",
+  permissions: { flowSummary: false },
   createdAt: flowPromptNow(),
   updatedAt: flowPromptNow(),
 });
+
+const FLOW_PROMPT_EXTERNAL_PROVIDER_IDS = new Set(["codex", "claude"]);
+
+const flowPromptExternalProviderLabel = (providerId = "") => ({
+  codex: "Codex",
+  claude: "Claude",
+}[providerId] || "Provider esterno");
+
+const flowPromptExternalProviderStatus = async (providerId = "") => {
+  if (!FLOW_PROMPT_EXTERNAL_PROVIDER_IDS.has(providerId)) return null;
+  const api = window.trackers?.desktop?.externalAi?.getStatus;
+  if (typeof api !== "function") {
+    return { provider: providerId, installed: false, authenticated: false, message: "Il bridge desktop AI non è disponibile." };
+  }
+  return api({ provider: providerId });
+};
+
+const flowPromptBuildExternalReply = async (providerId = "", prompt = "", { conversationContext = null, model = "", reasoningEffort = "", speed = "", shareFlowSummary = false } = {}) => {
+  const provider = String(providerId || "").toLowerCase();
+  if (!FLOW_PROMPT_EXTERNAL_PROVIDER_IDS.has(provider)) throw new Error("Provider esterno non valido.");
+  const status = await flowPromptExternalProviderStatus(provider);
+  if (!status?.installed) throw new Error(`${flowPromptExternalProviderLabel(provider)} non è installato. Apri il selettore provider per installarlo.`);
+  if (!status?.authenticated) throw new Error(`${flowPromptExternalProviderLabel(provider)} non è collegato. Apri il selettore provider e completa l'accesso ufficiale.`);
+  const api = window.trackers?.desktop?.externalAi?.sendMessage;
+  if (typeof api !== "function") throw new Error("Il bridge desktop AI non è disponibile.");
+  const history = conversationContext?.recent?.length
+    ? `Cronologia chat (solo testo, ultimi messaggi):\n${conversationContext.recent.map((item) => `${item.role}: ${item.content}`).join("\n")}`
+    : "";
+  const flowSummary = shareFlowSummary
+    ? await flowPromptAgentContext().then((context) => `Flow summary esplicitamente autorizzato: ${context.nodes.length} nodi, ${context.edges.length} link, ${context.channels.length} canali, ${context.events.length} eventi recenti.`).catch(() => "")
+    : "";
+  const request = [
+    "You are the selected external assistant inside Trackers Lens Flow Map Chat.",
+    "Answer in the user's language. You can advise and explain, but cannot apply changes to the Flow Map.",
+    "Never claim to have filesystem, terminal, browser, or workspace access. Any Flow change remains a separate confirmed TL action.",
+    history,
+    flowSummary,
+    `User request: ${String(prompt || "").trim()}`,
+  ].filter(Boolean).join("\n\n");
+  const response = await api({ provider, prompt: request, model: String(model || "").trim(), reasoningEffort, speed });
+  return String(response?.text || "").trim() || "Non ho ricevuto una risposta dal provider esterno.";
+};
 
 const flowPromptPlanSnapshot = (analysis = {}) => ({
   prompt: analysis.prompt || "",
@@ -5253,7 +5302,7 @@ const flowPromptBuildConversationalReply = async (prompt = "", options = {}) => 
     return fallbackReply || "Posso rispondere alle domande sul Flow Map, ma non trovo un provider AI configurato per una risposta generale.";
   }
   const context = includeRuntimeContext ? await flowPromptAgentContext().catch(() => null) : null;
-  const model = aiSettings.model || provider.model;
+  const model = String(options.model || aiSettings.model || provider.model || "").trim();
   const system = [
     "You are the Trackers Lens Flow Map assistant.",
     flowPromptLanguageRule(prompt),
@@ -5938,6 +5987,9 @@ const openFlowPromptChatDialog = async (options = {}) => {
   if (existingAside) {
     flowPromptSaveOpenState(true);
     existingAside.classList.add("is-open");
+    if (["local", ...FLOW_PROMPT_EXTERNAL_PROVIDER_IDS].includes(options.providerId)) {
+      window.dispatchEvent(new CustomEvent("trackerslens:flow-prompt-provider", { detail: { providerId: options.providerId } }));
+    }
     if (!options.restore) existingAside.querySelector("textarea")?.focus?.();
     return;
   }
@@ -5956,19 +6008,103 @@ const openFlowPromptChatDialog = async (options = {}) => {
     error: "",
     dismissedIntroChatIds: new Set(),
     view: "chat",
+    providerStatus: null,
+    providerLoading: false,
   };
   let aside = null;
+  let stopLoginProgress = null;
+  let providerStatusTimer = null;
+  let stopProviderChoice = null;
 
   const activeMessages = () => Array.isArray(draft.activeChat?.messages) ? draft.activeChat.messages : [];
 
   const setActiveChat = (chat) => {
-    draft.activeChat = chat || flowPromptNewChat(draft.workspaceId);
+    draft.activeChat = { providerId: "local", providerModel: "", providerReasoningEffort: "medium", providerSpeed: "standard", permissions: { flowSummary: false }, ...(chat || flowPromptNewChat(draft.workspaceId)), permissions: { flowSummary: false, ...(chat?.permissions || {}) } };
+    // Remove the short-lived static catalog used before provider discovery was
+    // corrected; it was not an account-scoped Codex capability list.
+    if (["gpt-5.3-codex", "gpt-5.2-codex", "opus", "sonnet", "haiku"].includes(draft.activeChat.providerModel)) draft.activeChat.providerModel = "";
     draft.view = "chat";
     draft.prompt = "";
     draft.analysis = null;
     draft.result = null;
     draft.activity = null;
     draft.error = "";
+    draft.providerStatus = null;
+  };
+
+  const selectedProviderId = () => String(draft.activeChat?.providerId || "local").toLowerCase();
+  const selectedProviderModel = () => String(draft.activeChat?.providerModel || "").trim();
+  const selectedProviderIsExternal = () => FLOW_PROMPT_EXTERNAL_PROVIDER_IDS.has(selectedProviderId());
+
+  const refreshProviderStatus = async ({ quiet = false } = {}) => {
+    if (!selectedProviderIsExternal()) {
+      draft.providerStatus = null;
+      if (!quiet) refresh();
+      return null;
+    }
+    try {
+      const status = await flowPromptExternalProviderStatus(selectedProviderId());
+      draft.providerStatus = status;
+      return status;
+    } catch (error) {
+      draft.providerStatus = { provider: selectedProviderId(), installed: false, authenticated: false, message: error?.message || "Stato provider non disponibile." };
+      return draft.providerStatus;
+    } finally {
+      if (!quiet) refresh();
+    }
+  };
+
+  const chooseProvider = async (providerId = "local") => {
+    if (draft.busy || !["local", ...FLOW_PROMPT_EXTERNAL_PROVIDER_IDS].includes(providerId)) return;
+    draft.activeChat = { ...draft.activeChat, providerId, updatedAt: flowPromptNow() };
+    draft.error = "";
+    await persistActiveChat();
+    await refreshProviderStatus();
+  };
+
+  stopProviderChoice = (event) => {
+    const providerId = String(event?.detail?.providerId || "").toLowerCase();
+    if (["local", ...FLOW_PROMPT_EXTERNAL_PROVIDER_IDS].includes(providerId)) void chooseProvider(providerId);
+  };
+  window.addEventListener("trackerslens:flow-prompt-provider", stopProviderChoice);
+
+  const startSelectedProviderLogin = async () => {
+    const providerId = selectedProviderId();
+    if (!selectedProviderIsExternal() || draft.providerLoading) return;
+    const api = window.trackers?.desktop?.externalAi?.startLogin;
+    if (typeof api !== "function") {
+      draft.error = "Il bridge desktop AI non è disponibile.";
+      refresh();
+      return;
+    }
+    draft.providerLoading = true;
+    draft.error = "";
+    refresh();
+    try {
+      const result = await api({ provider: providerId, confirmed: true });
+      if (!result?.started && !result?.launched) throw new Error(result?.message || "Non riesco ad avviare l'accesso ufficiale.");
+      draft.providerStatus = { ...(draft.providerStatus || {}), loginState: "waiting", message: "Accesso ufficiale aperto: completa il login nel browser." };
+    } catch (error) {
+      draft.error = error?.message || "Impossibile avviare il login del provider.";
+    } finally {
+      draft.providerLoading = false;
+      refresh();
+    }
+  };
+
+  const buildSelectedConversationalReply = async (prompt = "", options = {}) => {
+    if (!selectedProviderIsExternal()) return flowPromptBuildConversationalReply(prompt, { ...options, model: selectedProviderModel() });
+    const status = await refreshProviderStatus({ quiet: true });
+    if (!status?.authenticated) {
+      throw new Error(`${flowPromptExternalProviderLabel(selectedProviderId())} non è pronto. Seleziona il provider e completa l'accesso ufficiale.`);
+    }
+    return flowPromptBuildExternalReply(selectedProviderId(), prompt, {
+      ...options,
+      model: selectedProviderModel(),
+      reasoningEffort: draft.activeChat?.providerReasoningEffort || "medium",
+      speed: draft.activeChat?.providerSpeed || "standard",
+      shareFlowSummary: Boolean(draft.activeChat?.permissions?.flowSummary),
+    });
   };
 
   const persistActiveChat = async () => {
@@ -6224,6 +6360,11 @@ const openFlowPromptChatDialog = async (options = {}) => {
     try {
       draft.chats = await flowPromptListChats(draft.workspaceId);
       setActiveChat(draft.chats[0] || flowPromptNewChat(draft.workspaceId));
+      if (["local", ...FLOW_PROMPT_EXTERNAL_PROVIDER_IDS].includes(options.providerId)) {
+        draft.activeChat = { ...draft.activeChat, providerId: options.providerId };
+        await persistActiveChat();
+      }
+      await refreshProviderStatus({ quiet: true });
     } catch (error) {
       draft.error = error?.message || "Errore caricamento storico AI Flow Chat.";
     } finally {
@@ -6266,12 +6407,15 @@ const openFlowPromptChatDialog = async (options = {}) => {
     if (!effectivePrompt) return null;
     const conversationContext = flowPromptConversationContext(activeMessages(), effectivePrompt);
     if (!forceAgentReport && flowPromptIsSimpleDefinitionQuestion(effectivePrompt)) {
-      const reply = await flowPromptBuildSimpleDefinitionReply(promptForBrain || effectivePrompt, { conversationContext });
+      const reply = selectedProviderIsExternal()
+        ? await buildSelectedConversationalReply(promptForBrain || effectivePrompt, { conversationContext })
+        : await flowPromptBuildSimpleDefinitionReply(promptForBrain || effectivePrompt, { conversationContext });
       draft.analysis = null;
       return appendMessage({
         role: "assistant",
         kind: "text",
         content: reply,
+        providerId: selectedProviderIsExternal() ? selectedProviderId() : "local",
         compactNatural: true,
         refinedFrom,
       });
@@ -6292,12 +6436,13 @@ const openFlowPromptChatDialog = async (options = {}) => {
       });
     }
     if (!flowPromptShouldPlanFromPrompt(effectivePrompt, conversationContext)) {
-      const reply = await flowPromptBuildConversationalReply(effectivePrompt, { conversationContext });
+      const reply = await buildSelectedConversationalReply(effectivePrompt, { conversationContext });
       draft.analysis = null;
       return appendMessage({
         role: "assistant",
         kind: "text",
         content: reply,
+        providerId: selectedProviderIsExternal() ? selectedProviderId() : "local",
         refinedFrom,
       });
     }
@@ -6675,12 +6820,15 @@ const openFlowPromptChatDialog = async (options = {}) => {
           detail: "Sto passando la definizione sicura al provider AI per rispondere in modo piu naturale.",
           steps: ["Definizione Trackers Lens", "Provider AI", "Risposta chat"],
         });
-        const reply = await flowPromptBuildSimpleDefinitionReply(prompt, { conversationContext });
+        const reply = selectedProviderIsExternal()
+          ? await buildSelectedConversationalReply(prompt, { conversationContext })
+          : await flowPromptBuildSimpleDefinitionReply(prompt, { conversationContext });
         draft.analysis = null;
         await appendMessage({
           role: "assistant",
           kind: "text",
           content: reply,
+          providerId: selectedProviderIsExternal() ? selectedProviderId() : "local",
           compactNatural: true,
         });
         draft.prompt = "";
@@ -6711,12 +6859,13 @@ const openFlowPromptChatDialog = async (options = {}) => {
           detail: "Sto usando AI Settings per rispondere senza creare nodi.",
           steps: ["Contesto Flow Map", "Provider AI", "Risposta generale"],
         });
-        const reply = await flowPromptBuildConversationalReply(prompt, { conversationContext });
+        const reply = await buildSelectedConversationalReply(prompt, { conversationContext });
         draft.analysis = null;
         await appendMessage({
           role: "assistant",
           kind: "text",
           content: reply,
+          providerId: selectedProviderIsExternal() ? selectedProviderId() : "local",
         });
         draft.prompt = "";
         setActivity(null);
@@ -8672,7 +8821,10 @@ const openFlowPromptChatDialog = async (options = {}) => {
       },
       _.div(
         { class: "tl-flow-prompt-message-head" },
-        _.span(flowMapIcon(message.role === "user" ? "person" : "auto_awesome", "sm"), _.strong(message.role === "user" ? "Tu" : "AI Flow Chat")),
+        _.span(
+          flowMapIcon(message.role === "user" ? "person" : message.providerId === "codex" ? "terminal" : "auto_awesome", "sm"),
+          _.strong(message.role === "user" ? "Tu" : FLOW_PROMPT_EXTERNAL_PROVIDER_IDS.has(message.providerId) ? flowPromptExternalProviderLabel(message.providerId) : "AI Flow Chat")
+        ),
         _.div(
           { class: "tl-flow-prompt-message-meta" },
           message.refinedFrom ? _.span(
@@ -8754,6 +8906,7 @@ const openFlowPromptChatDialog = async (options = {}) => {
                 onclick: () => {
                   setActiveChat(chat);
                   draft.view = "chat";
+                  void refreshProviderStatus({ quiet: true });
                   refresh();
                 },
               },
@@ -8779,6 +8932,159 @@ const openFlowPromptChatDialog = async (options = {}) => {
         )
       )
     );
+
+  const renderProviderSwitcher = () => {
+    const providerId = selectedProviderId();
+    const external = selectedProviderIsExternal();
+    const status = draft.providerStatus;
+    const connected = Boolean(status?.authenticated);
+    const stateLabel = !external
+      ? "Usa il provider configurato in AI & Modelli"
+      : draft.providerLoading || status?.loginState === "waiting"
+        ? "Completa l'accesso ufficiale nel browser"
+        : connected
+          ? "Collegato · conversazione esterna"
+          : status?.installed
+            ? "Accesso richiesto"
+            : "CLI non installata";
+    return _.section(
+      { class: "tl-flow-prompt-provider" },
+      _.div(
+        { class: "tl-flow-prompt-provider-head" },
+        _.span(flowMapIcon(external ? (providerId === "codex" ? "terminal" : "auto_awesome") : "memory", "sm"), _.strong("Motore della chat")),
+        _.em(stateLabel)
+      ),
+      _.div(
+        { class: "tl-flow-prompt-provider-options", role: "group", "aria-label": "Provider chat" },
+        ...[
+          ["local", "Locale", "memory"],
+          ["codex", "Codex", "terminal"],
+          ["claude", "Claude", "auto_awesome"],
+        ].map(([id, label, icon]) => _.button(
+          {
+            type: "button",
+            class: `tl-flow-prompt-provider-option${providerId === id ? " is-active" : ""}`,
+            disabled: draft.busy || draft.providerLoading,
+            "aria-pressed": providerId === id ? "true" : "false",
+            onclick: () => { void chooseProvider(id); },
+          },
+          flowMapIcon(icon, "sm"),
+          _.span(label)
+        ))
+      ),
+      external ? _.div(
+        { class: `tl-flow-prompt-provider-status${connected ? " is-connected" : ""}` },
+        _.span(status?.message || (connected ? `${flowPromptExternalProviderLabel(providerId)} è pronto.` : `${flowPromptExternalProviderLabel(providerId)} richiede l'accesso ufficiale.`)),
+        !connected ? flowMapBtn({
+          class: "is-ghost",
+          disabled: draft.busy || draft.providerLoading || !status?.installed,
+          title: status?.installed ? `Avvia accesso ${flowPromptExternalProviderLabel(providerId)}` : "Installa prima il client ufficiale",
+          onclick: startSelectedProviderLogin,
+        }, flowMapIcon("login", "sm"), "Accedi") : null
+      ) : _.small("Le azioni sulla Flow Map restano sempre validate da Trackers Lens."),
+      external ? _.small("Il provider riceve il tuo prompt e gli ultimi messaggi della chat; non riceve accesso al filesystem o azioni sul Flow.") : null
+    );
+  };
+
+  const openChatSettingsDialog = () => {
+    const pending = {
+      providerId: selectedProviderId(),
+      providerModel: selectedProviderModel(),
+      reasoningEffort: String(draft.activeChat?.providerReasoningEffort || "medium"),
+      speed: String(draft.activeChat?.providerSpeed || "standard"),
+      flowSummary: Boolean(draft.activeChat?.permissions?.flowSummary),
+    };
+    let dialog = null;
+    const modelsForProvider = (providerId = "local") => {
+      const configuredModel = providerId === "codex" ? String(draft.providerStatus?.configuredModel || "").trim() : "";
+      const configuredReasoning = providerId === "codex" ? String(draft.providerStatus?.configuredReasoningEffort || "").trim() : "";
+      const base = providerId === "codex"
+        ? [["", configuredModel ? `Predefinito Codex · ${configuredModel}${configuredReasoning ? ` · ${configuredReasoning}` : ""}` : "Predefinito Codex"], ["gpt-5.6-sol", "GPT-5.6 Sol"], ["gpt-5.6-terra", "GPT-5.6 Terra"], ["gpt-5.6-luna", "GPT-5.6 Luna"], ["gpt-5.5", "GPT-5.5"], ["gpt-5.4", "GPT-5.4"], ["gpt-5.4-mini", "GPT-5.4 Mini"], ["gpt-5.3-codex-spark", "GPT-5.3 Codex Spark"]]
+        : providerId === "claude"
+          ? [["", "Predefinito Claude Code"]]
+          : [["", "Predefinito da AI & Modelli"]];
+      if (pending.providerModel && !base.some(([value]) => value === pending.providerModel)) {
+        base.push([pending.providerModel, `Modello salvato: ${pending.providerModel}`]);
+      }
+      return base;
+    };
+    const changeProvider = (event) => {
+      pending.providerId = String(event.currentTarget.value || "local").toLowerCase();
+      if (!modelsForProvider(pending.providerId).some(([value]) => value === pending.providerModel)) pending.providerModel = "";
+      refreshDialog();
+    };
+    const changeModel = (event) => { pending.providerModel = String(event.currentTarget.value || ""); };
+    const renderBody = () => _.div(
+      { class: "tl-flow-prompt-provider-settings" },
+      _.p("Queste preferenze sono salvate solo nella chat corrente."),
+      _.label("Provider", _.select({
+        value: pending.providerId,
+        onchange: changeProvider,
+        oninput: changeProvider,
+      }, _.option({ value: "local", selected: pending.providerId === "local" }, "Locale (AI & Modelli)"), _.option({ value: "codex", selected: pending.providerId === "codex" }, "Codex"), _.option({ value: "claude", selected: pending.providerId === "claude" }, "Claude"))),
+      _.label("Modello", _.select({
+        value: pending.providerModel,
+        onchange: changeModel,
+        oninput: changeModel,
+      }, ...modelsForProvider(pending.providerId).map(([value, label]) => _.option({ value, selected: value === pending.providerModel }, label)))),
+      pending.providerId === "codex" ? _.label("Ragionamento", _.select({ value: pending.reasoningEffort, onchange: (event) => { pending.reasoningEffort = event.currentTarget.value; } }, ...[["low", "Light"], ["medium", "Medio"], ["high", "Alto"], ["xhigh", "Molto alto"], ["ultra", "Ultra"]].map(([value, label]) => _.option({ value, selected: value === pending.reasoningEffort }, label)))) : null,
+      pending.providerId === "codex" ? _.label("Velocità", _.select({ value: pending.speed, onchange: (event) => { pending.speed = event.currentTarget.value; } }, _.option({ value: "standard", selected: pending.speed === "standard" }, "Standard"), _.option({ value: "fast", selected: pending.speed === "fast" }, "Rapida"))) : null,
+      _.div(
+        { class: "tl-flow-prompt-permission" },
+        _.strong(flowMapIcon("policy", "sm"), "Permessi dati"),
+        _.label(
+          _.input({ type: "checkbox", checked: pending.flowSummary, onchange: (event) => { pending.flowSummary = Boolean(event.currentTarget.checked); } }),
+          _.span("Condividi il riepilogo della Flow Map con il provider")
+        ),
+        _.small("Se attivato, Codex/Claude riceve solo conteggi di nodi, link, canali ed eventi. Mai filesystem, contenuti documenti o permessi di modifica.")
+      )
+    );
+    const refreshDialog = () => {
+      const host = document.querySelector("[data-flow-prompt-provider-settings]");
+      if (host) host.replaceChildren(renderBody());
+    };
+    const saveSettings = async () => {
+      draft.activeChat = {
+        ...draft.activeChat,
+        providerId: pending.providerId,
+        providerModel: String(pending.providerModel || "").trim(),
+        providerReasoningEffort: pending.reasoningEffort,
+        providerSpeed: pending.speed,
+        permissions: { ...(draft.activeChat?.permissions || {}), flowSummary: pending.flowSummary },
+      };
+      await persistActiveChat();
+      await refreshProviderStatus({ quiet: true });
+    };
+    dialog = _.Dialog({
+      class: "tl-flow-prompt-provider-settings-dialog",
+      panelClass: "tl-flow-prompt-provider-settings-panel",
+      size: "md",
+      title: "Impostazioni chat",
+      subtitle: "Provider, modello e consenso ai dati",
+      icon: "tune",
+      closeButton: true,
+      content: () => _.div({ "data-flow-prompt-provider-settings": "true" }, renderBody()),
+      actions: ({ close }) => _.Toolbar({ align: "end", gap: 8 },
+        flowMapBtn({ onclick: close }, "Annulla"),
+        flowMapBtn({
+          onclick: async () => {
+            await saveSettings();
+            close();
+            refresh();
+            if (selectedProviderIsExternal()) await startSelectedProviderLogin();
+          },
+        }, flowMapIcon("login", "sm"), "Salva e accedi"),
+        flowMapBtn({
+          onclick: async () => {
+            await saveSettings();
+            close();
+            refresh();
+          },
+        }, flowMapIcon("check", "sm"), "Salva")
+      ),
+    });
+    dialog.open();
+  };
 
   function renderContentBody() {
     const showIntro = !activeMessages().length && !draft.dismissedIntroChatIds.has(draft.activeChat?.id);
@@ -8826,7 +9132,10 @@ const openFlowPromptChatDialog = async (options = {}) => {
             _.textarea({
               rows: 2,
               value: draft.prompt,
-              placeholder: "Esempio: crea un flow con REST API, orchestrator agent, analyzer, storage, preview e notifica",
+              disabled: selectedProviderIsExternal() && !draft.providerStatus?.authenticated,
+              placeholder: selectedProviderIsExternal() && !draft.providerStatus?.authenticated
+                ? `Completa l'accesso a ${flowPromptExternalProviderLabel(selectedProviderId())} per iniziare.`
+                : "Esempio: crea un flow con REST API, orchestrator agent, analyzer, storage, preview e notifica",
               oninput: (event) => {
                 draft.prompt = event.currentTarget.value;
                 draft.analysis = null;
@@ -8863,6 +9172,12 @@ const openFlowPromptChatDialog = async (options = {}) => {
 
   const closeAside = () => {
     if (!aside) return;
+    stopLoginProgress?.();
+    stopLoginProgress = null;
+    if (stopProviderChoice) window.removeEventListener("trackerslens:flow-prompt-provider", stopProviderChoice);
+    stopProviderChoice = null;
+    if (providerStatusTimer) window.clearInterval(providerStatusTimer);
+    providerStatusTimer = null;
     flowPromptSaveOpenState(false, draft.workspaceId || workspaceId);
     aside.classList.remove("is-open");
     window.setTimeout(() => aside?.remove?.(), 180);
@@ -8889,6 +9204,12 @@ const openFlowPromptChatDialog = async (options = {}) => {
       ),
       _.div(
         { class: "tl-flow-prompt-aside-actions" },
+        flowMapBtn({
+          class: "is-ghost is-icon-only",
+          "aria-label": "Impostazioni chat",
+          title: "Impostazioni chat: provider, modello e permessi",
+          onclick: openChatSettingsDialog,
+        }, flowMapIcon("tune", "sm")),
         flowMapBtn({
           class: "is-ghost is-icon-only",
           "aria-label": "Pattern salvati",
@@ -8918,10 +9239,22 @@ const openFlowPromptChatDialog = async (options = {}) => {
     ...renderAsideShell()
   );
   document.body.appendChild(aside);
+  if (typeof window.trackers?.desktop?.externalAi?.onLoginProgress === "function") {
+    stopLoginProgress = window.trackers.desktop.externalAi.onLoginProgress((progress) => {
+      if (String(progress?.provider || "") !== selectedProviderId()) return;
+      draft.providerStatus = { ...(draft.providerStatus || {}), ...progress, loginState: progress?.status || "" };
+      if (progress?.status === "completed") void refreshProviderStatus();
+      else refresh();
+    });
+  }
+  providerStatusTimer = window.setInterval(() => {
+    if (selectedProviderIsExternal() && !draft.busy) void refreshProviderStatus({ quiet: false });
+  }, 3500);
   requestAnimationFrame(() => {
     aside?.classList.add("is-open");
     if (!options.restore) aside?.querySelector("textarea")?.focus?.();
   });
+  void refreshProviderStatus();
   loadHistory();
 };
 

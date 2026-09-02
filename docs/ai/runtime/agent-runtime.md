@@ -7,13 +7,15 @@ Last updated: 2026-07-10.
 
 ## Direction
 
-Trackers Lens does not embed Codex directly. The product builds its own local-first Agent Runtime:
+Trackers Lens does not embed Codex as its internal control plane. The product builds its own local-first Agent Runtime:
 
 - LLM/Brain can plan.
 - Runtime tools inspect and execute controlled actions.
 - Safe executor/preflight validates mutations.
 - Runtime traces show what happened.
 - Fix suggestions remain explicit and reversible.
+
+Codex or Claude may be selected as an explicit provider inside the single Flow Map Chat. They have no filesystem access or mutation authority; any TL action must cross the same registered-tool and safe-executor boundary as every other external provider.
 
 Internal APIs, tool names and runtime schema use English. UI labels can be localized later through a dedicated i18n layer.
 

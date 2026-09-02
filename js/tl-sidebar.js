@@ -46,12 +46,17 @@ window.TrackerLensSidebar = (() => {
       showChevron ? _.Icon({ name: "chevron_right", size: "sm" }) : null
     );
 
-  const render = ({ activeId = "dashboard", items = defaultItems, onHelp = null } = {}) =>
+  const render = ({ activeId = "dashboard", items = defaultItems, onHelp = null, onGlobalChat = null } = {}) =>
     _.aside(
       { class: "tl-view-sidebar", "aria-label": "Navigazione workspace" },
       _.nav({ class: "tl-view-nav" }, ...items.map((item) => renderButton(item, activeId))),
       _.div(
         { class: "tl-view-sidebar-bottom" },
+        typeof onGlobalChat === "function" ? _.div(
+          { class: "tl-view-global-chat-actions", "aria-label": "Apri AI Flow Chat" },
+          _.Btn({ type: "button", class: "tl-view-side-btn", "aria-label": "Apri AI Flow Chat con Codex", title: "AI Flow Chat · Codex", onclick: () => onGlobalChat("codex") }, _.Icon({ name: "terminal", size: "md" })),
+          _.Btn({ type: "button", class: "tl-view-side-btn", "aria-label": "Apri AI Flow Chat con Claude", title: "AI Flow Chat · Claude", onclick: () => onGlobalChat("claude") }, _.Icon({ name: "auto_awesome", size: "md" }))
+        ) : null,
         _.Btn(
           {
             type: "button",
