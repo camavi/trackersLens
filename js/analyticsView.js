@@ -135,7 +135,9 @@ const formatBytes = (bytes = 0) => {
 };
 const openDevTools = (tab = "overview", extra = {}) => {
   const query = new URLSearchParams({ tab, ...extra });
-  window.location.href = `devtools.html?${query.toString()}`;
+  const target = `devtools.html?${query.toString()}`;
+  if (window.TrackerLensSidebar?.navigate?.(target)) return;
+  window.location.assign(target);
 };
 
 const timeLabel = (value) => {

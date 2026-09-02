@@ -43,5 +43,14 @@
   router.register("/libraryFlowmap.html", flowLibraryView);
   router.register("/editorWorkspace.html", workspaceView);
   router.register("/flowMap.html", flowMapView);
+
+  const compatibilityRoute = new URLSearchParams(window.location.search).get("tl-route");
+  if (compatibilityRoute && router.resolve(`/${compatibilityRoute}`)) {
+    const target = new URL(compatibilityRoute, window.location.href);
+    target.search = window.location.search;
+    target.searchParams.delete("tl-route");
+    target.hash = window.location.hash;
+    window.history.replaceState({}, "", `${target.pathname}${target.search}${target.hash}`);
+  }
   void router.start(outlet);
 })();
