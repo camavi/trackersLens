@@ -5,12 +5,39 @@ const FLOW_PROMPT_CHAT_STORE = () =>
 const flowPromptNow = () => new Date().toISOString();
 
 const FLOW_PROMPT_CHAT_OPEN_STATE_PREFIX = "trackersLens.flowPromptChat.openState";
+const FLOW_PROMPT_CHAT_WIDTH_PREFIX = "trackersLens.flowPromptChat.width";
 
 const flowPromptCurrentWorkspaceForStorage = () =>
   (typeof currentWorkspaceId === "function" ? currentWorkspaceId() : "") || "runtime";
 
 const flowPromptOpenStateKey = (workspaceId = flowPromptCurrentWorkspaceForStorage()) =>
   `${FLOW_PROMPT_CHAT_OPEN_STATE_PREFIX}.${encodeURIComponent(workspaceId || "runtime")}`;
+
+const flowPromptWidthKey = (workspaceId = flowPromptCurrentWorkspaceForStorage()) =>
+  `${FLOW_PROMPT_CHAT_WIDTH_PREFIX}.${encodeURIComponent(workspaceId || "runtime")}`;
+
+const flowPromptClampAsideWidth = (width = 0) => {
+  const max = Math.max(360, Math.min(1000, (window.innerWidth || 0) - 32));
+  return Math.round(Math.min(max, Math.max(360, Number(width) || 460)));
+};
+
+const flowPromptLoadAsideWidth = (workspaceId = flowPromptCurrentWorkspaceForStorage()) => {
+  try {
+    return flowPromptClampAsideWidth(window.localStorage?.getItem?.(flowPromptWidthKey(workspaceId)) || 460);
+  } catch (_) {
+    return flowPromptClampAsideWidth(460);
+  }
+};
+
+const flowPromptSaveAsideWidth = (width = 0, workspaceId = flowPromptCurrentWorkspaceForStorage()) => {
+  const next = flowPromptClampAsideWidth(width);
+  try {
+    window.localStorage?.setItem?.(flowPromptWidthKey(workspaceId), String(next));
+  } catch (_) {
+    // Width remains usable even when localStorage is unavailable.
+  }
+  return next;
+};
 
 const flowPromptSaveOpenState = (isOpen = false, workspaceId = flowPromptCurrentWorkspaceForStorage()) => {
   try {
@@ -80,7 +107,7 @@ const flowPromptNewChat = (workspaceId = currentWorkspaceId()) => ({
   providerModel: "",
   providerReasoningEffort: "medium",
   providerSpeed: "standard",
-  permissions: { flowSummary: false },
+  permissions: { flowSummary: false, readToolGrants: {}, readToolScope: "ask" },
   createdAt: flowPromptNow(),
   updatedAt: flowPromptNow(),
 });
@@ -92,6 +119,32 @@ const flowPromptExternalProviderLabel = (providerId = "") => ({
   claude: "Claude",
 }[providerId] || "Provider esterno");
 
+const flowPromptActiveSessionContext = ({ chatWorkspaceId = "" } = {}) => {
+  const routerStatus = window.TrackerLensAppRouter?.status?.() || {};
+  const route = String(routerStatus.activePath || routerStatus.currentPath || window.location?.pathname || "");
+  const activeWorkspaceId = typeof currentWorkspaceId === "function" ? String(currentWorkspaceId() || "") : "";
+  const activeWorkspaceName = typeof currentWorkspaceName === "function" ? String(currentWorkspaceName() || "") : "";
+  const routeLabel = {
+    "/flowMap.html": "Flow Map",
+    "/libraryFlowmap.html": "Libreria Flow Map",
+    "/editorWorkspace.html": "Workspace",
+    "/library.html": "Libreria",
+    "/app.html": "Libreria",
+    "/ai.html": "AI Runtime",
+    "/settings.html": "Impostazioni",
+    "/connections.html": "Collegamenti",
+  }[route] || route.replace(/^\//, "").replace(/\.html$/, "") || "Trackers Lens";
+  return {
+    version: "tl-chat-session-context/v1",
+    route,
+    routeLabel,
+    activeWorkspaceId,
+    activeWorkspaceName,
+    chatWorkspaceId: String(chatWorkspaceId || ""),
+    flowMapScope: activeWorkspaceId || String(chatWorkspaceId || ""),
+  };
+};
+
 const flowPromptExternalProviderStatus = async (providerId = "") => {
   if (!FLOW_PROMPT_EXTERNAL_PROVIDER_IDS.has(providerId)) return null;
   const api = window.trackers?.desktop?.externalAi?.getStatus;
@@ -101,7 +154,26 @@ const flowPromptExternalProviderStatus = async (providerId = "") => {
   return api({ provider: providerId });
 };
 
-const flowPromptBuildExternalReply = async (providerId = "", prompt = "", { conversationContext = null, model = "", reasoningEffort = "", speed = "", shareFlowSummary = false } = {}) => {
+const flowPromptParseExternalToolRequest = (text = "") => {
+  const source = String(text || "").trim();
+  const candidates = [
+    source,
+    ...Array.from(source.matchAll(/```(?:json)?\s*([\s\S]*?)```/gi)).map((match) => match[1]),
+  ];
+  for (const candidate of candidates) {
+    try {
+      const parsed = JSON.parse(String(candidate || "").trim());
+      if (parsed?.type === "tool_request" && typeof parsed.tool === "string") {
+        return { tool: parsed.tool.trim(), args: parsed.args && typeof parsed.args === "object" && !Array.isArray(parsed.args) ? parsed.args : {} };
+      }
+    } catch (_) {
+      // A normal natural-language response is not a tool request.
+    }
+  }
+  return null;
+};
+
+const flowPromptBuildExternalReply = async (providerId = "", prompt = "", { conversationContext = null, model = "", reasoningEffort = "", speed = "", shareFlowSummary = false, sessionContext = null, toolCatalog = null, toolObservation = null } = {}) => {
   const provider = String(providerId || "").toLowerCase();
   if (!FLOW_PROMPT_EXTERNAL_PROVIDER_IDS.has(provider)) throw new Error("Provider esterno non valido.");
   const status = await flowPromptExternalProviderStatus(provider);
@@ -119,11 +191,34 @@ const flowPromptBuildExternalReply = async (providerId = "", prompt = "", { conv
     "You are the selected external assistant inside Trackers Lens Flow Map Chat.",
     "Answer in the user's language. You can advise and explain, but cannot apply changes to the Flow Map.",
     "Never claim to have filesystem, terminal, browser, or workspace access. Any Flow change remains a separate confirmed TL action.",
+    toolCatalog ? `Trackers Lens read-tool catalog:\n${JSON.stringify(toolCatalog)}\nIf you need real TL data, respond with ONLY JSON: {"type":"tool_request","tool":"exact catalog name","args":{}}. Do not request a write tool. A node reference may be its visible label or technical id.` : "",
+    sessionContext ? `Active Trackers Lens session context (metadata, not Flow contents):\n${JSON.stringify(sessionContext)}` : "",
     history,
     flowSummary,
+    toolObservation ? `Tool observation returned by Trackers Lens (use it as evidence; do not claim more than it says). Now answer the user's original request. Request another tool only if this observation is insufficient and the next request is different:\n${JSON.stringify(toolObservation)}` : "",
     `User request: ${String(prompt || "").trim()}`,
   ].filter(Boolean).join("\n\n");
+  const effectiveModel = String(model || "").trim() || String(status?.configuredModel || "").trim() || "provider-default";
+  const effectiveReasoning = String(reasoningEffort || "").trim() || String(status?.configuredReasoningEffort || "").trim() || "provider-default";
+  console.groupCollapsed(`[TL AI Chat] → ${flowPromptExternalProviderLabel(provider)} · ${request.length.toLocaleString()} chars`);
+  console.log("Request payload", request);
+  console.log("Prompt composition", {
+    userRequestChars: String(prompt || "").trim().length,
+    historyMessages: conversationContext?.recent?.length || 0,
+    toolObservationChars: toolObservation ? JSON.stringify(toolObservation).length : 0,
+  });
+  console.log("Transport metadata", {
+    provider,
+    model: effectiveModel,
+    modelSource: String(model || "").trim() ? "chat setting" : status?.configuredModel ? "Codex configuration" : "provider default",
+    reasoningEffort: effectiveReasoning,
+    speed: speed || "standard",
+  });
+  console.groupEnd();
   const response = await api({ provider, prompt: request, model: String(model || "").trim(), reasoningEffort, speed });
+  console.groupCollapsed(`[TL AI Chat] ← ${flowPromptExternalProviderLabel(provider)}`);
+  console.log("Response payload", response);
+  console.groupEnd();
   return String(response?.text || "").trim() || "Non ho ricevuto una risposta dal provider esterno.";
 };
 
@@ -160,15 +255,28 @@ const flowPromptPlanSnapshot = (analysis = {}) => ({
 
 const flowPromptConversationContext = (messages = [], prompt = "") => {
   const list = Array.isArray(messages) ? messages : [];
+  const currentPrompt = flowPromptNormalize(prompt);
+  const seenRecent = new Set();
   const recent = list
-    .slice(-8)
+    // Tool observations are supplied only in the current tool loop; they are
+    // never chat history. The current prompt is supplied below as `User
+    // request`, so retries of the same question must not be sent twice.
+    .filter((message) => ["user", "assistant"].includes(String(message.role || "")))
     .map((message) => ({
       role: message.role || "",
       kind: message.kind || "text",
       content: String(message.content || "").replace(/\s+/g, " ").slice(0, 260),
       feedback: message.feedback?.rating || "",
     }))
-    .filter((item) => item.content);
+    .filter((item) => item.content)
+    .filter((item) => !(item.role === "user" && currentPrompt && flowPromptNormalize(item.content) === currentPrompt))
+    .filter((item) => {
+      const key = `${item.role}:${flowPromptNormalize(item.content)}`;
+      if (seenRecent.has(key)) return false;
+      seenRecent.add(key);
+      return true;
+    })
+    .slice(-8);
   const lastPlanMessage = [...list].reverse().find((message) => message.kind === "plan" && message.plan);
   const lastReportMessage = [...list].reverse().find((message) => message.kind === "agent-report" && message.agentReport);
   const lastPlan = lastPlanMessage?.plan ? {
@@ -5997,6 +6105,7 @@ const openFlowPromptChatDialog = async (options = {}) => {
   flowPromptSaveOpenState(true, workspaceId);
   const draft = {
     workspaceId,
+    asideWidth: flowPromptLoadAsideWidth(workspaceId),
     chats: [],
     activeChat: flowPromptNewChat(workspaceId),
     prompt: "",
@@ -6018,7 +6127,15 @@ const openFlowPromptChatDialog = async (options = {}) => {
   const activeMessages = () => Array.isArray(draft.activeChat?.messages) ? draft.activeChat.messages : [];
 
   const setActiveChat = (chat) => {
-    draft.activeChat = { providerId: "local", providerModel: "", providerReasoningEffort: "medium", providerSpeed: "standard", permissions: { flowSummary: false }, ...(chat || flowPromptNewChat(draft.workspaceId)), permissions: { flowSummary: false, ...(chat?.permissions || {}) } };
+    draft.activeChat = {
+      providerId: "local",
+      providerModel: "",
+      providerReasoningEffort: "medium",
+      providerSpeed: "standard",
+      permissions: { flowSummary: false, readToolGrants: {}, readToolScope: "ask" },
+      ...(chat || flowPromptNewChat(draft.workspaceId)),
+      permissions: { flowSummary: false, readToolGrants: {}, readToolScope: "ask", ...(chat?.permissions || {}) },
+    };
     // Remove the short-lived static catalog used before provider discovery was
     // corrected; it was not an account-scoped Codex capability list.
     if (["gpt-5.3-codex", "gpt-5.2-codex", "opus", "sonnet", "haiku"].includes(draft.activeChat.providerModel)) draft.activeChat.providerModel = "";
@@ -6091,19 +6208,210 @@ const openFlowPromptChatDialog = async (options = {}) => {
     }
   };
 
+  const providerReadToolCatalog = async () => {
+    const workspaceId = draft.workspaceId || currentWorkspaceId() || "";
+    const workspaceTools = [
+      ["tl.workspace.inspectFlow", "Inspect the active Flow Map graph and validation issues."],
+      ["tl.workspace.findNodes", "Find every node matching an id, visible title, type or subtype. Returns stable ids; use it before inspecting a title that may be ambiguous."],
+      ["tl.workspace.inspectNode", "Inspect one node, its dependencies, events and impact. Requires nodeId."],
+      ["tl.workspace.inspectNodeConfig", "Read explicitly named configuration fields from one node. First use inspectNode to discover configuration keys."],
+      ["tl.workspace.inspectConnectedTools", "Discover read tools declared by one named node and its connected neighbors. Requires nodeId."],
+      ["tl.workspace.readLogs", "Read recent runtime logs/events, optionally scoped by nodeId or runId."],
+      ["tl.workspace.runFlow", "Create a non-mutating dry-run runtime trace."],
+      ["tl.workspace.suggestFixes", "Read safe fix suggestions; it never applies a change."],
+      ["tl.workspace.listRuns", "Read recent Agent Runtime traces."],
+    ].map(([name, purpose]) => ({ name, mode: "read", purpose }));
+    // Do not send every node manifest and schema with every prompt.  The AI
+    // discovers the narrow connected catalog only after it has identified a
+    // relevant node, mirroring the progressive tool discovery used by IDEs.
+    return { version: "tl-provider-tool-catalog/v1", workspaceId, tools: workspaceTools };
+  };
+
+  const requestReadToolConsent = (request = {}) => new Promise((resolve) => {
+    let settled = false;
+    const finish = (decision = "deny") => {
+      if (settled) return;
+      settled = true;
+      resolve(decision);
+    };
+    const dialog = _.Dialog({
+      class: "tl-flow-prompt-provider-settings-dialog",
+      panelClass: "tl-flow-prompt-provider-settings-panel",
+      size: "md",
+      title: "Permesso tool AI",
+      subtitle: `${flowPromptExternalProviderLabel(selectedProviderId())} chiede di leggere dati da Trackers Lens`,
+      icon: "policy",
+      closeButton: true,
+      onClose: () => finish("deny"),
+      content: () => _.div(
+        { class: "tl-flow-prompt-provider-settings" },
+        _.p(`Tool richiesto: ${request.tool || "sconosciuto"}`),
+        _.small("Puoi autorizzare solo questo tool oppure tutte le letture richieste dal provider nella conversazione corrente. Il consenso non abilita modifiche alla Flow Map.")
+      ),
+      actions: ({ close }) => _.Toolbar({ align: "end", gap: 8 },
+        flowMapBtn({ onclick: () => { finish("deny"); close(); } }, "Nega"),
+        flowMapBtn({ onclick: () => { finish("once"); close(); } }, "Consenti una volta"),
+        flowMapBtn({ onclick: () => { finish("chat"); close(); } }, "Consenti tutte le letture per questa chat")
+      ),
+    });
+    dialog.open();
+  });
+
+  const runProviderReadTool = async (request = {}) => {
+    const runtime = window.TrackerLensAgentRuntime;
+    const tool = String(request.tool || "").trim();
+    const args = request.args && typeof request.args === "object" ? request.args : {};
+    const denied = (reason) => ({ ok: false, tool, status: "denied", limitations: [reason] });
+    if (!runtime || !tool) return denied("Tool runtime non disponibile.");
+    const resolveNodes = async (reference = "") => {
+      const search = String(reference || "").trim();
+      if (!search) return { nodes: [] };
+      return runtime.findNodes({ workspaceId: draft.workspaceId, query: search });
+    };
+    const resolveOneNode = async (reference = "") => {
+      const result = await resolveNodes(reference);
+      const nodes = Array.isArray(result?.nodes) ? result.nodes : [];
+      if (nodes.length === 1) return { node: nodes[0], result };
+      return { node: null, result, nodes };
+    };
+    const permissions = draft.activeChat?.permissions || {};
+    const grants = permissions.readToolGrants || {};
+    let decision = permissions.readToolScope === "all-read" || grants[tool] ? "chat" : await requestReadToolConsent({ tool, args });
+    if (decision === "chat") {
+      draft.activeChat = {
+        ...draft.activeChat,
+        permissions: {
+          ...permissions,
+          readToolGrants: { ...grants, [tool]: true },
+          readToolScope: "all-read",
+        },
+      };
+      await persistActiveChat();
+    }
+    if (decision === "deny") return denied("L'utente non ha autorizzato questa lettura.");
+    if (tool === "tl.workspace.inspectFlow") return runtime.inspectFlow({ workspaceId: draft.workspaceId });
+    if (tool === "tl.workspace.findNodes") return runtime.findNodes({ workspaceId: draft.workspaceId, query: String(args.query || args.nodeId || args.nodeLabel || args.node || "") });
+    if (tool === "tl.workspace.inspectNode") {
+      const reference = String(args.nodeId || args.nodeLabel || args.node || "").trim();
+      const { node: matchedNode, nodes } = await resolveOneNode(reference);
+      if (!matchedNode?.id) return {
+        ok: false,
+        tool,
+        status: nodes?.length ? "ambiguous" : "not-found",
+        query: reference,
+        matches: nodes || [],
+        limitations: [nodes?.length ? "Il titolo corrisponde a più nodi. Scegli uno degli ID restituiti." : `Nessun nodo corrisponde a "${reference}" nel Flow Map attivo.`],
+      };
+      return runtime.inspectNode({
+        workspaceId: draft.workspaceId,
+        nodeId: matchedNode.id,
+        includeRecentEvents: false,
+        includeConnectedTools: false,
+        summaryOnly: true,
+      });
+    }
+    if (tool === "tl.workspace.inspectNodeConfig") {
+      const reference = String(args.nodeId || args.nodeLabel || args.node || "").trim();
+      const requestedKeys = Array.isArray(args.keys) ? args.keys.map((key) => String(key || "").trim()).filter(Boolean) : [];
+      const { node: matchedNode, nodes } = await resolveOneNode(reference);
+      if (!matchedNode?.id) return {
+        ok: false,
+        tool,
+        status: nodes?.length ? "ambiguous" : "not-found",
+        query: reference,
+        matches: nodes || [],
+        limitations: [nodes?.length ? "Il titolo corrisponde a più nodi. Scegli uno degli ID restituiti." : `Nessun nodo corrisponde a "${reference}" nel Flow Map attivo.`],
+      };
+      if (!requestedKeys.length) return denied("Indica i campi di configurazione da leggere dopo inspectNode.");
+      const config = matchedNode.metadata?.config && typeof matchedNode.metadata.config === "object" ? matchedNode.metadata.config : {};
+      const values = Object.fromEntries(requestedKeys.map((key) => [key, config[key]]).filter(([, value]) => value !== undefined));
+      return {
+        ok: true,
+        tool,
+        nodeId: matchedNode.id,
+        status: "ready",
+        values,
+        limitations: requestedKeys.filter((key) => !(key in config)).length ? ["Alcuni campi richiesti non sono configurati su questo nodo."] : [],
+      };
+    }
+    if (tool === "tl.workspace.inspectConnectedTools") {
+      const reference = String(args.nodeId || args.nodeLabel || args.node || "").trim();
+      const { node: matchedNode, nodes } = await resolveOneNode(reference);
+      if (!matchedNode?.id) return {
+        ok: false,
+        tool,
+        status: nodes?.length ? "ambiguous" : "not-found",
+        query: reference,
+        matches: nodes || [],
+        limitations: [nodes?.length ? "Il titolo corrisponde a più nodi. Scegli uno degli ID restituiti." : `Nessun nodo corrisponde a "${reference}" nel Flow Map attivo.`],
+      };
+      return runtime.inspectConnectedTools({ workspaceId: draft.workspaceId, nodeId: matchedNode.id });
+    }
+    if (tool === "tl.workspace.readLogs") return runtime.readLogs({ workspaceId: draft.workspaceId, ...args });
+    if (tool === "tl.workspace.runFlow") return runtime.runFlow({ workspaceId: draft.workspaceId, ...args, dryRun: true, mode: "dry-run" });
+    if (tool === "tl.workspace.suggestFixes") return runtime.suggestFixes({ workspaceId: draft.workspaceId, ...args });
+    if (tool === "tl.workspace.listRuns") return runtime.listRuns();
+    const nodeMatch = tool.match(/^tl\.node\.([^.]+)\.([A-Za-z0-9_-]+)$/);
+    if (nodeMatch) return runtime.callConnectedNodeTool({ workspaceId: draft.workspaceId, nodeId: nodeMatch[1], tool: nodeMatch[2], args });
+    return denied("Il tool richiesto non è dichiarato nel catalogo attivo.");
+  };
+
   const buildSelectedConversationalReply = async (prompt = "", options = {}) => {
     if (!selectedProviderIsExternal()) return flowPromptBuildConversationalReply(prompt, { ...options, model: selectedProviderModel() });
     const status = await refreshProviderStatus({ quiet: true });
     if (!status?.authenticated) {
       throw new Error(`${flowPromptExternalProviderLabel(selectedProviderId())} non è pronto. Seleziona il provider e completa l'accesso ufficiale.`);
     }
-    return flowPromptBuildExternalReply(selectedProviderId(), prompt, {
+    const toolCatalog = await providerReadToolCatalog();
+    let reply = await flowPromptBuildExternalReply(selectedProviderId(), prompt, {
       ...options,
       model: selectedProviderModel(),
       reasoningEffort: draft.activeChat?.providerReasoningEffort || "medium",
       speed: draft.activeChat?.providerSpeed || "standard",
       shareFlowSummary: Boolean(draft.activeChat?.permissions?.flowSummary),
+      sessionContext: flowPromptActiveSessionContext({ chatWorkspaceId: draft.workspaceId }),
+      toolCatalog,
     });
+    const maxToolRounds = Number(draft.activeChat?.maxToolRounds || 0);
+    let rounds = 0;
+    const observedRequests = new Map();
+    const toolTrace = [];
+    while (flowPromptParseExternalToolRequest(reply) && (!maxToolRounds || rounds < maxToolRounds)) {
+      const request = flowPromptParseExternalToolRequest(reply);
+      const requestKey = `${request.tool}:${JSON.stringify(request.args || {})}`;
+      const cachedObservation = observedRequests.get(requestKey);
+      const observation = cachedObservation
+        ? { ...cachedObservation, status: "cached", cached: true, limitations: [...(cachedObservation.limitations || []), "Lettura identica già eseguita in questo turno: viene riutilizzato il risultato precedente, senza una nuova chiamata a TL."] }
+        : await runProviderReadTool(request);
+      if (!cachedObservation) observedRequests.set(requestKey, observation);
+      let observationChars = 0;
+      try { observationChars = JSON.stringify(observation).length; } catch (_) { observationChars = -1; }
+      console.groupCollapsed(`[TL AI Chat] tool ${request.tool} · ${observation?.status || (observation?.ok === false ? "blocked" : "ready")} · ${observationChars >= 0 ? observationChars.toLocaleString() : "non serializzabile"} chars`);
+      console.log("Tool request", request);
+      console.log("Tool observation", observation);
+      console.groupEnd();
+      toolTrace.push({ request, observation });
+      reply = await flowPromptBuildExternalReply(selectedProviderId(), prompt, {
+        ...options,
+        model: selectedProviderModel(),
+        reasoningEffort: draft.activeChat?.providerReasoningEffort || "medium",
+        speed: draft.activeChat?.providerSpeed || "standard",
+        sessionContext: flowPromptActiveSessionContext({ chatWorkspaceId: draft.workspaceId }),
+        toolCatalog,
+        toolObservation: { request, observation },
+      });
+      rounds += 1;
+    }
+    if (toolTrace.length) {
+      await appendMessage({
+        role: "tool",
+        kind: "tool",
+        content: `TL ha eseguito ${toolTrace.length} lettur${toolTrace.length === 1 ? "a" : "e"}.`,
+        providerId: selectedProviderId(),
+        toolCalls: toolTrace,
+      });
+    }
+    return reply;
   };
 
   const persistActiveChat = async () => {
@@ -6314,7 +6622,7 @@ const openFlowPromptChatDialog = async (options = {}) => {
   const refresh = () => {
     const asideRoot = document.querySelector("[data-flow-prompt-aside]");
     const root = document.querySelector("[data-flow-prompt-chat]");
-    if (asideRoot) asideRoot.replaceChildren(...renderAsideShell());
+    if (asideRoot) asideRoot.replaceChildren(...renderAsideShell(), renderAsideResizeHandle());
     else if (root) root.replaceChildren(...renderContentBody());
     else return;
     requestAnimationFrame(() => {
@@ -6789,9 +7097,8 @@ const openFlowPromptChatDialog = async (options = {}) => {
       // let the provider decide whether it needs a TL tool in a later tool loop.
       if (selectedProviderIsExternal()) {
         setActivity({
-          label: "Invio al provider",
-          detail: `${flowPromptExternalProviderLabel(selectedProviderId())} riceve il tuo prompt senza classificatori Flow Map intermedi.`,
-          steps: ["Prompt ricevuto", "Provider selezionato", "Risposta del provider"],
+          minimal: true,
+          steps: [],
         });
         const reply = await buildSelectedConversationalReply(prompt, { conversationContext });
         draft.analysis = null;
@@ -8582,6 +8889,16 @@ const openFlowPromptChatDialog = async (options = {}) => {
   const renderActivity = () => {
     if (!draft.activity) return null;
     const activity = draft.activity;
+    if (activity.minimal) {
+      return _.article(
+        { class: "tl-flow-prompt-message is-assistant is-thinking is-minimal", "aria-live": "polite" },
+        _.div(
+          { class: "tl-flow-prompt-thinking-minimal" },
+          _.span(flowMapIcon("auto_awesome", "sm"), _.strong(activity.title || "AI Flow Agent")),
+          _.span({ class: "tl-flow-prompt-thinking-dots", "aria-label": "Elaborazione in corso" }, _.i(), _.i(), _.i())
+        )
+      );
+    }
     return _.article(
       { class: "tl-flow-prompt-message is-assistant is-thinking", "aria-live": "polite" },
       _.details(
@@ -8848,6 +9165,34 @@ const openFlowPromptChatDialog = async (options = {}) => {
       ) : null
     );
 
+  const renderToolTrace = (message = {}) => {
+    const calls = Array.isArray(message.toolCalls) && message.toolCalls.length ? message.toolCalls : [message.toolCall || {}];
+    const lastCall = calls[calls.length - 1] || {};
+    const observation = lastCall.observation || {};
+    const toolNames = [...new Set(calls.map((call) => call.request?.tool).filter(Boolean))];
+    const status = calls.some((call) => call.observation?.ok === false || call.observation?.status === "denied")
+      ? "attention"
+      : "ready";
+    const summary = calls.length === 1 && observation.summary?.nodes !== undefined
+      ? `${observation.summary.nodes} nodi · ${observation.summary.dependencies || 0} collegamenti`
+      : `${calls.length} letture · ${toolNames.join(" · ") || "Tool TL"}`;
+    return _.details(
+      { class: `tl-flow-prompt-tool-trace is-${status}` },
+      _.summary(
+        flowMapIcon(status === "attention" ? "warning" : "check_circle", "sm"),
+        _.span(_.strong("Attività TL"), _.em(calls.length === 1 ? toolNames[0] || "Tool TL" : `${calls.length} letture`)),
+        _.code(status),
+        flowMapIcon("expand_more", "sm")
+      ),
+      _.div(
+        { class: "tl-flow-prompt-tool-trace-body" },
+        _.p(summary),
+        _.small("Sequenza completa inviata al provider. Apri per ispezionare gli envelope tecnici."),
+        _.pre(JSON.stringify(calls, null, 2))
+      )
+    );
+  };
+
   const renderMessage = (message = {}) => {
     const refinedSource = message.refinedFrom ? messageById(message.refinedFrom) : null;
     return _.article(
@@ -8907,7 +9252,7 @@ const openFlowPromptChatDialog = async (options = {}) => {
           ) : null
         )
       ),
-      renderMessageContent(message.content || ""),
+      message.role === "tool" ? renderToolTrace(message) : renderMessageContent(message.content || ""),
       message.kind === "plan" && message.plan ? renderPlanSnapshot(message.plan) : null,
       message.kind === "inventory" && message.inventory ? renderInventorySnapshot(message.inventory) : null,
       message.kind === "agent-report" && message.agentReport ? renderAgentReport(message.agentReport) : null,
@@ -9268,11 +9613,50 @@ const openFlowPromptChatDialog = async (options = {}) => {
     ];
   }
 
+  function renderAsideResizeHandle() {
+    return _.div({
+      class: "tl-flow-prompt-aside-resize-handle",
+      "data-flow-prompt-aside-resize": "true",
+      role: "separator",
+      "aria-label": "Ridimensiona larghezza chat",
+      "aria-orientation": "vertical",
+      title: "Trascina per ridimensionare la chat",
+    });
+  }
+
   aside = _.aside(
-    { class: "tl-flow-prompt-aside", "data-flow-prompt-aside": "true", "aria-label": "AI Flow Chat" },
-    ...renderAsideShell()
+    {
+      class: "tl-flow-prompt-aside",
+      "data-flow-prompt-aside": "true",
+      "aria-label": "AI Flow Chat",
+      style: { width: `${draft.asideWidth}px` },
+    },
+    ...renderAsideShell(),
+    renderAsideResizeHandle()
   );
   document.body.appendChild(aside);
+  aside.addEventListener("pointerdown", (event) => {
+    if (!event.target?.closest?.("[data-flow-prompt-aside-resize]")) return;
+    event.preventDefault();
+    const pointerId = event.pointerId;
+    const resizeFromPointer = (moveEvent) => {
+      draft.asideWidth = flowPromptClampAsideWidth((window.innerWidth || 0) - moveEvent.clientX - 12);
+      aside.style.width = `${draft.asideWidth}px`;
+    };
+    const stopResize = () => {
+      window.removeEventListener("pointermove", resizeFromPointer);
+      window.removeEventListener("pointerup", stopResize);
+      window.removeEventListener("pointercancel", stopResize);
+      aside.classList.remove("is-resizing");
+      draft.asideWidth = flowPromptSaveAsideWidth(draft.asideWidth, draft.workspaceId);
+      aside.style.width = `${draft.asideWidth}px`;
+    };
+    aside.setPointerCapture?.(pointerId);
+    aside.classList.add("is-resizing");
+    window.addEventListener("pointermove", resizeFromPointer);
+    window.addEventListener("pointerup", stopResize, { once: true });
+    window.addEventListener("pointercancel", stopResize, { once: true });
+  });
   if (typeof window.trackers?.desktop?.externalAi?.onLoginProgress === "function") {
     stopLoginProgress = window.trackers.desktop.externalAi.onLoginProgress((progress) => {
       if (String(progress?.provider || "") !== selectedProviderId()) return;

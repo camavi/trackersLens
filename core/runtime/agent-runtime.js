@@ -23,6 +23,42 @@ window.TrackerLensAgentRuntime = (() => {
     outputs: Array.isArray(node.outputs) ? node.outputs : node.metadata?.manifest?.outputs || [],
   });
 
+  const nodePortNames = (ports = []) => (Array.isArray(ports) ? ports : [])
+    .map((port) => typeof port === "object" ? String(port.name || port.key || port.channel || port.id || "") : String(port || ""))
+    .filter(Boolean);
+
+  const nodeSummary = (node = {}) => ({
+    id: node.id || "",
+    label: nodeLabel(node),
+    type: node.type || "",
+    subtype: nodeKind(node),
+  });
+
+  const dependencySummary = (dependency = {}) => ({
+    id: dependency.id || dependency.connectionId || "",
+    sourceNodeId: dependency.sourceNodeId || "",
+    targetNodeId: dependency.targetNodeId || "",
+    channel: dependency.channel || "",
+    status: dependency.status || "",
+    linkType: dependency.metadata?.linkType || dependency.mapping?.linkType || dependency.linkType || "data",
+  });
+
+  const impactSummary = (impact = {}) => ({
+    node: impact.node ? nodeSummary(impact.node) : null,
+    upstream: (impact.upstream || []).map((item) => ({
+      node: item.node ? nodeSummary(item.node) : null,
+      dependency: item.dependency ? dependencySummary(item.dependency) : null,
+    })),
+    downstream: (impact.downstream || []).map((item) => ({
+      node: item.node ? nodeSummary(item.node) : null,
+      dependency: item.dependency ? dependencySummary(item.dependency) : null,
+    })),
+    directDependencies: (impact.directDependencies || []).map(dependencySummary),
+    channels: Array.isArray(impact.channels) ? impact.channels.map(String) : [],
+    risk: impact.risk || "unknown",
+    analyzedAt: impact.analyzedAt || "",
+  });
+
   const nodeConfig = (node = {}) =>
     node.metadata?.config && typeof node.metadata.config === "object" && !Array.isArray(node.metadata.config)
       ? node.metadata.config
@@ -1136,6 +1172,7 @@ window.TrackerLensAgentRuntime = (() => {
     return {
       workspaceId: snapshot.filters?.workspaceId || "",
       nodes: nodes.length,
+      nodeIndex: nodes.map(nodeSummary),
       dependencies: dependencies.length,
       roots: roots.map((node) => ({ id: node.id, label: nodeLabel(node), type: node.type || "", subtype: nodeKind(node) })),
       leaves: leaves.map((node) => ({ id: node.id, label: nodeLabel(node), type: node.type || "", subtype: nodeKind(node) })),
@@ -1155,7 +1192,25 @@ window.TrackerLensAgentRuntime = (() => {
     };
   };
 
-  const inspectNode = async ({ workspaceId = "", nodeId = "" } = {}) => {
+  const findNodes = async ({ workspaceId = "", query = "" } = {}) => {
+    const snapshot = await buildSnapshot(workspaceId);
+    const normalizedQuery = normalizeSearchText(query);
+    const nodes = graphNodes(snapshot).map(nodeSummary);
+    const matches = normalizedQuery
+      ? nodes.filter((node) => [node.id, node.label, node.type, node.subtype]
+        .some((value) => normalizeSearchText(value).includes(normalizedQuery)))
+      : nodes;
+    return {
+      version: VERSION,
+      inspectedAt: nowIso(),
+      workspaceId: normalizeWorkspaceId(workspaceId),
+      query: String(query || ""),
+      total: matches.length,
+      nodes: matches,
+    };
+  };
+
+  const inspectNode = async ({ workspaceId = "", nodeId = "", includeRecentEvents = true, includeConnectedTools = true, summaryOnly = false } = {}) => {
     if (!nodeId) throw new Error("nodeId is required.");
     const effectiveWorkspaceId = normalizeWorkspaceId(workspaceId);
     const inspected = await window.TrackerLensGraphEngine.inspectNode(nodeId, {
@@ -1177,14 +1232,28 @@ window.TrackerLensAgentRuntime = (() => {
         label: nodeLabel(inspected.node),
         type: inspected.node.type || "",
         subtype: nodeKind(inspected.node),
-        ports: nodePorts(inspected.node),
-        agentTools: nodeAgentTools(inspected.node),
+        ports: summaryOnly
+          ? { inputs: nodePortNames(nodePorts(inspected.node).inputs), outputs: nodePortNames(nodePorts(inspected.node).outputs) }
+          : nodePorts(inspected.node),
+        config: Object.fromEntries(Object.entries(nodeConfig(inspected.node)).map(([key, value]) => [key, {
+          valueType: Array.isArray(value) ? "array" : value === null ? "null" : typeof value,
+          configured: value !== undefined && value !== null && value !== "",
+        }])),
         status: inspected.node.status || inspected.node.runtime?.status || inspected.node.metadata?.runtimeStatus || "idle",
       } : null,
-      dependencies: inspected.dependencies || [],
-      connectedTools: inspected.node ? await inspectConnectedTools({ workspaceId: effectiveWorkspaceId, nodeId }) : null,
-      recentEvents: inspected.events || [],
-      impact: inspected.impact || null,
+      dependencies: summaryOnly ? (inspected.dependencies || []).map(dependencySummary) : inspected.dependencies || [],
+      // Tool manifests can be very large. Keep this optional for generic
+      // runtime callers; provider chat discovers them with its dedicated,
+      // consented inspectConnectedTools call only when needed.
+      connectedTools: includeConnectedTools && inspected.node
+        ? await inspectConnectedTools({ workspaceId: effectiveWorkspaceId, nodeId })
+        : null,
+      recentEvents: includeRecentEvents ? inspected.events || [] : [],
+      limitations: [
+        ...(includeRecentEvents ? [] : ["Recent runtime events were not included in this node inspection. Use tl.workspace.readLogs with the resolved node id when they are needed."]),
+        ...(includeConnectedTools ? [] : ["Connected tool manifests were not included. Use tl.workspace.inspectConnectedTools with the resolved node id when they are needed."]),
+      ],
+      impact: summaryOnly ? impactSummary(inspected.impact) : inspected.impact || null,
     };
   };
 
@@ -1750,6 +1819,12 @@ window.TrackerLensAgentRuntime = (() => {
       mutates: false,
       run: inspectNode,
     },
+    findNodes: {
+      name: "findNodes",
+      description: "Find all Flow Map nodes matching an id, title, type or subtype and return stable ids.",
+      mutates: false,
+      run: findNodes,
+    },
     inspectConnectedTools: {
       name: "inspectConnectedTools",
       description: "Inspect MCP-ready read-tool manifests exposed by a node and its connected runtime neighbors.",
@@ -1792,6 +1867,7 @@ window.TrackerLensAgentRuntime = (() => {
     VERSION,
     tools,
     callTool,
+    findNodes,
     inspectFlow,
     inspectNode,
     inspectConnectedTools,

@@ -39,12 +39,19 @@ Results use the Connected Node Tool Protocol envelope: `ok`, `tool`, `nodeId`, `
 
 | Name | Existing runtime operation | Permission | Effect |
 | --- | --- | --- | --- |
-| `tl.workspace.inspectFlow` | `inspectFlow` | `flow.read` | graph summary, roots/leaves and validation issues |
-| `tl.workspace.inspectNode` | `inspectNode` | `flow.read` | one node, dependencies, events and impact |
+| `tl.workspace.inspectFlow` | `inspectFlow` | `flow.read` | graph summary, lightweight full node index (`id`, label, type, subtype), roots/leaves and validation issues; no node payloads |
+| `tl.workspace.findNodes` | `findNodes` | `flow.read` | finds every node matching an ID, visible title, type or subtype and returns stable IDs without node payloads |
+| `tl.workspace.inspectNode` | `inspectNode({ summaryOnly: true })` | `flow.read` | one node’s identity, type, port names, configuration-key map and compact topology/impact summary; it never returns node data, documents, chunks, graph records, raw events or tool manifests |
+| `tl.workspace.inspectNodeConfig` | Chat scoped node-config read | `flow.read` | explicitly named configuration fields after `inspectNode`; avoids sending unrelated runtime payloads |
+| `tl.workspace.inspectConnectedTools` | `inspectConnectedTools` | `flow.read` | discovers the exact declared read tools for one relevant node only |
 | `tl.workspace.readLogs` | `readLogs` | `runtime.read` | recent logs/events, optionally scoped to node/run |
 | `tl.workspace.runFlow` | `runFlow({ dryRun: true })` | `runtime.simulate` | non-mutating trace/simulation only |
 | `tl.workspace.suggestFixes` | `suggestFixes` | `flow.read` | suggestions; never an applied change |
 | `tl.workspace.listRuns` | `listRuns` | `runtime.read` | recent Agent Runtime traces |
+
+## Automatic Session Context
+
+Every provider request includes a small `tl-chat-session-context/v1` metadata object: current desktop route/tab, active workspace id/name, chat workspace id and effective Flow Map scope. It tells the AI which Flow Map the user is looking at without exposing Flow contents or requiring a tool call. If no Flow Map is active, the context explicitly reports the available workspace scope instead of guessing.
 
 ## Node Tools
 
@@ -59,14 +66,14 @@ Current node families include:
 - Graph/reasoning: `findEntities`, `findRelations`, `getGraphEvidence`.
 - RAG/vector: `searchChunks` where declared.
 
-The exact catalog is reconstructed for the active workspace and only includes the tools actually declared by its nodes. A tool-access edge constrains access to directly connected tools when an Agent node is the caller.
+The provider starts with a small workspace catalog only. It requests `tl.workspace.findNodes` to resolve a visible node title into stable ID(s), then `tl.workspace.inspectNode` for one ID, and `tl.workspace.inspectConnectedTools` only when it needs that node's exact connected catalog. A title may match several nodes; all matches are returned rather than silently choosing one. Node inspection never transports documents, chunks, graph records or tool manifests. A tool-access edge constrains access to directly connected tools when an Agent node is the caller.
 
 ## Consent Policy
 
 Default is ask. The chat records the user's decision with provider, model, conversation, tool name, scope and timestamp.
 
 - `Allow once`: one tool call only.
-- `Allow for this chat`: read scope remains available for the current conversation.
+- `Allow all reads for this chat`: every provider-requested read tool remains available for the current conversation, is persisted with that chat and remains read-only. It never grants a Flow mutation.
 - `Deny`: provider receives a normal denied-result envelope and can answer or choose another tool.
 - No hidden fallback or fabricated substitute data is permitted.
 
@@ -78,8 +85,8 @@ No tool catalog entry directly changes the Flow. A provider can return a typed `
 
 ## Implementation Path
 
-1. Build this catalog at chat-send time from `TrackerLensAgentRuntime.tools` and `inspectConnectedTools`.
+1. Build the compact workspace catalog at chat-send time. Discover connected-node manifests only after an explicit `inspectConnectedTools` request for one node.
 2. Give the selected provider the catalog, not Flow data, with a strict tool-request response protocol.
 3. On a request, show CMS consent, execute the allow-listed read operation and append the exact envelope.
-4. Call the provider again with that observation; repeat only within a visible bounded loop.
+4. Call the provider again with that observation; every tool call remains attributed and inspectable as one collapsed turn trace.
 5. Add typed mutation proposals as a separate, confirmed path.
