@@ -52,6 +52,11 @@ The dispatcher enforces this order for static workspace tools during each provid
 turn. Discovery state is reset on the next user message, so an earlier lookup cannot
 silently widen a later data request.
 
+Tool transport accepts the same strict JSON object whether the provider emits it
+plain, inside a JSON fence, embedded in a short renderer wrapper, or as a JSON string.
+Markdown-escaped underscores are normalized only while parsing the protocol field
+`tool_request`; no natural-language answer is interpreted as a tool call.
+
 If a provider starts the discovery chain and then returns a narrative answer while it
 has only catalog observations, TL sends a bounded protocol correction asking for the
 next tool JSON. It never presents that intermediate narrative as a verified workspace
@@ -70,7 +75,9 @@ history. Real observations are supplied only in the active tool loop that produc
 them. Every distinct observation from that active turn remains in the next provider
 request, so a later catalog lookup cannot make the provider lose a resolved node ID
 or another already-authorized result. Repeated observations are referenced once, not
-duplicated.
+duplicated. A denial caused only by incomplete catalog/manifests is not cached: after
+the provider discovers the missing detail it may retry that exact tool. A user denial
+is cached, preventing a second consent prompt for the same request.
 
 Current domains are `flow`, `runtime`, `knowledge`, `memory`, `providers`, `python`,
 `connections` and `analytics`. `flow` and `runtime` are executable now; `knowledge`
@@ -84,12 +91,34 @@ visible as `planned` rather than being simulated as working capabilities.
 | `tl.workspace.inspectFlow` | `inspectFlow` | `flow.read` | graph summary, lightweight full node index (`id`, label, type, subtype), roots/leaves and validation issues; no node payloads |
 | `tl.workspace.findNodes` | `findNodes` | `flow.read` | finds every node matching an ID, visible title, type or subtype and returns stable IDs without node payloads |
 | `tl.workspace.inspectNode` | `inspectNode({ summaryOnly: true })` | `flow.read` | one node’s identity, type, port names, configuration-key map and compact topology/impact summary; it never returns node data, documents, chunks, graph records, raw events or tool manifests |
-| `tl.workspace.inspectNodeConfig` | Chat scoped node-config read | `flow.read` | explicitly named configuration fields after `inspectNode`; avoids sending unrelated runtime payloads |
+| `tl.workspace.inspectNodeConfig` | Chat scoped node-config read | `flow.read` | actual values for explicitly named configuration fields after `inspectNode`; the consent dialog names the requested fields and avoids sending unrelated runtime payloads |
 | `tl.workspace.inspectConnectedTools` | `inspectConnectedTools` | `flow.read` | discovers the exact declared read tools for one relevant node only |
 | `tl.workspace.readLogs` | `readLogs` | `runtime.read` | recent logs/events, optionally scoped to node/run |
 | `tl.workspace.runFlow` | `runFlow({ dryRun: true })` | `runtime.simulate` | non-mutating trace/simulation only |
 | `tl.workspace.suggestFixes` | `suggestFixes` | `flow.read` | suggestions; never an applied change |
 | `tl.workspace.listRuns` | `listRuns` | `runtime.read` | recent Agent Runtime traces |
+| `tl.workspace.getRun` | `getRun` | `runtime.read` | one exact trace after `listRuns`; it cannot read a trace from another workspace |
+
+## Runtime Reads
+
+The `runtime` domain is executable. For a status/debug question the provider discovers
+the domain and requests only the needed tool:
+
+- `listRuns` returns the active workspace’s trace index; an explicit `limit` is honored.
+- `getRun` reads one trace ID returned by that index and is workspace-bound.
+- `readLogs` can be scoped to one resolved node or run; the consent dialog shows that
+  scope and any user-requested record count.
+- `runFlow` remains dry-run only and produces a new attributed trace; it never runs
+  node adapters or changes the Flow.
+
+## Provider Reads
+
+The `providers` domain exposes `tl.providers.listStatus`. Its response is limited to
+Codex/Claude installation, CLI version, authentication state, configured model and
+configured reasoning effort. The response explicitly reports credential ownership as
+provider-owned only and never includes credentials, access tokens, local executable
+paths, login commands or configuration-file contents. It still requires the chat's
+normal explicit read consent.
 
 ## Automatic Session Context
 
@@ -116,6 +145,27 @@ catalog. A title may match several nodes; all matches are returned rather than s
 choosing one. Node inspection never transports documents, chunks, graph records or
 tool manifests. A tool-access edge constrains access to directly connected tools when
 an Agent node is the caller.
+
+## Knowledge Reads
+
+`knowledge` is available through the connected-node protocol, not through a global
+document or graph export. The provider must follow this chain:
+
+1. resolve a visible Knowledge node with `findNodes`;
+2. inspect the resolved node;
+3. request `inspectConnectedTools` for that node;
+4. request exactly one returned `tl.node.{nodeId}.{tool}` with its declared schema.
+
+The chat dispatcher records the read-mode MCP names returned by
+`inspectConnectedTools` for the active turn and rejects any guessed or undeclared
+`tl.node.*` name. The user’s consent dialog displays the exact declared Knowledge
+tool. Documents, chunks, dictionary records, event timelines and graph evidence are
+therefore transferred only as the result of that one authorized call.
+
+For a request about actual settings, `inspectNode` is an intermediate schema discovery
+step, not the answer. The provider requests `inspectNodeConfig` with the resolved ID
+and only relevant keys (for example `provider`, `model`, `temperature` or `prompt`).
+TL names those requested keys in the consent dialog before transporting their values.
 
 ## Consent Policy
 

@@ -147,7 +147,9 @@ const FLOW_PROMPT_WORKSPACE_TOOL_SCHEMAS = {
   "tl.workspace.suggestFixes": { type: "object", properties: { nodeId: { type: "string", description: "Optional stable node id to narrow suggestions." } } },
   "tl.workspace.readLogs": { type: "object", properties: { nodeId: { type: "string" }, runId: { type: "string" }, limit: { type: "number" } } },
   "tl.workspace.listRuns": { type: "object", properties: { limit: { type: "number" } } },
+  "tl.workspace.getRun": { type: "object", properties: { runId: { type: "string", description: "Run id returned by tl.workspace.listRuns." } }, required: ["runId"] },
   "tl.workspace.runFlow": { type: "object", properties: {} },
+  "tl.providers.listStatus": { type: "object", properties: {} },
 };
 
 // Provider-facing navigation map. It describes capabilities only: no Flow,
@@ -175,6 +177,7 @@ const FLOW_PROMPT_CAPABILITY_DOMAINS = [
     tools: [
       ["tl.workspace.readLogs", "Read runtime logs/events, optionally scoped to a node or run."],
       ["tl.workspace.listRuns", "List recent Agent Runtime traces."],
+      ["tl.workspace.getRun", "Read one exact Agent Runtime trace after listRuns returned its run id."],
       ["tl.workspace.runFlow", "Create a non-mutating dry-run runtime trace."],
     ],
   },
@@ -186,7 +189,13 @@ const FLOW_PROMPT_CAPABILITY_DOMAINS = [
     tools: [["tl.workspace.inspectConnectedTools", "Use after resolving a Knowledge node; it reveals only that node's declared read tools."]],
   },
   { id: "memory", label: "Memory", purpose: "Workspace/chat memory lookup and confirmed memory proposals.", status: "planned", tools: [] },
-  { id: "providers", label: "AI Providers", purpose: "Provider availability, model capabilities and safe configuration status.", status: "planned", tools: [] },
+  {
+    id: "providers",
+    label: "AI Providers",
+    purpose: "External provider availability, authentication state and configured model metadata without credentials.",
+    status: "available",
+    tools: [["tl.providers.listStatus", "Read safe status for available external providers: installation, authentication, version, configured model and reasoning effort."]],
+  },
   { id: "python", label: "Python Runtime", purpose: "Managed packs, environments, local models and health.", status: "planned", tools: [] },
   { id: "connections", label: "Connections", purpose: "Endpoint discovery, connection status and diagnostics.", status: "planned", tools: [] },
   { id: "analytics", label: "Analytics and DevTools", purpose: "Workspace/node metrics, warnings, errors and diagnostics.", status: "planned", tools: [] },
@@ -227,7 +236,7 @@ const flowPromptCapabilityDetails = (name = "", preferredDomainId = "") => {
       domainLabel: domain.label,
       status: domain.status,
       inputSchema: FLOW_PROMPT_WORKSPACE_TOOL_SCHEMAS[found[0]] || { type: "object", properties: {} },
-      dataClass: domain.id === "flow" ? "flow metadata or explicitly requested configuration" : domain.id === "runtime" ? "runtime metadata, logs or dry-run trace" : "node-scoped data declared by the resolved node",
+      dataClass: domain.id === "flow" ? "flow metadata or explicitly requested configuration" : domain.id === "runtime" ? "runtime metadata, logs or dry-run trace" : domain.id === "providers" ? "provider installation/authentication and configured-model metadata; never credentials or executable paths" : "node-scoped data declared by the resolved node",
       permission: domain.status === "available" || domain.status === "available-via-node" ? "explicit user consent" : "not executable yet",
     };
   }
@@ -276,13 +285,38 @@ const flowPromptExternalProviderStatus = async (providerId = "") => {
 
 const flowPromptParseExternalToolRequest = (text = "") => {
   const source = String(text || "").trim();
+  const embeddedObjects = [];
+  for (let start = source.indexOf("{"); start >= 0; start = source.indexOf("{", start + 1)) {
+    let depth = 0;
+    let quoted = false;
+    let escaped = false;
+    for (let index = start; index < source.length; index += 1) {
+      const character = source[index];
+      if (quoted) {
+        if (escaped) escaped = false;
+        else if (character === "\\") escaped = true;
+        else if (character === '"') quoted = false;
+        continue;
+      }
+      if (character === '"') quoted = true;
+      else if (character === "{") depth += 1;
+      else if (character === "}" && --depth === 0) {
+        embeddedObjects.push(source.slice(start, index + 1));
+        break;
+      }
+    }
+  }
   const candidates = [
     source,
     ...Array.from(source.matchAll(/```(?:json)?\s*([\s\S]*?)```/gi)).map((match) => match[1]),
+    ...embeddedObjects,
   ];
   for (const candidate of candidates) {
     try {
-      const parsed = JSON.parse(String(candidate || "").trim());
+      const normalized = String(candidate || "").trim().replace(/\\_/g, "_");
+      let parsed = JSON.parse(normalized);
+      // Some CLI renderers return the JSON tool object as a JSON string.
+      if (typeof parsed === "string") parsed = JSON.parse(parsed.replace(/\\_/g, "_"));
       if (parsed?.type === "tool_request" && typeof parsed.tool === "string") {
         return { tool: parsed.tool.trim(), args: parsed.args && typeof parsed.args === "object" && !Array.isArray(parsed.args) ? parsed.args : {} };
       }
@@ -321,6 +355,10 @@ const flowPromptBuildExternalReply = async (providerId = "", prompt = "", { conv
     "Answer in the user's language. You can advise and explain, but cannot apply changes to the Flow Map.",
     "Never claim to have filesystem, terminal, browser, or workspace access. Any Flow change remains a separate confirmed TL action.",
     "For a question about the current Trackers Lens state, configuration, node, connection, run, count, log or document, catalog metadata and prior assistant text are not evidence. If the user did not provide the exact fact, use the relevant available TL tool before answering. In particular, resolve a visible node title with findNodes before asking the user to select it or provide its id. If no suitable tool exists or access is denied, say that clearly without inventing a result.",
+    "For a question about actual node settings or values, inspectNode only reveals the configuration-key map. After it identifies relevant keys, request tl.workspace.inspectNodeConfig with the resolved stable nodeId and only the keys needed to answer. Do not describe configuration keys as their values, and do not stop at inspectNode when the requested values are available through inspectNodeConfig.",
+    "For a question about runtime status, runs, failures, logs or events, use the runtime domain. List runs before reading one exact trace with getRun; scope readLogs to a resolved node or run whenever the user's question identifies one. Runtime metadata is not proof until a real runtime tool observation is returned.",
+    "For a question about knowledge, documents, chunks, dictionary terms, timelines, entities, relations, graph evidence or RAG, resolve and inspect the relevant node first, then use inspectConnectedTools. It returns the exact node-scoped read tools and schemas. Request only one declared read tool at a time; never guess a tl.node tool name or call one that was not returned by inspectConnectedTools.",
+    "For a question about installed external AI providers, authentication, configured model or reasoning effort, use the providers domain and tl.providers.listStatus. It returns safe status metadata only; never claim access to credentials, tokens or executable paths.",
     toolCatalog ? `Trackers Lens capability navigation tools (metadata only; always available during this request):\n${JSON.stringify(toolCatalog)}\nIf you need TL data: first call tl.catalog.listDomains; then tl.catalog.listTools for one relevant domain; then tl.catalog.getCapabilityDetails for the selected tool; finally request that exact available tool. Respond with ONLY JSON: {"type":"tool_request","tool":"exact catalog name","args":{}}. Do not request a write tool. A node reference may be its visible label or technical id.` : "",
     toolObservation && toolProtocolProgress ? `Tool discovery progress for this same request:\n${JSON.stringify(toolProtocolProgress)}\nContinue from this progress. Do not restart tl.catalog.listDomains or repeat a tool request already completed unless its arguments must genuinely change.` : "",
     sessionContext ? `Active Trackers Lens session context (metadata, not Flow contents):\n${JSON.stringify(sessionContext)}` : "",
@@ -6352,12 +6390,13 @@ const openFlowPromptChatDialog = async (options = {}) => {
 
   // Discovery is intentionally per provider turn. A previous answer cannot
   // silently grant a later request a broader data vocabulary.
-  let providerToolDiscovery = { domainsListed: false, indexedDomains: new Set(), detailedTools: new Set() };
+  let providerToolDiscovery = { domainsListed: false, indexedDomains: new Set(), detailedTools: new Set(), declaredNodeTools: new Set() };
   const providerToolProtocolProgress = () => ({
     version: "tl-capability-map/v1",
     domainsListed: providerToolDiscovery.domainsListed,
     indexedDomains: [...providerToolDiscovery.indexedDomains],
     detailedTools: [...providerToolDiscovery.detailedTools],
+    declaredNodeToolCount: providerToolDiscovery.declaredNodeTools.size,
   });
 
   const requestReadToolConsent = (request = {}) => new Promise((resolve) => {
@@ -6379,6 +6418,17 @@ const openFlowPromptChatDialog = async (options = {}) => {
       content: () => _.div(
         { class: "tl-flow-prompt-provider-settings" },
         _.p(`Tool richiesto: ${request.tool || "sconosciuto"}`),
+        request.tool === "tl.workspace.inspectNodeConfig" ? _.p(
+          `Valori richiesti${request.args?.nodeId ? ` per ${request.args.nodeId}` : ""}: ${(Array.isArray(request.args?.keys) ? request.args.keys : []).map((key) => String(key || "").trim()).filter(Boolean).join(", ") || "nessun campo indicato"}.`
+        ) : null,
+        request.tool === "tl.workspace.readLogs" ? _.p(
+          `Ambito runtime: ${request.args?.runId ? `run ${request.args.runId}` : request.args?.nodeId ? `nodo ${request.args.nodeId}` : "workspace attivo"}${request.args?.limit ? ` · fino a ${request.args.limit} record` : ""}.`
+        ) : null,
+        request.tool === "tl.workspace.getRun" ? _.p(`Trace richiesto: ${request.args?.runId || "run non indicato"}.`) : null,
+        String(request.tool || "").startsWith("tl.node.") ? _.p(
+          `Lettura Knowledge dichiarata: ${request.tool}. TL invierà solo il risultato di questo tool del nodo, con evidenze e limiti disponibili.`
+        ) : null,
+        request.tool === "tl.providers.listStatus" ? _.p("Stato provider richiesto: installazione, autenticazione e configurazione modello; credenziali e percorsi locali non vengono mai letti.") : null,
         _.small("Puoi autorizzare solo questo tool oppure tutte le letture richieste dal provider nella conversazione corrente. Il consenso non abilita modifiche alla Flow Map.")
       ),
       actions: ({ close }) => _.Toolbar({ align: "end", gap: 8 },
@@ -6428,6 +6478,32 @@ const openFlowPromptChatDialog = async (options = {}) => {
     if (!runtime || !tool) return denied("Tool runtime non disponibile.");
     if (!tool.startsWith("tl.node.") && !providerToolDiscovery.detailedTools.has(tool)) {
       return denied("Prima scopri il tool: tl.catalog.listDomains, tl.catalog.listTools e tl.catalog.getCapabilityDetails.");
+    }
+    if (tool.startsWith("tl.node.") && !providerToolDiscovery.declaredNodeTools.has(tool)) {
+      return denied("Questo tool del nodo non è stato dichiarato dalla precedente inspectConnectedTools. Risolvi il nodo e scopri prima il suo catalogo connesso.");
+    }
+    if (tool === "tl.providers.listStatus") {
+      const getStatus = window.trackers?.desktop?.externalAi?.getStatus;
+      if (typeof getStatus !== "function") return denied("Il bridge desktop dei provider AI non è disponibile.");
+      const providers = await Promise.all(["codex", "claude"].map(async (provider) => {
+        try {
+          const status = await getStatus({ provider });
+          return {
+            provider: status?.provider || provider,
+            label: status?.label || flowPromptExternalProviderLabel(provider),
+            installed: Boolean(status?.installed),
+            version: String(status?.version || ""),
+            authenticated: Boolean(status?.authenticated),
+            authentication: String(status?.authentication || "unknown"),
+            configuredModel: String(status?.configuredModel || ""),
+            configuredReasoningEffort: String(status?.configuredReasoningEffort || ""),
+            credentialAccess: "provider-owned-only",
+          };
+        } catch (error) {
+          return { provider, label: flowPromptExternalProviderLabel(provider), available: false, status: "unavailable", limitations: [error?.message || "Stato provider non disponibile."] };
+        }
+      }));
+      return { ok: true, tool, status: "ready", providers };
     }
     const resolveNodes = async (reference = "") => {
       const search = String(reference || "").trim();
@@ -6511,12 +6587,25 @@ const openFlowPromptChatDialog = async (options = {}) => {
         matches: nodes || [],
         limitations: [nodes?.length ? "Il titolo corrisponde a più nodi. Scegli uno degli ID restituiti." : `Nessun nodo corrisponde a "${reference}" nel Flow Map attivo.`],
       };
-      return runtime.inspectConnectedTools({ workspaceId: draft.workspaceId, nodeId: matchedNode.id });
+      const connected = await runtime.inspectConnectedTools({ workspaceId: draft.workspaceId, nodeId: matchedNode.id });
+      (connected?.manifests || []).forEach((manifest) => {
+        (manifest?.tools || []).forEach((declaredTool) => {
+          if (declaredTool?.mode === "read" && declaredTool?.mcpName) providerToolDiscovery.declaredNodeTools.add(declaredTool.mcpName);
+        });
+      });
+      return connected;
     }
     if (tool === "tl.workspace.readLogs") return runtime.readLogs({ workspaceId: draft.workspaceId, ...args });
     if (tool === "tl.workspace.runFlow") return runtime.runFlow({ workspaceId: draft.workspaceId, ...args, dryRun: true, mode: "dry-run" });
     if (tool === "tl.workspace.suggestFixes") return runtime.suggestFixes({ workspaceId: draft.workspaceId, ...args });
-    if (tool === "tl.workspace.listRuns") return runtime.listRuns();
+    if (tool === "tl.workspace.listRuns") return { version: runtime.VERSION, runs: runtime.listRuns({ workspaceId: draft.workspaceId, ...args }) };
+    if (tool === "tl.workspace.getRun") {
+      const runId = String(args.runId || "").trim();
+      const run = runtime.getRun({ workspaceId: draft.workspaceId, runId });
+      return run
+        ? { version: runtime.VERSION, run }
+        : { ok: false, tool, status: "not-found", runId, limitations: ["Run non trovato nel workspace attivo. Usa tl.workspace.listRuns per ottenere un id valido."] };
+    }
     const nodeMatch = tool.match(/^tl\.node\.([^.]+)\.([A-Za-z0-9_-]+)$/);
     if (nodeMatch) return runtime.callConnectedNodeTool({ workspaceId: draft.workspaceId, nodeId: nodeMatch[1], tool: nodeMatch[2], args });
     return denied("Il tool richiesto non è dichiarato nel catalogo attivo.");
@@ -6528,7 +6617,7 @@ const openFlowPromptChatDialog = async (options = {}) => {
     if (!status?.authenticated) {
       throw new Error(`${flowPromptExternalProviderLabel(selectedProviderId())} non è pronto. Seleziona il provider e completa l'accesso ufficiale.`);
     }
-    providerToolDiscovery = { domainsListed: false, indexedDomains: new Set(), detailedTools: new Set() };
+    providerToolDiscovery = { domainsListed: false, indexedDomains: new Set(), detailedTools: new Set(), declaredNodeTools: new Set() };
     const toolCatalog = await providerReadToolCatalog();
     let reply = await flowPromptBuildExternalReply(selectedProviderId(), prompt, {
       ...options,
@@ -6585,8 +6674,14 @@ const openFlowPromptChatDialog = async (options = {}) => {
       const observation = cachedObservation
         ? { ...cachedObservation, status: "cached", cached: true, limitations: [...(cachedObservation.limitations || []), "Lettura identica già eseguita in questo turno: viene riutilizzato il risultato precedente, senza una nuova chiamata a TL."] }
         : await runProviderReadTool(request);
+      // A protocol denial is transitional: a provider may legitimately obtain
+      // the missing catalog detail/manifests and retry the exact tool in the
+      // same turn. User denials remain cached to avoid another consent dialog.
+      const protocolDenied = observation?.status === "denied" && (observation?.limitations || []).some((reason) =>
+        /Prima scopri il tool|Questo tool del nodo non è stato dichiarato/i.test(String(reason || ""))
+      );
       if (!cachedObservation) {
-        observedRequests.set(requestKey, observation);
+        if (!protocolDenied) observedRequests.set(requestKey, observation);
         observedToolResults.push({ request, observation });
         duplicateRequests = 0;
       } else {

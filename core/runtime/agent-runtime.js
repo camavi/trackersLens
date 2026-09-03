@@ -1796,9 +1796,20 @@ window.TrackerLensAgentRuntime = (() => {
     return run;
   };
 
-  const listRuns = () => Array.from(runs.values()).sort((a, b) => String(b.startedAt).localeCompare(String(a.startedAt)));
+  const listRuns = ({ workspaceId = "", limit = 0 } = {}) => {
+    const explicitLimit = Number.isFinite(Number(limit)) && Number(limit) > 0 ? Math.floor(Number(limit)) : Number.POSITIVE_INFINITY;
+    const effectiveWorkspaceId = normalizeWorkspaceId(workspaceId);
+    return Array.from(runs.values())
+      .filter((run) => !workspaceId || run.workspaceId === effectiveWorkspaceId)
+      .sort((a, b) => String(b.startedAt).localeCompare(String(a.startedAt)))
+      .slice(0, explicitLimit);
+  };
 
-  const getRun = (runId = "") => runs.get(runId) || null;
+  const getRun = ({ runId = "", workspaceId = "" } = {}) => {
+    const run = runs.get(runId) || null;
+    if (!run) return null;
+    return workspaceId && run.workspaceId !== normalizeWorkspaceId(workspaceId) ? null : run;
+  };
 
   const tools = {
     inspectFlow: {
@@ -1853,7 +1864,13 @@ window.TrackerLensAgentRuntime = (() => {
       name: "listRuns",
       description: "List recent Agent Runtime traces kept in memory.",
       mutates: false,
-      run: async () => ({ version: VERSION, runs: listRuns() }),
+      run: async (args = {}) => ({ version: VERSION, runs: listRuns(args) }),
+    },
+    getRun: {
+      name: "getRun",
+      description: "Read one Agent Runtime trace by its run id.",
+      mutates: false,
+      run: async (args = {}) => ({ version: VERSION, run: getRun(args) }),
     },
   };
 

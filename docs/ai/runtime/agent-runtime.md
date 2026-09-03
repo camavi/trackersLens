@@ -3,7 +3,7 @@
 Purpose: runtime control layer for Trackers Lens agentic flows.
 Read when: changing flow run/debug, runtime tools, traces, safe fix suggestions or Codex-like agent behavior.
 Do not read when: working only on Flow Chat wording or visual styling.
-Last updated: 2026-07-10.
+Last updated: 2026-09-03.
 
 ## Direction
 
@@ -34,7 +34,8 @@ Tools:
 - `inspectNode`: inspect node ports, dependencies, recent events and impact.
 - `readLogs`: read recent events and flow logs by workspace, node or run.
 - `suggestFixes`: propose safe fixes for validation issues, invalid ports, duplicate/broken links, isolated nodes, agent bridge gaps, preview reachability and ambiguous roots.
-- `listRuns`: list in-memory Agent Runtime traces.
+- `listRuns`: list in-memory Agent Runtime traces, scoped to a workspace and optionally to a user-requested count.
+- `getRun`: read one exact in-memory Agent Runtime trace by an ID returned from `listRuns`, constrained to the same workspace.
 
 ## Constraints
 

@@ -439,6 +439,7 @@
   display: grid;
   align-content: start;
   gap: 10px;
+  min-width: 0;
   min-height: 0;
   overflow-y: auto;
   overscroll-behavior: contain;
@@ -451,6 +452,7 @@
   display: grid;
   gap: 8px;
   max-width: 88%;
+  min-width: 0;
   padding: 11px;
   border: 1px solid rgba(214, 226, 235, 0.1);
   border-radius: 8px;
@@ -592,6 +594,12 @@
   gap: 14px;
   color: var(--tl-text-muted);
   font-size: 11px;
+}
+
+.tl-flow-prompt-message-head,
+.tl-flow-prompt-message-head > span,
+.tl-flow-prompt-message-meta {
+  min-width: 0;
 }
 
 .tl-flow-prompt-message-head>span {
@@ -784,16 +792,27 @@
 
 .tl-flow-prompt-message p {
   margin: 0;
+  min-width: 0;
   color: var(--tl-text);
   font-size: 12px;
   line-height: 1.45;
   white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 .tl-flow-prompt-message-body {
   display: grid;
   gap: 5px;
   min-width: 0;
+}
+
+.tl-flow-prompt-message-body *,
+.tl-flow-prompt-message-quote,
+.tl-flow-prompt-message-codeblock,
+.tl-flow-prompt-message-codeblock code {
+  min-width: 0;
+  max-width: 100%;
 }
 
 .tl-flow-prompt-message-line.is-list {
