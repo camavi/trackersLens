@@ -3,7 +3,7 @@
 Purpose: one inspectable map of the tools that an AI provider can discover and request through the universal Agent Workspace.
 Read when: adding a provider-visible tool, permission scope, tool-call loop or Chat tool trace.
 Do not read when: editing a node visual only.
-Last updated: 2026-09-02.
+Last updated: 2026-09-03.
 
 ## Ownership
 
@@ -34,6 +34,48 @@ Provider-visible tools use an MCP-ready descriptor:
 ```
 
 Results use the Connected Node Tool Protocol envelope: `ok`, `tool`, `nodeId`, `status`, `answer`, `items`, `evidence`, `confidence`, `limitations`, `usage` and `debug`.
+
+## Hierarchical Capability Discovery
+
+An external provider receives exactly three metadata-only navigation tools throughout
+the active tool turn. It does not receive the Workspace tool list, node manifests,
+Flow graph or runtime data in the initial prompt or merely by continuing discovery.
+
+| Level | Tool | Result | Consent |
+| --- | --- | --- | --- |
+| 0 | `tl.catalog.listDomains` | compact page/domain map and availability | none |
+| 1 | `tl.catalog.listTools({ domain })` | compact index of tools in one domain | none |
+| 2 | `tl.catalog.getCapabilityDetails({ name })` | exact schema, data class, availability and permission | none |
+| 3 | selected workspace or node tool | real, attributed TL observation | explicit user consent |
+
+The dispatcher enforces this order for static workspace tools during each provider
+turn. Discovery state is reset on the next user message, so an earlier lookup cannot
+silently widen a later data request.
+
+If a provider starts the discovery chain and then returns a narrative answer while it
+has only catalog observations, TL sends a bounded protocol correction asking for the
+next tool JSON. It never presents that intermediate narrative as a verified workspace
+answer. This is transport enforcement, not TL choosing the provider's answer or tool.
+
+Capability metadata and earlier assistant messages are never evidence for a question
+about the current workspace. The provider instruction requires a real Level-3
+observation before it describes a current configuration, node, connection, run, count,
+log or document. For a visible node title it must try `findNodes` before asking the
+user for an ID or selection.
+
+External-provider history is deliberately narrow: the current request is sent once;
+previous user requests are sent only for an explicit follow-up such as “come prima”.
+Earlier assistant prose, tool traces and observations are never replayed as chat
+history. Real observations are supplied only in the active tool loop that produced
+them. Every distinct observation from that active turn remains in the next provider
+request, so a later catalog lookup cannot make the provider lose a resolved node ID
+or another already-authorized result. Repeated observations are referenced once, not
+duplicated.
+
+Current domains are `flow`, `runtime`, `knowledge`, `memory`, `providers`, `python`,
+`connections` and `analytics`. `flow` and `runtime` are executable now; `knowledge`
+is exposed through the resolved node's declared tools; the remaining domains are
+visible as `planned` rather than being simulated as working capabilities.
 
 ## Workspace Tools
 
@@ -66,7 +108,14 @@ Current node families include:
 - Graph/reasoning: `findEntities`, `findRelations`, `getGraphEvidence`.
 - RAG/vector: `searchChunks` where declared.
 
-The provider starts with a small workspace catalog only. It requests `tl.workspace.findNodes` to resolve a visible node title into stable ID(s), then `tl.workspace.inspectNode` for one ID, and `tl.workspace.inspectConnectedTools` only when it needs that node's exact connected catalog. A title may match several nodes; all matches are returned rather than silently choosing one. Node inspection never transports documents, chunks, graph records or tool manifests. A tool-access edge constrains access to directly connected tools when an Agent node is the caller.
+The provider first opens the `flow` domain through the capability map, then requests
+details for `tl.workspace.findNodes` to resolve a visible node title into stable ID(s).
+It can then request details for `tl.workspace.inspectNode` for one ID, and
+`tl.workspace.inspectConnectedTools` only when it needs that node's exact connected
+catalog. A title may match several nodes; all matches are returned rather than silently
+choosing one. Node inspection never transports documents, chunks, graph records or
+tool manifests. A tool-access edge constrains access to directly connected tools when
+an Agent node is the caller.
 
 ## Consent Policy
 
@@ -85,8 +134,8 @@ No tool catalog entry directly changes the Flow. A provider can return a typed `
 
 ## Implementation Path
 
-1. Build the compact workspace catalog at chat-send time. Discover connected-node manifests only after an explicit `inspectConnectedTools` request for one node.
-2. Give the selected provider the catalog, not Flow data, with a strict tool-request response protocol.
-3. On a request, show CMS consent, execute the allow-listed read operation and append the exact envelope.
+1. Maintain a metadata-only domain map at chat-send time. Discover a domain index and exact tool schema before a data request.
+2. Give the selected provider the map, not Flow data, with a strict tool-request response protocol.
+3. On a Level-3 request, show CMS consent, execute the allow-listed read operation and append the exact envelope.
 4. Call the provider again with that observation; every tool call remains attributed and inspectable as one collapsed turn trace.
-5. Add typed mutation proposals as a separate, confirmed path.
+5. Add domains incrementally from their owning runtime/page, then add typed mutation proposals as a separate, confirmed path.

@@ -3,7 +3,7 @@
 Purpose: active work and immediate next step.
 Read when: always after `AI.md`.
 Do not read when: never during development sessions.
-Last updated: 2026-09-02.
+Last updated: 2026-09-03.
 
 ## Active Area
 
@@ -11,7 +11,9 @@ Managed Python graph relations: GLiNER2/NLI and the configured LLM are graph pro
 
 ## Next Task
 
-Unified Flow Map Chat provider integration (TASK-032) is the immediate implementation requested by the user. A single `AI Chat` icon in the persistent desktop sidebar opens the same chat from every app route; no duplicate Flow Map canvas trigger exists. The chat is now being evolved into a provider-neutral Agent Workspace: the user selects `Locale`, `Codex`, `Claude` or a future provider/model, and the selected AI decides when it needs Trackers Lens information. TL exposes declared, MCP-ready tools and returns their real structured results with provenance, evidence and limitations; it must not classify a user prompt or answer in the AI's place. Tool data and scopes require explicit consent. A provider may only propose a mutation; registered-tool validation, preflight, explicit confirmation and Time Travel remain TL-owned. The immediate first fix is to stop the legacy Flow classifier from intercepting prompts before Codex/Claude receive them, then attach the existing Connected Node Tool Protocol through a permissioned tool-call loop.
+Unified Flow Map Chat provider integration (TASK-032) is the immediate implementation requested by the user. A single `AI Chat` icon in the persistent desktop sidebar opens the same chat from every app route; no duplicate Flow Map canvas trigger exists. The chat is now being evolved into a provider-neutral Agent Workspace: the user selects `Locale`, `Codex`, `Claude` or a future provider/model, and the selected AI decides when it needs Trackers Lens information. TL exposes declared, MCP-ready tools and returns their real structured results with provenance, evidence and limitations; it must not classify a user prompt or answer in the AI's place. Tool data and scopes require explicit consent. A provider may only propose a mutation; registered-tool validation, preflight, explicit confirmation and Time Travel remain TL-owned.
+
+The hierarchical capability map implementation is complete and awaiting interactive QA: the compact `tl.catalog.*` discovery tools expose TL domains/pages and domain-level tool indexes only. The provider must request a domain index, then a workspace/page/node tool, then explicitly authorized data. No document, chunk, graph, runtime payload or node manifest may be transferred merely by discovering a capability.
 
 ## Current Work
 
