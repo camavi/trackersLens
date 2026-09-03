@@ -80,9 +80,10 @@ the provider discovers the missing detail it may retry that exact tool. A user d
 is cached, preventing a second consent prompt for the same request.
 
 Current domains are `flow`, `runtime`, `knowledge`, `memory`, `providers`, `python`,
-`connections` and `analytics`. `flow` and `runtime` are executable now; `knowledge`
-is exposed through the resolved node's declared tools; the remaining domains are
-visible as `planned` rather than being simulated as working capabilities.
+`connections` and `analytics`. `flow`, `runtime`, `providers` and `python` are
+executable now; `knowledge` is exposed through the resolved node's declared tools;
+the remaining domains are visible as `planned` rather than being simulated as working
+capabilities.
 
 ## Workspace Tools
 
@@ -119,6 +120,25 @@ configured reasoning effort. The response explicitly reports credential ownershi
 provider-owned only and never includes credentials, access tokens, local executable
 paths, login commands or configuration-file contents. It still requires the chat's
 normal explicit read consent.
+
+## Python Runtime Reads
+
+The `python` domain exposes two explicit read tools:
+
+- `tl.python.getCatalog` returns the Core-owned inventory of managed environments,
+  trusted packs and registered local models: readiness/state, pinned package
+  requirements, capabilities, model revision, dimensions, languages, license and
+  exact local size.
+- `tl.python.resolveNodeRequirements({ nodeId })` requires a stable ID returned by
+  `tl.workspace.findNodes`. It reads only that node's declared Python requirement and
+  compares it with the Core-managed pack resolver, returning `ready`, `unavailable`,
+  `blocked`, `invalid` or `not-required` plus a safe install-plan summary when one
+  exists.
+
+The provider boundary projects this data explicitly and never receives environment or
+model paths, filesystem handles, shell commands, pip/download controls, credentials or
+an install/remove/restart capability. Those actions remain separate TL-owned confirmed
+workflows and are not yet provider tools.
 
 ## Automatic Session Context
 

@@ -150,6 +150,8 @@ const FLOW_PROMPT_WORKSPACE_TOOL_SCHEMAS = {
   "tl.workspace.getRun": { type: "object", properties: { runId: { type: "string", description: "Run id returned by tl.workspace.listRuns." } }, required: ["runId"] },
   "tl.workspace.runFlow": { type: "object", properties: {} },
   "tl.providers.listStatus": { type: "object", properties: {} },
+  "tl.python.getCatalog": { type: "object", properties: {} },
+  "tl.python.resolveNodeRequirements": { type: "object", properties: { nodeId: { type: "string", description: "Stable node id returned by tl.workspace.findNodes." } }, required: ["nodeId"] },
 };
 
 // Provider-facing navigation map. It describes capabilities only: no Flow,
@@ -196,7 +198,16 @@ const FLOW_PROMPT_CAPABILITY_DOMAINS = [
     status: "available",
     tools: [["tl.providers.listStatus", "Read safe status for available external providers: installation, authentication, version, configured model and reasoning effort."]],
   },
-  { id: "python", label: "Python Runtime", purpose: "Managed packs, environments, local models and health.", status: "planned", tools: [] },
+  {
+    id: "python",
+    label: "Python Runtime",
+    purpose: "Inspect managed pack, environment and local-model readiness without filesystem, shell or installation access.",
+    status: "available",
+    tools: [
+      ["tl.python.getCatalog", "Read safe managed pack, environment and local-model status and metadata."],
+      ["tl.python.resolveNodeRequirements", "Resolve one found node's declared Python requirement against the managed pack catalog."],
+    ],
+  },
   { id: "connections", label: "Connections", purpose: "Endpoint discovery, connection status and diagnostics.", status: "planned", tools: [] },
   { id: "analytics", label: "Analytics and DevTools", purpose: "Workspace/node metrics, warnings, errors and diagnostics.", status: "planned", tools: [] },
 ];
@@ -236,7 +247,7 @@ const flowPromptCapabilityDetails = (name = "", preferredDomainId = "") => {
       domainLabel: domain.label,
       status: domain.status,
       inputSchema: FLOW_PROMPT_WORKSPACE_TOOL_SCHEMAS[found[0]] || { type: "object", properties: {} },
-      dataClass: domain.id === "flow" ? "flow metadata or explicitly requested configuration" : domain.id === "runtime" ? "runtime metadata, logs or dry-run trace" : domain.id === "providers" ? "provider installation/authentication and configured-model metadata; never credentials or executable paths" : "node-scoped data declared by the resolved node",
+      dataClass: domain.id === "flow" ? "flow metadata or explicitly requested configuration" : domain.id === "runtime" ? "runtime metadata, logs or dry-run trace" : domain.id === "providers" ? "provider installation/authentication and configured-model metadata; never credentials or executable paths" : domain.id === "python" ? "managed pack, environment and local-model metadata; never filesystem paths, shell commands, handles or credentials" : "node-scoped data declared by the resolved node",
       permission: domain.status === "available" || domain.status === "available-via-node" ? "explicit user consent" : "not executable yet",
     };
   }
@@ -247,6 +258,90 @@ const flowPromptExternalProviderLabel = (providerId = "") => ({
   codex: "Codex",
   claude: "Claude",
 }[providerId] || "Provider esterno");
+
+// The Core catalog is intentionally path-free. Keep the provider boundary
+// explicit as well, so later internal catalog additions cannot accidentally
+// turn the chat into filesystem or shell access.
+const flowPromptSafePythonCatalog = (catalog = {}) => ({
+  schemaVersion: String(catalog?.schemaVersion || "tl-python-runtime-catalog/v1"),
+  environments: (Array.isArray(catalog?.environments) ? catalog.environments : []).map((environment) => ({
+    id: String(environment?.id || "python"),
+    requested: Boolean(environment?.requested),
+    enabled: Boolean(environment?.enabled),
+    interpreterInstalled: Boolean(environment?.interpreterInstalled),
+    runtime: {
+      status: String(environment?.runtime?.status || "unknown"),
+    },
+  })),
+  packs: (Array.isArray(catalog?.packs) ? catalog.packs : []).map((pack) => ({
+    id: String(pack?.id || "python-pack"),
+    version: String(pack?.version || ""),
+    environmentId: String(pack?.environmentId || ""),
+    state: String(pack?.state || "unknown"),
+    trustLevel: String(pack?.trustLevel || "unknown"),
+    installPolicy: String(pack?.installPolicy || "managed-optional"),
+    python: String(pack?.python || ""),
+    requirements: (Array.isArray(pack?.requirements) ? pack.requirements : []).map((requirement) => ({
+      name: String(requirement?.name || ""),
+      version: String(requirement?.version || ""),
+    })),
+    capabilities: (Array.isArray(pack?.capabilities) ? pack.capabilities : []).map(String),
+    dataAccess: String(pack?.dataAccess || "TL-authorized inputs only"),
+    modelIds: (Array.isArray(pack?.modelIds) ? pack.modelIds : []).map(String),
+  })),
+  models: (Array.isArray(catalog?.models) ? catalog.models : []).map((model) => ({
+    id: String(model?.id || ""),
+    environmentId: String(model?.environmentId || ""),
+    displayName: String(model?.displayName || model?.id || "Model"),
+    revision: String(model?.revision || ""),
+    dimensions: Number(model?.dimensions || 0),
+    languages: Number(model?.languages || 0),
+    license: String(model?.license || "Unknown"),
+    localOnlyAfterInstall: Boolean(model?.localOnlyAfterInstall),
+    packIds: (Array.isArray(model?.packIds) ? model.packIds : []).map(String),
+    state: String(model?.state || "unknown"),
+    sizeBytes: Number(model?.sizeBytes || 0),
+  })),
+  limitations: ["Il catalogo non include percorsi locali, handle filesystem, comandi shell, credenziali o azioni di installazione/rimozione."],
+});
+
+const flowPromptSafePythonResolution = (result = {}, node = {}) => ({
+  node: {
+    id: String(node?.id || ""),
+    label: String(node?.label || node?.id || "Node"),
+    type: String(node?.type || ""),
+    subtype: String(node?.subtype || ""),
+  },
+  status: String(result?.status || "unknown"),
+  code: String(result?.code || ""),
+  requirement: {
+    packId: String(result?.requirement?.packId || ""),
+    environment: String(result?.requirement?.environment || ""),
+    requirements: (Array.isArray(result?.requirement?.requirements) ? result.requirement.requirements : []).map((item) => ({
+      name: String(item?.name || ""),
+      version: String(item?.version || ""),
+    })),
+    installPolicy: String(result?.requirement?.installPolicy || ""),
+  },
+  ...(result?.pack ? { pack: {
+    id: String(result.pack.id || ""),
+    version: String(result.pack.version || ""),
+    environment: String(result.pack.environment || ""),
+    trustLevel: String(result.pack.trustLevel || ""),
+    packages: (Array.isArray(result.pack.packages) ? result.pack.packages : []).map((item) => ({ name: String(item?.name || ""), version: String(item?.version || "") })),
+  } } : {}),
+  ...(result?.installPlan ? { installPlan: {
+    environment: String(result.installPlan.environment || ""),
+    requirements: (Array.isArray(result.installPlan.requirements) ? result.installPlan.requirements : []).map((item) => ({ name: String(item?.name || ""), version: String(item?.version || "") })),
+    installPolicy: String(result.installPlan.installPolicy || ""),
+    requiresUserConsent: Boolean(result.installPlan.requiresUserConsent),
+    supported: Boolean(result.installPlan.supported),
+    packId: String(result.installPlan.packId || ""),
+    packVersion: String(result.installPlan.packVersion || ""),
+    trustLevel: String(result.installPlan.trustLevel || ""),
+  } } : {}),
+  limitations: ["La risoluzione legge soltanto il requisito dichiarato e lo stato del pack gestito; non include percorsi, shell o azioni di installazione."],
+});
 
 const flowPromptActiveSessionContext = ({ chatWorkspaceId = "" } = {}) => {
   const routerStatus = window.TrackerLensAppRouter?.status?.() || {};
@@ -359,6 +454,7 @@ const flowPromptBuildExternalReply = async (providerId = "", prompt = "", { conv
     "For a question about runtime status, runs, failures, logs or events, use the runtime domain. List runs before reading one exact trace with getRun; scope readLogs to a resolved node or run whenever the user's question identifies one. Runtime metadata is not proof until a real runtime tool observation is returned.",
     "For a question about knowledge, documents, chunks, dictionary terms, timelines, entities, relations, graph evidence or RAG, resolve and inspect the relevant node first, then use inspectConnectedTools. It returns the exact node-scoped read tools and schemas. Request only one declared read tool at a time; never guess a tl.node tool name or call one that was not returned by inspectConnectedTools.",
     "For a question about installed external AI providers, authentication, configured model or reasoning effort, use the providers domain and tl.providers.listStatus. It returns safe status metadata only; never claim access to credentials, tokens or executable paths.",
+    "For a question about managed Python packs, environments, local models, installed versions or readiness, use the python domain and tl.python.getCatalog. To verify whether Python is available for one Flow node, first resolve its visible label with tl.workspace.findNodes, then use tl.python.resolveNodeRequirements with that returned stable nodeId. It compares only the node's declared Python requirement with the Core-managed pack catalog. These tools return safe metadata only; never claim filesystem, shell, pip, download, model-removal or runtime-control access. Installation, removal, restart and diagnostics are separate confirmed TL actions when those tools are introduced.",
     toolCatalog ? `Trackers Lens capability navigation tools (metadata only; always available during this request):\n${JSON.stringify(toolCatalog)}\nIf you need TL data: first call tl.catalog.listDomains; then tl.catalog.listTools for one relevant domain; then tl.catalog.getCapabilityDetails for the selected tool; finally request that exact available tool. Respond with ONLY JSON: {"type":"tool_request","tool":"exact catalog name","args":{}}. Do not request a write tool. A node reference may be its visible label or technical id.` : "",
     toolObservation && toolProtocolProgress ? `Tool discovery progress for this same request:\n${JSON.stringify(toolProtocolProgress)}\nContinue from this progress. Do not restart tl.catalog.listDomains or repeat a tool request already completed unless its arguments must genuinely change.` : "",
     sessionContext ? `Active Trackers Lens session context (metadata, not Flow contents):\n${JSON.stringify(sessionContext)}` : "",
@@ -6390,13 +6486,14 @@ const openFlowPromptChatDialog = async (options = {}) => {
 
   // Discovery is intentionally per provider turn. A previous answer cannot
   // silently grant a later request a broader data vocabulary.
-  let providerToolDiscovery = { domainsListed: false, indexedDomains: new Set(), detailedTools: new Set(), declaredNodeTools: new Set() };
+  let providerToolDiscovery = { domainsListed: false, indexedDomains: new Set(), detailedTools: new Set(), declaredNodeTools: new Set(), resolvedNodeIds: new Set() };
   const providerToolProtocolProgress = () => ({
     version: "tl-capability-map/v1",
     domainsListed: providerToolDiscovery.domainsListed,
     indexedDomains: [...providerToolDiscovery.indexedDomains],
     detailedTools: [...providerToolDiscovery.detailedTools],
     declaredNodeToolCount: providerToolDiscovery.declaredNodeTools.size,
+    resolvedNodeCount: providerToolDiscovery.resolvedNodeIds.size,
   });
 
   const requestReadToolConsent = (request = {}) => new Promise((resolve) => {
@@ -6429,6 +6526,8 @@ const openFlowPromptChatDialog = async (options = {}) => {
           `Lettura Knowledge dichiarata: ${request.tool}. TL invierà solo il risultato di questo tool del nodo, con evidenze e limiti disponibili.`
         ) : null,
         request.tool === "tl.providers.listStatus" ? _.p("Stato provider richiesto: installazione, autenticazione e configurazione modello; credenziali e percorsi locali non vengono mai letti.") : null,
+        request.tool === "tl.python.getCatalog" ? _.p("Catalogo Python richiesto: pack gestiti, ambienti e modelli locali. TL non invia percorsi, shell, comandi, credenziali né avvia installazioni o rimozioni.") : null,
+        request.tool === "tl.python.resolveNodeRequirements" ? _.p(`Verifica Python richiesta per il nodo ${request.args?.nodeId || "non indicato"}: TL confronterà solo il requisito dichiarato nel manifest con i pack gestiti. Non verranno eseguite installazioni.`) : null,
         _.small("Puoi autorizzare solo questo tool oppure tutte le letture richieste dal provider nella conversazione corrente. Il consenso non abilita modifiche alla Flow Map.")
       ),
       actions: ({ close }) => _.Toolbar({ align: "end", gap: 8 },
@@ -6475,7 +6574,7 @@ const openFlowPromptChatDialog = async (options = {}) => {
         ? { ok: true, tool, status: "ready", capability: details }
         : { ok: false, tool, status: "not-found", requestedName: name, limitations: ["Tool non trovato nel catalogo. Usa tl.catalog.listTools per il dominio pertinente."] };
     }
-    if (!runtime || !tool) return denied("Tool runtime non disponibile.");
+    if (!tool) return denied("Tool runtime non disponibile.");
     if (!tool.startsWith("tl.node.") && !providerToolDiscovery.detailedTools.has(tool)) {
       return denied("Prima scopri il tool: tl.catalog.listDomains, tl.catalog.listTools e tl.catalog.getCapabilityDetails.");
     }
@@ -6505,6 +6604,32 @@ const openFlowPromptChatDialog = async (options = {}) => {
       }));
       return { ok: true, tool, status: "ready", providers };
     }
+    if (tool === "tl.python.getCatalog") {
+      const getCatalog = window.trackers?.runtime?.pythonRuntime?.getCatalog;
+      if (typeof getCatalog !== "function") return denied("Il catalogo Runtime Python non è disponibile nel bridge desktop.");
+      try {
+        return { ok: true, tool, status: "ready", catalog: flowPromptSafePythonCatalog(await getCatalog()) };
+      } catch (error) {
+        return { ok: false, tool, status: "unavailable", limitations: [error?.message || "Catalogo Runtime Python non disponibile."] };
+      }
+    }
+    if (tool === "tl.python.resolveNodeRequirements") {
+      if (!runtime?.inspectNodePythonRequirement) return denied("La lettura del requisito Python del nodo non è disponibile.");
+      const nodeId = String(args.nodeId || "").trim();
+      if (!nodeId) return denied("Indica il nodeId stabile restituito da tl.workspace.findNodes.");
+      if (!providerToolDiscovery.resolvedNodeIds.has(nodeId)) return denied("Prima risolvi il nodo con tl.workspace.findNodes e usa uno degli ID restituiti.");
+      const resolve = window.trackers?.runtime?.pythonPacks?.resolve;
+      if (typeof resolve !== "function") return denied("Il resolver dei pack Python non è disponibile nel bridge desktop.");
+      try {
+        const target = await runtime.inspectNodePythonRequirement({ workspaceId: draft.workspaceId, nodeId });
+        if (!target?.node) return { ok: false, tool, status: "not-found", nodeId, limitations: ["Il nodo non è disponibile nel Flow Map attivo."] };
+        const resolution = await resolve(target.execution || {});
+        return { ok: true, tool, status: "ready", resolution: flowPromptSafePythonResolution(resolution, target.node) };
+      } catch (error) {
+        return { ok: false, tool, status: "unavailable", nodeId, limitations: [error?.message || "Risoluzione del requisito Python non disponibile."] };
+      }
+    }
+    if (!runtime) return denied("Tool runtime non disponibile.");
     const resolveNodes = async (reference = "") => {
       const search = String(reference || "").trim();
       if (!search) return { nodes: [] };
@@ -6532,7 +6657,11 @@ const openFlowPromptChatDialog = async (options = {}) => {
     }
     if (decision === "deny") return denied("L'utente non ha autorizzato questa lettura.");
     if (tool === "tl.workspace.inspectFlow") return runtime.inspectFlow({ workspaceId: draft.workspaceId });
-    if (tool === "tl.workspace.findNodes") return runtime.findNodes({ workspaceId: draft.workspaceId, query: String(args.query || args.nodeId || args.nodeLabel || args.node || "") });
+    if (tool === "tl.workspace.findNodes") {
+      const result = await runtime.findNodes({ workspaceId: draft.workspaceId, query: String(args.query || args.nodeId || args.nodeLabel || args.node || "") });
+      (result?.nodes || []).forEach((node) => { if (node?.id) providerToolDiscovery.resolvedNodeIds.add(String(node.id)); });
+      return result;
+    }
     if (tool === "tl.workspace.inspectNode") {
       const reference = String(args.nodeId || args.nodeLabel || args.node || "").trim();
       const { node: matchedNode, nodes } = await resolveOneNode(reference);
@@ -6617,7 +6746,7 @@ const openFlowPromptChatDialog = async (options = {}) => {
     if (!status?.authenticated) {
       throw new Error(`${flowPromptExternalProviderLabel(selectedProviderId())} non è pronto. Seleziona il provider e completa l'accesso ufficiale.`);
     }
-    providerToolDiscovery = { domainsListed: false, indexedDomains: new Set(), detailedTools: new Set(), declaredNodeTools: new Set() };
+    providerToolDiscovery = { domainsListed: false, indexedDomains: new Set(), detailedTools: new Set(), declaredNodeTools: new Set(), resolvedNodeIds: new Set() };
     const toolCatalog = await providerReadToolCatalog();
     let reply = await flowPromptBuildExternalReply(selectedProviderId(), prompt, {
       ...options,
@@ -6678,7 +6807,7 @@ const openFlowPromptChatDialog = async (options = {}) => {
       // the missing catalog detail/manifests and retry the exact tool in the
       // same turn. User denials remain cached to avoid another consent dialog.
       const protocolDenied = observation?.status === "denied" && (observation?.limitations || []).some((reason) =>
-        /Prima scopri il tool|Questo tool del nodo non è stato dichiarato/i.test(String(reason || ""))
+        /Prima scopri il tool|Prima risolvi il nodo|Questo tool del nodo non è stato dichiarato/i.test(String(reason || ""))
       );
       if (!cachedObservation) {
         if (!protocolDenied) observedRequests.set(requestKey, observation);

@@ -1210,6 +1210,38 @@ window.TrackerLensAgentRuntime = (() => {
     };
   };
 
+  // This is an internal read boundary for the Python pack resolver. It returns
+  // only the declarative execution requirement of one exact workspace node;
+  // ordinary node configuration, runtime payloads and paths stay outside it.
+  const inspectNodePythonRequirement = async ({ workspaceId = "", nodeId = "" } = {}) => {
+    if (!nodeId) throw new Error("nodeId is required.");
+    const effectiveWorkspaceId = normalizeWorkspaceId(workspaceId);
+    const snapshot = await buildSnapshot(effectiveWorkspaceId);
+    const node = graphNodes(snapshot).find((item) => String(item?.id || "") === String(nodeId));
+    if (!node) return { version: VERSION, workspaceId: effectiveWorkspaceId, node: null, execution: null };
+    const source = node.metadata?.manifest?.execution || node.execution || {};
+    const python = source?.dependencies?.python;
+    return {
+      version: VERSION,
+      workspaceId: effectiveWorkspaceId,
+      node: nodeSummary(node),
+      execution: {
+        runtime: String(source?.runtime || "javascript"),
+        capabilities: Array.isArray(source?.capabilities) ? source.capabilities.map(String) : [],
+        dependencies: python && typeof python === "object" ? { python: {
+          ...(python.packId || python.pack ? { packId: String(python.packId || python.pack) } : {}),
+          environment: String(python.environment || ""),
+          requirements: (Array.isArray(python.requirements) ? python.requirements : []).map((item) => ({
+            name: String(item?.name || item?.package || item?.module || ""),
+            version: String(item?.version || item?.constraint || ""),
+          })).filter((item) => item.name),
+          lockfile: String(python.lockfile || python.lock || ""),
+          installPolicy: String(python.installPolicy || python.policy || "managed-required"),
+        } } : {},
+      },
+    };
+  };
+
   const inspectNode = async ({ workspaceId = "", nodeId = "", includeRecentEvents = true, includeConnectedTools = true, summaryOnly = false } = {}) => {
     if (!nodeId) throw new Error("nodeId is required.");
     const effectiveWorkspaceId = normalizeWorkspaceId(workspaceId);
@@ -1830,6 +1862,12 @@ window.TrackerLensAgentRuntime = (() => {
       mutates: false,
       run: inspectNode,
     },
+    inspectNodePythonRequirement: {
+      name: "inspectNodePythonRequirement",
+      description: "Read one node's declarative Python requirement for the managed pack resolver.",
+      mutates: false,
+      run: inspectNodePythonRequirement,
+    },
     findNodes: {
       name: "findNodes",
       description: "Find all Flow Map nodes matching an id, title, type or subtype and return stable ids.",
@@ -1887,6 +1925,7 @@ window.TrackerLensAgentRuntime = (() => {
     findNodes,
     inspectFlow,
     inspectNode,
+    inspectNodePythonRequirement,
     inspectConnectedTools,
     callConnectedNodeTool,
     readLogs,
