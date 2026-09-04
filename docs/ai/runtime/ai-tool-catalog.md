@@ -56,14 +56,17 @@ silently widen a later data request.
 
 The common Flow-node configuration path has an explicit metadata-only fast path.
 The initial provider request includes the exact descriptors for
-`tl.workspace.resolveNode` and `tl.workspace.inspectNodeConfig`; it does not include
-any workspace records or values. Therefore the provider skips the three catalog
-navigation calls for this path only:
+`tl.workspace.resolveNode`, `tl.workspace.inspectNodeConfig` and the common managed
+Python reads; it does not include any workspace records or values. Therefore the
+provider skips the three catalog navigation calls for this path only:
 
 1. `resolveNode({ query })` finds all matching nodes and returns an inspected
    node (identity, ports, configuration-key map, compact topology) only when exactly
    one match exists. Ambiguous matches remain explicit.
 2. `inspectNodeConfig({ nodeId, keys })` remains a separately consented value read.
+3. `inspectNodeRuntime({ nodeId })` reads the resolved node's declared Python
+   requirement and its managed environment/model runtime state together. It is one
+   separately consented observation, avoiding a provider-dependent prerequisite loop.
 
 All other domains continue through hierarchical capability discovery. The complete
 tool trace remains local to Activity/DevTools; the next stateless provider round
@@ -87,7 +90,7 @@ answer. This is transport enforcement, not TL choosing the provider's answer or 
 Capability metadata and earlier assistant messages are never evidence for a question
 about the current workspace. The provider instruction requires a real Level-3
 observation before it describes a current configuration, node, connection, run, count,
-log or document. For a visible node title it must try `findNodes` before asking the
+log or document. For a visible node title it must try `resolveNode` before asking the
 user for an ID or selection.
 
 External-provider history is deliberately narrow: the current request is sent once;
@@ -152,6 +155,10 @@ The `python` domain exposes two explicit read tools:
   trusted packs and registered local models: readiness/state, pinned package
   requirements, capabilities, model revision, dimensions, languages, license and
   exact local size.
+- `tl.python.inspectNodeRuntime({ nodeId })` requires a stable ID returned by
+  `tl.workspace.resolveNode`. It returns the node's declared requirement and the
+  safe managed environment/model runtime state together, so Python-status questions
+  have one canonical second read for every provider.
 - `tl.python.resolveNodeRequirements({ nodeId })` requires a stable ID returned by
   `tl.workspace.findNodes`. It reads only that node's declared Python requirement and
   compares it with the Core-managed pack resolver, returning `ready`, `unavailable`,

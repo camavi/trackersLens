@@ -152,6 +152,7 @@ const FLOW_PROMPT_WORKSPACE_TOOL_SCHEMAS = {
   "tl.workspace.runFlow": { type: "object", properties: {} },
   "tl.providers.listStatus": { type: "object", properties: {} },
   "tl.python.getCatalog": { type: "object", properties: {} },
+  "tl.python.inspectNodeRuntime": { type: "object", properties: { nodeId: { type: "string", description: "Stable node id returned by tl.workspace.resolveNode. Returns the declared requirement plus its managed runtime state in one read." } }, required: ["nodeId"] },
   "tl.python.resolveNodeRequirements": { type: "object", properties: { nodeId: { type: "string", description: "Stable node id returned by tl.workspace.findNodes." } }, required: ["nodeId"] },
   "tl.python.getNodeRuntimeStatus": { type: "object", properties: { nodeId: { type: "string", description: "Stable node id already resolved with tl.python.resolveNodeRequirements." } }, required: ["nodeId"] },
   "tl.python.getInstallPlan": { type: "object", properties: { nodeId: { type: "string", description: "Stable node id whose unresolved requirement was already resolved." } }, required: ["nodeId"] },
@@ -172,6 +173,7 @@ const FLOW_PROMPT_FAST_PATH_TOOLS = new Set([
   "tl.workspace.runFlow",
   "tl.providers.listStatus",
   "tl.python.getCatalog",
+  "tl.python.inspectNodeRuntime",
   "tl.python.resolveNodeRequirements",
   "tl.python.getNodeRuntimeStatus",
   "tl.python.getInstallPlan",
@@ -229,6 +231,7 @@ const FLOW_PROMPT_CAPABILITY_DOMAINS = [
     status: "available",
     tools: [
       ["tl.python.getCatalog", "Read safe managed pack, environment and local-model status and metadata."],
+      ["tl.python.inspectNodeRuntime", "Fast path: read one resolved node's declared Python requirement and managed runtime state together."],
       ["tl.python.resolveNodeRequirements", "Resolve one found node's declared Python requirement against the managed pack catalog."],
       ["tl.python.getNodeRuntimeStatus", "Read the managed Python environment and models required by one already resolved node."],
       ["tl.python.getInstallPlan", "Read the safe Core-managed installation plan for one already resolved missing node requirement."],
@@ -603,7 +606,7 @@ const flowPromptBuildExternalReply = async (providerId = "", prompt = "", { conv
     "For a question about runtime status, runs, failures, logs or events, use the runtime domain. List runs before reading one exact trace with getRun; scope readLogs to a resolved node or run whenever the user's question identifies one. Runtime metadata is not proof until a real runtime tool observation is returned.",
     "For a question about knowledge, documents, chunks, dictionary terms, timelines, entities, relations, graph evidence or RAG, resolve and inspect the relevant node first, then use inspectConnectedTools. It returns the exact node-scoped read tools and schemas. Request only one declared read tool at a time; never guess a tl.node tool name or call one that was not returned by inspectConnectedTools.",
     "For a question about installed external AI providers, authentication, configured model or reasoning effort, use the providers domain and tl.providers.listStatus. It returns safe status metadata only; never claim access to credentials, tokens or executable paths.",
-    "For a question about managed Python packs, environments, local models, installed versions or readiness, use the supplied Python fast-path descriptors directly. To verify Python for one Flow node, first resolve its visible label with tl.workspace.resolveNode, then use tl.python.resolveNodeRequirements with that returned stable nodeId. It compares only the node's declared Python requirement with the Core-managed pack catalog. After that resolution, use tl.python.getNodeRuntimeStatus for its managed environment/model state, or tl.python.getInstallPlan only when the requirement is not ready and the user asks what installation would entail. These tools return safe metadata only; never claim filesystem, shell, pip, download, model-removal or runtime-control access. Installation, removal, restart and diagnostics are separate confirmed TL actions when those tools are introduced.",
+    "For a question about a Flow node's Python runtime, packs, environment, local models, installed versions or readiness, use the supplied Python fast path directly: first resolve its visible label with tl.workspace.resolveNode, then call tl.python.inspectNodeRuntime with that stable nodeId. It returns the declared requirement and managed runtime state together. Use tl.python.getInstallPlan only when that observation is not ready and the user asks what installation would entail. These tools return safe metadata only; never claim filesystem, shell, pip, download, model-removal or runtime-control access. Installation, removal, restart and diagnostics are separate confirmed TL actions when those tools are introduced.",
     "Only after a same-turn Python resolution and install-plan observation show a requested installation as ONLY JSON: {\"type\":\"proposed_action\",\"action\":\"install_python_pack\",\"args\":{\"nodeId\":\"resolved stable id\"}}. Never include a pack id, package, URL or command: TL derives the exact trusted pack from the approved plan and asks the user to confirm.",
     "For a requested textual node-config change, first find the node, inspect it, then read that exact config field with tl.workspace.inspectNodeConfig in this turn. Only then propose ONLY JSON: {\"type\":\"proposed_action\",\"action\":\"update_node_config\",\"args\":{\"nodeId\":\"resolved stable id\",\"field\":\"the exact read config key\",\"value\":\"new text value\"}}. Never propose ports, channels, endpoints, nested objects, numbers, booleans, credentials, commands or a field that was not read. TL revalidates the current value, shows old and new values, captures a Time Travel snapshot, and requires explicit confirmation before applying.",
     toolCatalog ? `Trackers Lens capability metadata (no workspace data):\n${JSON.stringify(toolCatalog)}\nUse the supplied static fast-path descriptors directly; do NOT call tl.catalog.listDomains, tl.catalog.listTools or tl.catalog.getCapabilityDetails for them. For a Flow node question, call resolveNode, then inspectNodeConfig only if actual values are needed. Use hierarchical catalog discovery only for dynamically declared tl.node.* tools and future domains not present in the fast path. Respond with ONLY JSON: {"type":"tool_request","tool":"exact catalog name","args":{}}. Do not request a write tool. A node reference may be its visible label or technical id.` : "",
@@ -637,6 +640,48 @@ const flowPromptBuildExternalReply = async (providerId = "", prompt = "", { conv
   console.log("Response payload", response);
   console.groupEnd();
   return flowPromptParseExternalAnswer(response?.text) || "Non ho ricevuto una risposta dal provider esterno.";
+};
+
+// Locale participates in the same read-only tool protocol as the external
+// providers. It receives capability metadata and only consented observations;
+// it never receives the renderer's implicit Flow context as an alternative
+// data channel. Flow creation remains on the separately validated planner
+// until that typed-plan contract has been migrated in a later Phase 5 slice.
+const flowPromptBuildLocalToolProtocolReply = async (prompt = "", { conversationContext = null, model = "", sessionContext = null, toolCatalog = null, toolObservation = null, toolObservations = [], toolProtocolProgress = null, forceNaturalAnswer = false, requireToolContinuation = false } = {}) => {
+  const aiSettings = await flowPromptReadAiSettings();
+  const provider = await flowPromptPickProvider(aiSettings);
+  if (!provider) throw new Error(flowPromptFriendlyAiError(null, { aiSettings }));
+  const providerHistory = conversationContext?.referencesPrevious
+    ? (conversationContext.recent || []).filter((item) => item.role === "user").slice(-3)
+    : [];
+  const currentToolObservations = toolObservation
+    ? [toolObservation]
+    : Array.isArray(toolObservations) && toolObservations.length ? [toolObservations.at(-1)] : [];
+  const request = [
+    "You are the selected local assistant inside Trackers Lens Flow Map Chat.",
+    "Answer in the user's language. You can advise and explain, but cannot apply changes to the Flow Map.",
+    "Never claim filesystem, terminal, browser or workspace access. Current node/runtime/configuration facts require a Trackers Lens tool observation.",
+    "Use the supplied static fast-path descriptors directly. For a visible Flow node you MUST call tl.workspace.resolveNode first; do not call tl.workspace.findNodes, tl.workspace.inspectNode or catalog discovery for that same visible reference. resolveNode returns the stable ID and compact inspection when the match is unique. Read actual settings only with tl.workspace.inspectNodeConfig and only for the necessary keys. For a node's Python runtime, resolve the node then call tl.python.inspectNodeRuntime; do not split that read into resolveNodeRequirements and getNodeRuntimeStatus.",
+    "For dynamic node tools or domains outside the fast path, use the hierarchical catalog. Do not repeat a completed request unless its arguments genuinely change.",
+    "For a requested text configuration change, first resolve and inspect the node and read the exact configuration field in this turn. Only then emit ONLY JSON: {\"type\":\"proposed_action\",\"action\":\"update_node_config\",\"args\":{\"nodeId\":\"resolved stable id\",\"field\":\"exact read key\",\"value\":\"new text value\"}}. TL owns validation, confirmation and Time Travel.",
+    toolCatalog ? `Trackers Lens capability metadata (no workspace data):\n${JSON.stringify(toolCatalog)}\nFor a required tool call respond with ONLY JSON: {\"type\":\"tool_request\",\"tool\":\"exact catalog name\",\"args\":{}}.` : "",
+    toolObservation && toolProtocolProgress ? `Tool discovery progress for this request:\n${JSON.stringify(toolProtocolProgress)}` : "",
+    sessionContext ? `Active Trackers Lens session context (metadata only):\n${JSON.stringify(sessionContext)}` : "",
+    providerHistory.length ? `Previous user requests (context only, not workspace evidence):\n${providerHistory.map((item) => `user: ${item.content}`).join("\n")}` : "",
+    requireToolContinuation ? "Protocol correction: a relevant Trackers Lens tool is available. Do not claim it is unavailable; return the next necessary tool request JSON only." : "",
+    currentToolObservations.length ? `Latest consented tool observation (use only this as workspace evidence). ${forceNaturalAnswer ? "Do not repeat this request; answer or request a different necessary tool." : "Answer the original question, or request one different necessary tool."}\n${JSON.stringify(currentToolObservations)}` : "",
+    `User request: ${String(prompt || "").trim()}`,
+  ].filter(Boolean).join("\n\n");
+  const kind = flowPromptProviderKey(provider.provider || provider.name || provider.id);
+  const resolvedModel = String(model || aiSettings.model || provider.model || "").trim();
+  try {
+    const result = kind.includes("ollama")
+      ? await flowPromptCallOllama({ provider, model: resolvedModel, prompt: request })
+      : await flowPromptCallOpenAiCompatible({ provider, model: resolvedModel, prompt: request, aiSettings });
+    return flowPromptParseExternalAnswer(result?.text) || "Non ho ricevuto una risposta dal provider Locale.";
+  } catch (error) {
+    throw new Error(flowPromptFriendlyAiError(error, { provider, aiSettings, model: resolvedModel }));
+  }
 };
 
 const flowPromptPlanSnapshot = (analysis = {}) => ({
@@ -1160,6 +1205,12 @@ const flowPromptIsCreationRequest = (prompt = "") =>
     "crea", "creare", "genera", "generare", "aggiungi", "costruisci", "build", "create", "generate", "add",
     "nuovo flow", "new flow", "pipeline", "workflow",
   ]);
+
+// The legacy planner uses broad substring matching for backwards
+// compatibility. Provider-led Locale routing must be stricter: for example,
+// `Embedding Generator` is a node label, not the Italian verb `genera`.
+const flowPromptIsExplicitCreationRequest = (prompt = "") =>
+  !flowPromptIsExplainOnlyRequest(prompt) && /(?:^|[^\p{L}\p{N}_])(?:crea|creare|genera|generare|aggiungi|costruisci|build|create|generate|add)(?=$|[^\p{L}\p{N}_])|\b(?:nuovo\s+flow|new\s+flow)\b/iu.test(String(prompt || ""));
 
 const flowPromptIsExplainOnlyRequest = (prompt = "") => {
   const text = flowPromptNormalize(prompt);
@@ -6713,6 +6764,7 @@ const openFlowPromptChatDialog = async (options = {}) => {
         ) : null,
         request.tool === "tl.providers.listStatus" ? _.p("Stato provider richiesto: installazione, autenticazione e configurazione modello; credenziali e percorsi locali non vengono mai letti.") : null,
         request.tool === "tl.python.getCatalog" ? _.p("Catalogo Python richiesto: pack gestiti, ambienti e modelli locali. TL non invia percorsi, shell, comandi, credenziali né avvia installazioni o rimozioni.") : null,
+        request.tool === "tl.python.inspectNodeRuntime" ? _.p(`Stato Python richiesto per il nodo ${request.args?.nodeId || "non indicato"}: requisito dichiarato, ambiente gestito e modelli associati. Non verranno avviati o riavviati processi.`) : null,
         request.tool === "tl.python.resolveNodeRequirements" ? _.p(`Verifica Python richiesta per il nodo ${request.args?.nodeId || "non indicato"}: TL confronterà solo il requisito dichiarato nel manifest con i pack gestiti. Non verranno eseguite installazioni.`) : null,
         request.tool === "tl.python.getNodeRuntimeStatus" ? _.p(`Stato Runtime Python richiesto per il nodo ${request.args?.nodeId || "non indicato"}: ambiente gestito e modelli associati, senza avviare o riavviare processi.`) : null,
         request.tool === "tl.python.getInstallPlan" ? _.p(`Piano di installazione richiesto per il nodo ${request.args?.nodeId || "non indicato"}: versioni, modelli e rete richiesta. Questa lettura non installa nulla.`) : null,
@@ -6819,6 +6871,12 @@ const openFlowPromptChatDialog = async (options = {}) => {
       if (!providerToolDiscovery.resolvedNodeIds.has(nodeId)) return denied("Prima risolvi il nodo con tl.workspace.findNodes e usa uno degli ID restituiti.");
       if (typeof window.trackers?.runtime?.pythonPacks?.resolve !== "function") return denied("Il resolver dei pack Python non è disponibile nel bridge desktop.");
     }
+    if (tool === "tl.python.inspectNodeRuntime") {
+      const nodeId = String(args.nodeId || "").trim();
+      if (!runtime?.inspectNodePythonRequirement) return denied("La lettura del requisito Python del nodo non è disponibile.");
+      if (!nodeId || !providerToolDiscovery.resolvedNodeIds.has(nodeId)) return denied("Prima risolvi il nodo con tl.workspace.resolveNode e usa lo stable ID restituito.");
+      if (typeof window.trackers?.runtime?.pythonPacks?.resolve !== "function" || typeof window.trackers?.runtime?.pythonRuntime?.getCatalog !== "function") return denied("Il resolver o il catalogo Runtime Python non è disponibile nel bridge desktop.");
+    }
     if (tool === "tl.python.getNodeRuntimeStatus") {
       const nodeId = String(args.nodeId || "").trim();
       if (!nodeId || !providerToolDiscovery.pythonResolutions.has(nodeId)) return denied("Prima risolvi il requisito Python del nodo con tl.python.resolveNodeRequirements.");
@@ -6895,6 +6953,20 @@ const openFlowPromptChatDialog = async (options = {}) => {
         return { ok: true, tool, status: "ready", resolution: safeResolution };
       } catch (error) {
         return { ok: false, tool, status: "unavailable", nodeId, limitations: [error?.message || "Risoluzione del requisito Python non disponibile."] };
+      }
+    }
+    if (tool === "tl.python.inspectNodeRuntime") {
+      const nodeId = String(args.nodeId || "").trim();
+      const resolve = window.trackers?.runtime?.pythonPacks?.resolve;
+      const getCatalog = window.trackers?.runtime?.pythonRuntime?.getCatalog;
+      try {
+        const target = await runtime.inspectNodePythonRequirement({ workspaceId: draft.workspaceId, nodeId });
+        if (!target?.node) return { ok: false, tool, status: "not-found", nodeId, limitations: ["Il nodo non è disponibile nel Flow Map attivo."] };
+        const resolution = flowPromptSafePythonResolution(await resolve(target.execution || {}), target.node);
+        providerToolDiscovery.pythonResolutions.set(nodeId, resolution);
+        return { ok: true, tool, status: "ready", resolution, runtime: flowPromptSafePythonNodeRuntimeStatus(await getCatalog(), resolution) };
+      } catch (error) {
+        return { ok: false, tool, status: "unavailable", nodeId, limitations: [error?.message || "Stato Python del nodo non disponibile."] };
       }
     }
     if (tool === "tl.python.getNodeRuntimeStatus") {
@@ -7049,15 +7121,20 @@ const openFlowPromptChatDialog = async (options = {}) => {
   };
 
   const buildSelectedConversationalReply = async (prompt = "", options = {}) => {
-    if (!selectedProviderIsExternal()) return flowPromptBuildConversationalReply(prompt, { ...options, model: selectedProviderModel() });
     const providerStartedAt = performance.now();
-    const status = await refreshProviderStatus({ quiet: true });
-    if (!status?.authenticated) {
-      throw new Error(`${flowPromptExternalProviderLabel(selectedProviderId())} non è pronto. Seleziona il provider e completa l'accesso ufficiale.`);
+    const externalProvider = selectedProviderIsExternal();
+    if (externalProvider) {
+      const status = await refreshProviderStatus({ quiet: true });
+      if (!status?.authenticated) {
+        throw new Error(`${flowPromptExternalProviderLabel(selectedProviderId())} non è pronto. Seleziona il provider e completa l'accesso ufficiale.`);
+      }
     }
     providerToolDiscovery = { domainsListed: false, indexedDomains: new Set(), detailedTools: new Set(), declaredNodeTools: new Set(), resolvedNodeIds: new Set(), inspectedNodeIds: new Set(), pythonResolutions: new Map(), nodeConfigReads: new Map(), proposedActionKeys: new Set() };
     const toolCatalog = await providerReadToolCatalog();
-    let reply = await flowPromptBuildExternalReply(selectedProviderId(), prompt, {
+    const buildProtocolReply = (replyOptions = {}) => externalProvider
+      ? flowPromptBuildExternalReply(selectedProviderId(), prompt, replyOptions)
+      : flowPromptBuildLocalToolProtocolReply(prompt, replyOptions);
+    const baseReplyOptions = {
       ...options,
       model: selectedProviderModel(),
       reasoningEffort: draft.activeChat?.providerReasoningEffort || "medium",
@@ -7065,7 +7142,8 @@ const openFlowPromptChatDialog = async (options = {}) => {
       shareFlowSummary: Boolean(draft.activeChat?.permissions?.flowSummary),
       sessionContext: flowPromptActiveSessionContext({ chatWorkspaceId: draft.workspaceId }),
       toolCatalog,
-    });
+    };
+    let reply = await buildProtocolReply(baseReplyOptions);
     const configuredToolRounds = Number(draft.activeChat?.maxToolRounds);
     // This limits only a malformed provider/tool conversation, never data in
     // a result. A positive chat setting can make the diagnostic budget larger.
@@ -7112,7 +7190,7 @@ const openFlowPromptChatDialog = async (options = {}) => {
           }
           toolTrace.push({ request: { type: "proposed_action", ...proposedAction }, observation });
           observedToolResults.push({ request: { type: "proposed_action", ...proposedAction }, observation });
-          reply = await flowPromptBuildExternalReply(selectedProviderId(), prompt, { ...options, model: selectedProviderModel(), reasoningEffort: draft.activeChat?.providerReasoningEffort || "medium", speed: draft.activeChat?.providerSpeed || "standard", sessionContext: flowPromptActiveSessionContext({ chatWorkspaceId: draft.workspaceId }), toolCatalog, toolObservations: observedToolResults, toolProtocolProgress: providerToolProtocolProgress() });
+          reply = await buildProtocolReply({ ...baseReplyOptions, toolObservations: observedToolResults, toolProtocolProgress: providerToolProtocolProgress() });
           rounds += 1;
           continue;
         }
@@ -7168,7 +7246,7 @@ const openFlowPromptChatDialog = async (options = {}) => {
           }
           toolTrace.push({ request: { type: "proposed_action", ...proposedAction }, observation });
           observedToolResults.push({ request: { type: "proposed_action", ...proposedAction }, observation });
-          reply = await flowPromptBuildExternalReply(selectedProviderId(), prompt, { ...options, model: selectedProviderModel(), reasoningEffort: draft.activeChat?.providerReasoningEffort || "medium", speed: draft.activeChat?.providerSpeed || "standard", sessionContext: flowPromptActiveSessionContext({ chatWorkspaceId: draft.workspaceId }), toolCatalog, toolObservations: observedToolResults, toolProtocolProgress: providerToolProtocolProgress() });
+          reply = await buildProtocolReply({ ...baseReplyOptions, toolObservations: observedToolResults, toolProtocolProgress: providerToolProtocolProgress() });
           rounds += 1;
           continue;
         }
@@ -7186,13 +7264,8 @@ const openFlowPromptChatDialog = async (options = {}) => {
             steps: toolTrace.length ? toolTrace.map((entry) => entry.request.tool) : ["Capability catalog", "Next tool request"],
           });
           const lastTrace = toolTrace.at(-1);
-          reply = await flowPromptBuildExternalReply(selectedProviderId(), prompt, {
-            ...options,
-            model: selectedProviderModel(),
-            reasoningEffort: draft.activeChat?.providerReasoningEffort || "medium",
-            speed: draft.activeChat?.providerSpeed || "standard",
-            sessionContext: flowPromptActiveSessionContext({ chatWorkspaceId: draft.workspaceId }),
-            toolCatalog,
+          reply = await buildProtocolReply({
+            ...baseReplyOptions,
             toolObservation: lastTrace ? { request: lastTrace.request, observation: lastTrace.observation } : null,
             toolObservations: observedToolResults,
             toolProtocolProgress: providerToolProtocolProgress(),
@@ -7232,13 +7305,8 @@ const openFlowPromptChatDialog = async (options = {}) => {
         detail: cachedObservation ? `${request.tool}: riuso il risultato e chiedo la risposta finale.` : `Eseguito ${request.tool}`,
         steps: toolTrace.map((entry) => entry.request.tool),
       });
-      reply = await flowPromptBuildExternalReply(selectedProviderId(), prompt, {
-        ...options,
-        model: selectedProviderModel(),
-        reasoningEffort: draft.activeChat?.providerReasoningEffort || "medium",
-        speed: draft.activeChat?.providerSpeed || "standard",
-        sessionContext: flowPromptActiveSessionContext({ chatWorkspaceId: draft.workspaceId }),
-        toolCatalog,
+      reply = await buildProtocolReply({
+        ...baseReplyOptions,
         toolObservation: { request, observation },
         toolObservations: observedToolResults,
         toolProtocolProgress: providerToolProtocolProgress(),
@@ -7285,7 +7353,7 @@ const openFlowPromptChatDialog = async (options = {}) => {
   const appendMessage = async (message = {}) => {
     const now = flowPromptNow();
     const inferredElapsedMs = message.role === "assistant"
-      && FLOW_PROMPT_EXTERNAL_PROVIDER_IDS.has(String(message.providerId || ""))
+      && (["local", ...FLOW_PROMPT_EXTERNAL_PROVIDER_IDS].includes(String(message.providerId || "")))
       && Number(draft.lastExternalResponseMs || 0) > 0
       ? Number(draft.lastExternalResponseMs)
       : 0;
@@ -7968,10 +8036,15 @@ const openFlowPromptChatDialog = async (options = {}) => {
       // Codex and Claude are not an extra response style for the legacy Flow
       // Agent. They are the selected agent: pass the prompt through intact and
       // let the provider decide whether it needs a TL tool in a later tool loop.
-      if (selectedProviderIsExternal()) {
+      const localeToolContract = selectedProviderId() === "local"
+        && !flowPromptIsSimpleDefinitionQuestion(prompt)
+        && !flowPromptIsExplicitCreationRequest(prompt)
+        && !flowPromptLastPlanActionIntent(prompt)
+        && !flowPromptExtractPreferenceMemory(prompt);
+      if (selectedProviderIsExternal() || localeToolContract) {
         setActivity({
           label: "Invio al provider",
-          detail: `${flowPromptExternalProviderLabel(selectedProviderId())} riceve il prompt e decide se interrogare Trackers Lens.`,
+          detail: `${selectedProviderIsExternal() ? flowPromptExternalProviderLabel(selectedProviderId()) : "Locale"} riceve il prompt e decide se interrogare Trackers Lens.`,
           steps: ["Prompt inviato", "In attesa della decisione del provider"],
         });
         const reply = await buildSelectedConversationalReply(prompt, { conversationContext });
