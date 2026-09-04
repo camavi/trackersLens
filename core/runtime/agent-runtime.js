@@ -1289,6 +1289,28 @@ window.TrackerLensAgentRuntime = (() => {
     };
   };
 
+  // Narrow value-read boundary for a resolved node. Callers must still own
+  // discovery and consent; this method deliberately returns only requested
+  // persisted keys, never the complete configuration object.
+  const inspectNodeConfig = async ({ workspaceId = "", nodeId = "", keys = [] } = {}) => {
+    if (!nodeId) throw new Error("nodeId is required.");
+    const requestedKeys = Array.isArray(keys) ? keys.map((key) => String(key || "").trim()).filter(Boolean) : [];
+    if (!requestedKeys.length) throw new Error("At least one configuration key is required.");
+    const effectiveWorkspaceId = normalizeWorkspaceId(workspaceId);
+    const snapshot = await buildSnapshot(effectiveWorkspaceId);
+    const node = graphNodes(snapshot).find((item) => String(item?.id || "") === String(nodeId));
+    if (!node) return { version: VERSION, workspaceId: effectiveWorkspaceId, node: null, values: {} };
+    const config = nodeConfig(node);
+    return {
+      version: VERSION,
+      workspaceId: effectiveWorkspaceId,
+      node: nodeSummary(node),
+      values: Object.fromEntries(requestedKeys
+        .filter((key) => Object.prototype.hasOwnProperty.call(config, key))
+        .map((key) => [key, config[key]])),
+    };
+  };
+
   const toolManifestForNode = (node = {}, relation = "workspace") => {
     const tools = nodeAgentTools(node);
     return {
@@ -1862,6 +1884,12 @@ window.TrackerLensAgentRuntime = (() => {
       mutates: false,
       run: inspectNode,
     },
+    inspectNodeConfig: {
+      name: "inspectNodeConfig",
+      description: "Read only explicitly requested persisted configuration values for one resolved runtime node.",
+      mutates: false,
+      run: inspectNodeConfig,
+    },
     inspectNodePythonRequirement: {
       name: "inspectNodePythonRequirement",
       description: "Read one node's declarative Python requirement for the managed pack resolver.",
@@ -1925,6 +1953,7 @@ window.TrackerLensAgentRuntime = (() => {
     findNodes,
     inspectFlow,
     inspectNode,
+    inspectNodeConfig,
     inspectNodePythonRequirement,
     inspectConnectedTools,
     callConnectedNodeTool,

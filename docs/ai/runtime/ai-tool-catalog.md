@@ -52,10 +52,32 @@ The dispatcher enforces this order for static workspace tools during each provid
 turn. Discovery state is reset on the next user message, so an earlier lookup cannot
 silently widen a later data request.
 
+### Flow Node Fast Path
+
+The common Flow-node configuration path has an explicit metadata-only fast path.
+The initial provider request includes the exact descriptors for
+`tl.workspace.resolveNode` and `tl.workspace.inspectNodeConfig`; it does not include
+any workspace records or values. Therefore the provider skips the three catalog
+navigation calls for this path only:
+
+1. `resolveNode({ query })` finds all matching nodes and returns an inspected
+   node (identity, ports, configuration-key map, compact topology) only when exactly
+   one match exists. Ambiguous matches remain explicit.
+2. `inspectNodeConfig({ nodeId, keys })` remains a separately consented value read.
+
+All other domains continue through hierarchical capability discovery. The complete
+tool trace remains local to Activity/DevTools; the next stateless provider round
+receives only the latest observation plus protocol state, avoiding repeated transport
+of unchanged envelopes.
+
 Tool transport accepts the same strict JSON object whether the provider emits it
 plain, inside a JSON fence, embedded in a short renderer wrapper, or as a JSON string.
 Markdown-escaped underscores are normalized only while parsing the protocol field
 `tool_request`; no natural-language answer is interpreted as a tool call.
+
+If a provider returns its final answer as an exact `{"type":"answer","message":"..."}`
+JSON wrapper (or the equivalent `final`/`final_answer` form), Chat renders only its
+message/content. Tool requests remain distinct and are never displayed as an answer.
 
 If a provider starts the discovery chain and then returns a narrative answer while it
 has only catalog observations, TL sends a bounded protocol correction asking for the
@@ -90,9 +112,10 @@ capabilities.
 | Name | Existing runtime operation | Permission | Effect |
 | --- | --- | --- | --- |
 | `tl.workspace.inspectFlow` | `inspectFlow` | `flow.read` | graph summary, lightweight full node index (`id`, label, type, subtype), roots/leaves and validation issues; no node payloads |
+| `tl.workspace.resolveNode` | `findNodes` + `inspectNode({ summaryOnly: true })` | `flow.read` | resolves a visible node reference and returns identity, ports, configuration-key map and compact topology only for one unique match; otherwise returns every match without choosing one; no configuration values |
 | `tl.workspace.findNodes` | `findNodes` | `flow.read` | finds every node matching an ID, visible title, type or subtype and returns stable IDs without node payloads |
 | `tl.workspace.inspectNode` | `inspectNode({ summaryOnly: true })` | `flow.read` | one node’s identity, type, port names, configuration-key map and compact topology/impact summary; it never returns node data, documents, chunks, graph records, raw events or tool manifests |
-| `tl.workspace.inspectNodeConfig` | Chat scoped node-config read | `flow.read` | actual values for explicitly named configuration fields after `inspectNode`; the consent dialog names the requested fields and avoids sending unrelated runtime payloads |
+| `tl.workspace.inspectNodeConfig` | `inspectNodeConfig` | `flow.read` | persisted values for explicitly named configuration fields after `inspectNode`, resolved with any declared effective node default and its `persisted`/`node-default` source; the consent dialog names the requested fields and avoids sending unrelated runtime payloads |
 | `tl.workspace.inspectConnectedTools` | `inspectConnectedTools` | `flow.read` | discovers the exact declared read tools for one relevant node only |
 | `tl.workspace.readLogs` | `readLogs` | `runtime.read` | recent logs/events, optionally scoped to node/run |
 | `tl.workspace.runFlow` | `runFlow({ dryRun: true })` | `runtime.simulate` | non-mutating trace/simulation only |
@@ -134,6 +157,13 @@ The `python` domain exposes two explicit read tools:
   compares it with the Core-managed pack resolver, returning `ready`, `unavailable`,
   `blocked`, `invalid` or `not-required` plus a safe install-plan summary when one
   exists.
+- `tl.python.getNodeRuntimeStatus({ nodeId })` requires the earlier resolution in the
+  same provider turn and returns only the required managed environment's enabled/
+  interpreter/runtime state and its registered pack models.
+- `tl.python.getInstallPlan({ nodeId })` also requires that earlier resolution and is
+  available only for an unresolved supported requirement. It reads the Core-owned
+  plan for the already resolved pack: versions, models, integrity flags, network
+  effect and consent requirement. It never performs the installation.
 
 The provider boundary projects this data explicitly and never receives environment or
 model paths, filesystem handles, shell commands, pip/download controls, credentials or
@@ -200,7 +230,7 @@ Document/body text needs a more specific consent than graph/runtime metadata. Th
 
 ## Mutations
 
-No tool catalog entry directly changes the Flow. A provider can return a typed `proposed_action` only. TL maps it to a registered safe-executor tool, performs preflight and shows the exact planned change. Only an explicit user approval runs it; the result returns to the provider as another attributed observation.
+No tool catalog entry directly changes the Flow. A provider can return a typed `proposed_action` only. TL maps it to a registered safe-executor tool, performs preflight and shows the exact planned change. Only an explicit user approval runs it; the result returns to the provider as another attributed observation. The first non-Flow action is `install_python_pack`: it is accepted only after this turn resolved a missing supported node requirement and read its Core install plan. The provider supplies only the resolved `nodeId`; TL derives the exact trusted pack, shows a separate install confirmation and invokes the Core installer with real progress. The first Flow mutation is `update_node_config`: it is accepted only for an existing textual config field returned by a same-turn `inspectNodeConfig` read. TL—not the provider—rechecks the node/current value, presents old and new values, captures Time Travel and executes the registered `updateNodeConfig` action after confirmation.
 
 ## Implementation Path
 

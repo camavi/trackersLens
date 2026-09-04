@@ -6703,23 +6703,47 @@ const requestRuntimeNodeConfig = async (node) => {
   const pythonPackResolution = pythonDependencies && window.trackers?.runtime?.pythonPacks?.resolve
     ? await window.trackers.runtime.pythonPacks.resolve(pythonExecution).catch(() => null)
     : null;
+  const pythonPackId = pythonPackResolution?.status === "ready" ? pythonPackResolution.pack?.id : pythonPackResolution?.installPlan?.packId;
+  const pythonPackUsage = pythonPackId && window.trackers?.runtime?.pythonRuntime?.getPackUsage
+    ? await window.trackers.runtime.pythonRuntime.getPackUsage({ packId: pythonPackId, workspaceId: currentWorkspaceId?.() || "", excludingNodeId: node.id }).catch(() => null)
+    : null;
+  const requestPythonPackRemoval = () => {
+    if (!pythonPackId || !pythonPackUsage?.removable) return;
+    const dialog = _.Dialog({ title: "Remove Python Pack?", subtitle: pythonPackId, icon: "delete_forever", size: "md", closeButton: true,
+      content: () => _.div({ class: "tl-flow-config-section" }, _.p("Managed models and artifacts for this pack will be removed. The Python environment itself will be kept."), _.p("Core will check workspace dependencies again immediately before removal.")),
+      actions: ({ close }) => _.Toolbar({ align: "end", gap: 8 }, flowMapBtn({ onclick: close }, "Cancel"), flowMapBtn({ class: "tl-flow-python-pack-remove-confirm", onclick: async () => { await window.trackers.runtime.pythonRuntime.removePack({ packId: pythonPackId, workspaceId: currentWorkspaceId?.() || "", excludingNodeId: node.id, confirmed: true }); close(); await requestRuntimeNodeConfig(node); } }, "Remove Pack"))
+    });
+    dialog.open();
+  };
   const renderPythonPackRequirement = () => {
     if (!pythonDependencies) return null;
     const ready = pythonPackResolution?.status === "ready";
-    const packId = ready ? pythonPackResolution.pack?.id : pythonPackResolution?.installPlan?.packId;
+    const packId = pythonPackId;
     const requirements = (pythonDependencies.requirements || []).map((item) => `${item.name} ${item.version}`).join(", ");
     return _.section(
       { class: `tl-flow-config-section tl-flow-python-pack${ready ? " is-ready" : " is-missing"}` },
-      _.h3("Python pack richiesto"),
+      _.h3("Required Python Pack"),
       _.p(ready
-        ? `${packId || "Pack Python"} è pronto nell’ambiente ${pythonDependencies.environment}.`
-        : `Questo Nodo richiede ${requirements || "un pack Python gestito"} nell’ambiente ${pythonDependencies.environment}.`),
+        ? `${packId || "Python pack"} is ready in the ${pythonDependencies.environment} environment.`
+        : `This node requires ${requirements || "a managed Python pack"} in the ${pythonDependencies.environment} environment.`),
       _.small({ class: "tl-flow-config-field-description" }, ready
-        ? "TL esegue soltanto il pack dichiarato dal manifest."
-        : "TL non scarica nulla automaticamente. Apri Runtime Python e Modelli per vedere il piano, le versioni bloccate, la rete richiesta e confermare l’installazione."),
-      !ready && packId
-        ? flowMapBtn({ class: "tl-flow-config-field-action", onclick: () => window.TrackerLensSidebar?.navigate?.("pythonRuntime.html") }, flowMapIcon("memory", "sm"), "Apri Runtime Python e Modelli")
-        : null
+        ? "TL runs only the pack declared by the manifest. Management stays centralized because a pack can be shared by multiple nodes."
+        : "TL never downloads automatically. Open Python Runtime and Models to inspect the plan, pinned versions, network effect and confirm installation."),
+      _.div(
+        { class: "tl-flow-config-field-actions" },
+        flowMapBtn({ class: "tl-flow-python-pack-action", onclick: () => window.TrackerLensSidebar?.navigate?.("pythonRuntime.html") }, flowMapIcon("memory", "sm"), "Manage Pack"),
+        packId ? flowMapBtn({ class: "tl-flow-python-pack-action", onclick: () => void openFlowPythonPackInstallDialog(packId, () => requestRuntimeNodeConfig(node)) }, flowMapIcon("refresh", "sm"), ready ? "Reinstall Pinned Version" : "Show Plan and Install") : null,
+        ready && pythonPackUsage?.removable ? flowMapBtn({ class: "tl-flow-python-pack-action is-danger", onclick: requestPythonPackRemoval }, flowMapIcon("delete_forever", "sm"), "Remove Pack") : null
+      ),
+      _.small({ class: "tl-flow-config-field-description" }, pythonPackUsage?.removable ? "No other node uses this pack: you can remove its managed artifacts after confirmation." : "Removal stays blocked while other nodes use this shared pack."),
+      pythonPackUsage ? _.section(
+        { class: "tl-flow-config-section" },
+        _.h3("Pack Dependencies"),
+        _.p(pythonPackUsage.removable
+          ? "No other persisted workspace node uses this pack."
+          : `${pythonPackUsage.dependents.length} other workspace node(s) use this pack.`),
+        ...(pythonPackUsage.dependents || []).map((dependent) => _.small(`${dependent.label} · ${dependent.subtype || dependent.type || "node"}`))
+      ) : null
     );
   };
   if (configFields.some((definition) => String(definition.type || "").startsWith("ai-"))) {

@@ -60,6 +60,7 @@ const trackers = Object.freeze({
     }),
     pythonRuntime: Object.freeze({
       getCatalog: () => request("runtime.pythonRuntime.getCatalog"),
+      getPackUsage: ({ packId, workspaceId, excludingNodeId } = {}) => request("runtime.pythonRuntime.getPackUsage", { packId: String(packId || ""), workspaceId: String(workspaceId || ""), excludingNodeId: String(excludingNodeId || "") }),
       getInstallPlan: ({ packId } = {}) => request("runtime.pythonRuntime.getInstallPlan", { packId: String(packId || "") }),
       installPack: ({ packId, confirmed = false } = {}) => request("runtime.pythonRuntime.installPack", { packId: String(packId || ""), confirmed: Boolean(confirmed) }),
       onInstallProgress: (listener) => {
@@ -68,7 +69,8 @@ const trackers = Object.freeze({
         ipcRenderer.on("trackers-core:python-install-progress", handler);
         return () => ipcRenderer.removeListener("trackers-core:python-install-progress", handler);
       },
-      removeModel: ({ modelId, confirmed = false } = {}) => request("runtime.pythonRuntime.removeModel", { modelId: String(modelId || ""), confirmed: Boolean(confirmed) })
+      removeModel: ({ modelId, confirmed = false } = {}) => request("runtime.pythonRuntime.removeModel", { modelId: String(modelId || ""), confirmed: Boolean(confirmed) }),
+      removePack: ({ packId, workspaceId, excludingNodeId, confirmed = false } = {}) => request("runtime.pythonRuntime.removePack", { packId: String(packId || ""), workspaceId: String(workspaceId || ""), excludingNodeId: String(excludingNodeId || ""), confirmed: Boolean(confirmed) })
     }),
     pythonPacks: Object.freeze({
       resolve: (execution = {}) => request("runtime.pythonPacks.resolve", { execution })

@@ -106,6 +106,24 @@ class PythonRuntimeCatalog {
     await environment.onModelRemoved?.(model);
     return { removed: true, modelId: String(model.id), environmentId: String(environment.id || "python") };
   }
+
+  async removePack({ packId, confirmed = false } = {}) {
+    const pack = this.packs.find((item) => String(item.id || "") === String(packId || ""));
+    if (!pack) throw Object.assign(new Error("Python pack is not managed by Trackers Lens."), { code: "PYTHON_PACK_UNKNOWN" });
+    if (!confirmed) throw Object.assign(new Error("Python pack removal requires confirmation."), { code: "PYTHON_PACK_REMOVAL_CONFIRMATION_REQUIRED" });
+    const modelIds = new Set((pack.models || []).map((model) => String(model.id || "")));
+    const removedModelIds = [];
+    for (const environment of this.environments) {
+      const models = (environment.models || []).filter((model) => modelIds.has(String(model.id || "")));
+      if (!models.length) continue;
+      await environment.stopRuntime?.();
+      for (const model of models) {
+        if (await pathExists(model.directory)) { await fs.rm(model.directory, { recursive: true, force: false, maxRetries: 3 }); removedModelIds.push(String(model.id)); }
+        await environment.onModelRemoved?.(model);
+      }
+    }
+    return { removed: true, packId: String(pack.id), removedModelIds, limitations: ["Managed model artifacts were removed. The managed Python environment itself was preserved."] };
+  }
 }
 
 module.exports = { PythonRuntimeCatalog };

@@ -140,6 +140,7 @@ const FLOW_PROMPT_CATALOG_TOOLS = [
 
 const FLOW_PROMPT_WORKSPACE_TOOL_SCHEMAS = {
   "tl.workspace.inspectFlow": { type: "object", properties: {} },
+  "tl.workspace.resolveNode": { type: "object", properties: { query: { type: "string", description: "Visible title, stable id, node type or subtype. Returns one inspected node only when the match is unique; otherwise returns every match for explicit selection." } }, required: ["query"] },
   "tl.workspace.findNodes": { type: "object", properties: { query: { type: "string", description: "Visible title, stable id, node type or subtype." } }, required: ["query"] },
   "tl.workspace.inspectNode": { type: "object", properties: { nodeId: { type: "string", description: "Stable node id returned by tl.workspace.findNodes." } }, required: ["nodeId"] },
   "tl.workspace.inspectNodeConfig": { type: "object", properties: { nodeId: { type: "string" }, keys: { type: "array", items: { type: "string" }, description: "Only configuration keys discovered with inspectNode." } }, required: ["nodeId", "keys"] },
@@ -152,7 +153,29 @@ const FLOW_PROMPT_WORKSPACE_TOOL_SCHEMAS = {
   "tl.providers.listStatus": { type: "object", properties: {} },
   "tl.python.getCatalog": { type: "object", properties: {} },
   "tl.python.resolveNodeRequirements": { type: "object", properties: { nodeId: { type: "string", description: "Stable node id returned by tl.workspace.findNodes." } }, required: ["nodeId"] },
+  "tl.python.getNodeRuntimeStatus": { type: "object", properties: { nodeId: { type: "string", description: "Stable node id already resolved with tl.python.resolveNodeRequirements." } }, required: ["nodeId"] },
+  "tl.python.getInstallPlan": { type: "object", properties: { nodeId: { type: "string", description: "Stable node id whose unresolved requirement was already resolved." } }, required: ["nodeId"] },
 };
+
+// These descriptors contain no workspace data. They are shipped up front to
+// remove three provider round trips for the common node-question path.
+const FLOW_PROMPT_FAST_PATH_TOOLS = new Set([
+  "tl.workspace.inspectFlow",
+  "tl.workspace.resolveNode",
+  "tl.workspace.findNodes",
+  "tl.workspace.inspectNode",
+  "tl.workspace.inspectNodeConfig",
+  "tl.workspace.suggestFixes",
+  "tl.workspace.readLogs",
+  "tl.workspace.listRuns",
+  "tl.workspace.getRun",
+  "tl.workspace.runFlow",
+  "tl.providers.listStatus",
+  "tl.python.getCatalog",
+  "tl.python.resolveNodeRequirements",
+  "tl.python.getNodeRuntimeStatus",
+  "tl.python.getInstallPlan",
+]);
 
 // Provider-facing navigation map. It describes capabilities only: no Flow,
 // runtime, document or node payload can enter a provider request from here.
@@ -164,6 +187,7 @@ const FLOW_PROMPT_CAPABILITY_DOMAINS = [
     status: "available",
     tools: [
       ["tl.workspace.inspectFlow", "Inspect the active Flow Map and its lightweight node index."],
+      ["tl.workspace.resolveNode", "Fast path: resolve a visible node reference and inspect its metadata/configuration-key map when exactly one node matches."],
       ["tl.workspace.findNodes", "Resolve an id, visible title, type or subtype into every matching stable node id."],
       ["tl.workspace.inspectNode", "Inspect one resolved node's metadata, topology and configuration-key map."],
       ["tl.workspace.inspectNodeConfig", "Read explicitly named configuration values from one resolved node."],
@@ -206,6 +230,8 @@ const FLOW_PROMPT_CAPABILITY_DOMAINS = [
     tools: [
       ["tl.python.getCatalog", "Read safe managed pack, environment and local-model status and metadata."],
       ["tl.python.resolveNodeRequirements", "Resolve one found node's declared Python requirement against the managed pack catalog."],
+      ["tl.python.getNodeRuntimeStatus", "Read the managed Python environment and models required by one already resolved node."],
+      ["tl.python.getInstallPlan", "Read the safe Core-managed installation plan for one already resolved missing node requirement."],
     ],
   },
   { id: "connections", label: "Connections", purpose: "Endpoint discovery, connection status and diagnostics.", status: "planned", tools: [] },
@@ -343,6 +369,96 @@ const flowPromptSafePythonResolution = (result = {}, node = {}) => ({
   limitations: ["La risoluzione legge soltanto il requisito dichiarato e lo stato del pack gestito; non include percorsi, shell o azioni di installazione."],
 });
 
+const flowPromptSafePythonNodeRuntimeStatus = (catalog = {}, resolution = {}) => {
+  const requirement = resolution?.requirement || {};
+  const pack = resolution?.pack || resolution?.installPlan || {};
+  const environmentId = String(pack.environment || requirement.environment || "");
+  const packId = String(pack.id || pack.packId || requirement.packId || "");
+  const environment = (Array.isArray(catalog?.environments) ? catalog.environments : []).find((item) => String(item?.id || "") === environmentId) || null;
+  const models = (Array.isArray(catalog?.models) ? catalog.models : [])
+    .filter((model) => String(model?.environmentId || "") === environmentId && (Array.isArray(model?.packIds) ? model.packIds : []).map(String).includes(packId))
+    .map((model) => ({
+      id: String(model?.id || ""),
+      displayName: String(model?.displayName || model?.id || "Model"),
+      revision: String(model?.revision || ""),
+      state: String(model?.state || "unknown"),
+      dimensions: Number(model?.dimensions || 0),
+      languages: Number(model?.languages || 0),
+      license: String(model?.license || "Unknown"),
+      sizeBytes: Number(model?.sizeBytes || 0),
+    }));
+  return {
+    node: resolution.node,
+    resolutionStatus: String(resolution.status || "unknown"),
+    environment: environment ? {
+      id: String(environment.id || ""),
+      requested: Boolean(environment.requested),
+      enabled: Boolean(environment.enabled),
+      interpreterInstalled: Boolean(environment.interpreterInstalled),
+      runtimeStatus: String(environment.runtime?.status || "unknown"),
+    } : null,
+    models,
+    limitations: ["Lo stato riguarda l'ambiente Python gestito richiesto dal nodo; non avvia o riavvia il runtime e non include percorsi locali."],
+  };
+};
+
+const flowPromptSafePythonInstallPlan = (plan = {}, node = {}) => ({
+  schemaVersion: String(plan?.schemaVersion || "tl-python-install-plan/v1"),
+  node: {
+    id: String(node?.id || ""),
+    label: String(node?.label || node?.id || "Node"),
+  },
+  pack: {
+    id: String(plan?.pack?.id || ""),
+    version: String(plan?.pack?.version || ""),
+    trustLevel: String(plan?.pack?.trustLevel || ""),
+    installPolicy: String(plan?.pack?.installPolicy || ""),
+  },
+  environment: {
+    id: String(plan?.environment?.id || ""),
+    action: String(plan?.environment?.action || ""),
+  },
+  requirements: (Array.isArray(plan?.requirements) ? plan.requirements : []).map((item) => ({ name: String(item?.name || ""), version: String(item?.version || "") })),
+  models: (Array.isArray(plan?.models) ? plan.models : []).map((model) => ({
+    id: String(model?.id || ""),
+    displayName: String(model?.displayName || model?.id || "Model"),
+    revision: String(model?.revision || ""),
+    license: String(model?.license || "Unknown"),
+    estimatedDownloadBytes: Number(model?.estimatedDownloadBytes || 0),
+    artifactType: String(model?.artifactType || ""),
+    source: String(model?.source || ""),
+    installed: Boolean(model?.installed),
+    networkRequired: Boolean(model?.networkRequired),
+    resumeAvailable: Boolean(model?.resumeAvailable),
+    partialBytes: Number(model?.partialBytes || 0),
+  })),
+  network: {
+    required: Boolean(plan?.network?.required),
+    reasons: (Array.isArray(plan?.network?.reasons) ? plan.network.reasons : []).map(String),
+  },
+  integrity: { versionPinned: Boolean(plan?.integrity?.versionPinned), hashesPresent: Boolean(plan?.integrity?.hashesPresent) },
+  requiresUserConsent: Boolean(plan?.requiresUserConsent),
+  limitations: ["Questo è un piano read-only. Non include percorsi, comandi shell o lockfile e non installa nulla."],
+});
+
+// Knowledge AI prompt fields may be effective through their declarative node
+// defaults before the user saves an explicit per-node override. The editor
+// displays and the runtime uses those values, so a chat read must report them
+// faithfully rather than calling them unconfigured. This remains renderer-side
+// presentation of a declared node contract; no Flow data is inferred.
+const flowPromptEffectiveNodeConfigValue = (node = {}, key = "") => {
+  const config = node?.metadata?.config && typeof node.metadata.config === "object" ? node.metadata.config : {};
+  if (Object.prototype.hasOwnProperty.call(config, key) && config[key] !== undefined && config[key] !== null && config[key] !== "") {
+    return { value: config[key], source: "persisted" };
+  }
+  const subtype = String(node?.subtype || node?.metadata?.subtype || node?.metadata?.manifest?.subtype || "").trim();
+  if (["systemPrompt", "promptTemplate", "outputInstructions"].includes(key) && typeof knowledgeAiPromptDefaults === "function") {
+    const defaults = knowledgeAiPromptDefaults(subtype);
+    if (typeof defaults?.[key] === "string" && defaults[key]) return { value: defaults[key], source: "node-default" };
+  }
+  return { value: undefined, source: "unconfigured" };
+};
+
 const flowPromptActiveSessionContext = ({ chatWorkspaceId = "" } = {}) => {
   const routerStatus = window.TrackerLensAppRouter?.status?.() || {};
   const route = String(routerStatus.activePath || routerStatus.currentPath || window.location?.pathname || "");
@@ -422,6 +538,35 @@ const flowPromptParseExternalToolRequest = (text = "") => {
   return null;
 };
 
+const flowPromptParseExternalAnswer = (text = "") => {
+  const source = String(text || "").trim();
+  const candidates = [
+    source,
+    ...Array.from(source.matchAll(/^\s*```(?:json)?\s*([\s\S]*?)```\s*$/gi)).map((match) => match[1]),
+  ];
+  for (const candidate of candidates) {
+    try {
+      const parsed = JSON.parse(String(candidate || "").trim());
+      if (parsed && typeof parsed === "object" && !Array.isArray(parsed) && ["answer", "final_answer", "final"].includes(String(parsed.type || "").toLowerCase())) {
+        const message = typeof parsed.message === "string" ? parsed.message.trim() : typeof parsed.content === "string" ? parsed.content.trim() : "";
+        if (message) return message;
+      }
+    } catch (_) {
+      // Natural-language provider output is already display-ready.
+    }
+  }
+  return source;
+};
+
+const flowPromptParseExternalProposedAction = (text = "") => {
+  try {
+    const value = JSON.parse(String(text || "").trim());
+    return value?.type === "proposed_action" && typeof value.action === "string"
+      ? { action: value.action.trim(), args: value.args && typeof value.args === "object" ? value.args : {} }
+      : null;
+  } catch (_) { return null; }
+};
+
 const flowPromptBuildExternalReply = async (providerId = "", prompt = "", { conversationContext = null, model = "", reasoningEffort = "", speed = "", shareFlowSummary = false, sessionContext = null, toolCatalog = null, toolObservation = null, toolObservations = [], toolProtocolProgress = null, forceNaturalAnswer = false, requireToolContinuation = false } = {}) => {
   const provider = String(providerId || "").toLowerCase();
   if (!FLOW_PROMPT_EXTERNAL_PROVIDER_IDS.has(provider)) throw new Error("Provider esterno non valido.");
@@ -442,26 +587,32 @@ const flowPromptBuildExternalReply = async (providerId = "", prompt = "", { conv
   const flowSummary = shareFlowSummary
     ? await flowPromptAgentContext().then((context) => `Flow summary esplicitamente autorizzato: ${context.nodes.length} nodi, ${context.edges.length} link, ${context.channels.length} canali, ${context.events.length} eventi recenti.`).catch(() => "")
     : "";
-  const currentToolObservations = Array.isArray(toolObservations) && toolObservations.length
-    ? toolObservations
-    : toolObservation ? [toolObservation] : [];
+  // Each external CLI call is stateless. The immediately preceding observation
+  // is enough to continue the declared tool protocol, while the full trace is
+  // retained locally in Activity/DevTools. Re-sending every earlier envelope
+  // made every provider round larger without adding new evidence.
+  const currentToolObservations = toolObservation
+    ? [toolObservation]
+    : Array.isArray(toolObservations) && toolObservations.length ? [toolObservations.at(-1)] : [];
   const request = [
     "You are the selected external assistant inside Trackers Lens Flow Map Chat.",
     "Answer in the user's language. You can advise and explain, but cannot apply changes to the Flow Map.",
     "Never claim to have filesystem, terminal, browser, or workspace access. Any Flow change remains a separate confirmed TL action.",
-    "For a question about the current Trackers Lens state, configuration, node, connection, run, count, log or document, catalog metadata and prior assistant text are not evidence. If the user did not provide the exact fact, use the relevant available TL tool before answering. In particular, resolve a visible node title with findNodes before asking the user to select it or provide its id. If no suitable tool exists or access is denied, say that clearly without inventing a result.",
-    "For a question about actual node settings or values, inspectNode only reveals the configuration-key map. After it identifies relevant keys, request tl.workspace.inspectNodeConfig with the resolved stable nodeId and only the keys needed to answer. Do not describe configuration keys as their values, and do not stop at inspectNode when the requested values are available through inspectNodeConfig.",
+    "For a question about the current Trackers Lens state, configuration, node, connection, run, count, log or document, catalog metadata and prior assistant text are not evidence. If the user did not provide the exact fact, use the relevant available TL tool before answering. For a visible Flow node, prefer tl.workspace.resolveNode before asking the user to select it or provide its id: it preserves ambiguity by returning every match, but returns node metadata when the match is unique. If no suitable tool exists or access is denied, say that clearly without inventing a result.",
+    "For a question about actual node settings or values, resolveNode reveals the configuration-key map but not values. After it identifies relevant keys, request tl.workspace.inspectNodeConfig with the resolved stable nodeId and only the keys needed to answer. Do not describe configuration keys as their values, and do not stop at resolveNode when the requested values are available through inspectNodeConfig.",
     "For a question about runtime status, runs, failures, logs or events, use the runtime domain. List runs before reading one exact trace with getRun; scope readLogs to a resolved node or run whenever the user's question identifies one. Runtime metadata is not proof until a real runtime tool observation is returned.",
     "For a question about knowledge, documents, chunks, dictionary terms, timelines, entities, relations, graph evidence or RAG, resolve and inspect the relevant node first, then use inspectConnectedTools. It returns the exact node-scoped read tools and schemas. Request only one declared read tool at a time; never guess a tl.node tool name or call one that was not returned by inspectConnectedTools.",
     "For a question about installed external AI providers, authentication, configured model or reasoning effort, use the providers domain and tl.providers.listStatus. It returns safe status metadata only; never claim access to credentials, tokens or executable paths.",
-    "For a question about managed Python packs, environments, local models, installed versions or readiness, use the python domain and tl.python.getCatalog. To verify whether Python is available for one Flow node, first resolve its visible label with tl.workspace.findNodes, then use tl.python.resolveNodeRequirements with that returned stable nodeId. It compares only the node's declared Python requirement with the Core-managed pack catalog. These tools return safe metadata only; never claim filesystem, shell, pip, download, model-removal or runtime-control access. Installation, removal, restart and diagnostics are separate confirmed TL actions when those tools are introduced.",
-    toolCatalog ? `Trackers Lens capability navigation tools (metadata only; always available during this request):\n${JSON.stringify(toolCatalog)}\nIf you need TL data: first call tl.catalog.listDomains; then tl.catalog.listTools for one relevant domain; then tl.catalog.getCapabilityDetails for the selected tool; finally request that exact available tool. Respond with ONLY JSON: {"type":"tool_request","tool":"exact catalog name","args":{}}. Do not request a write tool. A node reference may be its visible label or technical id.` : "",
+    "For a question about managed Python packs, environments, local models, installed versions or readiness, use the supplied Python fast-path descriptors directly. To verify Python for one Flow node, first resolve its visible label with tl.workspace.resolveNode, then use tl.python.resolveNodeRequirements with that returned stable nodeId. It compares only the node's declared Python requirement with the Core-managed pack catalog. After that resolution, use tl.python.getNodeRuntimeStatus for its managed environment/model state, or tl.python.getInstallPlan only when the requirement is not ready and the user asks what installation would entail. These tools return safe metadata only; never claim filesystem, shell, pip, download, model-removal or runtime-control access. Installation, removal, restart and diagnostics are separate confirmed TL actions when those tools are introduced.",
+    "Only after a same-turn Python resolution and install-plan observation show a requested installation as ONLY JSON: {\"type\":\"proposed_action\",\"action\":\"install_python_pack\",\"args\":{\"nodeId\":\"resolved stable id\"}}. Never include a pack id, package, URL or command: TL derives the exact trusted pack from the approved plan and asks the user to confirm.",
+    "For a requested textual node-config change, first find the node, inspect it, then read that exact config field with tl.workspace.inspectNodeConfig in this turn. Only then propose ONLY JSON: {\"type\":\"proposed_action\",\"action\":\"update_node_config\",\"args\":{\"nodeId\":\"resolved stable id\",\"field\":\"the exact read config key\",\"value\":\"new text value\"}}. Never propose ports, channels, endpoints, nested objects, numbers, booleans, credentials, commands or a field that was not read. TL revalidates the current value, shows old and new values, captures a Time Travel snapshot, and requires explicit confirmation before applying.",
+    toolCatalog ? `Trackers Lens capability metadata (no workspace data):\n${JSON.stringify(toolCatalog)}\nUse the supplied static fast-path descriptors directly; do NOT call tl.catalog.listDomains, tl.catalog.listTools or tl.catalog.getCapabilityDetails for them. For a Flow node question, call resolveNode, then inspectNodeConfig only if actual values are needed. Use hierarchical catalog discovery only for dynamically declared tl.node.* tools and future domains not present in the fast path. Respond with ONLY JSON: {"type":"tool_request","tool":"exact catalog name","args":{}}. Do not request a write tool. A node reference may be its visible label or technical id.` : "",
     toolObservation && toolProtocolProgress ? `Tool discovery progress for this same request:\n${JSON.stringify(toolProtocolProgress)}\nContinue from this progress. Do not restart tl.catalog.listDomains or repeat a tool request already completed unless its arguments must genuinely change.` : "",
     sessionContext ? `Active Trackers Lens session context (metadata, not Flow contents):\n${JSON.stringify(sessionContext)}` : "",
     history,
     flowSummary,
-    requireToolContinuation ? "Protocol correction: you began capability discovery for a current workspace question but have not received a real workspace observation. Do not narrate the process or ask the user for an id. Continue with the next necessary tool request only, as the exact JSON object." : "",
-    currentToolObservations.length ? `Tool observations returned by Trackers Lens in this same request (use them as evidence; do not claim more than they say). ${forceNaturalAnswer ? "The latest requested observation was already available. Do not request that same tool again. Use the attached observations, request a different necessary tool, or answer the user." : "Now answer the user's original request. Request another tool only if these observations are insufficient and the next request is different."}\n${JSON.stringify(currentToolObservations)}` : "",
+    requireToolContinuation ? "Protocol correction: the Trackers Lens capability catalog is available for this current workspace question, but no real workspace observation has been returned yet. Do not claim tools are unavailable, narrate the process or ask the user for an id. Begin or continue with the next necessary tool request only, as the exact JSON object." : "",
+    currentToolObservations.length ? `Latest tool observation returned by Trackers Lens in this same request (use it as evidence; do not claim more than it says). ${forceNaturalAnswer ? "The latest requested observation was already available. Do not request that same tool again. Use it, request a different necessary tool, or answer the user." : "Now answer the user's original request. Request another tool only if this observation is insufficient and the next request is different."}\n${JSON.stringify(currentToolObservations)}` : "",
     `User request: ${String(prompt || "").trim()}`,
   ].filter(Boolean).join("\n\n");
   const effectiveModel = String(model || "").trim() || String(status?.configuredModel || "").trim() || "provider-default";
@@ -485,7 +636,7 @@ const flowPromptBuildExternalReply = async (providerId = "", prompt = "", { conv
   console.groupCollapsed(`[TL AI Chat] ← ${flowPromptExternalProviderLabel(provider)}`);
   console.log("Response payload", response);
   console.groupEnd();
-  return String(response?.text || "").trim() || "Non ho ricevuto una risposta dal provider esterno.";
+  return flowPromptParseExternalAnswer(response?.text) || "Non ho ricevuto una risposta dal provider esterno.";
 };
 
 const flowPromptPlanSnapshot = (analysis = {}) => ({
@@ -6378,6 +6529,7 @@ const openFlowPromptChatDialog = async (options = {}) => {
     analysis: null,
     busy: false,
     activity: null,
+    openDetailIds: new Set(),
     loadingHistory: true,
     result: null,
     error: "",
@@ -6474,19 +6626,49 @@ const openFlowPromptChatDialog = async (options = {}) => {
     }
   };
 
+  const logoutSelectedProvider = async () => {
+    const providerId = selectedProviderId();
+    if (!selectedProviderIsExternal() || draft.providerLoading || draft.busy) return;
+    if (!window.confirm(`Disconnettere l'account ${flowPromptExternalProviderLabel(providerId)} da questo computer?`)) return;
+    const api = window.trackers?.desktop?.externalAi?.logout;
+    if (typeof api !== "function") {
+      draft.error = "Il bridge desktop AI non è disponibile.";
+      refresh();
+      return;
+    }
+    draft.providerLoading = true;
+    draft.error = "";
+    refresh();
+    try {
+      await api({ provider: providerId, confirmed: true });
+      await refreshProviderStatus({ quiet: true });
+    } catch (error) {
+      draft.error = error?.message || "Non riesco a disconnettere il provider.";
+    } finally {
+      draft.providerLoading = false;
+      refresh();
+    }
+  };
+
   const providerReadToolCatalog = async () => {
-    // Do not send workspace or page tools before the provider has deliberately
-    // navigated the map. This keeps the bootstrap stable as TL gains pages.
+    // Flow-node descriptors are static capability metadata, not Flow data.
+    // Sending this compact fast path avoids repeated catalog navigation for
+    // the dominant "how is this node configured?" interaction.
     return {
-      version: "tl-capability-map/v1",
+      version: "tl-capability-map/v1-fast-flow",
       scope: "capability-metadata-only",
       tools: FLOW_PROMPT_CATALOG_TOOLS,
+      fastPath: {
+        label: "Static read fast path",
+        purpose: "Direct, consented reads for common Flow, runtime, provider and managed-Python questions. These descriptors do not contain workspace data.",
+        tools: [...FLOW_PROMPT_FAST_PATH_TOOLS].map((name) => flowPromptCapabilityDetails(name)).filter(Boolean),
+      },
     };
   };
 
   // Discovery is intentionally per provider turn. A previous answer cannot
   // silently grant a later request a broader data vocabulary.
-  let providerToolDiscovery = { domainsListed: false, indexedDomains: new Set(), detailedTools: new Set(), declaredNodeTools: new Set(), resolvedNodeIds: new Set() };
+  let providerToolDiscovery = { domainsListed: false, indexedDomains: new Set(), detailedTools: new Set(), declaredNodeTools: new Set(), resolvedNodeIds: new Set(), inspectedNodeIds: new Set(), pythonResolutions: new Map(), nodeConfigReads: new Map(), proposedActionKeys: new Set() };
   const providerToolProtocolProgress = () => ({
     version: "tl-capability-map/v1",
     domainsListed: providerToolDiscovery.domainsListed,
@@ -6494,6 +6676,9 @@ const openFlowPromptChatDialog = async (options = {}) => {
     detailedTools: [...providerToolDiscovery.detailedTools],
     declaredNodeToolCount: providerToolDiscovery.declaredNodeTools.size,
     resolvedNodeCount: providerToolDiscovery.resolvedNodeIds.size,
+    inspectedNodeCount: providerToolDiscovery.inspectedNodeIds.size,
+    resolvedPythonRequirementCount: providerToolDiscovery.pythonResolutions.size,
+    readNodeConfigCount: providerToolDiscovery.nodeConfigReads.size,
   });
 
   const requestReadToolConsent = (request = {}) => new Promise((resolve) => {
@@ -6515,6 +6700,7 @@ const openFlowPromptChatDialog = async (options = {}) => {
       content: () => _.div(
         { class: "tl-flow-prompt-provider-settings" },
         _.p(`Tool richiesto: ${request.tool || "sconosciuto"}`),
+        request.tool === "tl.workspace.resolveNode" ? _.p("TL cercherà il nodo indicato e, solo se la corrispondenza è unica, invierà identità, porte, chiavi di configurazione e topologia compatta. Non invia valori di configurazione.") : null,
         request.tool === "tl.workspace.inspectNodeConfig" ? _.p(
           `Valori richiesti${request.args?.nodeId ? ` per ${request.args.nodeId}` : ""}: ${(Array.isArray(request.args?.keys) ? request.args.keys : []).map((key) => String(key || "").trim()).filter(Boolean).join(", ") || "nessun campo indicato"}.`
         ) : null,
@@ -6528,6 +6714,8 @@ const openFlowPromptChatDialog = async (options = {}) => {
         request.tool === "tl.providers.listStatus" ? _.p("Stato provider richiesto: installazione, autenticazione e configurazione modello; credenziali e percorsi locali non vengono mai letti.") : null,
         request.tool === "tl.python.getCatalog" ? _.p("Catalogo Python richiesto: pack gestiti, ambienti e modelli locali. TL non invia percorsi, shell, comandi, credenziali né avvia installazioni o rimozioni.") : null,
         request.tool === "tl.python.resolveNodeRequirements" ? _.p(`Verifica Python richiesta per il nodo ${request.args?.nodeId || "non indicato"}: TL confronterà solo il requisito dichiarato nel manifest con i pack gestiti. Non verranno eseguite installazioni.`) : null,
+        request.tool === "tl.python.getNodeRuntimeStatus" ? _.p(`Stato Runtime Python richiesto per il nodo ${request.args?.nodeId || "non indicato"}: ambiente gestito e modelli associati, senza avviare o riavviare processi.`) : null,
+        request.tool === "tl.python.getInstallPlan" ? _.p(`Piano di installazione richiesto per il nodo ${request.args?.nodeId || "non indicato"}: versioni, modelli e rete richiesta. Questa lettura non installa nulla.`) : null,
         _.small("Puoi autorizzare solo questo tool oppure tutte le letture richieste dal provider nella conversazione corrente. Il consenso non abilita modifiche alla Flow Map.")
       ),
       actions: ({ close }) => _.Toolbar({ align: "end", gap: 8 },
@@ -6535,6 +6723,49 @@ const openFlowPromptChatDialog = async (options = {}) => {
         flowMapBtn({ onclick: () => { finish("once"); close(); } }, "Consenti una volta"),
         flowMapBtn({ onclick: () => { finish("chat"); close(); } }, "Consenti tutte le letture per questa chat")
       ),
+    });
+    dialog.open();
+  });
+
+  const confirmPythonPackInstall = ({ packId = "", plan = {} } = {}) => new Promise((resolve) => {
+    const dialog = _.Dialog({
+      class: "tl-flow-prompt-provider-settings-dialog", panelClass: "tl-flow-prompt-provider-settings-panel", size: "md",
+      title: "Install Python Pack?", subtitle: `${plan.pack?.id || packId} · v${plan.pack?.version || ""}`, icon: "download", closeButton: true,
+      onClose: () => resolve(false),
+      content: () => _.div({ class: "tl-flow-prompt-provider-settings" },
+        _.p("TL will install only the trusted pack already resolved by Core. The provider supplies no commands, URLs or dependencies."),
+        _.p(`Environment: ${plan.environment?.id || "managed"} · ${plan.environment?.action === "create" ? "will be created" : "will be reused"}.`),
+        _.p(`Network: ${plan.network?.required ? "required for declared packages/models" : "not required"}.`),
+        _.small("Installation can take several minutes while models download. Keep the app open until completion.")
+      ),
+      actions: ({ close }) => _.Toolbar({ align: "end", gap: 8 },
+        flowMapBtn({ onclick: () => { resolve(false); close(); } }, "Cancel"),
+        flowMapBtn({ class: "st-btn-primary", onclick: () => { resolve(true); close(); } }, "Install Pack")
+      )
+    });
+    dialog.open();
+  });
+
+  const confirmNodeConfigUpdate = ({ node = {}, field = "", previousValue = "", nextValue = "" } = {}) => new Promise((resolve) => {
+    const dialog = _.Dialog({
+      class: "tl-flow-prompt-provider-settings-dialog", panelClass: "tl-flow-prompt-provider-settings-panel", size: "md",
+      title: "Update Node Configuration?", subtitle: String(node.label || node.id || "Node"), icon: "tune", closeButton: true,
+      onClose: () => resolve(false),
+      content: () => _.div({ class: "tl-flow-prompt-provider-settings" },
+        _.p("TL will update one previously inspected text configuration field through the registered Safe Executor."),
+        _.div({ class: "tl-flow-prompt-provider-config-change" },
+          _.strong(field),
+          _.span({ class: "tl-flow-prompt-provider-config-change-label" }, "Current"),
+          _.div({ class: "tl-flow-prompt-provider-config-change-value" }, String(previousValue)),
+          _.span({ class: "tl-flow-prompt-provider-config-change-label" }, "New"),
+          _.div({ class: "tl-flow-prompt-provider-config-change-value" }, String(nextValue))
+        ),
+        _.small("TL will validate the node again and capture a Time Travel snapshot immediately before the update.")
+      ),
+      actions: ({ close }) => _.Toolbar({ align: "end", gap: 8 },
+        flowMapBtn({ onclick: () => { resolve(false); close(); } }, "Cancel"),
+        flowMapBtn({ class: "st-btn-primary", onclick: () => { resolve(true); close(); } }, "Update Configuration")
+      )
     });
     dialog.open();
   });
@@ -6575,12 +6806,47 @@ const openFlowPromptChatDialog = async (options = {}) => {
         : { ok: false, tool, status: "not-found", requestedName: name, limitations: ["Tool non trovato nel catalogo. Usa tl.catalog.listTools per il dominio pertinente."] };
     }
     if (!tool) return denied("Tool runtime non disponibile.");
-    if (!tool.startsWith("tl.node.") && !providerToolDiscovery.detailedTools.has(tool)) {
+    if (!tool.startsWith("tl.node.") && !FLOW_PROMPT_FAST_PATH_TOOLS.has(tool) && !providerToolDiscovery.detailedTools.has(tool)) {
       return denied("Prima scopri il tool: tl.catalog.listDomains, tl.catalog.listTools e tl.catalog.getCapabilityDetails.");
     }
     if (tool.startsWith("tl.node.") && !providerToolDiscovery.declaredNodeTools.has(tool)) {
       return denied("Questo tool del nodo non è stato dichiarato dalla precedente inspectConnectedTools. Risolvi il nodo e scopri prima il suo catalogo connesso.");
     }
+    if (tool === "tl.python.resolveNodeRequirements") {
+      const nodeId = String(args.nodeId || "").trim();
+      if (!runtime?.inspectNodePythonRequirement) return denied("La lettura del requisito Python del nodo non è disponibile.");
+      if (!nodeId) return denied("Indica il nodeId stabile restituito da tl.workspace.findNodes.");
+      if (!providerToolDiscovery.resolvedNodeIds.has(nodeId)) return denied("Prima risolvi il nodo con tl.workspace.findNodes e usa uno degli ID restituiti.");
+      if (typeof window.trackers?.runtime?.pythonPacks?.resolve !== "function") return denied("Il resolver dei pack Python non è disponibile nel bridge desktop.");
+    }
+    if (tool === "tl.python.getNodeRuntimeStatus") {
+      const nodeId = String(args.nodeId || "").trim();
+      if (!nodeId || !providerToolDiscovery.pythonResolutions.has(nodeId)) return denied("Prima risolvi il requisito Python del nodo con tl.python.resolveNodeRequirements.");
+      if (typeof window.trackers?.runtime?.pythonRuntime?.getCatalog !== "function") return denied("Il catalogo Runtime Python non è disponibile nel bridge desktop.");
+    }
+    if (tool === "tl.python.getInstallPlan") {
+      const nodeId = String(args.nodeId || "").trim();
+      const resolution = providerToolDiscovery.pythonResolutions.get(nodeId);
+      if (!nodeId || !resolution) return denied("Prima risolvi il requisito Python del nodo con tl.python.resolveNodeRequirements.");
+      if (resolution.status === "ready" || resolution.status === "not-required") return { ok: true, tool, status: "not-needed", nodeId, limitations: ["Il requisito Python del nodo è già pronto o non è richiesto; non serve un piano di installazione."] };
+      if (!resolution.installPlan?.packId || !resolution.installPlan?.supported) return { ok: false, tool, status: "unavailable", nodeId, limitations: ["Non esiste un piano di installazione supportato per questo requisito Python."] };
+      if (typeof window.trackers?.runtime?.pythonRuntime?.getInstallPlan !== "function") return denied("Il piano di installazione Runtime Python non è disponibile nel bridge desktop.");
+    }
+    const permissions = draft.activeChat?.permissions || {};
+    const grants = permissions.readToolGrants || {};
+    const decision = permissions.readToolScope === "all-read" || grants[tool] ? "chat" : await requestReadToolConsent({ tool, args });
+    if (decision === "chat") {
+      draft.activeChat = {
+        ...draft.activeChat,
+        permissions: {
+          ...permissions,
+          readToolGrants: { ...grants, [tool]: true },
+          readToolScope: "all-read",
+        },
+      };
+      await persistActiveChat();
+    }
+    if (decision === "deny") return denied("L'utente non ha autorizzato questa lettura.");
     if (tool === "tl.providers.listStatus") {
       const getStatus = window.trackers?.desktop?.externalAi?.getStatus;
       if (typeof getStatus !== "function") return denied("Il bridge desktop dei provider AI non è disponibile.");
@@ -6624,9 +6890,38 @@ const openFlowPromptChatDialog = async (options = {}) => {
         const target = await runtime.inspectNodePythonRequirement({ workspaceId: draft.workspaceId, nodeId });
         if (!target?.node) return { ok: false, tool, status: "not-found", nodeId, limitations: ["Il nodo non è disponibile nel Flow Map attivo."] };
         const resolution = await resolve(target.execution || {});
-        return { ok: true, tool, status: "ready", resolution: flowPromptSafePythonResolution(resolution, target.node) };
+        const safeResolution = flowPromptSafePythonResolution(resolution, target.node);
+        providerToolDiscovery.pythonResolutions.set(nodeId, safeResolution);
+        return { ok: true, tool, status: "ready", resolution: safeResolution };
       } catch (error) {
         return { ok: false, tool, status: "unavailable", nodeId, limitations: [error?.message || "Risoluzione del requisito Python non disponibile."] };
+      }
+    }
+    if (tool === "tl.python.getNodeRuntimeStatus") {
+      const nodeId = String(args.nodeId || "").trim();
+      const resolution = providerToolDiscovery.pythonResolutions.get(nodeId);
+      if (!nodeId || !resolution) return denied("Prima risolvi il requisito Python del nodo con tl.python.resolveNodeRequirements.");
+      const getCatalog = window.trackers?.runtime?.pythonRuntime?.getCatalog;
+      if (typeof getCatalog !== "function") return denied("Il catalogo Runtime Python non è disponibile nel bridge desktop.");
+      try {
+        return { ok: true, tool, status: "ready", runtime: flowPromptSafePythonNodeRuntimeStatus(await getCatalog(), resolution) };
+      } catch (error) {
+        return { ok: false, tool, status: "unavailable", nodeId, limitations: [error?.message || "Stato Runtime Python non disponibile."] };
+      }
+    }
+    if (tool === "tl.python.getInstallPlan") {
+      const nodeId = String(args.nodeId || "").trim();
+      const resolution = providerToolDiscovery.pythonResolutions.get(nodeId);
+      if (!nodeId || !resolution) return denied("Prima risolvi il requisito Python del nodo con tl.python.resolveNodeRequirements.");
+      if (resolution.status === "ready" || resolution.status === "not-required") return { ok: true, tool, status: "not-needed", nodeId, limitations: ["Il requisito Python del nodo è già pronto o non è richiesto; non serve un piano di installazione."] };
+      const packId = String(resolution.installPlan?.packId || "").trim();
+      if (!packId || !resolution.installPlan?.supported) return { ok: false, tool, status: "unavailable", nodeId, limitations: ["Non esiste un piano di installazione supportato per questo requisito Python."] };
+      const getInstallPlan = window.trackers?.runtime?.pythonRuntime?.getInstallPlan;
+      if (typeof getInstallPlan !== "function") return denied("Il piano di installazione Runtime Python non è disponibile nel bridge desktop.");
+      try {
+        return { ok: true, tool, status: "ready", plan: flowPromptSafePythonInstallPlan(await getInstallPlan({ packId }), resolution.node) };
+      } catch (error) {
+        return { ok: false, tool, status: "unavailable", nodeId, limitations: [error?.message || "Piano di installazione Python non disponibile."] };
       }
     }
     if (!runtime) return denied("Tool runtime non disponibile.");
@@ -6641,22 +6936,27 @@ const openFlowPromptChatDialog = async (options = {}) => {
       if (nodes.length === 1) return { node: nodes[0], result };
       return { node: null, result, nodes };
     };
-    const permissions = draft.activeChat?.permissions || {};
-    const grants = permissions.readToolGrants || {};
-    let decision = permissions.readToolScope === "all-read" || grants[tool] ? "chat" : await requestReadToolConsent({ tool, args });
-    if (decision === "chat") {
-      draft.activeChat = {
-        ...draft.activeChat,
-        permissions: {
-          ...permissions,
-          readToolGrants: { ...grants, [tool]: true },
-          readToolScope: "all-read",
-        },
-      };
-      await persistActiveChat();
-    }
-    if (decision === "deny") return denied("L'utente non ha autorizzato questa lettura.");
     if (tool === "tl.workspace.inspectFlow") return runtime.inspectFlow({ workspaceId: draft.workspaceId });
+    if (tool === "tl.workspace.resolveNode") {
+      const query = String(args.query || args.nodeId || args.nodeLabel || args.node || "").trim();
+      if (!query) return denied("Provide a visible node title or stable ID to resolve.");
+      const result = await runtime.findNodes({ workspaceId: draft.workspaceId, query });
+      const matches = Array.isArray(result?.nodes) ? result.nodes : [];
+      matches.forEach((node) => { if (node?.id) providerToolDiscovery.resolvedNodeIds.add(String(node.id)); });
+      if (matches.length !== 1) return {
+        ok: false,
+        tool,
+        status: matches.length ? "ambiguous" : "not-found",
+        query,
+        matches,
+        limitations: [matches.length ? "More than one node matches. Choose one returned stable ID; TL will not select one silently." : `No node matches "${query}" in the active Flow Map.`],
+      };
+      const nodeId = String(matches[0].id || "");
+      const inspection = await runtime.inspectNode({ workspaceId: draft.workspaceId, nodeId, includeRecentEvents: false, includeConnectedTools: false, summaryOnly: true });
+      if (!inspection?.node) return { ok: false, tool, status: "not-found", query, limitations: ["The resolved node is no longer available in the active Flow Map."] };
+      providerToolDiscovery.inspectedNodeIds.add(nodeId);
+      return { ok: true, tool, status: "ready", query, node: inspection.node, dependencies: inspection.dependencies || [], impact: inspection.impact || null, limitations: inspection.limitations || [] };
+    }
     if (tool === "tl.workspace.findNodes") {
       const result = await runtime.findNodes({ workspaceId: draft.workspaceId, query: String(args.query || args.nodeId || args.nodeLabel || args.node || "") });
       (result?.nodes || []).forEach((node) => { if (node?.id) providerToolDiscovery.resolvedNodeIds.add(String(node.id)); });
@@ -6673,6 +6973,7 @@ const openFlowPromptChatDialog = async (options = {}) => {
         matches: nodes || [],
         limitations: [nodes?.length ? "Il titolo corrisponde a più nodi. Scegli uno degli ID restituiti." : `Nessun nodo corrisponde a "${reference}" nel Flow Map attivo.`],
       };
+      providerToolDiscovery.inspectedNodeIds.add(matchedNode.id);
       return runtime.inspectNode({
         workspaceId: draft.workspaceId,
         nodeId: matchedNode.id,
@@ -6694,15 +6995,22 @@ const openFlowPromptChatDialog = async (options = {}) => {
         limitations: [nodes?.length ? "Il titolo corrisponde a più nodi. Scegli uno degli ID restituiti." : `Nessun nodo corrisponde a "${reference}" nel Flow Map attivo.`],
       };
       if (!requestedKeys.length) return denied("Indica i campi di configurazione da leggere dopo inspectNode.");
-      const config = matchedNode.metadata?.config && typeof matchedNode.metadata.config === "object" ? matchedNode.metadata.config : {};
-      const values = Object.fromEntries(requestedKeys.map((key) => [key, config[key]]).filter(([, value]) => value !== undefined));
+      if (typeof runtime.inspectNodeConfig !== "function") return denied("The scoped node configuration reader is not available.");
+      const persisted = await runtime.inspectNodeConfig({ workspaceId: draft.workspaceId, nodeId: matchedNode.id, keys: requestedKeys });
+      if (!persisted?.node) return { ok: false, tool, status: "not-found", nodeId: matchedNode.id, limitations: ["The resolved node is no longer available in the active Flow Map."] };
+      const effectiveNode = { ...matchedNode, metadata: { ...(matchedNode.metadata || {}), config: persisted.values || {} } };
+      const resolvedValues = requestedKeys.map((key) => [key, flowPromptEffectiveNodeConfigValue(effectiveNode, key)]);
+      const values = Object.fromEntries(resolvedValues.map(([key, resolved]) => [key, resolved.value]).filter(([, value]) => value !== undefined));
+      const sources = Object.fromEntries(resolvedValues.map(([key, resolved]) => [key, resolved.source]));
+      providerToolDiscovery.nodeConfigReads.set(matchedNode.id, new Set(Object.keys(values)));
       return {
         ok: true,
         tool,
         nodeId: matchedNode.id,
         status: "ready",
         values,
-        limitations: requestedKeys.filter((key) => !(key in config)).length ? ["Alcuni campi richiesti non sono configurati su questo nodo."] : [],
+        sources,
+        limitations: requestedKeys.filter((key) => sources[key] === "unconfigured").length ? ["Some requested fields are neither persisted nor declared by this node's effective defaults."] : [],
       };
     }
     if (tool === "tl.workspace.inspectConnectedTools") {
@@ -6742,11 +7050,12 @@ const openFlowPromptChatDialog = async (options = {}) => {
 
   const buildSelectedConversationalReply = async (prompt = "", options = {}) => {
     if (!selectedProviderIsExternal()) return flowPromptBuildConversationalReply(prompt, { ...options, model: selectedProviderModel() });
+    const providerStartedAt = performance.now();
     const status = await refreshProviderStatus({ quiet: true });
     if (!status?.authenticated) {
       throw new Error(`${flowPromptExternalProviderLabel(selectedProviderId())} non è pronto. Seleziona il provider e completa l'accesso ufficiale.`);
     }
-    providerToolDiscovery = { domainsListed: false, indexedDomains: new Set(), detailedTools: new Set(), declaredNodeTools: new Set(), resolvedNodeIds: new Set() };
+    providerToolDiscovery = { domainsListed: false, indexedDomains: new Set(), detailedTools: new Set(), declaredNodeTools: new Set(), resolvedNodeIds: new Set(), inspectedNodeIds: new Set(), pythonResolutions: new Map(), nodeConfigReads: new Map(), proposedActionKeys: new Set() };
     const toolCatalog = await providerReadToolCatalog();
     let reply = await flowPromptBuildExternalReply(selectedProviderId(), prompt, {
       ...options,
@@ -6771,15 +7080,110 @@ const openFlowPromptChatDialog = async (options = {}) => {
       const request = flowPromptParseExternalToolRequest(reply);
       const catalogOnlyTrace = toolTrace.length > 0 && toolTrace.every((entry) => String(entry.request?.tool || "").startsWith("tl.catalog."));
       if (!request) {
+        const proposedAction = flowPromptParseExternalProposedAction(reply);
+        if (proposedAction?.action === "install_python_pack") {
+          const nodeId = String(proposedAction.args?.nodeId || "").trim();
+          const resolution = providerToolDiscovery.pythonResolutions.get(nodeId);
+          const packId = String(resolution?.installPlan?.packId || "").trim();
+          const getInstallPlan = window.trackers?.runtime?.pythonRuntime?.getInstallPlan;
+          const installPack = window.trackers?.runtime?.pythonRuntime?.installPack;
+          let observation;
+          if (!nodeId || !resolution || resolution.status === "ready" || !packId || !resolution.installPlan?.supported || typeof getInstallPlan !== "function" || typeof installPack !== "function") {
+            observation = { ok: false, action: "install_python_pack", status: "blocked", limitations: ["L'installazione richiede un requisito Python mancante e un piano supportato risolti in questo turno."] };
+          } else {
+            const rawPlan = await getInstallPlan({ packId });
+            const approved = await confirmPythonPackInstall({ packId, plan: rawPlan });
+            if (!approved) observation = { ok: false, action: "install_python_pack", status: "denied", limitations: ["L'utente non ha confermato l'installazione del pack Python."] };
+            else {
+              setActivity({ label: "Installing Python", detail: "Preparing managed environment. This can take several minutes; keep the app open.", steps: ["Plan confirmed", "Managed environment", "Packages and models", "Verification"] });
+              const unsubscribe = window.trackers.runtime.pythonRuntime.onInstallProgress?.((progress) => {
+                if (progress?.packId === packId) {
+                  const percent = Number.isFinite(Number(progress.modelProgress)) ? Math.round(Number(progress.modelProgress)) : Number.isFinite(Number(progress.progress)) ? Math.round(Number(progress.progress)) : null;
+                  setActivity({ label: `Installing Python${percent === null ? "" : ` · ${percent}%`}`, detail: `${progress.message || progress.phase || "Working"}. This can take several minutes; keep the app open.`, steps: ["Plan confirmed", "Managed environment", "Packages and models", "Verification"] });
+                }
+              }) || (() => {});
+              try {
+                await installPack({ packId, confirmed: true });
+                observation = { ok: true, action: "install_python_pack", status: "completed", packId, nodeId };
+              } catch (error) {
+                observation = { ok: false, action: "install_python_pack", status: "failed", packId, nodeId, limitations: [error?.message || "Installazione Python non riuscita."] };
+              } finally { unsubscribe(); }
+            }
+          }
+          toolTrace.push({ request: { type: "proposed_action", ...proposedAction }, observation });
+          observedToolResults.push({ request: { type: "proposed_action", ...proposedAction }, observation });
+          reply = await flowPromptBuildExternalReply(selectedProviderId(), prompt, { ...options, model: selectedProviderModel(), reasoningEffort: draft.activeChat?.providerReasoningEffort || "medium", speed: draft.activeChat?.providerSpeed || "standard", sessionContext: flowPromptActiveSessionContext({ chatWorkspaceId: draft.workspaceId }), toolCatalog, toolObservations: observedToolResults, toolProtocolProgress: providerToolProtocolProgress() });
+          rounds += 1;
+          continue;
+        }
+        if (proposedAction?.action === "update_node_config") {
+          const nodeId = String(proposedAction.args?.nodeId || "").trim();
+          const field = String(proposedAction.args?.field || "").trim();
+          const nextValue = proposedAction.args?.value;
+          const proposalKey = `update_node_config:${nodeId}:${field}:${typeof nextValue === "string" ? nextValue : JSON.stringify(nextValue)}`;
+          const node = flowPromptRuntimeNodeById(nodeId);
+          const readFields = providerToolDiscovery.nodeConfigReads.get(nodeId);
+          let observation;
+          if (providerToolDiscovery.proposedActionKeys.has(proposalKey)) {
+            observation = { ok: false, action: "update_node_config", status: "already-reviewed", nodeId, field, limitations: ["This exact update was already reviewed during the current request; TL will not show the confirmation again."] };
+          } else if (!nodeId || !providerToolDiscovery.resolvedNodeIds.has(nodeId) || !node) {
+            observation = { ok: false, action: "update_node_config", status: "blocked", limitations: ["The update requires a node ID resolved by tl.workspace.findNodes in this turn."] };
+          } else if (!providerToolDiscovery.inspectedNodeIds.has(nodeId)) {
+            observation = { ok: false, action: "update_node_config", status: "blocked", nodeId, limitations: ["The update requires tl.workspace.inspectNode for the resolved node in this turn."] };
+          } else if (!field || !readFields?.has(field)) {
+            observation = { ok: false, action: "update_node_config", status: "blocked", nodeId, limitations: ["The update requires the exact configuration field to be read with tl.workspace.inspectNodeConfig in this turn."] };
+          } else if (typeof nextValue !== "string" || !nextValue.trim()) {
+            observation = { ok: false, action: "update_node_config", status: "blocked", nodeId, field, limitations: ["This first safe configuration-update gate accepts a non-empty text value only."] };
+          } else {
+            const previousValue = flowPromptEffectiveNodeConfigValue(node, field).value;
+            if (typeof previousValue !== "string") {
+              observation = { ok: false, action: "update_node_config", status: "blocked", nodeId, field, limitations: ["This first safe configuration-update gate supports only existing text configuration fields."] };
+            } else if (previousValue === nextValue) {
+              observation = { ok: true, action: "update_node_config", status: "not-needed", nodeId, field, value: nextValue, limitations: ["The field already has the requested value."] };
+            } else {
+              providerToolDiscovery.proposedActionKeys.add(proposalKey);
+              const action = flowPromptWithDependencyImpact(await flowPromptAgentContext(), flowPromptAnnotateActionTool({
+                type: "updateNodeConfig",
+                status: "ready",
+                tool: "updateNodeConfig",
+                nodeId,
+                node,
+                field,
+                value: nextValue,
+                target: "config",
+                summary: `Update ${node.label || node.id}: ${field}.`,
+              }));
+              const validation = flowPromptValidateAgentAction(action);
+              if (!validation.ok) {
+                observation = { ok: false, action: "update_node_config", status: "blocked", nodeId, field, limitations: [validation.reason || "The current node configuration did not pass validation."] };
+              } else if (!await confirmNodeConfigUpdate({ node, field, previousValue, nextValue })) {
+                observation = { ok: false, action: "update_node_config", status: "denied", nodeId, field };
+              } else {
+                await applyAgentAction(action, { allowWhileBusy: true });
+                observation = action.status === "applied"
+                  ? { ok: true, action: "update_node_config", status: "completed", nodeId, field, previousValue, value: nextValue, snapshotId: action.snapshotId || "" }
+                  : { ok: false, action: "update_node_config", status: "failed", nodeId, field, limitations: [draft.error || "The Safe Executor did not apply the configuration update."] };
+              }
+            }
+          }
+          toolTrace.push({ request: { type: "proposed_action", ...proposedAction }, observation });
+          observedToolResults.push({ request: { type: "proposed_action", ...proposedAction }, observation });
+          reply = await flowPromptBuildExternalReply(selectedProviderId(), prompt, { ...options, model: selectedProviderModel(), reasoningEffort: draft.activeChat?.providerReasoningEffort || "medium", speed: draft.activeChat?.providerSpeed || "standard", sessionContext: flowPromptActiveSessionContext({ chatWorkspaceId: draft.workspaceId }), toolCatalog, toolObservations: observedToolResults, toolProtocolProgress: providerToolProtocolProgress() });
+          rounds += 1;
+          continue;
+        }
         // A provider which chose to start discovery must finish it or explain a
         // true unavailability. Do not surface an intermediate narrative as an
         // answer to the user.
-        if (catalogOnlyTrace && protocolRepairs < 1) {
+        const claimsToolsUnavailableWithoutRequest = !toolTrace.length && /(?:strumenti|tools?|tool)\s+(?:trackers\s*lens\s+)?(?:necessari\s+)?(?:non\s+sono\s+)?(?:disponibili|available)|(?:non\s+posso|cannot)\s+(?:verificare|inspect|read).*(?:strumenti|tools?|tool)/i.test(String(reply || ""));
+        if ((catalogOnlyTrace || claimsToolsUnavailableWithoutRequest) && protocolRepairs < 1) {
           protocolRepairs += 1;
           setActivity({
             label: "Continuo l'esplorazione",
-            detail: "Il provider ha ricevuto solo metadati: attendo la prossima richiesta tool.",
-            steps: toolTrace.map((entry) => entry.request.tool),
+            detail: claimsToolsUnavailableWithoutRequest
+              ? "Il catalogo TL è disponibile: chiedo al provider di iniziare con il prossimo tool necessario."
+              : "Il provider ha ricevuto solo metadati: attendo la prossima richiesta tool.",
+            steps: toolTrace.length ? toolTrace.map((entry) => entry.request.tool) : ["Capability catalog", "Next tool request"],
           });
           const lastTrace = toolTrace.at(-1);
           reply = await flowPromptBuildExternalReply(selectedProviderId(), prompt, {
@@ -6807,7 +7211,7 @@ const openFlowPromptChatDialog = async (options = {}) => {
       // the missing catalog detail/manifests and retry the exact tool in the
       // same turn. User denials remain cached to avoid another consent dialog.
       const protocolDenied = observation?.status === "denied" && (observation?.limitations || []).some((reason) =>
-        /Prima scopri il tool|Prima risolvi il nodo|Questo tool del nodo non è stato dichiarato/i.test(String(reason || ""))
+        /Prima scopri il tool|Prima risolvi il nodo|Prima risolvi il requisito Python|Questo tool del nodo non è stato dichiarato/i.test(String(reason || ""))
       );
       if (!cachedObservation) {
         if (!protocolDenied) observedRequests.set(requestKey, observation);
@@ -6853,14 +7257,17 @@ const openFlowPromptChatDialog = async (options = {}) => {
       reply = "Il provider ha interrotto l'esplorazione prima di richiedere una lettura del Flow Map, quindi non posso mostrarti una configurazione non verificata. Riprova la domanda: TL manterrà la stessa richiesta di strumenti fino alla lettura effettiva.";
     }
     if (toolTrace.length) {
+      const elapsedMs = Math.round(performance.now() - providerStartedAt);
       await appendMessage({
         role: "tool",
         kind: "tool",
         content: `TL ha eseguito ${toolTrace.length} lettur${toolTrace.length === 1 ? "a" : "e"}.`,
         providerId: selectedProviderId(),
         toolCalls: toolTrace,
+        elapsedMs,
       });
     }
+    draft.lastExternalResponseMs = Math.round(performance.now() - providerStartedAt);
     return reply;
   };
 
@@ -6877,14 +7284,21 @@ const openFlowPromptChatDialog = async (options = {}) => {
 
   const appendMessage = async (message = {}) => {
     const now = flowPromptNow();
+    const inferredElapsedMs = message.role === "assistant"
+      && FLOW_PROMPT_EXTERNAL_PROVIDER_IDS.has(String(message.providerId || ""))
+      && Number(draft.lastExternalResponseMs || 0) > 0
+      ? Number(draft.lastExternalResponseMs)
+      : 0;
     const nextMessage = {
       id: flowPromptMessageId(message.role || "msg"),
       role: "assistant",
       kind: "text",
       content: "",
       createdAt: now,
+      ...(inferredElapsedMs ? { elapsedMs: inferredElapsedMs } : {}),
       ...message,
     };
+    if (inferredElapsedMs) draft.lastExternalResponseMs = 0;
     const messages = [...activeMessages(), nextMessage];
     draft.activeChat = {
       ...draft.activeChat,
@@ -7094,6 +7508,15 @@ const openFlowPromptChatDialog = async (options = {}) => {
     } : null;
     refresh();
   };
+
+  const flowPromptDetailState = (id = "") => ({
+    "data-flow-prompt-detail-id": id,
+    ...(draft.openDetailIds.has(id) ? { open: true } : {}),
+    ontoggle: (event) => {
+      if (event.currentTarget?.open) draft.openDetailIds.add(id);
+      else draft.openDetailIds.delete(id);
+    },
+  });
 
   const plannerProgressActivity = (progress = {}) => {
     const attempt = progress.attempt || 1;
@@ -8107,8 +8530,9 @@ const openFlowPromptChatDialog = async (options = {}) => {
     return { type: action.type || "unknown", label: action.summary || "azione applicata" };
   };
 
-  const applyAgentAction = async (action = {}) => {
-    if (!action || draft.busy) return;
+  const applyAgentAction = async (action = {}, { allowWhileBusy = false } = {}) => {
+    if (!action || (draft.busy && !allowWhileBusy)) return;
+    const busyBeforeApply = draft.busy;
     const actions = action.type === "batch" ? (action.actions || []) : [action];
     const runnable = actions.filter((item) => item.status === "ready" && !flowPromptActionAlreadyApplied(item));
     const blockedByTool = runnable.find((item) => {
@@ -8232,7 +8656,7 @@ const openFlowPromptChatDialog = async (options = {}) => {
       await persistActiveChat().catch(() => null);
       await appendMessage({ role: "assistant", kind: "error", content: draft.error }).catch(() => null);
     } finally {
-      draft.busy = false;
+      draft.busy = busyBeforeApply;
       draft.activity = null;
       refresh();
     }
@@ -9353,7 +9777,7 @@ const openFlowPromptChatDialog = async (options = {}) => {
     return _.article(
       { class: "tl-flow-prompt-message is-assistant is-thinking", "aria-live": "polite" },
       _.details(
-        { class: "tl-flow-prompt-thinking" },
+        { class: "tl-flow-prompt-thinking", ...flowPromptDetailState("activity") },
         _.summary(
           { class: "tl-flow-prompt-thinking-main" },
           _.span(flowMapIcon("auto_awesome", "sm"), _.strong(activity.title || "AI Flow Agent")),
@@ -9627,17 +10051,20 @@ const openFlowPromptChatDialog = async (options = {}) => {
     const summary = calls.length === 1 && observation.summary?.nodes !== undefined
       ? `${observation.summary.nodes} nodi · ${observation.summary.dependencies || 0} collegamenti`
       : `${calls.length} letture · ${toolNames.join(" · ") || "Tool TL"}`;
+    const elapsedMs = Number(message.elapsedMs || 0);
+    const elapsedLabel = elapsedMs > 0 ? `${(elapsedMs / 1000).toFixed(elapsedMs >= 10000 ? 1 : 2)}s` : "";
     return _.details(
-      { class: `tl-flow-prompt-tool-trace is-${status}` },
+      { class: `tl-flow-prompt-tool-trace is-${status}`, ...flowPromptDetailState(`tool-trace:${message.id || "current"}`) },
       _.summary(
         flowMapIcon(status === "attention" ? "warning" : "check_circle", "sm"),
         _.span(_.strong("Attività TL"), _.em(calls.length === 1 ? toolNames[0] || "Tool TL" : `${calls.length} letture`)),
+        elapsedLabel ? _.time({ title: "Tempo totale dalla prima chiamata al provider alla risposta finale" }, elapsedLabel) : null,
         _.code(status),
         flowMapIcon("expand_more", "sm")
       ),
       _.div(
         { class: "tl-flow-prompt-tool-trace-body" },
-        _.p(summary),
+        _.p(elapsedLabel ? `${summary} · Tempo totale AI: ${elapsedLabel}.` : summary),
         _.small("Sequenza completa inviata al provider. Apri per ispezionare gli envelope tecnici."),
         _.pre(JSON.stringify(calls, null, 2))
       )
@@ -9711,6 +10138,10 @@ const openFlowPromptChatDialog = async (options = {}) => {
       renderMessagePostActions(message),
       _.footer(
         { class: "tl-flow-prompt-message-foot" },
+        message.elapsedMs ? _.time(
+          { title: "Tempo totale dalla prima chiamata al provider alla risposta finale" },
+          `AI ${(Number(message.elapsedMs) / 1000).toFixed(Number(message.elapsedMs) >= 10000 ? 1 : 2)}s`
+        ) : null,
         _.time(new Date(message.createdAt || Date.now()).toLocaleString())
       )
     );
@@ -9779,6 +10210,7 @@ const openFlowPromptChatDialog = async (options = {}) => {
           : status?.installed
             ? "Accesso richiesto"
             : "CLI non installata";
+    const accountEmail = String(status?.accountEmail || "").trim();
     return _.section(
       { class: "tl-flow-prompt-provider" },
       _.div(
@@ -9806,13 +10238,18 @@ const openFlowPromptChatDialog = async (options = {}) => {
       ),
       external ? _.div(
         { class: `tl-flow-prompt-provider-status${connected ? " is-connected" : ""}` },
-        _.span(status?.message || (connected ? `${flowPromptExternalProviderLabel(providerId)} è pronto.` : `${flowPromptExternalProviderLabel(providerId)} richiede l'accesso ufficiale.`)),
+        _.span(accountEmail || status?.message || (connected ? `${flowPromptExternalProviderLabel(providerId)} è pronto.` : `${flowPromptExternalProviderLabel(providerId)} richiede l'accesso ufficiale.`)),
         !connected ? flowMapBtn({
           class: "is-ghost",
           disabled: draft.busy || draft.providerLoading || !status?.installed,
           title: status?.installed ? `Avvia accesso ${flowPromptExternalProviderLabel(providerId)}` : "Installa prima il client ufficiale",
           onclick: startSelectedProviderLogin,
-        }, flowMapIcon("login", "sm"), "Accedi") : null
+        }, flowMapIcon("login", "sm"), "Accedi") : flowMapBtn({
+          class: "is-ghost is-danger",
+          disabled: draft.busy || draft.providerLoading,
+          title: `Disconnetti ${flowPromptExternalProviderLabel(providerId)}`,
+          onclick: logoutSelectedProvider,
+        }, flowMapIcon("logout", "sm"), "Logout")
       ) : _.small("Le azioni sulla Flow Map restano sempre validate da Trackers Lens."),
       external ? _.small("Il provider riceve il tuo prompt e gli ultimi messaggi della chat; non riceve accesso al filesystem o azioni sul Flow.") : null
     );
@@ -9827,6 +10264,59 @@ const openFlowPromptChatDialog = async (options = {}) => {
       flowSummary: Boolean(draft.activeChat?.permissions?.flowSummary),
     };
     let dialog = null;
+    let settingsProviderStatus = pending.providerId === selectedProviderId() ? draft.providerStatus : null;
+    let settingsProviderLoading = false;
+    let refreshDialog = () => {};
+    const refreshSettingsProviderStatus = async () => {
+      if (!FLOW_PROMPT_EXTERNAL_PROVIDER_IDS.has(pending.providerId)) {
+        settingsProviderStatus = null;
+        refreshDialog();
+        return;
+      }
+      settingsProviderLoading = true;
+      refreshDialog();
+      try {
+        settingsProviderStatus = await flowPromptExternalProviderStatus(pending.providerId);
+      } catch (error) {
+        settingsProviderStatus = { provider: pending.providerId, installed: false, authenticated: false, message: error?.message || "Stato provider non disponibile." };
+      } finally {
+        settingsProviderLoading = false;
+        refreshDialog();
+      }
+    };
+    const startSettingsProviderLogin = async () => {
+      if (!FLOW_PROMPT_EXTERNAL_PROVIDER_IDS.has(pending.providerId) || settingsProviderLoading) return;
+      const api = window.trackers?.desktop?.externalAi?.startLogin;
+      if (typeof api !== "function") return;
+      settingsProviderLoading = true;
+      refreshDialog();
+      try {
+        await api({ provider: pending.providerId, confirmed: true });
+        settingsProviderStatus = { ...(settingsProviderStatus || {}), loginState: "waiting", message: "Accesso ufficiale aperto: completa il login nel browser." };
+      } catch (error) {
+        settingsProviderStatus = { ...(settingsProviderStatus || {}), message: error?.message || "Impossibile avviare il login." };
+      } finally {
+        settingsProviderLoading = false;
+        refreshDialog();
+      }
+    };
+    const logoutSettingsProvider = async () => {
+      if (!FLOW_PROMPT_EXTERNAL_PROVIDER_IDS.has(pending.providerId) || settingsProviderLoading) return;
+      if (!window.confirm(`Disconnettere l'account ${flowPromptExternalProviderLabel(pending.providerId)} da questo computer?`)) return;
+      const api = window.trackers?.desktop?.externalAi?.logout;
+      if (typeof api !== "function") return;
+      settingsProviderLoading = true;
+      refreshDialog();
+      try {
+        await api({ provider: pending.providerId, confirmed: true });
+        await refreshSettingsProviderStatus();
+      } catch (error) {
+        settingsProviderStatus = { ...(settingsProviderStatus || {}), message: error?.message || "Non riesco a disconnettere il provider." };
+      } finally {
+        settingsProviderLoading = false;
+        refreshDialog();
+      }
+    };
     const modelsForProvider = (providerId = "local") => {
       const configuredModel = providerId === "codex" ? String(draft.providerStatus?.configuredModel || "").trim() : "";
       const configuredReasoning = providerId === "codex" ? String(draft.providerStatus?.configuredReasoningEffort || "").trim() : "";
@@ -9843,7 +10333,7 @@ const openFlowPromptChatDialog = async (options = {}) => {
     const changeProvider = (event) => {
       pending.providerId = String(event.currentTarget.value || "local").toLowerCase();
       if (!modelsForProvider(pending.providerId).some(([value]) => value === pending.providerModel)) pending.providerModel = "";
-      refreshDialog();
+      void refreshSettingsProviderStatus();
     };
     const changeModel = (event) => { pending.providerModel = String(event.currentTarget.value || ""); };
     const renderBody = () => _.div(
@@ -9859,6 +10349,27 @@ const openFlowPromptChatDialog = async (options = {}) => {
         onchange: changeModel,
         oninput: changeModel,
       }, ...modelsForProvider(pending.providerId).map(([value, label]) => _.option({ value, selected: value === pending.providerModel }, label)))),
+      FLOW_PROMPT_EXTERNAL_PROVIDER_IDS.has(pending.providerId) ? _.div(
+        { class: "tl-flow-prompt-provider-account" },
+        _.strong(flowMapIcon("account_circle", "sm"), "Account provider"),
+        settingsProviderLoading ? _.span("Aggiornamento stato account…") : settingsProviderStatus?.authenticated
+          ? _.span(String(settingsProviderStatus.accountEmail || "").trim() || "Connected account (email not exposed by the official CLI status)")
+          : _.span(settingsProviderStatus?.message || "Accesso richiesto"),
+        _.small("L'email viene mostrata solo se il comando ufficiale del provider la espone. Trackers Lens non legge token o file di credenziali."),
+        _.div(
+          { class: "tl-flow-prompt-provider-account-actions" },
+          !settingsProviderStatus?.authenticated ? flowMapBtn({
+            class: "is-ghost",
+            disabled: settingsProviderLoading || !settingsProviderStatus?.installed,
+            onclick: startSettingsProviderLogin,
+          }, flowMapIcon("login", "sm"), "Login") : flowMapBtn({
+            class: "is-ghost is-danger",
+            disabled: settingsProviderLoading,
+            onclick: logoutSettingsProvider,
+          }, flowMapIcon("logout", "sm"), "Logout"),
+          flowMapBtn({ class: "is-ghost", disabled: settingsProviderLoading, onclick: () => { void refreshSettingsProviderStatus(); } }, flowMapIcon("refresh", "sm"), "Refresh")
+        )
+      ) : null,
       pending.providerId === "codex" ? _.label("Ragionamento", _.select({ value: pending.reasoningEffort, onchange: (event) => { pending.reasoningEffort = event.currentTarget.value; } }, ...[["low", "Light"], ["medium", "Medio"], ["high", "Alto"], ["xhigh", "Molto alto"], ["ultra", "Ultra"]].map(([value, label]) => _.option({ value, selected: value === pending.reasoningEffort }, label)))) : null,
       pending.providerId === "codex" ? _.label("Velocità", _.select({ value: pending.speed, onchange: (event) => { pending.speed = event.currentTarget.value; } }, _.option({ value: "standard", selected: pending.speed === "standard" }, "Standard"), _.option({ value: "fast", selected: pending.speed === "fast" }, "Rapida"))) : null,
       _.div(
@@ -9871,7 +10382,7 @@ const openFlowPromptChatDialog = async (options = {}) => {
         _.small("Se attivato, Codex/Claude riceve solo conteggi di nodi, link, canali ed eventi. Mai filesystem, contenuti documenti o permessi di modifica.")
       )
     );
-    const refreshDialog = () => {
+    refreshDialog = () => {
       const host = document.querySelector("[data-flow-prompt-provider-settings]");
       if (host) host.replaceChildren(renderBody());
     };
@@ -9903,7 +10414,7 @@ const openFlowPromptChatDialog = async (options = {}) => {
             await saveSettings();
             close();
             refresh();
-            if (selectedProviderIsExternal()) await startSelectedProviderLogin();
+            if (selectedProviderIsExternal() && !draft.providerStatus?.authenticated) await startSelectedProviderLogin();
           },
         }, flowMapIcon("login", "sm"), "Salva e accedi"),
         flowMapBtn({
@@ -9916,6 +10427,7 @@ const openFlowPromptChatDialog = async (options = {}) => {
       ),
     });
     dialog.open();
+    void refreshSettingsProviderStatus();
   };
 
   function renderContentBody() {

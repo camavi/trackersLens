@@ -158,7 +158,7 @@ test("external AI provider bridge reports only CLI availability and never creden
   const bridge = new ExternalAiProviderBridge({
     versionReader: (executable) => executable === "codex" ? { installed: true, version: "codex 1.2.3" } : { installed: false, version: "" },
     executableResolver: (executable) => executable,
-    authenticationReader: (provider) => ({ authenticated: provider.id === "codex" }),
+    authenticationReader: (provider) => ({ authenticated: provider.id === "codex", accountEmail: provider.id === "codex" ? "codex.user@example.test" : "" }),
     logoutRunner: () => ({ loggedOut: true }),
     loginLauncher: async (provider) => launches.push(provider),
     chatRunner: async (provider, prompt) => ({ provider: provider.id, text: `risposta: ${prompt}`, raw: { type: "fixture" }, sandbox: "isolated-read-only" })
@@ -170,6 +170,8 @@ test("external AI provider bridge reports only CLI availability and never creden
   assert.equal(codex.installed, true);
   assert.equal(codex.authenticated, true);
   assert.equal(codex.version, "codex 1.2.3");
+  assert.equal(codex.accountEmail, "codex.user@example.test");
+  assert.equal(codex.accountIdentity, "provider-cli-status");
   assert.equal(codex.credentialAccess, "provider-owned-only");
   assert.equal(claude.installed, false);
   await assert.rejects(core.request("desktop.externalAi.startLogin", { provider: "codex" }), /requires confirmation/);

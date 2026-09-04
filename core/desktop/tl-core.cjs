@@ -170,6 +170,18 @@ const createTlCore = ({ appVersion = "0.0.0", platform = "unknown", mode = "prod
       case "runtime.pythonRuntime.getCatalog":
         if (!pythonRuntimeCatalog?.getCatalog) throw errorWithCode("Python runtime catalog is unavailable", "PYTHON_RUNTIME_CATALOG_UNAVAILABLE");
         return pythonRuntimeCatalog.getCatalog();
+      case "runtime.pythonRuntime.getPackUsage": {
+        if (!persistence?.readDevelopmentRecords) throw errorWithCode("Desktop persistence is unavailable", "PERSISTENCE_UNAVAILABLE");
+        const packId = String(payload?.packId || "").trim();
+        if (!packId) throw errorWithCode("Python pack id is required", "PYTHON_PACK_REQUIRED");
+        const workspaceId = String(payload?.workspaceId || "").trim();
+        const excludingNodeId = String(payload?.excludingNodeId || "").trim();
+        const nodes = persistence.readDevelopmentRecords({ storeName: "tl_runtime_nodes", workspaceId });
+        const allDependents = nodes.filter((node) => String(node?.metadata?.manifest?.execution?.dependencies?.python?.packId || node?.execution?.dependencies?.python?.packId || "") === packId);
+        const dependents = allDependents.filter((node) => String(node?.id || "") !== excludingNodeId)
+          .map((node) => ({ id: String(node.id || ""), label: String(node.label || node.name || node.id || "Node"), type: String(node.type || ""), subtype: String(node.metadata?.subtype || node.metadata?.manifest?.subtype || "") }));
+        return { schemaVersion: "tl-python-pack-usage/v1", packId, workspaceId, excludingNodeId, totalDependentCount: allDependents.length, dependents, removable: dependents.length === 0, limitations: ["Solo nodi persistiti nel workspace richiesto; il nodo escluso non conta come dipendenza esterna. Nessuna rimozione è stata eseguita."] };
+      }
       case "runtime.pythonRuntime.getInstallPlan":
         if (!pythonPackInstaller?.getInstallPlan) throw errorWithCode("Python pack installer is unavailable", "PYTHON_PACK_INSTALLER_UNAVAILABLE");
         return pythonPackInstaller.getInstallPlan({ packId: String(payload?.packId || "") });
@@ -181,6 +193,14 @@ const createTlCore = ({ appVersion = "0.0.0", platform = "unknown", mode = "prod
         if (!pythonRuntimeCatalog?.removeModel) throw errorWithCode("Python runtime catalog is unavailable", "PYTHON_RUNTIME_CATALOG_UNAVAILABLE");
         if (!payload?.confirmed) throw errorWithCode("Python model removal requires confirmation", "PYTHON_MODEL_CONFIRMATION_REQUIRED");
         return pythonRuntimeCatalog.removeModel({ modelId: String(payload?.modelId || ""), confirmed: true });
+      case "runtime.pythonRuntime.removePack": {
+        if (!pythonRuntimeCatalog?.removePack || !persistence?.readDevelopmentRecords) throw errorWithCode("Python pack removal is unavailable", "PYTHON_PACK_REMOVAL_UNAVAILABLE");
+        if (!payload?.confirmed) throw errorWithCode("Python pack removal requires confirmation", "PYTHON_PACK_REMOVAL_CONFIRMATION_REQUIRED");
+        const packId = String(payload?.packId || ""); const workspaceId = String(payload?.workspaceId || ""); const excludingNodeId = String(payload?.excludingNodeId || "");
+        const inUse = persistence.readDevelopmentRecords({ storeName: "tl_runtime_nodes", workspaceId }).some((node) => String(node?.id || "") !== excludingNodeId && String(node?.metadata?.manifest?.execution?.dependencies?.python?.packId || node?.execution?.dependencies?.python?.packId || "") === packId);
+        if (inUse) throw errorWithCode("Python pack is still required by another node in this workspace.", "PYTHON_PACK_IN_USE");
+        return pythonRuntimeCatalog.removePack({ packId, confirmed: true });
+      }
       default:
         throw new Error(`Unsupported TL Core command: ${String(command || "")}`);
     }

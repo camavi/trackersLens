@@ -2204,6 +2204,64 @@
 .tl-flow-prompt-provider-settings > p,
 .tl-flow-prompt-provider-settings small { color: var(--tl-text-muted); }
 
+.tl-flow-prompt-provider-account {
+  display: grid;
+  gap: 8px;
+  padding: 12px;
+  border: 1px solid rgba(94, 234, 212, 0.2);
+  border-radius: 9px;
+  background: rgba(8, 47, 73, 0.18);
+}
+
+.tl-flow-prompt-provider-account > strong {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  color: rgba(207, 250, 254, 0.96);
+}
+
+.tl-flow-prompt-provider-account > span {
+  overflow-wrap: anywhere;
+  color: var(--tl-text);
+  font-weight: 680;
+}
+
+.tl-flow-prompt-provider-account-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+}
+
+.tl-flow-prompt-provider-config-change {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+  padding: 14px;
+  border: 1px solid rgba(94, 115, 149, 0.38);
+  border-radius: 10px;
+  background: rgba(5, 11, 21, 0.38);
+}
+
+.tl-flow-prompt-provider-config-change-label {
+  color: var(--tl-text-muted);
+  font-size: 12px;
+  font-weight: 760;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.tl-flow-prompt-provider-config-change-value {
+  max-height: 22vh;
+  min-width: 0;
+  overflow: auto;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+  color: var(--tl-text);
+  font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
 .tl-flow-prompt-provider-settings > label {
   display: grid;
   gap: 6px;

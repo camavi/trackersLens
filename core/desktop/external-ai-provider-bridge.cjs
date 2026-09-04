@@ -21,6 +21,28 @@ const PROVIDERS = Object.freeze({
 });
 
 const supportedProvider = (value = "") => PROVIDERS[String(value || "").trim().toLowerCase()] || null;
+const ACCOUNT_EMAIL_PATTERN = /[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/iu;
+
+const normalizeAccountEmail = (value = "") => {
+  const match = String(value || "").match(ACCOUNT_EMAIL_PATTERN);
+  return match ? match[0].toLowerCase() : "";
+};
+
+const accountEmailFromStatus = (value, visited = new Set()) => {
+  if (!value || typeof value !== "object" || visited.has(value)) return "";
+  visited.add(value);
+  for (const [key, candidate] of Object.entries(value)) {
+    if (/(?:^|_)(?:email|accountemail|useremail)(?:$|_)/iu.test(String(key || ""))) {
+      const email = normalizeAccountEmail(candidate);
+      if (email) return email;
+    }
+    if (candidate && typeof candidate === "object") {
+      const email = accountEmailFromStatus(candidate, visited);
+      if (email) return email;
+    }
+  }
+  return "";
+};
 
 const readCliVersion = (executable) => {
   const result = spawnSync(executable, ["--version"], { encoding: "utf8", timeout: 4000, windowsHide: true });
@@ -31,11 +53,14 @@ const readAuthentication = (definition, executable) => {
   const args = definition.id === "codex" ? ["login", "status"] : ["auth", "status"];
   const result = spawnSync(executable, args, { encoding: "utf8", timeout: 4000, windowsHide: true });
   const output = String(result.stdout || result.stderr || "").trim();
-  if (result.error || result.status !== 0) return { authenticated: false };
+  if (result.error || result.status !== 0) return { authenticated: false, accountEmail: "" };
   if (definition.id === "claude") {
-    try { return { authenticated: Boolean(JSON.parse(output).loggedIn) }; } catch (_) { return { authenticated: false }; }
+    try {
+      const status = JSON.parse(output);
+      return { authenticated: Boolean(status?.loggedIn), accountEmail: accountEmailFromStatus(status) || normalizeAccountEmail(output) };
+    } catch (_) { return { authenticated: false, accountEmail: "" }; }
   }
-  return { authenticated: /logged in/i.test(output) };
+  return { authenticated: /logged in/i.test(output), accountEmail: normalizeAccountEmail(output) };
 };
 const logoutProvider = (definition, executable) => {
   const args = definition.id === "codex" ? ["logout"] : ["auth", "logout"];
@@ -101,7 +126,9 @@ class ExternalAiProviderBridge {
     if (!definition) throw Object.assign(new Error("Provider AI esterno non supportato."), { code: "EXTERNAL_AI_PROVIDER_UNSUPPORTED" });
     const executablePath = this.executableResolver(definition.executable);
     const cli = this.versionReader(executablePath);
-    const authenticated = Boolean(cli?.installed && this.authenticationReader(definition, executablePath)?.authenticated);
+    const authentication = cli?.installed ? this.authenticationReader(definition, executablePath) || {} : {};
+    const authenticated = Boolean(cli?.installed && authentication.authenticated);
+    const accountEmail = authenticated ? normalizeAccountEmail(authentication.accountEmail) : "";
     const configured = definition.id === "codex" ? readConfiguredCodexModel() : { model: "", reasoningEffort: "" };
     return {
       provider: definition.id,
@@ -112,6 +139,8 @@ class ExternalAiProviderBridge {
       configuredReasoningEffort: configured.reasoningEffort,
       authentication: !cli?.installed ? "cli-not-installed" : authenticated ? "authenticated" : "requires-official-login",
       authenticated,
+      accountEmail,
+      accountIdentity: accountEmail ? "provider-cli-status" : authenticated ? "provider-cli-status-without-email" : "not-authenticated",
       installUrl: definition.installUrl,
       loginCommand: definition.loginCommand,
       credentialAccess: "provider-owned-only",
