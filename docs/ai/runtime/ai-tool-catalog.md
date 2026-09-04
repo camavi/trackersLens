@@ -67,11 +67,19 @@ provider skips the three catalog navigation calls for this path only:
 3. `inspectNodeRuntime({ nodeId })` reads the resolved node's declared Python
    requirement and its managed environment/model runtime state together. It is one
    separately consented observation, avoiding a provider-dependent prerequisite loop.
+   Its `statusSummary` exposes `requirementStatus`, `environmentStatus`,
+   `runtimeStatus` and `modelStatus` separately; a ready requirement/environment
+   can never be represented as a running runtime process.
 
 All other domains continue through hierarchical capability discovery. The complete
 tool trace remains local to Activity/DevTools; the next stateless provider round
 receives only the latest observation plus protocol state, avoiding repeated transport
 of unchanged envelopes.
+
+The protocol state is a declarative coordinator, not a hidden planner. It lists only
+completed read identities (tool plus arguments) and prerequisite-valid `nextActions`
+from the capability graph. The selected LLM chooses whether an action is relevant;
+TL never executes a suggested read without that tool request and its normal consent.
 
 Tool transport accepts the same strict JSON object whether the provider emits it
 plain, inside a JSON fence, embedded in a short renderer wrapper, or as a JSON string.
