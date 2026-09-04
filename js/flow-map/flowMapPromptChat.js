@@ -590,7 +590,27 @@ const flowPromptParseExternalProposedAction = (text = "") => {
   } catch (_) { return null; }
 };
 
-const flowPromptBuildExternalReply = async (providerId = "", prompt = "", { conversationContext = null, model = "", reasoningEffort = "", speed = "", shareFlowSummary = false, sessionContext = null, toolCatalog = null, toolObservation = null, toolObservations = [], toolProtocolProgress = null, forceNaturalAnswer = false, requireToolContinuation = false } = {}) => {
+// A Flow plan is deliberately a proposal, never a write command.  The
+// renderer normalizes it against the local palette, runs preflight and still
+// leaves creation behind the existing explicit confirmation.
+const flowPromptParseExternalProposedPlan = (text = "") => {
+  const source = String(text || "").trim();
+  const candidates = [
+    source,
+    ...Array.from(source.matchAll(/```(?:json)?\s*([\s\S]*?)```/gi)).map((match) => match[1]),
+  ];
+  for (const candidate of candidates) {
+    try {
+      const value = JSON.parse(String(candidate || "").trim());
+      if (value?.type === "proposed_plan" && value.plan && typeof value.plan === "object" && !Array.isArray(value.plan)) return value.plan;
+    } catch (_) {
+      // The normal conversational answer path handles non-plan responses.
+    }
+  }
+  return null;
+};
+
+const flowPromptBuildExternalReply = async (providerId = "", prompt = "", { conversationContext = null, model = "", reasoningEffort = "", speed = "", shareFlowSummary = false, sessionContext = null, toolCatalog = null, toolObservation = null, toolObservations = [], toolProtocolProgress = null, forceNaturalAnswer = false, requireToolContinuation = false, requirePlanProposal = false, planProposalErrors = [] } = {}) => {
   const provider = String(providerId || "").toLowerCase();
   if (!FLOW_PROMPT_EXTERNAL_PROVIDER_IDS.has(provider)) throw new Error("Provider esterno non valido.");
   const status = await flowPromptExternalProviderStatus(provider);
@@ -630,12 +650,15 @@ const flowPromptBuildExternalReply = async (providerId = "", prompt = "", { conv
     "When a Python runtime observation contains statusSummary, report requirementStatus, environmentStatus, runtimeStatus and modelStatus as separate facts. In particular, requirementStatus ready or environmentStatus ready never means a runtimeStatus stopped process is ready or running.",
     "Only after a same-turn Python resolution and install-plan observation show a requested installation as ONLY JSON: {\"type\":\"proposed_action\",\"action\":\"install_python_pack\",\"args\":{\"nodeId\":\"resolved stable id\"}}. Never include a pack id, package, URL or command: TL derives the exact trusted pack from the approved plan and asks the user to confirm.",
     "For a requested textual node-config change, first find the node, inspect it, then read that exact config field with tl.workspace.inspectNodeConfig in this turn. Only then propose ONLY JSON: {\"type\":\"proposed_action\",\"action\":\"update_node_config\",\"args\":{\"nodeId\":\"resolved stable id\",\"field\":\"the exact read config key\",\"value\":\"new text value\"}}. Never propose ports, channels, endpoints, nested objects, numbers, booleans, credentials, commands or a field that was not read. TL revalidates the current value, shows old and new values, captures a Time Travel snapshot, and requires explicit confirmation before applying.",
+    flowPromptIsExplicitCreationRequest(prompt) ? `The user is asking to create a Flow. You may inspect the current Flow when needed, but you cannot create it. When you are ready, respond ONLY with {"type":"proposed_plan","plan":{"summary":"short text","nodes":[{"label":"exact palette label","config":{},"description":"optional"}],"edges":[{"sourceKey":"node label","targetKey":"node label","sourcePort":"optional","targetPort":"optional"}]}}. Use only exact labels and ports from this static allowed palette: ${JSON.stringify(flowPromptPaletteContract())}. Do not return a legacy planner format, prose or a write tool request: TL will locally normalize, preflight and present this proposed plan for confirmation.` : "",
     toolCatalog ? `Trackers Lens capability metadata (no workspace data):\n${JSON.stringify(toolCatalog)}\nUse the supplied static fast-path descriptors directly; do NOT call tl.catalog.listDomains, tl.catalog.listTools or tl.catalog.getCapabilityDetails for them. For a Flow node question, call resolveNode, then inspectNodeConfig only if actual values are needed. Use hierarchical catalog discovery only for dynamically declared tl.node.* tools and future domains not present in the fast path. Respond with ONLY JSON: {"type":"tool_request","tool":"exact catalog name","args":{}}. Do not request a write tool. A node reference may be its visible label or technical id.` : "",
     toolObservation && toolProtocolProgress ? `Tool coordinator state for this same request:\n${JSON.stringify(toolProtocolProgress)}\nCompleted reads are exact evidence already available in this turn: never repeat them. nextActions are only declared, prerequisite-valid options; choose one only when it is needed for the user's request. Do not restart tl.catalog.listDomains or repeat a tool request unless its arguments genuinely change.` : "",
     sessionContext ? `Active Trackers Lens session context (metadata, not Flow contents):\n${JSON.stringify(sessionContext)}` : "",
     history,
     flowSummary,
     requireToolContinuation ? "Protocol correction: the Trackers Lens capability catalog is available for this current workspace question, but no real workspace observation has been returned yet. Do not claim tools are unavailable, narrate the process or ask the user for an id. Begin or continue with the next necessary tool request only, as the exact JSON object." : "",
+    requirePlanProposal ? "Protocol correction: this is a Flow creation request. Return the required proposed_plan JSON only; it is a proposal and does not apply any change." : "",
+    requirePlanProposal && planProposalErrors.length ? `Local preflight rejected the previous proposal. Correct only these errors: ${JSON.stringify(planProposalErrors)}.` : "",
     currentToolObservations.length ? `Latest tool observation returned by Trackers Lens in this same request (use it as evidence; do not claim more than it says). ${forceNaturalAnswer ? "The latest requested observation was already available. Do not request that same tool again. Use it, request a different necessary tool, or answer the user." : "Now answer the user's original request. Request another tool only if this observation is insufficient and the next request is different."}\n${JSON.stringify(currentToolObservations)}` : "",
     `User request: ${String(prompt || "").trim()}`,
   ].filter(Boolean).join("\n\n");
@@ -666,9 +689,8 @@ const flowPromptBuildExternalReply = async (providerId = "", prompt = "", { conv
 // Locale participates in the same read-only tool protocol as the external
 // providers. It receives capability metadata and only consented observations;
 // it never receives the renderer's implicit Flow context as an alternative
-// data channel. Flow creation remains on the separately validated planner
-// until that typed-plan contract has been migrated in a later Phase 5 slice.
-const flowPromptBuildLocalToolProtocolReply = async (prompt = "", { conversationContext = null, model = "", sessionContext = null, toolCatalog = null, toolObservation = null, toolObservations = [], toolProtocolProgress = null, forceNaturalAnswer = false, requireToolContinuation = false } = {}) => {
+// data channel. Creation is a typed proposal handled by the same protocol.
+const flowPromptBuildLocalToolProtocolReply = async (prompt = "", { conversationContext = null, model = "", sessionContext = null, toolCatalog = null, toolObservation = null, toolObservations = [], toolProtocolProgress = null, forceNaturalAnswer = false, requireToolContinuation = false, requirePlanProposal = false, planProposalErrors = [] } = {}) => {
   const aiSettings = await flowPromptReadAiSettings();
   const provider = await flowPromptPickProvider(aiSettings);
   if (!provider) throw new Error(flowPromptFriendlyAiError(null, { aiSettings }));
@@ -686,11 +708,14 @@ const flowPromptBuildLocalToolProtocolReply = async (prompt = "", { conversation
     "When a Python runtime observation contains statusSummary, report requirementStatus, environmentStatus, runtimeStatus and modelStatus separately. A ready requirement/environment never means a stopped runtime process is ready or running.",
     "For dynamic node tools or domains outside the fast path, use the hierarchical catalog. Do not repeat a completed request unless its arguments genuinely change.",
     "For a requested text configuration change, first resolve and inspect the node and read the exact configuration field in this turn. Only then emit ONLY JSON: {\"type\":\"proposed_action\",\"action\":\"update_node_config\",\"args\":{\"nodeId\":\"resolved stable id\",\"field\":\"exact read key\",\"value\":\"new text value\"}}. TL owns validation, confirmation and Time Travel.",
+    flowPromptIsExplicitCreationRequest(prompt) ? `The user is asking to create a Flow. You cannot create it. When ready, respond ONLY with {"type":"proposed_plan","plan":{"summary":"short text","nodes":[{"label":"exact palette label","config":{},"description":"optional"}],"edges":[{"sourceKey":"node label","targetKey":"node label","sourcePort":"optional","targetPort":"optional"}]}}. Use only exact labels and ports from this static allowed palette: ${JSON.stringify(flowPromptPaletteContract())}. This is a proposal only: TL normalizes it, runs preflight, and asks the user to confirm.` : "",
     toolCatalog ? `Trackers Lens capability metadata (no workspace data):\n${JSON.stringify(toolCatalog)}\nFor a required tool call respond with ONLY JSON: {\"type\":\"tool_request\",\"tool\":\"exact catalog name\",\"args\":{}}.` : "",
     toolObservation && toolProtocolProgress ? `Tool coordinator state for this request:\n${JSON.stringify(toolProtocolProgress)}\nCompleted reads are exact evidence already available in this turn: never repeat them. nextActions are only declared, prerequisite-valid options; choose one only when it is needed for the user's request.` : "",
     sessionContext ? `Active Trackers Lens session context (metadata only):\n${JSON.stringify(sessionContext)}` : "",
     providerHistory.length ? `Previous user requests (context only, not workspace evidence):\n${providerHistory.map((item) => `user: ${item.content}`).join("\n")}` : "",
     requireToolContinuation ? "Protocol correction: a relevant Trackers Lens tool is available. Do not claim it is unavailable; return the next necessary tool request JSON only." : "",
+    requirePlanProposal ? "Protocol correction: this Flow creation request requires the proposed_plan JSON only. It never applies a change." : "",
+    requirePlanProposal && planProposalErrors.length ? `Local preflight rejected the previous proposal. Correct only these errors: ${JSON.stringify(planProposalErrors)}.` : "",
     currentToolObservations.length ? `Latest consented tool observation (use only this as workspace evidence). ${forceNaturalAnswer ? "Do not repeat this request; answer or request a different necessary tool." : "Answer the original question, or request one different necessary tool."}\n${JSON.stringify(currentToolObservations)}` : "",
     `User request: ${String(prompt || "").trim()}`,
   ].filter(Boolean).join("\n\n");
@@ -804,9 +829,10 @@ const flowPromptConversationContext = (messages = [], prompt = "") => {
 
 const flowPromptConversationContextLabel = (conversationContext = null) => {
   if (!conversationContext?.active) return "";
+  const explicitlyUsesPreviousPlan = Boolean(conversationContext.referencesPrevious || conversationContext.constraints?.length);
   const bits = [
     conversationContext.referencesPrevious ? "usa il contesto precedente" : "",
-    conversationContext.lastPlan?.nodes?.length ? `${conversationContext.lastPlan.nodes.length} nodi dal piano precedente` : "",
+    explicitlyUsesPreviousPlan && conversationContext.lastPlan?.nodes?.length ? `${conversationContext.lastPlan.nodes.length} nodi dal piano precedente` : "",
     ...(conversationContext.constraints || []).slice(0, 2),
   ].filter(Boolean);
   return bits.join(" · ") || "contesto chat attivo";
@@ -5997,6 +6023,10 @@ const flowPromptBuildPlanWithAiFallback = async (prompt = "", options = {}) => {
 const flowPromptPlannerLabel = (planner = {}) => {
   if (!planner || !planner.mode) return "Local planner";
   const repair = planner.selfRepair?.repaired ? ` · self-repair ${Math.max(1, Number(planner.selfRepair?.attempts || 1) - 1)}` : "";
+  if (planner.mode === "provider-protocol") {
+    const providerId = String(planner.providerId || "local").toLowerCase();
+    return `Provider proposal · ${providerId === "local" ? "Locale" : flowPromptExternalProviderLabel(providerId)}`;
+  }
   if (planner.mode === "ai-brain") return `AI Brain planner · ${planner.provider || "provider"}${planner.model ? ` / ${planner.model}` : ""}${repair}`;
   if (planner.mode === "ai") return `AI planner · ${planner.provider || "provider"}${planner.model ? ` / ${planner.model}` : ""}`;
   return "Local fallback";
@@ -6495,8 +6525,8 @@ const flowPromptPlanPreflight = (analysis = {}) => {
   };
 };
 
-const flowPromptMaterializePlan = async (analysis = {}) => {
-  const workspaceId = await ensureRuntimeWorkspaceScope();
+const flowPromptMaterializePlan = async (analysis = {}, { workspaceId: requestedWorkspaceId = "" } = {}) => {
+  const workspaceId = String(requestedWorkspaceId || "").trim() || await ensureRuntimeWorkspaceScope();
   const savedNodes = [];
   const reusedNodes = [];
   const createdEdges = [];
@@ -6504,7 +6534,10 @@ const flowPromptMaterializePlan = async (analysis = {}) => {
   const nodeByLabel = new Map();
 
   for (const item of analysis.analyzedNodes || []) {
-    if (item.existing?.id) {
+    // A plan may have been prepared while Chat was open on a global route.
+    // Never reuse a similarly-labelled node from a different Flow Map after
+    // the user explicitly selected this target.
+    if (item.existing?.id && String(item.existing.workspaceId || "") === workspaceId) {
       reusedNodes.push(item.existing);
       nodeByLabel.set(item.spec.label, item.existing);
       continue;
@@ -7174,6 +7207,7 @@ const openFlowPromptChatDialog = async (options = {}) => {
       sessionContext: flowPromptActiveSessionContext({ chatWorkspaceId: draft.workspaceId }),
       toolCatalog,
     };
+    const expectsPlanProposal = flowPromptIsExplicitCreationRequest(prompt);
     let reply = await buildProtocolReply(baseReplyOptions);
     const configuredToolRounds = Number(draft.activeChat?.maxToolRounds);
     // This limits only a malformed provider/tool conversation, never data in
@@ -7189,6 +7223,37 @@ const openFlowPromptChatDialog = async (options = {}) => {
       const request = flowPromptParseExternalToolRequest(reply);
       const catalogOnlyTrace = toolTrace.length > 0 && toolTrace.every((entry) => String(entry.request?.tool || "").startsWith("tl.catalog."));
       if (!request) {
+        const proposedPlan = flowPromptParseExternalProposedPlan(reply);
+        if (proposedPlan) {
+          const validation = flowPromptValidateAiPlanCandidate(proposedPlan, prompt);
+          if (validation.ok) {
+            draft.analysis = {
+              ...validation.analysis,
+              planner: {
+                ...(validation.analysis?.planner || {}),
+                mode: "provider-protocol",
+                providerId: selectedProviderId(),
+                source: "typed-proposed-plan",
+              },
+              conversationContext: options.conversationContext || null,
+            };
+            reply = validation.analysis?.summary || "Flow plan proposed.";
+            break;
+          }
+          if (protocolRepairs < 1) {
+            protocolRepairs += 1;
+            reply = await buildProtocolReply({
+              ...baseReplyOptions,
+              toolObservations: observedToolResults,
+              toolProtocolProgress: providerToolProtocolProgress(),
+              requirePlanProposal: true,
+              planProposalErrors: validation.errors || [],
+            });
+            continue;
+          }
+          reply = `The provider proposed a Flow plan that did not pass local preflight: ${(validation.errors || ["invalid plan"]).join("; ")}. No change was applied.`;
+          break;
+        }
         const proposedAction = flowPromptParseExternalProposedAction(reply);
         if (proposedAction?.action === "install_python_pack") {
           const nodeId = String(proposedAction.args?.nodeId || "").trim();
@@ -7301,6 +7366,16 @@ const openFlowPromptChatDialog = async (options = {}) => {
             toolObservations: observedToolResults,
             toolProtocolProgress: providerToolProtocolProgress(),
             requireToolContinuation: true,
+          });
+          continue;
+        }
+        if (expectsPlanProposal && protocolRepairs < 1) {
+          protocolRepairs += 1;
+          reply = await buildProtocolReply({
+            ...baseReplyOptions,
+            toolObservations: observedToolResults,
+            toolProtocolProgress: providerToolProtocolProgress(),
+            requirePlanProposal: true,
           });
           continue;
         }
@@ -7691,11 +7766,23 @@ const openFlowPromptChatDialog = async (options = {}) => {
     const effectivePrompt = String(prompt || "").trim();
     if (!effectivePrompt) return null;
     const conversationContext = flowPromptConversationContext(activeMessages(), effectivePrompt);
-    // An external provider owns the conversational decision.  The legacy Flow
-    // keyword classifier must not turn words such as "model" or "config" into
-    // a TL command before Codex/Claude have seen the user's actual request.
-    if (selectedProviderIsExternal()) {
+    // The selected provider owns the conversational decision. The legacy Flow
+    // classifier must not turn a refinement or a creation request back into a
+    // separate local planner path.
+    const explicitCreationRequest = flowPromptIsExplicitCreationRequest(effectivePrompt);
+    if ((selectedProviderIsExternal() || selectedProviderId() === "local" || explicitCreationRequest) && !forceAgentReport) {
+      draft.analysis = null;
       const reply = await buildSelectedConversationalReply(promptForBrain || effectivePrompt, { conversationContext });
+      if (draft.analysis?.planner?.mode === "provider-protocol") {
+        return appendMessage({
+          role: "assistant",
+          kind: "plan",
+          content: draft.analysis.summary || "Flow plan proposed.",
+          plan: flowPromptPlanSnapshot(draft.analysis),
+          providerId: selectedProviderId(),
+          refinedFrom,
+        });
+      }
       draft.analysis = null;
       return appendMessage({
         role: "assistant",
@@ -8073,10 +8160,14 @@ const openFlowPromptChatDialog = async (options = {}) => {
       // Codex and Claude are not an extra response style for the legacy Flow
       // Agent. They are the selected agent: pass the prompt through intact and
       // let the provider decide whether it needs a TL tool in a later tool loop.
-      const localeToolContract = selectedProviderId() === "local"
+      const explicitCreationRequest = flowPromptIsExplicitCreationRequest(prompt);
+      // A fresh explicit creation request must never be interpreted as an
+      // instruction to re-use the previous plan, nor depend on a historical
+      // provider id being exactly "local". It always belongs to the selected
+      // provider's typed-proposal protocol.
+      const localeToolContract = (selectedProviderId() === "local" || explicitCreationRequest)
         && !flowPromptIsSimpleDefinitionQuestion(prompt)
-        && !flowPromptIsExplicitCreationRequest(prompt)
-        && !flowPromptLastPlanActionIntent(prompt)
+        && (!flowPromptLastPlanActionIntent(prompt) || explicitCreationRequest)
         && !flowPromptExtractPreferenceMemory(prompt);
       if (selectedProviderIsExternal() || localeToolContract) {
         setActivity({
@@ -8084,15 +8175,26 @@ const openFlowPromptChatDialog = async (options = {}) => {
           detail: `${selectedProviderIsExternal() ? flowPromptExternalProviderLabel(selectedProviderId()) : "Locale"} riceve il prompt e decide se interrogare Trackers Lens.`,
           steps: ["Prompt inviato", "In attesa della decisione del provider"],
         });
-        const reply = await buildSelectedConversationalReply(prompt, { conversationContext });
         draft.analysis = null;
-        await appendMessage({
-          role: "assistant",
-          kind: "text",
-          content: reply,
-          providerId: selectedProviderId(),
-          compactNatural: true,
-        });
+        const reply = await buildSelectedConversationalReply(prompt, { conversationContext });
+        if (draft.analysis?.planner?.mode === "provider-protocol") {
+          await appendMessage({
+            role: "assistant",
+            kind: "plan",
+            content: draft.analysis.summary || "Flow plan proposed.",
+            plan: flowPromptPlanSnapshot(draft.analysis),
+            providerId: selectedProviderId(),
+          });
+        } else {
+          draft.analysis = null;
+          await appendMessage({
+            role: "assistant",
+            kind: "text",
+            content: reply,
+            providerId: selectedProviderId(),
+            compactNatural: true,
+          });
+        }
         draft.prompt = "";
         setActivity(null);
         return;
@@ -8234,6 +8336,81 @@ const openFlowPromptChatDialog = async (options = {}) => {
   const create = async () => {
     if (!draft.analysis) await analyze();
     if (!draft.analysis) return;
+    const selectCreateTarget = async () => {
+      const session = flowPromptActiveSessionContext({ chatWorkspaceId: draft.workspaceId });
+      // The Flow Map route already owns an explicit workspace filter. From a
+      // global surface (Library, Settings, AI Runtime, etc.) TL must never
+      // silently choose the first persisted Flow Map as a write target.
+      if (session.routeLabel === "Flow Map") return ensureRuntimeWorkspaceScope();
+      // `state.runtime` is intentionally scoped to the Flow Map currently
+      // mounted in the canvas. The Library can contain more Flow Maps, so the
+      // mutation target picker must read the complete persisted Flow inventory
+      // rather than deriving choices from the currently loaded graph.
+      const [storedPages, storedFlows] = await Promise.all([
+        readRuntimeStore(runtimeStoreName("TL_PAGES", "tl_pages")).catch(() => []),
+        readRuntimeStore(runtimeStoreName("TL_FLOWS", "tl_flows")).catch(() => []),
+      ]);
+      const contentOf = (record = {}) => record?.content && typeof record.content === "object" ? record.content : record || {};
+      const isFlowMapPage = (record = {}) => {
+        const content = contentOf(record);
+        return content.type === "flowmap" || content.kind === "flowmap" || content.format === "tlflow" || record?.format === "tlflow";
+      };
+      const isFlowMapFlow = (flow = {}) =>
+        flow?.type === "flowmap" || flow?.kind === "flowmap" || flow?.format === "tlflow" || flow?.libraryKind === "flowmap";
+      // Match the Library Flow Map inventory contract. In particular, do not
+      // expose Core's technical Draft Runtime Flow as a user-selectable target.
+      const libraryFlowPages = (Array.isArray(storedPages) ? storedPages : []).filter(isFlowMapPage);
+      const libraryFlows = (Array.isArray(storedFlows) ? storedFlows : []).filter(isFlowMapFlow);
+      const targetsByWorkspaceId = new Map();
+      const addTarget = (record = {}, fallbackId = "") => {
+        const content = contentOf(record);
+        const workspaceId = String(record?.workspaceId || record?.id || content?.workspaceId || content?.id || fallbackId || "").trim();
+        if (!workspaceId || workspaceId === "all" || workspaceId === "workspace_global") return;
+        if (!targetsByWorkspaceId.has(workspaceId)) {
+          targetsByWorkspaceId.set(workspaceId, {
+            value: workspaceId,
+            label: String(record?.name || record?.title || content?.name || content?.title || workspaceId).trim() || workspaceId,
+          });
+        }
+      };
+      libraryFlowPages.forEach((page) => addTarget(page));
+      libraryFlows.forEach((flow) => addTarget(flow));
+      const targets = [...targetsByWorkspaceId.values()].sort((left, right) => left.label.localeCompare(right.label));
+      if (!targets.length) {
+        draft.error = "No Flow Map target is available. Open or create a Flow Map first.";
+        return "";
+      }
+      return new Promise((resolve) => {
+        let selectedId = targets[0].value;
+        const dialog = _.Dialog({
+          class: "tl-flow-prompt-provider-settings-dialog",
+          panelClass: "tl-flow-prompt-provider-settings-panel",
+          size: "sm",
+          title: "Choose Flow Map target",
+          subtitle: "Create flow",
+          icon: "account_tree",
+          closeButton: true,
+          onClose: () => resolve(""),
+          content: () => _.div({ class: "tl-flow-prompt-provider-settings" },
+            _.p("You opened AI Chat outside Flow Map. Choose the exact Flow Map that will receive the new nodes and links."),
+            _.label("Flow Map", _.select({ onchange: (event) => { selectedId = String(event.currentTarget.value || ""); } },
+              ...targets.map((item) => _.option({ value: item.value, selected: item.value === selectedId }, item.label || item.value))
+            )),
+            _.small("TL will create the Time Travel snapshot and apply the validated plan only to this selected Flow Map.")
+          ),
+          actions: ({ close }) => _.Toolbar({ align: "end", gap: 8 },
+            flowMapBtn({ onclick: () => { resolve(""); close(); } }, "Cancel"),
+            flowMapBtn({ class: "st-btn-primary", onclick: () => { resolve(selectedId); close(); } }, "Choose target")
+          ),
+        });
+        dialog.open();
+      });
+    };
+    const targetWorkspaceId = await selectCreateTarget();
+    if (!targetWorkspaceId) {
+      refresh();
+      return;
+    }
     const preflight = flowPromptPlanPreflight(draft.analysis);
     if (!preflight.ok) {
       await appendMessage({
@@ -8252,8 +8429,8 @@ const openFlowPromptChatDialog = async (options = {}) => {
       steps: ["Snapshot undo", "Materializzazione nodi", "Creazione dependency"],
     });
     try {
-      const snapshot = await captureAgentSnapshot("Before Flow Chat create");
-      draft.result = await flowPromptMaterializePlan(draft.analysis);
+      const snapshot = await captureAgentSnapshot("Before Flow Chat create", targetWorkspaceId);
+      draft.result = await flowPromptMaterializePlan(draft.analysis, { workspaceId: targetWorkspaceId });
       draft.result.snapshotId = snapshot?.id || "";
       draft.result.preflight = preflight;
       draft.result.warnings = preflight.warnings || [];
@@ -8287,8 +8464,8 @@ const openFlowPromptChatDialog = async (options = {}) => {
     }
   };
 
-  const captureAgentSnapshot = async (label = "Flow Map Agent apply") => {
-    const workspaceId = await ensureRuntimeWorkspaceScope();
+  const captureAgentSnapshot = async (label = "Flow Map Agent apply", requestedWorkspaceId = "") => {
+    const workspaceId = String(requestedWorkspaceId || "").trim() || await ensureRuntimeWorkspaceScope();
     const runtime = window.TrackerLensRuntimeSnapshotStore?.load
       ? await window.TrackerLensRuntimeSnapshotStore.load({ includeConnections: true, workspaceId }).catch(() => null)
       : null;
