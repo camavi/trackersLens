@@ -1826,14 +1826,16 @@ const beginNodeDrag = (event, node, index) => {
   const current = nodePosition(node, index);
   const pointer = pointerPercent(event, canvas);
   const groupNodes = event.shiftKey ? descendantDragNodes(node) : [node];
+  const runtimeNodeIndexes = new Map(state.runtime.nodes.map((runtimeNode, runtimeIndex) => [runtimeNode.id, runtimeIndex]));
   const groupPositions = Object.fromEntries(groupNodes.map((item) => {
-    const itemIndex = state.runtime.nodes.findIndex((runtimeNode) => runtimeNode.id === item.id);
+    const itemIndex = runtimeNodeIndexes.get(item.id);
     const position = nodePosition(item, itemIndex);
     return [item.id, {
       node: item,
       x: flowPositionNumber(position, "x"),
       y: flowPositionNumber(position, "y"),
       width: flowPositionWidth(position),
+      element: document.querySelector(`[data-flow-node-id="${escapeSelectorValue(item.id)}"]`),
     }];
   }));
   state.interaction = {
@@ -2173,7 +2175,7 @@ const handlePointerMove = (event) => {
         y: flowCoordinate(start.y + deltaY),
         width: start.width,
       };
-      const node = document.querySelector(`[data-flow-node-id="${escapeSelectorValue(nodeId)}"]`);
+      const node = start.element;
       if (node) {
         node.style.setProperty("--x", state.nodePositions[nodeId].x);
         node.style.setProperty("--y", state.nodePositions[nodeId].y);

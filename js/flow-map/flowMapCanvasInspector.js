@@ -2545,8 +2545,12 @@ const updateFlowMinimapDom = () => {
   const host = document.querySelector(".tl-flow-canvas");
   if (!minimap || !viewportElement || !host || !(state.edgeRender.graph?.nodes || []).length) return;
   const frame = minimapGraphFrame(state.edgeRender.graph, host.getBoundingClientRect());
+  const nodeElements = minimap.__flowMapNodeElements || new Map(
+    Array.from(minimap.querySelectorAll("[data-flow-minimap-node-id]")).map((element) => [element.dataset.flowMinimapNodeId, element])
+  );
+  minimap.__flowMapNodeElements = nodeElements;
   frame.positions.forEach(({ node, x, y, width, height }) => {
-    const element = minimap.querySelector(`[data-flow-minimap-node-id="${escapeSelectorValue(node.id)}"]`);
+    const element = nodeElements.get(node.id);
     if (!element) return;
     const style = minimapNodeStyle({
       node: { ...node, __minimapWidth: width, __minimapHeight: height },
