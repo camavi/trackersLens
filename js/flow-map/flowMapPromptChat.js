@@ -1355,26 +1355,6 @@ const flowPromptIsArchitectureAdviceRequest = (prompt = "") => {
   return asksAdvice && asksDesignTarget && !asksCurrentInventory;
 };
 
-const flowPromptLooksLikeFlowRequest = (prompt = "") =>
-  flowPromptIsCreationRequest(prompt) || flowPromptHasAny(prompt, [
-    "flow", "pipeline", "workflow", "agent", "agente", "orchestrator", "orchestratore", "node", "nodo", "nodi",
-    "source", "tracker", "processor", "lens", "preview", "telegram", "rss", "websocket", "rest api", "database",
-    "storage", "notification", "notifica",
-  ]);
-
-const flowPromptShouldPlanFromPrompt = (prompt = "", conversationContext = null) => {
-  if (flowPromptIsExplainOnlyRequest(prompt)) return false;
-  if (flowPromptLooksLikeFlowRequest(prompt)) return true;
-  if (!conversationContext?.lastPlan) return false;
-  const text = flowPromptNormalize(prompt);
-  if (flowPromptHasAny(text, [
-    "spiega", "spiegami", "explain", "perche", "perché", "why", "cosa", "what is",
-  ]) && !flowPromptHasAny(text, [
-    "rifallo", "rifai", "crea", "crealo", "aggiorna", "aggiungi", "senza", "usa", "use", "add", "without", "redo",
-  ])) return false;
-  return Boolean(conversationContext.referencesPrevious || conversationContext.constraints?.length);
-};
-
 const flowPromptIsReadOnlyRuntimeQuestion = (prompt = "") => {
   const text = flowPromptNormalize(prompt);
   if (flowPromptIsMutationRequest(prompt) || flowPromptIsCreationRequest(prompt)) return false;
@@ -5242,9 +5222,8 @@ const flowPromptRunFlowChatHardeningTests = async () => {
       quality: flowPromptPatternQuality(pattern),
     },
     {
-      name: "explain-only does not plan",
-      ok: flowPromptIsExplainOnlyRequest("mi spieghi Agent Bridge in 3 punti")
-        && !flowPromptShouldPlanFromPrompt("mi spieghi Agent Bridge in 3 punti", { lastPlan: plan, referencesPrevious: true }),
+      name: "explain-only stays conversational",
+      ok: flowPromptIsExplainOnlyRequest("mi spieghi Agent Bridge in 3 punti"),
     },
     {
       name: "simple Flow Map definition stays local",
@@ -5646,57 +5625,6 @@ const flowPromptPaletteContract = () =>
     outputs: (item.outputs || []).map((port) => flowPromptPortName(port, "")),
   }));
 
-const flowPromptBuildAiPlannerPrompt = ({ prompt = "", workspaceId = currentWorkspaceId(), brainContext = null } = {}) => {
-  const currentNodes = (state.runtime.nodes || []).map((node) => ({
-    id: node.id,
-    label: node.label,
-    type: node.type,
-    subtype: nodeSubtype(node),
-    category: nodeCategory(node),
-    inputs: (node.inputs || []).map((port) => flowPromptPortName(port, "")),
-    outputs: (node.outputs || []).map((port) => flowPromptPortName(port, "")),
-  }));
-  return [
-    "Create a Trackers Lens Flow Map plan from the user request.",
-    flowPromptLanguageRule(prompt),
-    "The JSON summary and any natural-language descriptions must use that language.",
-    "Return only JSON with this schema:",
-    "{\"summary\":\"short text\",\"nodes\":[{\"label\":\"palette label\",\"config\":{},\"description\":\"optional\"}],\"edges\":[{\"sourceKey\":\"node label\",\"targetKey\":\"node label\",\"sourcePort\":\"optional output port\",\"targetPort\":\"optional input port\"}]}",
-    "Rules:",
-    "- Use labels from allowedPalette when possible.",
-    "- Include Orchestrator Agent for autonomous/multi-step AI flows.",
-    "- Prefer Task Node for user objectives without an external source.",
-    "- Include Preview unless the user asks for a concrete Lens or Action.",
-    "- Do not invent unsupported node types.",
-    "- Use RAG and confirmed memory as planning guidance, but never as proof that unsupported nodes exist.",
-    "- Prefer approvedPatterns when they match the user request, adapting only where the current prompt requires it.",
-    "- Approved patterns are examples of user-confirmed good answers/plans; still validate every node and port against allowedPalette.",
-    "- Avoid rejectedPatterns: they are user-confirmed bad answers/plans and must not be copied or used as examples.",
-    "- If brainContext.conversationContext references a previous plan, adapt that previous plan instead of starting from scratch.",
-    "- Honor conversation constraints such as avoid Split, add Condition, simplify, or include Flow In/Out when they are present.",
-    "- For professional agent flows, prefer Task Node -> Orchestrator Agent -> Agent Bridge -> Preview or concrete actions.",
-    "- Use Split for payload fan-out and Condition for decision routing.",
-    "- Use Flow In and Flow Out only when the request needs reusable/embedded Flow Map boundaries.",
-    "- When connecting Orchestrator Agent to Agent Bridge, prefer sourcePort action and targetPort agent_control.",
-    "- When connecting Agent Bridge to Split or Preview, prefer sourcePort action and targetPort input.",
-    "- When connecting Task Node to Orchestrator Agent, use task -> task.",
-    "- Existing nodes are listed for context; still output desired labels, the app will deduplicate.",
-    `workspaceId: ${workspaceId}`,
-    `allowedPalette: ${JSON.stringify(flowPromptPaletteContract())}`,
-    `existingNodes: ${JSON.stringify(currentNodes)}`,
-    brainContext ? `brainContext: ${JSON.stringify({
-      runtimeFacts: brainContext.runtimeFacts,
-      memory: brainContext.memory,
-      approvedPatterns: brainContext.approvedPatterns,
-      rejectedPatterns: brainContext.rejectedPatterns,
-      memoryGuard: brainContext.memoryGuard,
-      conversationContext: brainContext.conversationContext,
-      rag: brainContext.rag,
-    })}` : "",
-    `userRequest: ${prompt}`,
-  ].join("\n");
-};
-
 const flowPromptNormalizeAiPlan = (payload = {}, originalPrompt = "") => {
   const nodes = Array.isArray(payload.nodes) ? payload.nodes : [];
   const aliases = new Map();
@@ -5745,40 +5673,6 @@ const flowPromptNormalizeAiPlan = (payload = {}, originalPrompt = "") => {
   };
 };
 
-const flowPromptCallPlannerProvider = async ({ kind = "", provider = {}, model = "", prompt = "", aiSettings = {} } = {}) =>
-  kind.includes("ollama")
-    ? flowPromptCallOllama({ provider, model, prompt })
-    : flowPromptCallOpenAiCompatible({ provider, model, prompt, aiSettings });
-
-const flowPromptAiRepairPrompt = ({ originalPrompt = "", plannerPrompt = "", rawText = "", payload = null, plan = null, preflight = null, attempt = 1 } = {}) => [
-  "Repair the Trackers Lens Flow Map plan.",
-  flowPromptLanguageRule(originalPrompt),
-  "Return only one valid JSON object with this exact schema:",
-  "{\"summary\":\"short text\",\"nodes\":[{\"label\":\"palette label\",\"config\":{},\"description\":\"optional\"}],\"edges\":[{\"sourceKey\":\"node label\",\"targetKey\":\"node label\",\"sourcePort\":\"optional output port\",\"targetPort\":\"optional input port\"}]}",
-  "Rules:",
-  "- Do not add prose, markdown, comments, or code fences.",
-  "- Use only labels from allowedPalette in the original planner prompt.",
-  "- Fix only the JSON/validation problems listed below.",
-  "- If a port is invalid, choose a valid port from the source/target node contract in the original planner prompt.",
-  "- If a node cannot receive input, connect to the next valid runtime node instead.",
-  "- Keep the user's requested architecture and conversation constraints.",
-  `repairAttempt: ${attempt}`,
-  `userRequest: ${originalPrompt}`,
-  `validationErrors: ${JSON.stringify({
-    jsonMissing: !payload,
-    blockers: preflight?.blockers || [],
-    warnings: preflight?.warnings || [],
-    checks: preflight?.checks || [],
-  })}`,
-  plan ? `currentPlan: ${JSON.stringify({
-    summary: plan.summary,
-    nodes: (plan.nodes || []).map((node) => ({ label: node.label, type: node.type, subtype: node.subtype })),
-    edges: plan.edges || [],
-  })}` : "",
-  rawText ? `rawProviderText: ${String(rawText).slice(0, 2400)}` : "",
-  `originalPlannerPrompt: ${plannerPrompt.slice(0, 8000)}`,
-].filter(Boolean).join("\n");
-
 const flowPromptValidateAiPlanCandidate = (payload = null, prompt = "") => {
   const plan = flowPromptNormalizeAiPlan(payload || {}, prompt);
   if (!plan) {
@@ -5798,120 +5692,6 @@ const flowPromptValidateAiPlanCandidate = (payload = null, prompt = "") => {
     analysis,
     preflight,
     errors: preflight.blockers || [],
-  };
-};
-
-const flowPromptBuildAiPlan = async (prompt = "", options = {}) => {
-  const conversationContext = options.conversationContext || null;
-  const onProgress = typeof options.onProgress === "function" ? options.onProgress : null;
-  const aiSettings = await flowPromptReadAiSettings();
-  const provider = await flowPromptPickProvider(aiSettings);
-  if (!provider) throw new Error(flowPromptFriendlyAiError(null, { aiSettings }));
-  const kind = flowPromptProviderKey(provider.provider || provider.name || provider.id);
-  const memory = await flowPromptReadWorkspaceMemory(prompt);
-  const patternMemory = await flowPromptReadPatternMemories(prompt);
-  const approvedPatterns = patternMemory.approvedPatterns || [];
-  const rejectedPatterns = patternMemory.rejectedPatterns || [];
-  const context = flowPromptContextWithMemory(await flowPromptAgentContext(), memory);
-  const query = flowPromptAgentQuery(context, prompt);
-  const queryModel = await flowPromptBuildRuntimeQueryModel({ context, prompt, query, memory });
-  const architectureAdvice = flowPromptIsArchitectureAdviceRequest(prompt)
-    ? flowPromptBuildArchitectureAdvice(context, prompt)
-    : null;
-  const brainContext = await flowPromptBuildBrainContext({
-    context,
-    prompt,
-    intent: "createFlow",
-    queryModel,
-    memory,
-    approvedPatterns,
-    rejectedPatterns,
-    memoryGuard: patternMemory.memoryGuard,
-    conversationContext,
-    architectureAdvice,
-  });
-  const plannerPrompt = flowPromptBuildAiPlannerPrompt({ prompt, brainContext });
-  const model = aiSettings.model || provider.model;
-  let ai = null;
-  let payload = null;
-  let plan = null;
-  let validation = null;
-  let activePrompt = plannerPrompt;
-  const repairLog = [];
-  const maxAttempts = 3;
-  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
-    onProgress?.({
-      attempt,
-      maxAttempts,
-      phase: attempt === 1 ? "planner" : "repair",
-      label: attempt === 1 ? "Planner AI" : `Self repair ${attempt - 1}`,
-      detail: attempt === 1
-        ? "Sto chiedendo al provider un piano JSON validabile."
-        : "Sto rimandando al provider gli errori reali del preflight.",
-    });
-    try {
-      ai = await flowPromptCallPlannerProvider({ kind, provider, model, prompt: activePrompt, aiSettings });
-    } catch (error) {
-      throw new Error(flowPromptFriendlyAiError(error, { provider, aiSettings, model }));
-    }
-    payload = flowPromptFirstJsonObject(ai.text);
-    validation = flowPromptValidateAiPlanCandidate(payload, prompt);
-    repairLog.push({
-      attempt,
-      json: Boolean(payload),
-      ok: validation.ok,
-      errors: validation.errors || [],
-    });
-    onProgress?.({
-      attempt,
-      maxAttempts,
-      phase: validation.ok ? "validated" : "preflight",
-      label: validation.ok ? "Piano validato" : "Preflight repair",
-      detail: validation.ok
-        ? "JSON, nodi e porte sono validi."
-        : (validation.errors?.[0] || "Il piano richiede correzioni."),
-    });
-    if (validation.ok) {
-      plan = validation.plan;
-      break;
-    }
-    if (attempt >= maxAttempts) break;
-    activePrompt = flowPromptAiRepairPrompt({
-      originalPrompt: prompt,
-      plannerPrompt,
-      rawText: ai.text || "",
-      payload,
-      plan: validation.plan,
-      preflight: validation.preflight,
-      attempt: attempt + 1,
-    });
-  }
-  if (!plan) {
-    const lastErrors = validation?.errors?.length ? `: ${validation.errors.join("; ")}` : "";
-    throw new Error(`Il provider AI non ha restituito un piano JSON valido dopo self-repair${lastErrors}`);
-  }
-  return {
-    ...plan,
-    summary: `${plan.summary} · AI ${provider.name || provider.provider || aiSettings.provider} / ${ai.model || model}`,
-    planner: {
-      provider: provider.name || provider.provider || aiSettings.provider,
-      model: ai.model || model,
-      mode: "ai-brain",
-      selfRepair: {
-        attempts: repairLog.length,
-        repaired: repairLog.length > 1 && Boolean(plan),
-        log: repairLog,
-      },
-      rag: (brainContext.rag || []).map((item) => item.id),
-      memory: (brainContext.memory || []).length,
-      approvedPatterns: approvedPatterns.length,
-      rejectedPatterns: rejectedPatterns.length,
-      conversationContext: Boolean(conversationContext?.active),
-    },
-    approvedPatterns,
-    rejectedPatterns,
-    memoryGuard: patternMemory.memoryGuard,
-    conversationContext,
   };
 };
 
@@ -5987,39 +5767,6 @@ const flowPromptBuildSimpleDefinitionReply = (prompt = "", options = {}) =>
     includeRuntimeContext: false,
   });
 
-const flowPromptBuildPlanWithAiFallback = async (prompt = "", options = {}) => {
-  const conversationContext = options.conversationContext || null;
-  const onProgress = typeof options.onProgress === "function" ? options.onProgress : null;
-  try {
-    return await flowPromptBuildAiPlan(prompt, { conversationContext, onProgress });
-  } catch (error) {
-    onProgress?.({
-      phase: "fallback",
-      label: "Fallback locale",
-      detail: error?.message || "Provider AI non validabile, preparo un piano locale.",
-    });
-    const localPlan = flowPromptBuildContextualLocalPlan(prompt, conversationContext);
-    const patternMemory = await flowPromptReadPatternMemories(prompt);
-    const approvedPatterns = patternMemory.approvedPatterns || [];
-    const rejectedPatterns = patternMemory.rejectedPatterns || [];
-    return {
-      ...localPlan,
-      summary: `${localPlan.summary} · fallback locale`,
-      approvedPatterns,
-      rejectedPatterns,
-      memoryGuard: patternMemory.memoryGuard,
-      conversationContext,
-      planner: {
-        mode: "fallback",
-        error: error?.message || "AI planner non disponibile",
-        approvedPatterns: approvedPatterns.length,
-        rejectedPatterns: rejectedPatterns.length,
-        conversationContext: Boolean(conversationContext?.active),
-      },
-    };
-  }
-};
-
 const flowPromptPlannerLabel = (planner = {}) => {
   if (!planner || !planner.mode) return "Local planner";
   const repair = planner.selfRepair?.repaired ? ` · self-repair ${Math.max(1, Number(planner.selfRepair?.attempts || 1) - 1)}` : "";
@@ -6030,154 +5777,6 @@ const flowPromptPlannerLabel = (planner = {}) => {
   if (planner.mode === "ai-brain") return `AI Brain planner · ${planner.provider || "provider"}${planner.model ? ` / ${planner.model}` : ""}${repair}`;
   if (planner.mode === "ai") return `AI planner · ${planner.provider || "provider"}${planner.model ? ` / ${planner.model}` : ""}`;
   return "Local fallback";
-};
-
-const flowPromptBuildPlan = (prompt = "") => {
-  const text = String(prompt || "").trim();
-  const lower = flowPromptNormalize(text);
-  const specs = [];
-  const add = (label, overrides = {}) => {
-    const spec = flowPromptSpecFromPalette(label, overrides);
-    const key = `${spec.type}:${spec.subtype}:${flowPromptNormalize(spec.label)}`;
-    if (!specs.some((item) => `${item.type}:${item.subtype}:${flowPromptNormalize(item.label)}` === key)) specs.push(spec);
-  };
-
-  if (flowPromptHasAny(lower, ["rss", "feed", "news", "notizie"])) add("RSS Feed", { config: { url: "" } });
-  else if (flowPromptHasAny(lower, ["websocket", "stream", "realtime", "real time", "live"])) add("WebSocket", { config: { url: "" } });
-  else if (flowPromptHasAny(lower, ["api", "rest", "http", "endpoint"])) add("REST API", { config: { method: "GET", endpoint: "" } });
-  else if (flowPromptHasAny(lower, ["manual", "json", "task", "missione", "obiettivo", "prompt"])) add("Task Node", { config: { objective: text } });
-  else add("Task Node", { config: { objective: text } });
-
-  add("Orchestrator Agent", {
-    config: {
-      goal: text || "Orchestrate the runtime graph",
-      executionMode: "on_event",
-      maxSteps: 6,
-      requireConfirmation: false,
-    },
-  });
-
-  if (flowPromptHasAny(lower, ["planner", "piano", "route", "routing"])) add("AI Planner");
-  else if (flowPromptHasAny(lower, ["sentiment", "umore"])) add("AI Sentiment");
-  else if (flowPromptHasAny(lower, ["summary", "summarize", "riassunto", "notizie", "research"])) add("AI Summarizer");
-  else if (flowPromptHasAny(lower, ["classifica", "classifier", "categoria"])) add("AI Classifier");
-  else if (flowPromptHasAny(lower, ["predict", "previsione", "forecast"])) add("AI Predictor");
-  else add("AI Analyzer");
-
-  if (flowPromptHasAny(lower, ["filter", "filtro"])) add("Filter");
-  if (flowPromptHasAny(lower, ["transform", "map", "format", "parser", "parse"])) add("Transform");
-  if (flowPromptHasAny(lower, ["condition", "if", "alert se", "quando"])) add("Condition");
-
-  if (flowPromptHasAny(lower, ["db", "database", "salva", "storico", "history"])) add(lower.includes("history") || lower.includes("storico") ? "History Store" : "Save SQLite Record");
-  if (flowPromptHasAny(lower, ["telegram"])) add("Telegram Message");
-  else if (flowPromptHasAny(lower, ["slack"])) add("Slack Message");
-  else if (flowPromptHasAny(lower, ["discord"])) add("Discord Message");
-  else if (flowPromptHasAny(lower, ["email", "mail"])) add("Email");
-  else if (flowPromptHasAny(lower, ["notifica", "notification", "alert"])) add("Browser Notification");
-
-  add("Preview");
-
-  const edges = specs.slice(0, -1).map((source, index) => ({
-    sourceKey: source.label,
-    targetKey: specs[index + 1].label,
-  }));
-
-  return {
-    prompt: text,
-    summary: `Plan locale: ${specs.length} nodi e ${edges.length} collegamenti.`,
-    nodes: specs,
-    edges,
-  };
-};
-
-const flowPromptBuildContextualLocalPlan = (prompt = "", conversationContext = null) => {
-  const text = String(prompt || "").trim();
-  const constraints = new Set(conversationContext?.constraints || []);
-  const shouldUsePrevious = Boolean(conversationContext?.lastPlan?.nodes?.length && (conversationContext.referencesPrevious || constraints.size));
-  const baseSpecs = shouldUsePrevious
-    ? conversationContext.lastPlan.nodes
-      .map((label) => flowPromptSpecFromPalette(label))
-      .filter((spec) => spec?.label)
-    : flowPromptBuildPlan(prompt).nodes;
-  const byLabel = new Map();
-  const add = (label, overrides = {}) => {
-    const spec = flowPromptSpecFromPalette(label, overrides);
-    if (!spec?.label) return;
-    byLabel.set(spec.label, spec);
-  };
-  baseSpecs.forEach((spec) => add(spec.label, spec));
-
-  if (constraints.has("avoid Split") || constraints.has("simplify previous plan")) byLabel.delete("Split");
-  if (constraints.has("simplify previous plan")) {
-    byLabel.delete("Condition");
-    byLabel.delete("AI Analyzer");
-    byLabel.delete("AI Planner");
-    byLabel.delete("AI Summarizer");
-    byLabel.delete("AI Classifier");
-    byLabel.delete("AI Predictor");
-  }
-  if (constraints.has("add/use Condition")) add("Condition");
-  if (constraints.has("include Flow In/Out boundary if useful")) {
-    byLabel.delete("Task Node");
-    add("Flow In");
-    add("Flow Out");
-  }
-  if ((byLabel.has("Orchestrator Agent") || flowPromptHasAny(text, ["agent", "agente", "agenti"])) && !byLabel.has("Agent Bridge")) {
-    add("Agent Bridge");
-  }
-  if (!byLabel.has("Preview")) add("Preview");
-
-  const orderedLabels = [
-    "Flow In",
-    "Task Node",
-    "REST API",
-    "RSS Feed",
-    "WebSocket",
-    "Orchestrator Agent",
-    "Agent Bridge",
-    "Condition",
-    "Split",
-    "AI Planner",
-    "AI Analyzer",
-    "AI Summarizer",
-    "AI Classifier",
-    "AI Predictor",
-    "Transform",
-    "Filter",
-    "Save SQLite Record",
-    "History Store",
-    "Telegram Message",
-    "Slack Message",
-    "Discord Message",
-    "Email",
-    "Browser Notification",
-    "Flow Out",
-    "Preview",
-  ];
-  const ordered = [
-    ...orderedLabels.map((label) => byLabel.get(label)).filter(Boolean),
-    ...Array.from(byLabel.values()).filter((spec) => !orderedLabels.includes(spec.label)),
-  ];
-  const hasFlowOut = byLabel.has("Flow Out");
-  const hasPreview = byLabel.has("Preview");
-  const chain = hasFlowOut && hasPreview
-    ? ordered.filter((spec) => spec.label !== "Preview")
-    : ordered;
-  const edges = chain.slice(0, -1).map((source, index) => ({
-    sourceKey: source.label,
-    targetKey: chain[index + 1].label,
-  }));
-  if (hasFlowOut && hasPreview) {
-    const flowOutIndex = chain.findIndex((spec) => spec.label === "Flow Out");
-    const previewSource = flowOutIndex > 0 ? chain[flowOutIndex - 1] : chain[chain.length - 1];
-    if (previewSource?.label) edges.push({ sourceKey: previewSource.label, targetKey: "Preview" });
-  }
-  return {
-    prompt: text,
-    summary: `Plan locale contestuale: ${ordered.length} nodi e ${edges.length} collegamenti.`,
-    nodes: ordered,
-    edges,
-  };
 };
 
 const flowPromptFindExistingNode = (spec = {}) => {
@@ -7698,22 +7297,6 @@ const openFlowPromptChatDialog = async (options = {}) => {
     },
   });
 
-  const plannerProgressActivity = (progress = {}) => {
-    const attempt = progress.attempt || 1;
-    const maxAttempts = progress.maxAttempts || 3;
-    const repairStep = attempt > 1 ? `Self repair ${attempt - 1}/${Math.max(1, maxAttempts - 1)}` : "Prima generazione JSON";
-    return {
-      label: progress.label || "Planner AI",
-      detail: progress.detail || "Sto preparando un piano validabile.",
-      steps: [
-        "Lettura Brain, RAG e memoria",
-        repairStep,
-        progress.phase === "fallback" ? "Fallback locale" : "Preflight reale",
-        progress.phase === "validated" ? "Piano validato" : "Correzione in corso",
-      ],
-    };
-  };
-
   const loadHistory = async () => {
     draft.loadingHistory = true;
     refresh();
@@ -7822,28 +7405,27 @@ const openFlowPromptChatDialog = async (options = {}) => {
         refinedFrom,
       });
     }
-    if (!flowPromptShouldPlanFromPrompt(effectivePrompt, conversationContext)) {
-      const reply = await buildSelectedConversationalReply(effectivePrompt, { conversationContext });
-      draft.analysis = null;
+    // There is no universal planner fallback. The selected provider receives
+    // every remaining prompt and can return either a normal reply or its typed
+    // proposed_plan contract.
+    const reply = await buildSelectedConversationalReply(effectivePrompt, { conversationContext });
+    if (draft.analysis?.planner?.mode === "provider-protocol") {
       return appendMessage({
         role: "assistant",
-        kind: "text",
-        content: reply,
-        providerId: selectedProviderIsExternal() ? selectedProviderId() : "local",
+        kind: "plan",
+        content: draft.analysis.summary || "Flow plan proposed.",
+        plan: flowPromptPlanSnapshot(draft.analysis),
+        providerId: selectedProviderId(),
         refinedFrom,
       });
     }
-    draft.analysis = flowPromptAnalyzePlan(await flowPromptBuildPlanWithAiFallback(effectivePrompt, {
-      conversationContext,
-      onProgress: (progress) => setActivity(plannerProgressActivity(progress)),
-    }));
+    draft.analysis = null;
     return appendMessage({
       role: "assistant",
-      kind: "plan",
-      content: draft.analysis.planner?.mode === "fallback" && draft.analysis.planner?.error
-        ? `${draft.analysis.summary || "Piano generato."}\n\nAvviso AI: ${draft.analysis.planner.error}\nUso il fallback locale per continuare.`
-        : draft.analysis.summary || "Piano generato.",
-      plan: flowPromptPlanSnapshot(draft.analysis),
+      kind: "text",
+      content: reply,
+      providerId: selectedProviderIsExternal() ? selectedProviderId() : "local",
+      compactNatural: true,
       refinedFrom,
     });
   };
@@ -8282,46 +7864,31 @@ const openFlowPromptChatDialog = async (options = {}) => {
         setActivity(null);
         return;
       }
-      if (!flowPromptShouldPlanFromPrompt(prompt, conversationContext)) {
-        setActivity({
-          label: "Risposta chat",
-          detail: "Sto usando AI Settings per rispondere senza creare nodi.",
-          steps: ["Contesto Flow Map", "Provider AI", "Risposta generale"],
+      setActivity({
+        label: "Invio al provider",
+        detail: "Il provider selezionato decide se rispondere o proporre un piano Flow Map tipizzato.",
+        steps: ["Prompt inviato", "Decisione del provider", "Piano validato se proposto"],
+      });
+      draft.analysis = null;
+      const reply = await buildSelectedConversationalReply(prompt, { conversationContext });
+      if (draft.analysis?.planner?.mode === "provider-protocol") {
+        await appendMessage({
+          role: "assistant",
+          kind: "plan",
+          content: draft.analysis.summary || "Flow plan proposed.",
+          plan: flowPromptPlanSnapshot(draft.analysis),
+          providerId: selectedProviderId(),
         });
-        const reply = await buildSelectedConversationalReply(prompt, { conversationContext });
+      } else {
         draft.analysis = null;
         await appendMessage({
           role: "assistant",
           kind: "text",
           content: reply,
           providerId: selectedProviderIsExternal() ? selectedProviderId() : "local",
+          compactNatural: true,
         });
-        draft.prompt = "";
-        setActivity(null);
-        return;
       }
-      setActivity({
-        label: "Creo il piano",
-        detail: "Sto controllando nodi esistenti e preparando il piano con AI Settings.",
-        steps: ["Lettura AI Settings", "Planner AI o fallback locale", "Controllo duplicati"],
-      });
-      draft.analysis = flowPromptAnalyzePlan(await flowPromptBuildPlanWithAiFallback(prompt, {
-        conversationContext,
-        onProgress: (progress) => setActivity(plannerProgressActivity(progress)),
-      }));
-      setActivity({
-        label: "Piano pronto",
-        detail: "Sto preparando il riepilogo con nodi da creare, riusare e collegare.",
-        steps: ["Piano normalizzato", "Duplicati verificati", "Risposta in corso"],
-      });
-      await appendMessage({
-        role: "assistant",
-        kind: "plan",
-        content: draft.analysis.planner?.mode === "fallback" && draft.analysis.planner?.error
-          ? `${draft.analysis.summary || "Piano generato."}\n\nAvviso AI: ${draft.analysis.planner.error}\nUso il fallback locale per continuare.`
-          : draft.analysis.summary || "Piano generato.",
-        plan: flowPromptPlanSnapshot(draft.analysis),
-      });
       draft.prompt = "";
       setActivity(null);
     } catch (error) {
