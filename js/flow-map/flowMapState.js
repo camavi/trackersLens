@@ -185,6 +185,8 @@ const state = {
     dependencies: 0,
     lastRefreshAt: "",
   },
+  runtimeHistoryLoaded: false,
+  runtimeHistory: { offset: 0, limit: 10, loading: false, events: { total: 0, hasMore: false }, flowLogs: { total: 0, hasMore: false } },
   lastInteractionAt: 0,
   updatedAt: new Date(),
   activeStatusPanel: "",
@@ -1159,6 +1161,10 @@ const runtimeGraphSignature = () => JSON.stringify({
 const loadRuntime = async (options = {}) => {
   const silent = Boolean(options.silent);
   const force = Boolean(options.force);
+  const purpose = options.purpose || "graph";
+  const historyOffset = Math.max(0, Math.floor(Number(options.historyOffset) || 0));
+  const historyLimit = Math.max(1, Math.floor(Number(options.historyLimit) || 10));
+  const appendHistory = Boolean(options.appendHistory);
   const previousGraphSignature = runtimeGraphSignature();
   if (state.runtimeLoadInFlight && !force) {
     state.pendingRuntimeRefresh = true;
@@ -1187,10 +1193,10 @@ const loadRuntime = async (options = {}) => {
 
     const runtimeFilters = { workspaceId };
     const engineResult = window.TrackerLensGraphEngine?.buildGraph
-      ? await window.TrackerLensGraphEngine.buildGraph({ filters: runtimeFilters, includeConnections: true })
+      ? await window.TrackerLensGraphEngine.buildGraph({ filters: runtimeFilters, includeConnections: true, purpose, historyOffset, historyLimit })
       : null;
     const snapshot = engineResult?.runtime || (window.TrackerLensRuntimeSnapshotStore?.load
-      ? await window.TrackerLensRuntimeSnapshotStore.load({ includeConnections: true, workspaceId })
+      ? await window.TrackerLensRuntimeSnapshotStore.load({ includeConnections: true, workspaceId, purpose, historyOffset, historyLimit })
       : null);
     const [channels, flows, events, flowLogs, runtimeNodes, dependencies, connections, libraryItems, performanceRecords] = snapshot
       ? await Promise.all([
@@ -1231,11 +1237,18 @@ const loadRuntime = async (options = {}) => {
       connections
     );
     const repairedConnections = await repairMissingDependencyConnections(nodes, mergedDependencies, connections);
+    const priorEvents = appendHistory ? state.runtime.events || [] : [];
+    const priorFlowLogs = appendHistory ? state.runtime.flowLogs || [] : [];
+    const mergeById = (existing = [], incoming = []) => {
+      const records = new Map(existing.map((record) => [String(record.id || ""), record]));
+      incoming.forEach((record) => records.set(String(record.id || ""), record));
+      return [...records.values()];
+    };
     setRuntimeState({
       channels,
       flows,
-      events: recentRuntimeRecords(events).map(sanitizeRuntimeEventForUi),
-      flowLogs: recentRuntimeRecords(flowLogs).map(sanitizeFlowLogForUi),
+      events: recentRuntimeRecords(mergeById(priorEvents, events)).map(sanitizeRuntimeEventForUi),
+      flowLogs: recentRuntimeRecords(mergeById(priorFlowLogs, flowLogs)).map(sanitizeFlowLogForUi),
       nodes,
       dependencies: mergedDependencies,
     });
@@ -1250,6 +1263,19 @@ const loadRuntime = async (options = {}) => {
     state.libraryItems = libraryItems;
     state.connections = repairedConnections;
     state.performance = performanceRecords || [];
+    if (purpose === "graph") {
+      state.runtimeHistoryLoaded = false;
+      state.runtimeHistory = { offset: 0, limit: historyLimit, loading: false, events: { total: 0, hasMore: false }, flowLogs: { total: 0, hasMore: false } };
+    } else if (snapshot?.history) {
+      state.runtimeHistoryLoaded = true;
+      state.runtimeHistory = {
+        offset: historyOffset,
+        limit: historyLimit,
+        loading: false,
+        events: { total: snapshot.history.events.total || 0, hasMore: Boolean(snapshot.history.events.hasMore) },
+        flowLogs: { total: snapshot.history.flowLogs.total || 0, hasMore: Boolean(snapshot.history.flowLogs.hasMore) },
+      };
+    }
     if (state.inspectorOpen && !state.focus.nodeId && nodes[0]?.id) {
       setFocusState({ ...state.focus, nodeId: nodes[0].id });
     }
@@ -1272,6 +1298,61 @@ const loadRuntime = async (options = {}) => {
       if (editorActive && previousGraphSignature !== nextGraphSignature) state.pendingRuntimeRefresh = true;
     }
   }
+};
+
+const loadMoreRuntimeHistory = async () => {
+  const history = state.runtimeHistory || {};
+  if (history.loading || (!history.events?.hasMore && !history.flowLogs?.hasMore)) return;
+  return loadRuntimeHistory({
+    append: true,
+    offset: Math.max(0, Number(history.offset) || 0) + Math.max(1, Number(history.limit) || 10),
+    limit: Math.max(1, Number(history.limit) || 10),
+  });
+};
+
+const loadRuntimeHistory = async ({ append = false, offset = 0, limit = 10 } = {}) => {
+  const history = state.runtimeHistory || {};
+  if (history.loading) return;
+  const workspaceId = normalizeRuntimeWorkspaceId(state.filters.workspaceId || await resolveInitialWorkspaceId());
+  const safeOffset = Math.max(0, Math.floor(Number(offset) || 0));
+  const safeLimit = Math.max(1, Math.floor(Number(limit) || 10));
+  state.runtimeHistory = { ...history, loading: true };
+  mount({ preserveScroll: true });
+  try {
+    const snapshot = await window.TrackerLensRuntimeSnapshotStore?.load?.({
+      includeConnections: false,
+      workspaceId,
+      purpose: "flow-map-history",
+      historyOffset: safeOffset,
+      historyLimit: safeLimit,
+    });
+    if (!snapshot?.history) throw new Error("Storico runtime SQLite non disponibile.");
+    const mergeById = (existing = [], incoming = []) => {
+      const records = new Map(existing.map((record) => [String(record.id || ""), record]));
+      incoming.forEach((record) => records.set(String(record.id || ""), record));
+      return [...records.values()];
+    };
+    const events = append ? mergeById(state.runtime.events || [], snapshot.events || []) : snapshot.events || [];
+    const flowLogs = append ? mergeById(state.runtime.flowLogs || [], snapshot.flowLogs || []) : snapshot.flowLogs || [];
+    setRuntimeState({
+      ...state.runtime,
+      events: recentRuntimeRecords(events).map(sanitizeRuntimeEventForUi),
+      flowLogs: recentRuntimeRecords(flowLogs).map(sanitizeFlowLogForUi),
+    });
+    rebuildPreviewPayloadsFromEvents();
+    state.runtimeHistoryLoaded = true;
+    state.runtimeHistory = {
+      offset: safeOffset,
+      limit: safeLimit,
+      loading: false,
+      events: { total: snapshot.history.events.total || 0, hasMore: Boolean(snapshot.history.events.hasMore) },
+      flowLogs: { total: snapshot.history.flowLogs.total || 0, hasMore: Boolean(snapshot.history.flowLogs.hasMore) },
+    };
+  } catch (error) {
+    state.runtimeHistory = { ...state.runtimeHistory, loading: false };
+    console.warn("Unable to load Flow Map inspection history", error);
+  }
+  mount({ preserveScroll: true });
 };
 
 const runtimeEventBus = () => {

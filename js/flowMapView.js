@@ -44,7 +44,8 @@ const mount = (options = {}) => {
   if (!root) return;
   const scrollPositions = options.preserveScroll ? capturePanelScroll() : null;
   syncReactiveState();
-  root.replaceChildren(renderShell());
+  const shell = renderShell();
+  root.replaceChildren(shell);
   state.mounted = true;
   if (scrollPositions) restorePanelScroll(scrollPositions);
   if (isFlowMapRecoveryMode()) return;
@@ -109,6 +110,9 @@ const onFlowMapResize = () => {
 const refreshFlowMapRuntime = () => {
   if (isFlowMapRecoveryMode()) return;
   if (state.loading || state.runtimeLoadInFlight) return;
+  if (state.runtimeWorker.connected && state.runtimeWorker.status === "running") {
+    return;
+  }
   if (state.interaction || isFlowMapNodeEditorActive() || Date.now() - state.lastInteractionAt < 750) {
     state.pendingRuntimeRefresh = true;
     return;

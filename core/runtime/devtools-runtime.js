@@ -19,14 +19,20 @@ window.TrackerLensDevToolsRuntime = (() => {
     }
   };
 
-  const load = async () => {
-    const graph = await safeValue(() => window.TrackerLensGraphEngine?.buildGraph?.(), null);
+  const load = async ({ snapshotOffset = 0, snapshotLimit = 25 } = {}) => {
+    // The overview needs topology, not historical payloads. Keeping this
+    // explicit avoids falling back to RuntimeSnapshotStore's full snapshot.
+    const graph = await safeValue(() => window.TrackerLensGraphEngine?.buildGraph?.({ purpose: "graph" }), null);
     const offline = await safeValue(() => window.TrackerLensOfflineFirst?.status?.(), null);
     const offlineQueue = await safeList(window.TrackerLensOfflineFirst?.listQueue);
     const offlineCache = await safeList(window.TrackerLensOfflineFirst?.listCache);
     const packages = await safeList(window.TrackerLensPackageSystem?.listPackages);
     const packageLocks = await safeList(window.TrackerLensPackageSystem?.listLocks);
-    const snapshots = await safeList(window.TrackerLensTimeTravelStore?.list);
+    const snapshotPage = await safeValue(
+      () => window.TrackerLensTimeTravelStore?.listMetadata?.({ offset: snapshotOffset, limit: snapshotLimit }),
+      { records: [], total: 0, hasMore: false, offset: snapshotOffset, limit: snapshotLimit }
+    );
+    const snapshots = Array.isArray(snapshotPage?.records) ? snapshotPage.records : [];
     const performance = await safeList(window.TrackerLensBoxPerformanceMonitor?.list);
     const ai = await safeValue(() => window.TrackerLensAiRuntimeStore?.list?.(), null);
 
@@ -39,6 +45,7 @@ window.TrackerLensDevToolsRuntime = (() => {
       packages,
       packageLocks,
       snapshots,
+      snapshotPage,
       performance,
       ai,
       stats: {
@@ -46,7 +53,7 @@ window.TrackerLensDevToolsRuntime = (() => {
         graphDependencies: graph?.stats?.dependencies || 0,
         queuedOffline: offline?.pendingCount || 0,
         packages: packages.length,
-        snapshots: snapshots.length,
+        snapshots: Number(snapshotPage?.total) || snapshots.length,
         performanceRecords: performance.length,
       },
       loadedAt: new Date().toISOString(),

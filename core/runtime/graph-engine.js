@@ -244,10 +244,13 @@ window.TrackerLensGraphEngine = (() => {
 
   const shortestPath = (options = {}) => findPaths(options)[0] || null;
 
-  const buildGraph = async ({ filters = {}, includeConnections = true } = {}) => {
+  const buildGraph = async ({ filters = {}, includeConnections = true, purpose = "graph", historyOffset = 0, historyLimit = 25 } = {}) => {
     const runtime = await loadRuntime({
       includeConnections,
       workspaceId: filters.workspaceId && filters.workspaceId !== "all" ? filters.workspaceId : "",
+      purpose,
+      historyOffset,
+      historyLimit,
     });
     const graph = window.TrackerLensRuntimeGraphModel?.build
       ? window.TrackerLensRuntimeGraphModel.build({ runtime, filters })

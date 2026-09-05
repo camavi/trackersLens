@@ -5436,9 +5436,21 @@ const copyRuntimeButton = (value = {}, label = "Copy") =>
     },
   }, flowMapIcon("content_copy", "sm"));
 
-const renderRuntimePayloadDetails = ({ title = "Payload", value = {}, meta = {} } = {}) =>
-  _.details(
-    { class: "tl-flow-runtime-details" },
+const renderRuntimePayloadDetails = ({ title = "Payload", value = {}, meta = {} } = {}) => {
+  // A collapsed <details> must not eagerly stringify a potentially very large
+  // runtime payload. That work used to block the renderer while merely opening
+  // the Logs panel, even though the user had not requested the content.
+  const content = _.pre("Apri per caricare il contenuto completo.");
+  let loaded = false;
+  return _.details(
+    {
+      class: "tl-flow-runtime-details",
+      ontoggle: (event) => {
+        if (!event.currentTarget?.open || loaded) return;
+        loaded = true;
+        content.textContent = prettyRuntimeValue(value);
+      },
+    },
     _.summary(
       _.span(title),
       copyRuntimeButton(value, `Copy ${title}`)
@@ -5447,8 +5459,9 @@ const renderRuntimePayloadDetails = ({ title = "Payload", value = {}, meta = {} 
       { class: "tl-flow-runtime-meta" },
       ...Object.entries(meta).map(([key, item]) => _.span(`${key}: ${item || "N/D"}`))
     ) : null,
-    _.pre(prettyRuntimeValue(value))
+    content
   );
+};
 
 const eventTypeTone = (event = {}) => {
   const type = String(event.eventType || "event");
@@ -5954,7 +5967,7 @@ const openAgentRuntimeDialog = async () => {
   };
   const captureAgentRuntimeFixSnapshot = async (label = "Agent Runtime fix") => {
     const runtime = window.TrackerLensRuntimeSnapshotStore?.load
-      ? await window.TrackerLensRuntimeSnapshotStore.load({ includeConnections: true, workspaceId }).catch(() => null)
+      ? await window.TrackerLensRuntimeSnapshotStore.load({ includeConnections: true, workspaceId, purpose: "full" }).catch(() => null)
       : null;
     return window.TrackerLensTimeTravelStore?.capture
       ? window.TrackerLensTimeTravelStore.capture({

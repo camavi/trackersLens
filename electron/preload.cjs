@@ -28,6 +28,9 @@ const trackers = Object.freeze({
       verifyDevelopmentFirstCohort: (bundle = {}) => request("desktop.persistence.verifyDevelopmentFirstCohort", { bundle }),
       listDevelopmentStores: () => request("desktop.persistence.listDevelopmentStores"),
       readDevelopmentRecords: ({ storeName, workspaceId = "" } = {}) => request("desktop.persistence.readDevelopmentRecords", { storeName: String(storeName || ""), workspaceId: String(workspaceId || "") }),
+      readDevelopmentRecordPage: ({ storeName, workspaceId = "", offset = 0, limit = 25 } = {}) => request("desktop.persistence.readDevelopmentRecordPage", { storeName: String(storeName || ""), workspaceId: String(workspaceId || ""), offset: Number(offset) || 0, limit: Number(limit) || 25 }),
+      readDevelopmentRecordSummaryPage: ({ storeName, workspaceId = "", offset = 0, limit = 25 } = {}) => request("desktop.persistence.readDevelopmentRecordSummaryPage", { storeName: String(storeName || ""), workspaceId: String(workspaceId || ""), offset: Number(offset) || 0, limit: Number(limit) || 25 }),
+      readDevelopmentRecordById: ({ storeName, id } = {}) => request("desktop.persistence.readDevelopmentRecordById", { storeName: String(storeName || ""), id: String(id || "") }),
       writeDevelopmentRecords: ({ storeName, records = [] } = {}) => request("desktop.persistence.writeDevelopmentRecords", { storeName: String(storeName || ""), records }),
       deleteDevelopmentRecords: ({ storeName, ids = [] } = {}) => request("desktop.persistence.deleteDevelopmentRecords", { storeName: String(storeName || ""), ids }),
       setDevelopmentRuntimeActive: (active) => request("desktop.persistence.setDevelopmentRuntimeActive", { active: Boolean(active) })
@@ -103,6 +106,9 @@ contextBridge.exposeInMainWorld("trackersDesktop", Object.freeze({
   verifyDevelopmentFirstCohort: trackers.desktop.persistence.verifyDevelopmentFirstCohort,
   listDevelopmentStores: trackers.desktop.persistence.listDevelopmentStores,
   readDevelopmentRecords: trackers.desktop.persistence.readDevelopmentRecords,
+  readDevelopmentRecordPage: trackers.desktop.persistence.readDevelopmentRecordPage,
+  readDevelopmentRecordSummaryPage: trackers.desktop.persistence.readDevelopmentRecordSummaryPage,
+  readDevelopmentRecordById: trackers.desktop.persistence.readDevelopmentRecordById,
   writeDevelopmentRecords: trackers.desktop.persistence.writeDevelopmentRecords,
   deleteDevelopmentRecords: trackers.desktop.persistence.deleteDevelopmentRecords,
   setDevelopmentRuntimeActive: trackers.desktop.persistence.setDevelopmentRuntimeActive

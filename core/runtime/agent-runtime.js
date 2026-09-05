@@ -285,6 +285,9 @@ window.TrackerLensAgentRuntime = (() => {
         runId: "all",
       },
       includeConnections: true,
+      // Inspection, topology validation and fix suggestions need the graph;
+      // historical payloads are loaded only by the explicit log/replay tools.
+      purpose: "graph",
     });
   };
 

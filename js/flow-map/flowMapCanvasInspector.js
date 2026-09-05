@@ -8035,7 +8035,19 @@ const renderInspectorLogs = (events = [], flowLogs = []) =>
           })
         )
       ) : [_.p({ class: "tl-flow-muted" }, "Nessun flow log recente.")])
-    )
+    ),
+    state.runtimeHistory?.events?.hasMore || state.runtimeHistory?.flowLogs?.hasMore
+      ? _.div(
+        { class: "tl-flow-runtime-log-actions" },
+        flowMapBtn({
+          class: "is-ghost is-compact",
+          disabled: Boolean(state.runtimeHistory?.loading),
+          onclick: () => loadMoreRuntimeHistory?.(),
+        }, state.runtimeHistory?.loading ? "Caricamento storico…" : "Carica elementi precedenti")
+      )
+      : state.runtimeHistoryLoaded
+        ? _.p({ class: "tl-flow-muted" }, "Tutto lo storico di questo Flow è stato caricato.")
+        : null
   );
 
 const renderInspectorStats = (node, dependencies, events, channelRecords, flowLogs = []) => {
@@ -8116,7 +8128,24 @@ const toggleInspectorPanel = (kind = "node", panelId = "") => {
     ...prefs,
     collapsed: { ...(prefs.collapsed || {}), [panelId]: !prefs.collapsed?.[panelId] },
   });
+  // Canvas startup deliberately loads topology only. Historical event/log
+  // payloads are still fully available, but are read only after the user
+  // explicitly opens a panel that inspects them.
+  if (
+    kind === "node" &&
+    ["runtime", "logs", "metrics"].includes(panelId) &&
+    !state.runtimeHistoryLoaded &&
+    typeof loadRuntimeHistory === "function"
+  ) {
+    loadRuntimeHistory().catch((error) => {
+      console.warn("Unable to load Flow Map inspection history", error);
+    });
+  }
   mount({ preserveScroll: true });
+};
+
+const profileInspectorPanel = (id = "", title = "", render = () => null) => {
+  return { id, title, content: render() };
 };
 
 const writeInspectorPanelOrder = (kind = "node", order = []) => {
@@ -8503,43 +8532,39 @@ const renderInspector = () => {
   const paused = view?.runtime.status === "paused";
   const disabled = view?.runtime.status === "disabled";
   const panels = node ? [
-    { id: "details", title: "General", content: renderInspectorDetails(node, channels, dependencies) },
-    { id: "inputs", title: "Inputs", content: renderInspectorPorts(node, "in") },
-    {
-      id: "outputs",
-      title: "Outputs",
-      content: _.div(
+    profileInspectorPanel("details", "General", () => renderInspectorDetails(node, channels, dependencies)),
+    profileInspectorPanel("inputs", "Inputs", () => renderInspectorPorts(node, "in")),
+    profileInspectorPanel("outputs", "Outputs", () => _.div(
         renderInspectorPorts(node, "out"),
         renderInspectorOutputs(node, channels, channelRecords)
-      ),
-    },
-    { id: "runtime", title: "Runtime", content: renderInspectorRuntime(node, events) },
-    { id: "agent-tools-debug", title: "Agent Tools", content: renderInspectorAgentTools(node) },
+      )),
+    profileInspectorPanel("runtime", "Runtime", () => renderInspectorRuntime(node, events)),
+    profileInspectorPanel("agent-tools-debug", "Agent Tools", () => renderInspectorAgentTools(node)),
     ...(node.type === "storage" || nodeCategory(node) === "storage"
-      ? [{ id: "storage-record", title: "Last Stored Record", content: renderInspectorStorageRecord(node) }]
+      ? [profileInspectorPanel("storage-record", "Last Stored Record", () => renderInspectorStorageRecord(node))]
       : []),
     ...(nodeCategory(node) === "ai-agents"
-      ? [{ id: "ai-knowledge-debug", title: "AI Knowledge Debug", content: renderInspectorAiRag(node) }]
+      ? [profileInspectorPanel("ai-knowledge-debug", "AI Knowledge Debug", () => renderInspectorAiRag(node))]
       : []),
     ...(isKnowledgeDictionaryBuilderNode(node)
-      ? [{ id: "knowledge-dictionary-debug", title: "Knowledge Dictionary Debug", content: renderInspectorKnowledgeDictionary(node) }]
+      ? [profileInspectorPanel("knowledge-dictionary-debug", "Knowledge Dictionary Debug", () => renderInspectorKnowledgeDictionary(node))]
       : []),
     ...(isKnowledgeEventBuilderNode(node)
-      ? [{ id: "knowledge-event-debug", title: "Knowledge Event Debug", content: renderInspectorKnowledgeEvents(node) }]
+      ? [profileInspectorPanel("knowledge-event-debug", "Knowledge Event Debug", () => renderInspectorKnowledgeEvents(node))]
       : []),
     ...(isStructuredKnowledgeStoreNode(node)
-      ? [{ id: "structured-knowledge-debug", title: nodeSubtype(node) === "world-database" ? "World Database Debug" : "Structured Knowledge Debug", content: renderInspectorStructuredKnowledge(node) }]
+      ? [profileInspectorPanel("structured-knowledge-debug", nodeSubtype(node) === "world-database" ? "World Database Debug" : "Structured Knowledge Debug", () => renderInspectorStructuredKnowledge(node))]
       : []),
     ...(nodeCategory(node) === "knowledge"
-      ? [{ id: "knowledge-graph-debug", title: "Knowledge Graph Debug", content: renderInspectorKnowledgeGraph(node) }]
+      ? [profileInspectorPanel("knowledge-graph-debug", "Knowledge Graph Debug", () => renderInspectorKnowledgeGraph(node))]
       : []),
     ...(isKnowledgeDocumentStoreNode(node)
-      ? [{ id: "knowledge-document-debug", title: "Knowledge Document Debug", content: renderInspectorKnowledgeDocument(node) }]
+      ? [profileInspectorPanel("knowledge-document-debug", "Knowledge Document Debug", () => renderInspectorKnowledgeDocument(node))]
       : []),
-    { id: "logs", title: "Logs", content: renderInspectorLogs(events, flowLogs) },
-    { id: "metrics", title: "Metrics", content: renderInspectorMetrics(node, dependencies, events, channelRecords, flowLogs) },
-    { id: "permissions", title: "Permissions", content: renderInspectorPermissions(node) },
-    { id: "compatibility", title: "Compatibility", content: renderInspectorCompatibility(node) },
+    profileInspectorPanel("logs", "Logs", () => renderInspectorLogs(events, flowLogs)),
+    profileInspectorPanel("metrics", "Metrics", () => renderInspectorMetrics(node, dependencies, events, channelRecords, flowLogs)),
+    profileInspectorPanel("permissions", "Permissions", () => renderInspectorPermissions(node)),
+    profileInspectorPanel("compatibility", "Compatibility", () => renderInspectorCompatibility(node)),
   ] : [];
 
   return _.aside(

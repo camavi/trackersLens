@@ -235,6 +235,7 @@ class DesktopPersistence {
         ) STRICT;
         CREATE INDEX IF NOT EXISTS tl_records_store_workspace_idx ON tl_records (store_name, workspace_id);
         CREATE INDEX IF NOT EXISTS tl_records_updated_at_idx ON tl_records (updated_at);
+        CREATE INDEX IF NOT EXISTS tl_records_store_workspace_updated_id_idx ON tl_records (store_name, workspace_id, updated_at DESC, id DESC);
         CREATE TABLE IF NOT EXISTS tl_migration_runs (
           id TEXT PRIMARY KEY,
           source TEXT NOT NULL,
@@ -429,6 +430,75 @@ class DesktopPersistence {
         ? database.prepare("SELECT record_json FROM tl_records WHERE store_name = ? AND workspace_id = ? ORDER BY id").all(name, String(workspaceId))
         : database.prepare("SELECT record_json FROM tl_records WHERE store_name = ? ORDER BY id").all(name);
       return rows.map((row) => parseStoredJson(row.record_json));
+    } finally {
+      database.close();
+    }
+  }
+
+  readDevelopmentRecordPage({ storeName = "", workspaceId = "", offset = 0, limit = 25 } = {}) {
+    const name = String(storeName || "");
+    if (!isAllowedRepositoryStore(name)) throw new Error(`Unsupported persistence store: ${name}`);
+    if (!this.databasePath || !fs.existsSync(this.databasePath)) throw new Error("SQLite development candidate does not exist.");
+    const safeOffset = Math.max(0, Math.floor(Number(offset) || 0));
+    const safeLimit = Math.max(1, Math.floor(Number(limit) || 25));
+    const workspace = String(workspaceId || "");
+    const database = new DatabaseSync(this.databasePath, { readOnly: true });
+    try {
+      const where = workspace ? "store_name = ? AND workspace_id = ?" : "store_name = ?";
+      const args = workspace ? [name, workspace] : [name];
+      const total = Number(database.prepare(`SELECT COUNT(*) AS count FROM tl_records WHERE ${where}`).get(...args)?.count) || 0;
+      const rows = database.prepare(
+        `SELECT record_json FROM tl_records WHERE ${where} ORDER BY updated_at DESC, id DESC LIMIT ? OFFSET ?`
+      ).all(...args, safeLimit, safeOffset);
+      const records = rows.map((row) => parseStoredJson(row.record_json));
+      return {
+        records,
+        total,
+        offset: safeOffset,
+        limit: safeLimit,
+        hasMore: safeOffset + records.length < total,
+      };
+    } finally {
+      database.close();
+    }
+  }
+
+  readDevelopmentRecordSummaryPage({ storeName = "", workspaceId = "", offset = 0, limit = 25 } = {}) {
+    const name = String(storeName || "");
+    if (!isAllowedRepositoryStore(name)) throw new Error(`Unsupported persistence store: ${name}`);
+    if (!this.databasePath || !fs.existsSync(this.databasePath)) throw new Error("SQLite development candidate does not exist.");
+    const safeOffset = Math.max(0, Math.floor(Number(offset) || 0));
+    const safeLimit = Math.max(1, Math.floor(Number(limit) || 25));
+    const workspace = String(workspaceId || "");
+    const database = new DatabaseSync(this.databasePath, { readOnly: true });
+    try {
+      const where = workspace ? "store_name = ? AND workspace_id = ?" : "store_name = ?";
+      const args = workspace ? [name, workspace] : [name];
+      const total = Number(database.prepare(`SELECT COUNT(*) AS count FROM tl_records WHERE ${where}`).get(...args)?.count) || 0;
+      const records = database.prepare(
+        `SELECT id, workspace_id AS workspaceId, created_at AS createdAt, updated_at AS updatedAt, length(record_json) AS sizeBytes
+         FROM tl_records WHERE ${where} ORDER BY updated_at DESC, id DESC LIMIT ? OFFSET ?`
+      ).all(...args, safeLimit, safeOffset).map((row) => ({
+        id: String(row.id || ""), workspaceId: String(row.workspaceId || ""),
+        createdAt: String(row.createdAt || ""), updatedAt: String(row.updatedAt || ""),
+        sizeBytes: Math.max(0, Number(row.sizeBytes) || 0),
+      }));
+      return { records, total, offset: safeOffset, limit: safeLimit, hasMore: safeOffset + records.length < total };
+    } finally {
+      database.close();
+    }
+  }
+
+  readDevelopmentRecordById({ storeName = "", id = "" } = {}) {
+    const name = String(storeName || "");
+    const recordId = String(id || "");
+    if (!isAllowedRepositoryStore(name)) throw new Error(`Unsupported persistence store: ${name}`);
+    if (!recordId) throw new Error("Development record id is required.");
+    if (!this.databasePath || !fs.existsSync(this.databasePath)) throw new Error("SQLite development candidate does not exist.");
+    const database = new DatabaseSync(this.databasePath, { readOnly: true });
+    try {
+      const row = database.prepare("SELECT record_json FROM tl_records WHERE store_name = ? AND id = ?").get(name, recordId);
+      return row ? parseStoredJson(row.record_json) : null;
     } finally {
       database.close();
     }

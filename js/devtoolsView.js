@@ -472,7 +472,10 @@ const renderTime = () => {
             )
           )
         )
-      ))
+      )),
+      state.data?.snapshotPage?.hasMore
+        ? btn({ class: "tl-devtools-row-action", onclick: loadOlderSnapshots }, icon("expand_more", "sm"), `Carica snapshot precedenti (${number((state.data.snapshotPage.total || 0) - snapshots.length)})`)
+        : null
     ),
     state.timeReplay
       ? _.div({ class: "tl-devtools-section" }, _.h2("Replay Preview"), table(["Time", "Type", "Channel", "Status"], state.timeReplay.events.map((event) =>
@@ -846,13 +849,24 @@ const mount = () => {
   );
 };
 
-async function loadDevTools() {
+async function loadDevTools({ snapshotOffset = 0, appendSnapshots = false } = {}) {
   state.loading = true;
   state.error = "";
   mount();
   try {
     if (!window.TrackerLensDevToolsRuntime?.load) throw new Error("TrackerLensDevToolsRuntime non disponibile");
-    state.data = await window.TrackerLensDevToolsRuntime.load();
+    const loaded = await window.TrackerLensDevToolsRuntime.load({ snapshotOffset });
+    if (appendSnapshots && state.data) {
+      const existing = Array.isArray(state.data.snapshots) ? state.data.snapshots : [];
+      const next = Array.isArray(loaded.snapshots) ? loaded.snapshots : [];
+      state.data = {
+        ...loaded,
+        snapshots: [...existing, ...next],
+        snapshotPage: { ...(loaded.snapshotPage || {}), records: [...existing, ...next] },
+      };
+    } else {
+      state.data = loaded;
+    }
   } catch (error) {
     console.error("Errore DevTools runtime:", error);
     state.error = error?.message || "Errore caricamento DevTools";
@@ -861,6 +875,11 @@ async function loadDevTools() {
     mount();
   }
 }
+
+const loadOlderSnapshots = async () => {
+  const loaded = Array.isArray(state.data?.snapshots) ? state.data.snapshots.length : 0;
+  await loadDevTools({ snapshotOffset: loaded, appendSnapshots: true });
+};
 
 window.TrackerLensViews = window.TrackerLensViews || {};
 window.TrackerLensViews.devtools = {

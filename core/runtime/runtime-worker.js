@@ -1,6 +1,6 @@
 self.window = self;
 
-const RUNTIME_WORKER_VERSION = "0.1.284-graph-nli-verifier-1";
+const RUNTIME_WORKER_VERSION = "0.1.288-runtime-snapshot-projection-1";
 const ports = new Set();
 const workspaces = new Map();
 
@@ -72,26 +72,40 @@ const stopRuntimeInstances = (workspaceId) => {
 };
 
 const refreshWorkspace = async (workspaceId) => {
-  loadRuntimeScripts();
-  const snapshot = await self.TrackerLensRuntimeSnapshotStore.load({ includeConnections: true, workspaceId });
-  const runtime = runtimeFromSnapshot(snapshot);
-  startRuntimeInstances({ workspaceId, runtime });
-  const state = workspaces.get(workspaceId) || {};
-  workspaces.set(workspaceId, {
-    ...state,
-    workspaceId,
-    runtime,
-    lastStartedAt: state.lastStartedAt || new Date().toISOString(),
-    lastRefreshAt: new Date().toISOString(),
-    status: "running",
-  });
-  post({
-    type: "runtime-worker:status",
-    workspaceId,
-    status: "running",
-    nodes: runtime.nodes.length,
-    dependencies: runtime.dependencies.length,
-  });
+  const current = workspaces.get(workspaceId) || {};
+  if (current.refreshInFlight) {
+    return;
+  }
+  workspaces.set(workspaceId, { ...current, refreshInFlight: true });
+  try {
+    loadRuntimeScripts();
+    // The periodic worker refresh only reconciles executable graph topology.
+    // Historical events, logs, caches and Time Travel snapshots remain fully
+    // available to their explicit inspection surfaces, but must not be cloned
+    // through the worker every five seconds.
+    const snapshot = await self.TrackerLensRuntimeSnapshotStore.load({ includeConnections: false, workspaceId, purpose: "runtime" });
+    const runtime = runtimeFromSnapshot(snapshot);
+    startRuntimeInstances({ workspaceId, runtime });
+    const state = workspaces.get(workspaceId) || {};
+    workspaces.set(workspaceId, {
+      ...state,
+      workspaceId,
+      runtime,
+      lastStartedAt: state.lastStartedAt || new Date().toISOString(),
+      lastRefreshAt: new Date().toISOString(),
+      status: "running",
+    });
+    post({
+      type: "runtime-worker:status",
+      workspaceId,
+      status: "running",
+      nodes: runtime.nodes.length,
+      dependencies: runtime.dependencies.length,
+    });
+  } finally {
+    const latest = workspaces.get(workspaceId) || {};
+    workspaces.set(workspaceId, { ...latest, refreshInFlight: false });
+  }
 };
 
 const startWorkspace = async ({ workspaceId = "workspace_global", refreshMs = 5000 } = {}) => {
@@ -101,6 +115,7 @@ const startWorkspace = async ({ workspaceId = "workspace_global", refreshMs = 50
   workspaces.set(id, {
     ...(current || {}),
     workspaceId: id,
+    refreshMs: Math.max(2000, Number(refreshMs) || 5000),
     status: "starting",
     lastStartedAt: new Date().toISOString(),
   });

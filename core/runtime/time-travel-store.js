@@ -41,13 +41,22 @@ window.TrackerLensTimeTravelStore = (() => {
   const list = async ({ workspaceId = "" } = {}) => {
     const persistence = desktopPersistence();
     if (!await usesDesktopSqlite() || !persistence?.readDevelopmentRecords) throw new Error("Time Travel richiede SQLite nell'app desktop.");
-    return (await persistence.readDevelopmentRecords({ storeName: STORE, workspaceId }))
+    return (await persistence.readDevelopmentRecords({
+      storeName: STORE,
+      workspaceId,
+    }))
       .sort((a, b) => Date.parse(b.createdAt || 0) - Date.parse(a.createdAt || 0));
+  };
+
+  const listMetadata = async ({ workspaceId = "", offset = 0, limit = 25 } = {}) => {
+    const persistence = desktopPersistence();
+    if (!await usesDesktopSqlite() || !persistence?.readDevelopmentRecordSummaryPage) throw new Error("Time Travel richiede SQLite nell'app desktop.");
+    return persistence.readDevelopmentRecordSummaryPage({ storeName: STORE, workspaceId, offset, limit });
   };
 
   const capture = async ({ workspaceId = "global", reason = "manual", label = "", state = null } = {}) => {
     const runtime = state || (window.TrackerLensRuntimeSnapshotStore?.load
-      ? await window.TrackerLensRuntimeSnapshotStore.load().catch(() => null)
+      ? await window.TrackerLensRuntimeSnapshotStore.load({ purpose: "full" }).catch(() => null)
       : null);
     return write({
       id: `tt_${workspaceId}_${Date.now()}`.replace(/[^A-Za-z0-9_-]/g, "_"),
@@ -60,9 +69,16 @@ window.TrackerLensTimeTravelStore = (() => {
     });
   };
 
-  const latest = async ({ workspaceId = "" } = {}) => (await list({ workspaceId }))[0] || null;
+  const latest = async ({ workspaceId = "" } = {}) => {
+    const page = await listMetadata({ workspaceId, limit: 1 });
+    return page.records[0] ? snapshotById(page.records[0].id) : null;
+  };
 
-  const snapshotById = async (id = "") => (await list()).find((item) => item.id === id) || null;
+  const snapshotById = async (id = "") => {
+    const persistence = desktopPersistence();
+    if (!await usesDesktopSqlite() || !persistence?.readDevelopmentRecordById) throw new Error("Time Travel richiede SQLite nell'app desktop.");
+    return persistence.readDevelopmentRecordById({ storeName: STORE, id });
+  };
 
   const runtimeStores = () => window.TrackerLensRuntimeSnapshotStore?.STORES || {};
 
@@ -134,6 +150,7 @@ window.TrackerLensTimeTravelStore = (() => {
     diffSnapshots,
     latest,
     list,
+    listMetadata,
     readAllStore,
     replay,
     restore,

@@ -8034,7 +8034,7 @@ const openFlowPromptChatDialog = async (options = {}) => {
   const captureAgentSnapshot = async (label = "Flow Map Agent apply", requestedWorkspaceId = "") => {
     const workspaceId = String(requestedWorkspaceId || "").trim() || await ensureRuntimeWorkspaceScope();
     const runtime = window.TrackerLensRuntimeSnapshotStore?.load
-      ? await window.TrackerLensRuntimeSnapshotStore.load({ includeConnections: true, workspaceId }).catch(() => null)
+      ? await window.TrackerLensRuntimeSnapshotStore.load({ includeConnections: true, workspaceId, purpose: "full" }).catch(() => null)
       : null;
     return window.TrackerLensTimeTravelStore?.capture
       ? window.TrackerLensTimeTravelStore.capture({

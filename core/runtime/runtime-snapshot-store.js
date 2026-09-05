@@ -18,11 +18,82 @@ window.TrackerLensRuntimeSnapshotStore = (() => {
     timeTravel: tableName("TL_TIME_TRAVEL_SNAPSHOTS", "tl_time_travel_snapshots"),
   };
 
-  const load = async ({ includeConnections = true, workspaceId = "" } = {}) => {
+  // Safe default: callers rendering or reconciling runtime topology must not
+  // accidentally transfer historical payloads. Full snapshots are reserved
+  // for explicit user actions such as capture, restore, replay and export.
+  const load = async ({ includeConnections = true, workspaceId = "", purpose = "graph", historyOffset = 0, historyLimit = 25 } = {}) => {
     const persistence = window.trackers?.desktop?.persistence;
     const graphStore = window.TrackerLensRuntimeGraphStore;
     if (!await graphStore?.usesDesktopSqlite?.() || !persistence?.readDevelopmentRecords) throw new Error("Runtime Snapshot richiede SQLite nell'app desktop.");
-    const read = (storeName, scoped = false) => persistence.readDevelopmentRecords({ storeName, ...(scoped && workspaceId !== "all" ? { workspaceId } : {}) });
+    const read = async (storeName, scoped = false) => {
+      const records = await persistence.readDevelopmentRecords({
+        storeName,
+        ...(scoped && workspaceId !== "all" ? { workspaceId } : {}),
+      });
+      return records;
+    };
+    const readPage = async (storeName, scoped = false) => {
+      const page = await persistence.readDevelopmentRecordPage({
+        storeName,
+        ...(scoped && workspaceId !== "all" ? { workspaceId } : {}),
+        offset: historyOffset,
+        limit: historyLimit,
+      });
+      return page;
+    };
+    const runtimeOnly = purpose === "runtime";
+    const graphOnly = purpose === "graph";
+    const flowMapHistory = purpose === "flow-map-history";
+    // The background Runtime Worker reconciles subscriptions from executable
+    // node topology only. Keep its five-second read to those two collections;
+    // full snapshots remain the explicit default for inspector surfaces.
+    if (runtimeOnly) {
+      const [runtimeNodes, runtimeDependencies] = await Promise.all([
+        read(STORES.runtimeNodes, true),
+        read(STORES.runtimeDependencies, true),
+      ]);
+      return {
+        workspaceId: workspaceId || "all",
+        channels: [], flows: [], events: [], flowLogs: [],
+        runtimeNodes, runtimeDependencies,
+        connections: [], offlineQueue: [], offlineCache: [], packages: [], packageLock: [], performance: [], timeTravel: [],
+        loadedAt: new Date().toISOString(),
+      };
+    }
+    // Flow Map needs these records to draw and edit its canvas. Historical
+    // event/log payloads are deliberately excluded until the user opens a
+    // runtime inspection panel.
+    if (graphOnly) {
+      const [channels, flows, runtimeNodes, runtimeDependencies, connections] = await Promise.all([
+        read(STORES.channels, true),
+        read(STORES.flows, true),
+        read(STORES.runtimeNodes, true),
+        read(STORES.runtimeDependencies, true),
+        includeConnections ? read(STORES.connections, true) : [],
+      ]);
+      return {
+        workspaceId: workspaceId || "all",
+        channels, flows, events: [], flowLogs: [],
+        runtimeNodes, runtimeDependencies, connections,
+        offlineQueue: [], offlineCache: [], packages: [], packageLock: [], performance: [], timeTravel: [],
+        loadedAt: new Date().toISOString(),
+      };
+    }
+    if (flowMapHistory) {
+      if (!persistence.readDevelopmentRecordPage) throw new Error("Runtime Snapshot richiede la lettura SQLite paginata nell'app desktop.");
+      const [eventsPage, flowLogsPage] = await Promise.all([
+        readPage(STORES.events, true),
+        readPage(STORES.flowLogs, true),
+      ]);
+      return {
+        workspaceId: workspaceId || "all",
+        channels: [], flows: [], events: eventsPage.records, flowLogs: flowLogsPage.records,
+        runtimeNodes: [], runtimeDependencies: [], connections: [],
+        offlineQueue: [], offlineCache: [], packages: [], packageLock: [], performance: [], timeTravel: [],
+        history: { events: eventsPage, flowLogs: flowLogsPage },
+        loadedAt: new Date().toISOString(),
+      };
+    }
     const [channels, flows, events, flowLogs, runtimeNodes, runtimeDependencies, connections, offlineQueue, offlineCache, packages, packageLock, performance, timeTravel] = await Promise.all([
       read(STORES.channels, true), read(STORES.flows, true), read(STORES.events, true), read(STORES.flowLogs, true), read(STORES.runtimeNodes, true), read(STORES.runtimeDependencies, true), includeConnections ? read(STORES.connections, true) : [],
       read(STORES.offlineQueue), read(STORES.offlineCache), read(STORES.packages), read(STORES.packageLock), read(STORES.performance), read(STORES.timeTravel),
