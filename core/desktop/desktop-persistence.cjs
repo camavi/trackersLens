@@ -508,9 +508,13 @@ class DesktopPersistence {
     if (!this.databasePath || !fs.existsSync(this.databasePath)) return [];
     const database = new DatabaseSync(this.databasePath, { readOnly: true });
     try {
-      return database.prepare("SELECT store_name, COUNT(*) AS record_count FROM tl_records GROUP BY store_name ORDER BY store_name").all()
+      return database.prepare("SELECT store_name, COUNT(*) AS record_count, COALESCE(SUM(length(record_json)), 0) AS total_size_bytes FROM tl_records GROUP BY store_name ORDER BY store_name").all()
         .filter((row) => isAllowedRepositoryStore(row.store_name))
-        .map((row) => ({ name: row.store_name, recordCount: Number(row.record_count) || 0 }));
+        .map((row) => ({
+          name: row.store_name,
+          recordCount: Number(row.record_count) || 0,
+          totalSizeBytes: Math.max(0, Number(row.total_size_bytes) || 0),
+        }));
     } finally {
       database.close();
     }

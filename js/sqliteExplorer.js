@@ -26,6 +26,9 @@ const explorerState = {
   workspace: "all",
   view: "table",
   stores: [],
+  page: { offset: 0, limit: 25, total: 0, hasMore: false },
+  recordsById: new Map(),
+  inspectingId: "",
   loadedAt: new Date(),
   queryTime: 0,
 };
@@ -35,45 +38,29 @@ const normalizeText = (value, fallback = "") => {
   return String(value).trim() || fallback;
 };
 
-const recordContent = (record) =>
-  record?.content && typeof record.content === "object" ? record.content : record || {};
-
-const normalizeRecord = (record, index, storeName) => {
-  const content = recordContent(record);
-  const type = normalizeText(content.type || content.kind || content.boxType, storeName === "tl_pages" ? "workspace" : "boxLens");
-  const id = normalizeText(record?.id || content.id, `${storeName}_${index + 1}`);
-  const updatedAt = normalizeText(content.updatedAt || content.savedAt || content.createdAt || record?.updatedAt || record?.createdAt);
-
+const normalizeRecordSummary = (record, index, storeName) => {
+  const id = normalizeText(record?.id, `${storeName}_${index + 1}`);
+  const type = storeName === "tl_pages" ? "workspace" : storeName.replace(/^tl_/, "") || "record";
+  const workspace = normalizeText(record?.workspaceId, storeName === "tl_pages" ? "Workspace" : "Locale");
+  const updatedAt = normalizeText(record?.updatedAt || record?.createdAt);
   return {
     id,
-    raw: record,
     storeName,
-    name: normalizeText(content.name || content.title, storeName === "tl_pages" ? "Workspace" : "Untitled record"),
+    name: id,
     type,
-    category: normalizeText(content.category, type === "boxTracker" ? "Dati" : storeName.replace("tl_", "")),
-    version: normalizeText(content.version, "0.1.0"),
-    workspace: normalizeText(content.workspace || content.workspaceName || content.pageName, storeName === "tl_pages" ? "Workspace" : "Locale"),
+    category: storeName.replace("tl_", "") || "records",
+    version: "SQLite",
+    workspace,
     updatedAt,
-    createdAt: normalizeText(content.createdAt || record?.createdAt || updatedAt),
-    status: content.active === false || content.status === "offline" ? "offline" : normalizeText(content.status, "online"),
-    channels: Array.isArray(content.channels) ? content.channels : [content.outputChannel || content.channel].filter(Boolean),
-    endpoint: (() => {
-      const endpoint = normalizeText(content.endpoint || content.runtime?.endpoint || content.source || content.runtime?.source, "local://sqlite");
-      return /^local:\/\/.*db$/i.test(endpoint) ? "local://sqlite" : endpoint;
-    })(),
-    size: byteSize(record),
-    searchText: [id, content.name, content.title, type, content.category, content.workspace, content.endpoint]
+    createdAt: normalizeText(record?.createdAt || updatedAt),
+    status: "online",
+    channels: [],
+    endpoint: "local://sqlite",
+    size: Math.max(0, Number(record?.sizeBytes) || 0),
+    searchText: [id, type, workspace, storeName]
       .map((value) => normalizeText(value).toLowerCase())
       .join(" "),
   };
-};
-
-const byteSize = (value) => {
-  try {
-    return new Blob([JSON.stringify(value)]).size;
-  } catch {
-    return 0;
-  }
 };
 
 const formatBytes = (bytes) => {
@@ -92,7 +79,7 @@ const formatDate = (value) => {
 const loadSqlite = async () => {
   const started = performance.now();
   const persistence = window.trackers?.desktop?.persistence;
-  if (!persistence?.listDevelopmentStores || !persistence?.readDevelopmentRecords) {
+  if (!persistence?.listDevelopmentStores || !persistence?.readDevelopmentRecordSummaryPage || !persistence?.readDevelopmentRecordById) {
     explorerState.error = "SQLite Explorer richiede l'app desktop Trackers Lens.";
     explorerState.loading = false;
     mountExplorer();
@@ -100,17 +87,18 @@ const loadSqlite = async () => {
   }
   try {
     const catalog = await persistence.listDevelopmentStores();
-    const stores = await Promise.all(catalog.map(async ({ name, recordCount }) => {
-      const records = await persistence.readDevelopmentRecords({ storeName: name });
+    const stores = catalog.map(({ name, recordCount, totalSizeBytes }) => {
       const known = dbExplorerStores.find((store) => store.name === name) || { name, icon: "database", color: "slate" };
-      return { ...known, count: recordCount, records: records.map((record, index) => normalizeRecord(record, index, name)) };
-    }));
+      return { ...known, count: recordCount, totalSizeBytes: Math.max(0, Number(totalSizeBytes) || 0), records: [] };
+    });
     explorerState.dbName = "trackers-lens.sqlite";
     explorerState.dbVersion = "TL Core";
     explorerState.stores = stores;
     explorerState.selectedStore = stores.some((store) => store.name === explorerState.selectedStore) ? explorerState.selectedStore : stores[0]?.name || "";
-    explorerState.selectedId = visibleRecords()[0]?.id || "";
+    explorerState.selectedId = "";
+    explorerState.recordsById = new Map();
     explorerState.error = "";
+    await loadSelectedStorePage({ reset: true });
   } catch (error) {
     explorerState.error = normalizeText(error.message, "SQLite non leggibile");
   } finally {
@@ -119,6 +107,26 @@ const loadSqlite = async () => {
     explorerState.loading = false;
     mountExplorer();
   }
+};
+
+const loadSelectedStorePage = async ({ reset = false } = {}) => {
+  const persistence = window.trackers?.desktop?.persistence;
+  const store = selectedStore();
+  if (!persistence?.readDevelopmentRecordSummaryPage || !store?.name) return;
+  const offset = reset ? 0 : explorerState.page.offset + allRecords().length;
+  const page = await persistence.readDevelopmentRecordSummaryPage({
+    storeName: store.name,
+    offset,
+    limit: explorerState.page.limit,
+  });
+  const records = (page.records || []).map((record, index) => normalizeRecordSummary(record, offset + index, store.name));
+  store.records = reset ? records : [...store.records, ...records];
+  explorerState.page = {
+    offset: Number(page.offset) || 0,
+    limit: Number(page.limit) || explorerState.page.limit,
+    total: Number(page.total) || 0,
+    hasMore: Boolean(page.hasMore),
+  };
 };
 
 const selectedStore = () =>
@@ -137,7 +145,7 @@ const visibleRecords = () => {
 };
 
 const selectedRecord = () =>
-  visibleRecords().find((record) => record.id === explorerState.selectedId) || visibleRecords()[0] || allRecords()[0] || null;
+  allRecords().find((record) => record.id === explorerState.selectedId) || null;
 
 const optionList = (key, label) => [
   { value: "all", label },
@@ -150,24 +158,44 @@ const setStore = (storeName) => {
   explorerState.category = "all";
   explorerState.workspace = "all";
   explorerState.selectedId = "";
+  explorerState.recordsById = new Map();
+  explorerState.loading = true;
   mountExplorer();
+  loadSelectedStorePage({ reset: true })
+    .catch((error) => { explorerState.error = normalizeText(error?.message, "SQLite non leggibile"); })
+    .finally(() => { explorerState.loading = false; mountExplorer(); });
 };
 
-const setSelectedRecord = (id) => {
+const setSelectedRecord = async (id) => {
   explorerState.selectedId = id;
+  const store = selectedStore();
+  if (!explorerState.recordsById.has(id) && store?.name) {
+    explorerState.inspectingId = id;
+    mountExplorer();
+    try {
+      const raw = await window.trackers?.desktop?.persistence?.readDevelopmentRecordById?.({ storeName: store.name, id });
+      if (raw) explorerState.recordsById.set(id, raw);
+    } catch (error) {
+      explorerState.error = normalizeText(error?.message, "Record SQLite non leggibile");
+    } finally {
+      explorerState.inspectingId = "";
+    }
+  }
   mountExplorer();
 };
 
 const copySelectedJson = async () => {
   const record = selectedRecord();
-  if (!record || !navigator.clipboard) return;
-  await navigator.clipboard.writeText(JSON.stringify(record.raw, null, 2));
+  const raw = record ? explorerState.recordsById.get(record.id) : null;
+  if (!raw || !navigator.clipboard) return;
+  await navigator.clipboard.writeText(JSON.stringify(raw, null, 2));
 };
 
 const exportSelectedJson = (selected = selectedRecord()) => {
   const record = selected;
-  if (!record) return;
-  const blob = new Blob([JSON.stringify(record.raw, null, 2)], { type: "application/json" });
+  const raw = record ? explorerState.recordsById.get(record.id) : null;
+  if (!record || !raw) return;
+  const blob = new Blob([JSON.stringify(raw, null, 2)], { type: "application/json" });
   const url = URL.createObjectURL(blob);
   const link = document.createElement("a");
   link.href = url;
@@ -219,16 +247,15 @@ const renderStoreItem = (store) =>
 
 const databaseStats = () => {
   const totalRecords = explorerState.stores.reduce((sum, store) => sum + Number(store.count || 0), 0);
-  const totalSize = explorerState.stores.reduce((sum, store) => sum + store.records.reduce((recordSum, record) => recordSum + record.size, 0), 0);
-  const widgets = explorerState.stores.find((store) => store.name === "tl_widgets")?.records || [];
-  const pages = explorerState.stores.find((store) => store.name === "tl_pages")?.records || [];
+  const totalSize = explorerState.stores.reduce((sum, store) => sum + Number(store.totalSizeBytes || 0), 0);
+  const widgets = explorerState.stores.find((store) => store.name === "tl_widgets")?.count || 0;
+  const pages = explorerState.stores.find((store) => store.name === "tl_pages")?.count || 0;
   return [
     ["Totale record", totalRecords.toLocaleString("it-IT")],
     ["Storage stimato", formatBytes(totalSize)],
     ["Ultimo update", formatDate(explorerState.loadedAt)],
-    ["Workspace", String(pages.length)],
-    ["BoxLens", String(widgets.filter((record) => record.type !== "boxTracker").length)],
-    ["BoxTracker", String(widgets.filter((record) => record.type === "boxTracker").length)],
+    ["Workspace", String(pages)],
+    ["Widget", String(widgets)],
   ];
 };
 
@@ -322,7 +349,7 @@ const renderRecordRow = (record) =>
       _.div(
         { class: "tl-db-row-actions" },
         btn({ onclick: (event) => { event.stopPropagation(); setSelectedRecord(record.id); } }, "Inspect"),
-        btn({ onclick: (event) => { event.stopPropagation(); exportSelectedJson(record); } }, "Export JSON"),
+        btn({ onclick: async (event) => { event.stopPropagation(); await setSelectedRecord(record.id); exportSelectedJson(); } }, "Export JSON"),
         btn({ "aria-label": "Azioni record" }, icon("more_vert", "sm"))
       )
     )
@@ -331,7 +358,11 @@ const renderRecordRow = (record) =>
 const renderTableView = () => {
   const records = visibleRecords();
   if (explorerState.view === "json") {
-    return _.pre({ class: "tl-db-json-bulk" }, JSON.stringify(records.map((record) => record.raw), null, 2));
+    const selected = selectedRecord();
+    const raw = selected ? explorerState.recordsById.get(selected.id) : null;
+    return raw
+      ? _.pre({ class: "tl-db-json-bulk" }, JSON.stringify(raw, null, 2))
+      : _.div({ class: "tl-db-empty" }, "Seleziona un record per aprire il JSON completo.");
   }
 
   if (explorerState.view === "grid") {
@@ -379,7 +410,7 @@ const renderDataView = () => {
     { class: "tl-db-data-view", "aria-label": "Table data view" },
     _.div(
       { class: "tl-db-section-head" },
-      _.div(_.h2(storeName), _.p(`${records.length} record caricati · query visuale locale`)),
+      _.div(_.h2(storeName), _.p(`${records.length} di ${explorerState.page.total} metadati caricati · filtri sulla pagina caricata`)),
       _.Search({
         class: "tl-db-table-search-input",
         label: "Cerca nei dati...",
@@ -399,9 +430,27 @@ const renderDataView = () => {
       : explorerState.error
         ? _.div({ class: "tl-db-empty" }, explorerState.error)
         : records.length
-          ? renderTableView()
+          ? _.div(
+            renderTableView(),
+            explorerState.page.hasMore
+              ? btn({ class: "tl-db-load-more", onclick: loadMoreRecords }, `Carica altri ${explorerState.page.limit} record`)
+              : null
+          )
           : _.div({ class: "tl-db-empty" }, "Nessun record SQLite disponibile per i filtri selezionati.")
   );
+};
+
+const loadMoreRecords = async () => {
+  explorerState.loading = true;
+  mountExplorer();
+  try {
+    await loadSelectedStorePage();
+  } catch (error) {
+    explorerState.error = normalizeText(error?.message, "SQLite non leggibile");
+  } finally {
+    explorerState.loading = false;
+    mountExplorer();
+  }
 };
 
 const jsonTokenize = (line) =>
@@ -420,7 +469,8 @@ const highlightedCode = (line) => {
 };
 
 const renderJsonPreview = (record) => {
-  const lines = JSON.stringify(record?.raw || {}, null, 2).split("\n");
+  const raw = record ? explorerState.recordsById.get(record.id) : null;
+  const lines = JSON.stringify(raw || {}, null, 2).split("\n");
   return _.div(
     { class: "tl-db-json-preview" },
     ...lines.map((line, index) =>
@@ -435,6 +485,7 @@ const renderJsonPreview = (record) => {
 
 const renderInspector = () => {
   const record = selectedRecord();
+  const raw = record ? explorerState.recordsById.get(record.id) : null;
   return _.aside(
     { class: "tl-db-inspector", "aria-label": "Inspector record" },
     _.div(
@@ -442,7 +493,7 @@ const renderInspector = () => {
       _.span({ class: "tl-db-kicker" }, "Selected record"),
       _.h2("Inspector")
     ),
-    record
+    record && raw
       ? _.div(
         { class: "tl-db-inspector-body" },
         _.div(
@@ -476,20 +527,20 @@ const renderInspector = () => {
           btn({ onclick: exportSelectedJson }, "Esporta JSON")
         )
       )
-      : _.div({ class: "tl-db-empty" }, "Seleziona un record per ispezionare il JSON.")
+      : _.div({ class: "tl-db-empty" }, explorerState.inspectingId ? "Caricamento JSON completo…" : "Seleziona un record per ispezionare il JSON.")
   );
 };
 
 const renderFooter = () => {
-  const totalLoaded = visibleRecords().length;
-  const memory = formatBytes(explorerState.stores.reduce((sum, store) => sum + store.records.reduce((recordSum, record) => recordSum + record.size, 0), 0));
+  const totalLoaded = allRecords().length;
+  const memory = formatBytes(allRecords().reduce((sum, record) => sum + record.size, 0));
   return _.footer(
     { class: "tl-db-footer" },
     _.span(dot({ class: "is-online" }), "SQLite via TL Core"),
     _.span(`Query ${explorerState.queryTime} ms`),
-    _.span(`${totalLoaded} records loaded`),
-    _.span(`Memory ${memory}`),
-    _.span("Cache warm")
+    _.span(`${totalLoaded} metadati caricati`),
+    _.span(`Pagina ${memory}`),
+    _.span("JSON su richiesta")
   );
 };
 

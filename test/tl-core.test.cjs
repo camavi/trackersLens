@@ -278,6 +278,13 @@ test("desktop persistence verifies a development first-cohort import without act
   assert.deepEqual(persistence.readDevelopmentRecords({ storeName: "tl_pages", workspaceId: "workspace_1" }), [{ id: "page_1", workspaceId: "workspace_1" }]);
   assert.equal(persistence.writeDevelopmentRecords({ storeName: "tl_pages", records: [{ id: "page_2", workspaceId: "workspace_1", title: "SQLite page" }] }).status, "development-write-complete");
   assert.deepEqual(persistence.readDevelopmentRecords({ storeName: "tl_pages", workspaceId: "workspace_1" }), [{ id: "page_1", workspaceId: "workspace_1" }, { id: "page_2", workspaceId: "workspace_1", title: "SQLite page" }]);
+  const pageSummaries = persistence.readDevelopmentRecordSummaryPage({ storeName: "tl_pages", workspaceId: "workspace_1", limit: 1 });
+  assert.equal(pageSummaries.total, 2);
+  assert.equal(pageSummaries.records.length, 1);
+  assert.equal(pageSummaries.records[0].id, "page_2");
+  assert.equal(Object.hasOwn(pageSummaries.records[0], "title"), false);
+  assert.deepEqual(persistence.readDevelopmentRecordById({ storeName: "tl_pages", id: "page_2" }), { id: "page_2", workspaceId: "workspace_1", title: "SQLite page" });
+  assert.ok(persistence.listDevelopmentStores().find((store) => store.name === "tl_pages")?.totalSizeBytes > 0);
   assert.equal(persistence.deleteDevelopmentRecords({ storeName: "tl_pages", ids: ["page_2"] }).status, "development-delete-complete");
   assert.deepEqual(persistence.readDevelopmentRecords({ storeName: "tl_pages", workspaceId: "workspace_1" }), [{ id: "page_1", workspaceId: "workspace_1" }]);
   assert.equal(persistence.verifyDevelopmentBundle({ stores: { tl_pages: [{ id: "page_1", workspaceId: "workspace_1" }], tl_channels: [] } }).status, "shadow-match");
