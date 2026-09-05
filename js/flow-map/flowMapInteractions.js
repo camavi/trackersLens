@@ -34,6 +34,33 @@ const flowPositionNumber = (position = {}, axis = "x") =>
 const flowPositionWidth = (position = {}) =>
   flowNodeWidth(position);
 
+// The HTML node layer follows the pointer immediately. Expensive edge canvas,
+// label and minimap work is coalesced to one visual update per frame.
+let flowCanvasVisualFrame = 0;
+let flowCanvasVisualNeedsMinimap = false;
+
+const scheduleFlowCanvasVisualRefresh = ({ minimap = false } = {}) => {
+  flowCanvasVisualNeedsMinimap = flowCanvasVisualNeedsMinimap || Boolean(minimap);
+  if (flowCanvasVisualFrame) return;
+  flowCanvasVisualFrame = requestAnimationFrame(() => {
+    const updateMinimap = flowCanvasVisualNeedsMinimap;
+    flowCanvasVisualFrame = 0;
+    flowCanvasVisualNeedsMinimap = false;
+    renderFlowEdges();
+    if (updateMinimap) updateFlowMinimapDom?.();
+  });
+};
+
+const flushFlowCanvasVisualRefresh = ({ minimap = false } = {}) => {
+  flowCanvasVisualNeedsMinimap = flowCanvasVisualNeedsMinimap || Boolean(minimap);
+  if (flowCanvasVisualFrame) cancelAnimationFrame(flowCanvasVisualFrame);
+  flowCanvasVisualFrame = 0;
+  const updateMinimap = flowCanvasVisualNeedsMinimap;
+  flowCanvasVisualNeedsMinimap = false;
+  renderFlowEdges();
+  if (updateMinimap) updateFlowMinimapDom?.();
+};
+
 const wheelPixelDelta = (event) => {
   const multiplier = event.deltaMode === WheelEvent.DOM_DELTA_LINE
     ? 16
@@ -51,8 +78,7 @@ const updateCanvasViewportDom = () => {
   if (layer) layer.style.transform = `translate(${state.viewport.panX}px, ${state.viewport.panY}px) scale(${state.viewport.zoom})`;
   const zoomLabel = document.querySelector("[data-flow-zoom-label]");
   if (zoomLabel) zoomLabel.textContent = `${Math.round(state.viewport.zoom * 100)}%`;
-  renderFlowEdges();
-  if (typeof updateFlowMinimapDom === "function") updateFlowMinimapDom();
+  scheduleFlowCanvasVisualRefresh({ minimap: true });
 };
 
 const zoomCanvasAtPoint = (event, deltaY = 0) => {
@@ -1906,7 +1932,7 @@ const beginPortLinkDrag = (event, node, index, side = "out", port = "all") => {
   document.addEventListener("pointermove", handlePointerMove);
   document.addEventListener("pointerup", endInteraction, { once: true });
   document.addEventListener("pointercancel", endInteraction, { once: true });
-  renderFlowEdges();
+  scheduleFlowCanvasVisualRefresh();
 };
 
 const setNodeLinkClass = (nodeId, className, enabled) => {
@@ -2154,7 +2180,7 @@ const handlePointerMove = (event) => {
         node.style.setProperty("--node-width", `${state.nodePositions[nodeId].width}px`);
       }
     });
-    renderFlowEdges();
+    scheduleFlowCanvasVisualRefresh({ minimap: true });
     return;
   }
 
@@ -2170,14 +2196,14 @@ const handlePointerMove = (event) => {
     };
     const node = document.querySelector(`[data-flow-node-id="${escapeSelectorValue(interaction.nodeId)}"]`);
     if (node) node.style.setProperty("--node-width", `${Math.round(nextWidth)}px`);
-    renderFlowEdges();
+    scheduleFlowCanvasVisualRefresh({ minimap: true });
     return;
   }
 
   if (interaction.type === "link") {
     interaction.point = pointerPercent(event, interaction.canvas);
     updateLinkHoverTarget(interaction, event);
-    renderFlowEdges();
+    scheduleFlowCanvasVisualRefresh();
     return;
   }
 
@@ -2246,6 +2272,7 @@ const endInteraction = (event) => {
   state.interaction = null;
   state.lastInteractionAt = Date.now();
   if (interaction?.type === "link") {
+    flushFlowCanvasVisualRefresh();
     if (event?.type === "pointercancel") {
       state.linkingSourceId = "";
       clearLinkDomState();
@@ -2258,6 +2285,7 @@ const endInteraction = (event) => {
     return;
   }
   if (interaction?.type === "minimap") {
+    flushFlowCanvasVisualRefresh({ minimap: true });
     saveViewport();
     flushPendingRuntimeRefresh();
     return;
@@ -2269,8 +2297,12 @@ const endInteraction = (event) => {
     flushPendingRuntimeRefresh();
     return;
   }
-  if (interaction?.type === "node") persistNodePositions(interaction);
+  if (interaction?.type === "node") {
+    flushFlowCanvasVisualRefresh({ minimap: true });
+    persistNodePositions(interaction);
+  }
   if (interaction?.type === "node-resize") {
+    flushFlowCanvasVisualRefresh({ minimap: true });
     if (interaction.moved) persistNodePosition(interaction);
     flushPendingRuntimeRefresh();
     return;
@@ -2286,7 +2318,7 @@ const endInteraction = (event) => {
       return;
     }
     saveViewport();
-    renderFlowEdges();
+    flushFlowCanvasVisualRefresh({ minimap: true });
     flushPendingRuntimeRefresh();
     return;
   }
@@ -2464,7 +2496,7 @@ const setGraphHover = (nodeId = "", portKey = "") => {
   if (state.hoverNodeId === nodeId && state.hoverPortKey === portKey) return;
   state.hoverNodeId = nodeId;
   state.hoverPortKey = portKey;
-  renderFlowEdges();
+  scheduleFlowCanvasVisualRefresh();
 };
 
 const clearSelection = () => {

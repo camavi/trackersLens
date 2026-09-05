@@ -838,13 +838,14 @@ const drawFlowEdges = () => {
   ctx.clearRect(0, 0, width, height);
 
   const graph = state.edgeRender.graph || { nodes: [], dependencies: [] };
+  const nodeIndexes = new Map(graph.nodes.map((node, index) => [node.id, index]));
   const activity = state.edgeRender.activity || { edgeActivity: new Map() };
   const processingEdgeIds = new Set(activeProcessingEdgeIds(graph));
   let hasLiveEdge = false;
   graph.dependencies.forEach((dependency) => {
-    const fromIndex = graph.nodes.findIndex((node) => node.id === dependency.sourceNodeId);
-    const toIndex = graph.nodes.findIndex((node) => node.id === dependency.targetNodeId);
-    if (fromIndex < 0 || toIndex < 0) return;
+    const fromIndex = nodeIndexes.get(dependency.sourceNodeId);
+    const toIndex = nodeIndexes.get(dependency.targetNodeId);
+    if (fromIndex === undefined || toIndex === undefined) return;
 
     const sourceNode = graph.nodes[fromIndex];
     const targetNode = graph.nodes[toIndex];
@@ -985,14 +986,15 @@ const positionEdgeLabels = () => {
   const rect = host?.getBoundingClientRect?.();
   const bounds = edgeCanvasBounds();
   const graph = state.edgeRender.graph || { nodes: [], dependencies: [] };
+  const nodeIndexes = new Map(graph.nodes.map((node, index) => [node.id, index]));
   if (!rect || !bounds) return;
 
   graph.dependencies.forEach((dependency) => {
     const label = document.querySelector(`.tl-flow-edge-label[data-edge-id="${escapeSelectorValue(dependency.id)}"]`);
     if (!label) return;
-    const fromIndex = graph.nodes.findIndex((node) => node.id === dependency.sourceNodeId);
-    const toIndex = graph.nodes.findIndex((node) => node.id === dependency.targetNodeId);
-    if (fromIndex < 0 || toIndex < 0) return;
+    const fromIndex = nodeIndexes.get(dependency.sourceNodeId);
+    const toIndex = nodeIndexes.get(dependency.targetNodeId);
+    if (fromIndex === undefined || toIndex === undefined) return;
     const sourceNode = graph.nodes[fromIndex];
     const targetNode = graph.nodes[toIndex];
     const offset = edgePortOffset(dependency, graph.dependencies);
