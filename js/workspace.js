@@ -287,13 +287,12 @@ const normalizeWorkspaceConnection = (connection = {}) => ({
 
 const loadWorkspaceConnectionsFromStore = async (workspaceId = "", contentConnections = []) => {
   const baseConnections = contentConnections.map(normalizeWorkspaceConnection);
-  if (!window.TrackerLensConnectionsStore?.list) return baseConnections;
+  if (!window.TrackerLensConnectionsStore?.listForWorkspace) return baseConnections;
 
   try {
     const boxIds = new Set(workspaceState.boxes.map((box) => box.id).filter(Boolean));
-    const storeConnections = (await window.TrackerLensConnectionsStore.list())
+    const storeConnections = (await window.TrackerLensConnectionsStore.listForWorkspace(workspaceId))
       .map(normalizeWorkspaceConnection)
-      .filter((connection) => !workspaceId || !connection.workspaceId || connection.workspaceId === workspaceId)
       .filter((connection) => boxIds.has(connection.fromBoxId) && boxIds.has(connection.toBoxId));
     const merged = new Map();
     [...baseConnections, ...storeConnections].forEach((connection) => merged.set(connectionKey(connection), connection));
@@ -792,88 +791,10 @@ const trackerDialogInputValue = (eventOrValue) => {
   return eventOrValue || "";
 };
 
-const workspaceFlowMapStoreName = (key, fallback) => (typeof tlConfig !== "undefined" ? tlConfig.TABLES?.[key] : null) || fallback;
-
-const readWorkspaceFlowMapStore = async (storeName) => {
+const readWorkspaceEditorIndex = async () => {
   const persistence = window.trackers?.desktop?.persistence;
-  if (!persistence?.readDevelopmentRecords) throw new Error("Workspace richiede SQLite nell'app desktop.");
-  return persistence.readDevelopmentRecords({ storeName });
-};
-
-const workspaceFlowMapContentOf = (record) => record?.content && typeof record.content === "object" ? record.content : record || {};
-const isWorkspaceFlowMapPage = (record = {}) => {
-  const content = workspaceFlowMapContentOf(record);
-  return content.type === "flowmap" || content.kind === "flowmap" || content.format === "tlflow" || record?.format === "tlflow";
-};
-
-const isWorkspaceFlowPortNode = (node = {}, subtype = "") => {
-  const value = String(node.metadata?.subtype || node.subtype || "").toLowerCase();
-  const label = String(node.metadata?.paletteLabel || node.label || "").toLowerCase();
-  return value === subtype || label === (subtype === "flow-in" ? "flow in" : "flow out");
-};
-
-const normalizeWorkspaceFlowPort = (port = {}, fallbackName = "flow.port") => {
-  if (typeof port === "string") return { name: port || fallbackName, type: "object" };
-  return {
-    name: String(port.name || port.key || port.channel || port.id || fallbackName),
-    type: String(port.type || port.valueType || "object"),
-    schema: port.schema || port.payloadSchema || null,
-    required: Boolean(port.required),
-  };
-};
-
-const workspaceFlowPortsForNode = (node = {}, subtype = "") => {
-  const direction = subtype === "flow-out" ? "inputs" : "outputs";
-  const fallback = subtype === "flow-out" ? "flow.out" : "flow.in";
-  const stored = Array.isArray(node.metadata?.flowPorts) ? node.metadata.flowPorts : [];
-  const source = stored.length ? stored : Array.isArray(node[direction]) ? node[direction] : [];
-  const ports = source
-    .map((port) => normalizeWorkspaceFlowPort(port, fallback))
-    .filter((port) => port.name && port.name !== "all" && port.name !== "agent_control");
-  return ports.length ? ports : [{ name: fallback, type: "object" }];
-};
-
-const uniqueWorkspaceFlowPorts = (nodes = [], subtype = "") => {
-  const unique = new Map();
-  nodes
-    .filter((node) => isWorkspaceFlowPortNode(node, subtype))
-    .flatMap((node) => workspaceFlowPortsForNode(node, subtype))
-    .forEach((port) => {
-      if (!unique.has(port.name)) unique.set(port.name, port);
-    });
-  return [...unique.values()];
-};
-
-const listComposableWorkspaceFlowMaps = async () => {
-  const pageStore = workspaceFlowMapStoreName("TL_PAGES", "tl_pages");
-  const nodeStore = workspaceFlowMapStoreName("TL_RUNTIME_NODES", "tl_runtime_nodes");
-  const [pages, nodes] = await Promise.all([
-    readWorkspaceFlowMapStore(pageStore),
-    readWorkspaceFlowMapStore(nodeStore),
-  ]);
-  return pages
-    .filter(isWorkspaceFlowMapPage)
-    .map((record) => {
-      const content = workspaceFlowMapContentOf(record);
-      const id = String(content.id || record.id || "").trim();
-      const scopedNodes = nodes.filter((node) => node.workspaceId === id);
-      const inputPorts = uniqueWorkspaceFlowPorts(scopedNodes, "flow-in");
-      const outputPorts = uniqueWorkspaceFlowPorts(scopedNodes, "flow-out");
-      const hasInput = inputPorts.length > 0;
-      const hasOutput = outputPorts.length > 0;
-      return {
-        id,
-        name: content.name || content.title || id,
-        category: content.category || "global",
-        description: content.description || `${scopedNodes.length} nodi runtime`,
-        version: content.version || "0.1.0",
-        hasInput,
-        hasOutput,
-        inputPorts,
-        outputPorts,
-      };
-    })
-    .filter((item) => item.id && (item.hasInput || item.hasOutput));
+  if (!persistence?.readWorkspaceEditorIndex) throw new Error("Workspace richiede SQLite nell'app desktop.");
+  return persistence.readWorkspaceEditorIndex();
 };
 
 const renderTrackerLinkDialogContent = (lensBox, closeDialog) => {
@@ -2284,12 +2205,9 @@ const loadLocalAssets = async () => {
   mountWorkspace();
 
   try {
-    const [assets, flowMaps] = await Promise.all([
-      window.TrackerLensLocalLibrary.listWidgetAssets(),
-      listComposableWorkspaceFlowMaps(),
-    ]);
-    workspaceState.localAssets = assets;
-    workspaceState.localFlowMaps = flowMaps;
+    const index = await readWorkspaceEditorIndex();
+    workspaceState.localAssets = index.widgets || [];
+    workspaceState.localFlowMaps = index.flowMaps || [];
     hydrateWorkspaceBoxes();
     workspaceState.assetsLoading = false;
     workspaceState.flowMapsLoading = false;

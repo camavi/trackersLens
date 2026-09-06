@@ -533,6 +533,36 @@ const setFocusState = (focus) => {
   setFocusSignal(focus);
 };
 
+// Classic Flow Map scripts are loaded once by the persistent shell. Refresh
+// route state on every mount so a Library card's workspaceId is never replaced
+// by the Flow that happened to be active when the shell first started.
+const syncFlowMapRouteFromLocation = () => {
+  const params = new URLSearchParams(window.location.search);
+  const workspaceId = String(params.get("workspaceId") || "").trim();
+  state.viewport = workspaceId ? loadStoredViewport(workspaceId) || defaultViewport() : defaultViewport();
+  setFiltersState({
+    ...state.filters,
+    workspaceId,
+    channel: params.get("channel") || "all",
+    activity: params.get("activity") || "all",
+    type: params.get("type") || "all",
+    origin: params.get("origin") || "all",
+    state: params.get("state") || "all",
+    eventType: params.get("eventType") || "all",
+    logLevel: params.get("logLevel") || "all",
+    runId: params.get("runId") || "all",
+  });
+  setFocusState({
+    mode: params.get("runtime") || "",
+    nodeId: params.get("nodeId") || "",
+    edgeId: params.get("edgeId") || "",
+    nodeType: params.get("nodeType") || "",
+    channel: params.get("channel") || "",
+    connectionId: params.get("connectionId") || "",
+  });
+  state.frontNodeId = params.get("nodeId") || "";
+};
+
 const filterModel = (key) => [
   () => getFiltersState()[key],
   (value) => setFilter(key, value),

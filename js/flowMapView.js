@@ -139,6 +139,7 @@ const startFlowMapLifecycle = ({ root = null } = {}) => {
   }
   flowMapLifecycleActive = true;
   const lifecycleRunId = ++flowMapLifecycleRunId;
+  syncFlowMapRouteFromLocation?.();
   flowMapRoot = root || document.getElementById("tl-flow-map-root");
   flowMapRuntimeWorkerUnsubscribe = window.TrackerLensRuntimeWorker?.subscribe?.(onFlowMapRuntimeWorkerStatus) || null;
   mount();

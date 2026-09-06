@@ -642,6 +642,47 @@ class DesktopPersistence {
     }
   }
 
+  readWorkspaceEditorIndex() {
+    if (!this.databasePath || !fs.existsSync(this.databasePath)) throw new Error("SQLite development candidate does not exist.");
+    const database = new DatabaseSync(this.databasePath, { readOnly: true });
+    try {
+      const widgets = database.prepare(
+        "SELECT id, record_json, created_at AS createdAt, updated_at AS updatedAt FROM tl_records WHERE store_name = ? ORDER BY updated_at DESC, id DESC"
+      ).all("tl_widgets").map((row) => librarySummary(parseStoredJson(row.record_json), { ...row, storeName: "tl_widgets" }));
+      const pages = database.prepare(
+        "SELECT id, record_json, created_at AS createdAt, updated_at AS updatedAt FROM tl_records WHERE store_name = ? ORDER BY updated_at DESC, id DESC"
+      ).all("tl_pages").map((row) => ({ row, record: parseStoredJson(row.record_json) })).filter(({ record }) => isFlowMapPage(record));
+      const nodesByWorkspace = new Map();
+      database.prepare("SELECT workspace_id AS workspaceId, record_json FROM tl_records WHERE store_name = ?").all("tl_runtime_nodes").forEach((row) => {
+        const workspaceId = String(row.workspaceId || "");
+        if (!nodesByWorkspace.has(workspaceId)) nodesByWorkspace.set(workspaceId, []);
+        nodesByWorkspace.get(workspaceId).push(parseStoredJson(row.record_json));
+      });
+      const flowMaps = pages.map(({ row, record }) => {
+        const content = recordContent(record);
+        const id = String(content?.id || record?.id || row.id || "");
+        const ports = (nodesByWorkspace.get(id) || []).flatMap((node) => {
+          const subtype = String(node?.metadata?.subtype || node?.subtype || "").toLowerCase();
+          const direction = subtype === "flow-out" ? "output" : subtype === "flow-in" ? "input" : "";
+          if (!direction) return [];
+          const rawPorts = Array.isArray(node?.metadata?.flowPorts) ? node.metadata.flowPorts : Array.isArray(node?.[direction === "input" ? "outputs" : "inputs"]) ? node[direction === "input" ? "outputs" : "inputs"] : [];
+          return rawPorts.map((port) => ({ direction, name: String(typeof port === "string" ? port : port?.name || port?.key || port?.channel || ""), type: String(typeof port === "object" ? port?.type || port?.valueType || "object" : "object") })).filter((port) => port.name && port.name !== "all" && port.name !== "agent_control");
+        });
+        const uniquePorts = (direction) => [...new Map(ports.filter((port) => port.direction === direction).map((port) => [port.name, { name: port.name, type: port.type }])).values()];
+        const inputPorts = uniquePorts("input");
+        const outputPorts = uniquePorts("output");
+        return {
+          id, name: String(content?.name || content?.title || id), category: String(content?.category || "global"),
+          description: String(content?.description || `${(nodesByWorkspace.get(id) || []).length} nodi runtime`), version: String(content?.version || "0.1.0"),
+          hasInput: inputPorts.length > 0, hasOutput: outputPorts.length > 0, inputPorts, outputPorts,
+        };
+      }).filter((flowMap) => flowMap.id && (flowMap.hasInput || flowMap.hasOutput));
+      return { widgets, flowMaps };
+    } finally {
+      database.close();
+    }
+  }
+
   readConnectionSummaryPage({ offset = 0, limit = 25 } = {}) {
     if (!this.databasePath || !fs.existsSync(this.databasePath)) throw new Error("SQLite development candidate does not exist.");
     const safeOffset = Math.max(0, Math.floor(Number(offset) || 0));

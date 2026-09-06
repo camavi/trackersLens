@@ -362,6 +362,13 @@ window.TrackerLensConnectionsStore = (() => {
     return records;
   };
 
+  const listForWorkspace = async (workspaceId = "") => {
+    const persistence = desktopPersistence();
+    if (!workspaceId) return [];
+    if (!await usesDesktopSqlite() || !persistence?.readDevelopmentRecords) throw new Error("Connections Store richiede SQLite nell'app desktop.");
+    return (await persistence.readDevelopmentRecords({ storeName: CONNECTION_STORE, workspaceId })).map(normalizeConnection);
+  };
+
   const listSummaryPage = async ({ offset = 0, limit = 25 } = {}) => {
     const persistence = desktopPersistence();
     if (!await usesDesktopSqlite() || !persistence?.readConnectionSummaryPage) throw new Error("Connections Store richiede SQLite nell'app desktop.");
@@ -396,14 +403,9 @@ window.TrackerLensConnectionsStore = (() => {
     const workspaceName = normalizeText(workspace?.name || workspace?.title, "Workspace");
     const now = new Date().toISOString();
 
-    const existing = await readAll(CONNECTION_STORE);
-    const nextIds = new Set(connections.map((connection, index) => connection.id || `connection_${workspaceId}_${index}`));
-    const staleIds = existing
-      .map(normalizeConnection)
-      .filter((connection) => connection.workspaceId === workspaceId && !nextIds.has(connection.id))
-      .map((connection) => connection.id);
-
-    await removeMany(staleIds);
+    const persistence = desktopPersistence();
+    if (!await usesDesktopSqlite() || !persistence?.deleteDevelopmentRecordsByWorkspace) throw new Error("Connections Store richiede SQLite nell'app desktop.");
+    await persistence.deleteDevelopmentRecordsByWorkspace({ storeName: CONNECTION_STORE, workspaceId, includeRecordId: false });
 
     return Promise.all(connections.map((connection, index) => {
       const fromBox = widgetsByBoxId.get(connection.fromBoxId) || {};
@@ -440,6 +442,7 @@ window.TrackerLensConnectionsStore = (() => {
     CONNECTION_STORE,
     duplicate,
     list,
+    listForWorkspace,
     listSummaryPage,
     normalizeConnection,
     remove,

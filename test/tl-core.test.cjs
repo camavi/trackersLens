@@ -355,6 +355,20 @@ test("desktop persistence pages Library cards without transferring asset code or
   assert.deepEqual(persistence.readDevelopmentRecordById({ storeName: "tl_widgets", id: "lens_1" }).content.code, { source: "large private code" });
 });
 
+test("desktop persistence projects the compact Workspace editor asset index", (context) => {
+  const fixtureDirectory = fs.mkdtempSync(path.join(os.tmpdir(), "trackers-lens-workspace-index-"));
+  context.after(() => fs.rmSync(fixtureDirectory, { recursive: true, force: true }));
+  const persistence = new DesktopPersistence({ databasePath: path.join(fixtureDirectory, "development.sqlite") });
+  persistence.initialize();
+  persistence.writeDevelopmentRecords({ storeName: "tl_widgets", records: [{ id: "tracker_1", content: { id: "tracker_1", type: "boxTracker", name: "Tracker", code: { source: "not transferred" } } }] });
+  persistence.writeDevelopmentRecords({ storeName: "tl_pages", records: [{ id: "flow_1", content: { id: "flow_1", type: "flowmap", name: "Flow" } }] });
+  persistence.writeDevelopmentRecords({ storeName: "tl_runtime_nodes", records: [{ id: "flow_in", workspaceId: "flow_1", metadata: { subtype: "flow-in", flowPorts: [{ name: "flow.in", type: "object" }] } }] });
+  const index = persistence.readWorkspaceEditorIndex();
+  assert.equal(index.widgets[0].name, "Tracker");
+  assert.equal(Object.hasOwn(index.widgets[0], "code"), false);
+  assert.deepEqual(index.flowMaps, [{ id: "flow_1", name: "Flow", category: "global", description: "1 nodi runtime", version: "0.1.0", hasInput: true, hasOutput: false, inputPorts: [{ name: "flow.in", type: "object" }], outputPorts: [] }]);
+});
+
 test("desktop persistence pages compact connection records without their configuration mapping", (context) => {
   const fixtureDirectory = fs.mkdtempSync(path.join(os.tmpdir(), "trackers-lens-connections-"));
   context.after(() => fs.rmSync(fixtureDirectory, { recursive: true, force: true }));
