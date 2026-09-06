@@ -71,7 +71,7 @@ const recordUiColor = (record = {}) => {
 
 const ensureFlowLibraryStores = async () => {
   const persistence = window.trackers?.desktop?.persistence;
-  if (!persistence?.getStatus || !persistence.readDevelopmentRecords || !persistence.writeDevelopmentRecords || !persistence.deleteDevelopmentRecords) throw new Error("Library Flow Map richiede SQLite nell'app desktop.");
+  if (!persistence?.getStatus || !persistence.readFlowMapLibraryIndex || !persistence.readDevelopmentRecordById || !persistence.readDevelopmentRecords || !persistence.writeDevelopmentRecords || !persistence.deleteDevelopmentRecords || !persistence.deleteDevelopmentRecordsByWorkspace) throw new Error("Library Flow Map richiede SQLite nell'app desktop.");
   if ((await persistence.getStatus())?.mode !== "desktop-sqlite") throw new Error("Library Flow Map richiede SQLite nell'app desktop.");
   return persistence;
 };
@@ -82,7 +82,7 @@ const readAll = async (storeName) => {
 
 const readRecord = async (storeName, id) => {
   if (!storeName || !id) return null;
-  return (await readAll(storeName)).find((record) => record.id === id) || null;
+  return (await ensureFlowLibraryStores()).readDevelopmentRecordById({ storeName, id });
 };
 
 const writeRecord = async (storeName, record) => {
@@ -100,16 +100,7 @@ const deleteRecord = async (storeName, id) => {
 const deleteScopedRecords = async (storeName, workspaceId = "") => {
   if (!storeName || !workspaceId) return [];
   const persistence = await ensureFlowLibraryStores();
-  {
-    const records = await persistence.readDevelopmentRecords({ storeName });
-    const ids = records
-      .filter((record) => record?.workspaceId === workspaceId || record?.id === workspaceId)
-      .map((record) => record.id)
-      .filter(Boolean);
-    if (!ids.length) return [];
-    await persistence.deleteDevelopmentRecords({ storeName, ids });
-    return ids;
-  }
+  return persistence.deleteDevelopmentRecordsByWorkspace({ storeName, workspaceId, includeRecordId: true });
 };
 
 const contentOf = (record) => record?.content && typeof record.content === "object" ? record.content : record || {};
@@ -123,41 +114,25 @@ const isFlowMapFlow = (flow = {}) =>
   flow?.type === "flowmap" || flow?.kind === "flowmap" || flow?.format === "tlflow" || flow?.libraryKind === "flowmap";
 
 const loadFlowMapsFromDb = async () => {
-  const [pages, flows, nodes, dependencies] = await Promise.all([
-    readAll(PAGE_STORE),
-    readAll(FLOW_STORE),
-    readAll(NODE_STORE),
-    readAll(DEPENDENCY_STORE),
-  ]);
-  const flowMapPages = pages.filter(isFlowMapRecord);
-  const flowMapFlows = flows.filter(isFlowMapFlow);
-  const pageById = new Map(flowMapPages.map((record) => [normalizeText(record.id || contentOf(record).id), contentOf(record)]));
-  const workspaceIds = new Set([
-    ...flowMapPages.map((record) => normalizeText(record.id || contentOf(record).id)).filter(Boolean),
-    ...flowMapFlows.map((flow) => normalizeText(flow.workspaceId || flow.id)).filter(Boolean),
-  ]);
-
-  return Array.from(workspaceIds).map((workspaceId) => {
-    const page = pageById.get(workspaceId) || {};
-    const flow = flowMapFlows.find((item) => item.workspaceId === workspaceId || item.id === workspaceId) || {};
-    const scopedNodes = nodes.filter((node) => node.workspaceId === workspaceId);
-    const scopedDependencies = dependencies.filter((dependency) => dependency.workspaceId === workspaceId);
-    const name = normalizeText(flow.name || page.name || page.title, workspaceId);
-    const category = normalizeText(flow.category || page.category, "global");
-    const color = recordUiColor(flow) || recordUiColor(page) || defaultFlowColor(workspaceId);
-    const updatedAt = normalizeText(page.updatedAt || page.savedAt || flow.updatedAt || page.createdAt || flow.createdAt);
-    const description = normalizeText(page.description, `${scopedNodes.length} nodi runtime · ${scopedDependencies.length} collegamenti`);
+  const records = await (await ensureFlowLibraryStores()).readFlowMapLibraryIndex();
+  return records.map((record) => {
+    const id = normalizeText(record?.id);
+    const name = normalizeText(record?.name, id);
+    const category = normalizeText(record?.category, "global");
+    const description = normalizeText(record?.description, `${Number(record?.nodes) || 0} nodi runtime · ${Number(record?.dependencies) || 0} collegamenti`);
+    const status = normalizeText(record?.status, "active");
     return {
-      id: workspaceId,
+      id,
+      flowRecordId: normalizeText(record?.flowRecordId),
       name,
       category,
-      color,
+      color: validHexColor(record?.color) ? record.color : defaultFlowColor(id),
       description,
-      nodes: scopedNodes.length,
-      dependencies: scopedDependencies.length,
-      status: normalizeText(flow.status || page.status, "active"),
-      updatedAt,
-      searchText: [workspaceId, name, category, description, flow.status, page.status].map((value) => normalizeText(value).toLowerCase()).join(" "),
+      nodes: Math.max(0, Number(record?.nodes) || 0),
+      dependencies: Math.max(0, Number(record?.dependencies) || 0),
+      status,
+      updatedAt: normalizeText(record?.updatedAt),
+      searchText: [id, name, category, description, status].map((value) => normalizeText(value).toLowerCase()).join(" "),
     };
   });
 };
@@ -268,7 +243,7 @@ const saveFlowMapColor = async (item, color, event = null) => {
       },
     });
 
-    const flowRecord = (await readAll(FLOW_STORE)).find((flow) => flow.workspaceId === item.id || flow.id === item.id);
+    const flowRecord = item.flowRecordId ? await readRecord(FLOW_STORE, item.flowRecordId) : null;
     if (flowRecord?.id) {
       await writeRecord(FLOW_STORE, {
         ...flowRecord,

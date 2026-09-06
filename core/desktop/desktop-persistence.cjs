@@ -80,6 +80,20 @@ const parseStoredJson = (source = "") => {
   }
 };
 
+const recordContent = (record = {}) => isPlainObject(record?.content) ? record.content : record;
+const isFlowMapPage = (record = {}) => {
+  const content = recordContent(record);
+  return content?.type === "flowmap" || content?.kind === "flowmap" || content?.format === "tlflow" || record?.format === "tlflow";
+};
+const isFlowMapFlow = (record = {}) =>
+  record?.type === "flowmap" || record?.kind === "flowmap" || record?.format === "tlflow" || record?.libraryKind === "flowmap";
+const validHexColor = (value = "") => /^#[0-9a-f]{6}$/i.test(String(value || "").trim());
+const flowMapColor = (record = {}) => {
+  const content = recordContent(record);
+  const ui = isPlainObject(content?.ui) ? content.ui : {};
+  return validHexColor(ui.color) ? ui.color : validHexColor(content?.color) ? content.color : "";
+};
+
 const normalizeRecords = (records = []) => {
   if (!Array.isArray(records)) throw new Error("Persistence records must be an array.");
   const ids = new Set();
@@ -499,6 +513,71 @@ class DesktopPersistence {
     try {
       const row = database.prepare("SELECT record_json FROM tl_records WHERE store_name = ? AND id = ?").get(name, recordId);
       return row ? parseStoredJson(row.record_json) : null;
+    } finally {
+      database.close();
+    }
+  }
+
+  readFlowMapLibraryIndex() {
+    if (!this.databasePath || !fs.existsSync(this.databasePath)) throw new Error("SQLite development candidate does not exist.");
+    const database = new DatabaseSync(this.databasePath, { readOnly: true });
+    try {
+      const pages = database.prepare("SELECT id, record_json, updated_at AS updatedAt FROM tl_records WHERE store_name = ? ORDER BY id").all("tl_pages")
+        .map((row) => ({ id: String(row.id || ""), updatedAt: String(row.updatedAt || ""), record: parseStoredJson(row.record_json) }))
+        .filter(({ record }) => isFlowMapPage(record));
+      const flows = database.prepare("SELECT id, record_json, updated_at AS updatedAt FROM tl_records WHERE store_name = ? ORDER BY id").all("tl_flows")
+        .map((row) => ({ id: String(row.id || ""), updatedAt: String(row.updatedAt || ""), record: parseStoredJson(row.record_json) }))
+        .filter(({ record }) => isFlowMapFlow(record));
+      const countByWorkspace = (storeName) => new Map(database.prepare(
+        "SELECT workspace_id AS workspaceId, COUNT(*) AS recordCount FROM tl_records WHERE store_name = ? GROUP BY workspace_id"
+      ).all(storeName).map((row) => [String(row.workspaceId || ""), Number(row.recordCount) || 0]));
+      const nodeCounts = countByWorkspace("tl_runtime_nodes");
+      const dependencyCounts = countByWorkspace("tl_runtime_dependencies");
+      const pageById = new Map(pages.map((page) => [page.id, page]));
+      const flowByWorkspace = new Map(flows.map((flow) => [String(flow.record?.workspaceId || flow.record?.id || ""), flow]));
+      const workspaceIds = new Set([
+        ...pages.map((page) => page.id),
+        ...flows.map((flow) => String(flow.record?.workspaceId || flow.record?.id || "")),
+      ].filter(Boolean));
+
+      return Array.from(workspaceIds).map((workspaceId) => {
+        const page = pageById.get(workspaceId);
+        const flow = flowByWorkspace.get(workspaceId);
+        const pageContent = recordContent(page?.record);
+        const flowRecord = flow?.record || {};
+        const nodes = nodeCounts.get(workspaceId) || 0;
+        const dependencies = dependencyCounts.get(workspaceId) || 0;
+        return {
+          id: workspaceId,
+          flowRecordId: flow?.id || "",
+          name: String(flowRecord.name || pageContent.name || pageContent.title || workspaceId),
+          category: String(flowRecord.category || pageContent.category || "global"),
+          color: flowMapColor(flowRecord) || flowMapColor(pageContent),
+          description: String(pageContent.description || `${nodes} nodi runtime · ${dependencies} collegamenti`),
+          nodes,
+          dependencies,
+          status: String(flowRecord.status || pageContent.status || "active"),
+          updatedAt: String(pageContent.updatedAt || pageContent.savedAt || flowRecord.updatedAt || pageContent.createdAt || flowRecord.createdAt || page?.updatedAt || flow?.updatedAt || ""),
+        };
+      });
+    } finally {
+      database.close();
+    }
+  }
+
+  deleteDevelopmentRecordsByWorkspace({ storeName = "", workspaceId = "", includeRecordId = true } = {}) {
+    const name = String(storeName || "");
+    const workspace = String(workspaceId || "");
+    if (!isAllowedRepositoryStore(name)) throw new Error(`Unsupported persistence store: ${name}`);
+    if (!workspace) throw new Error("Development workspace id is required.");
+    if (!this.databasePath || !fs.existsSync(this.databasePath)) throw new Error("SQLite development candidate does not exist.");
+    this.lastDevelopmentShadowMatch = false;
+    const database = new DatabaseSync(this.databasePath);
+    try {
+      const result = includeRecordId
+        ? database.prepare("DELETE FROM tl_records WHERE store_name = ? AND (workspace_id = ? OR id = ?)").run(name, workspace, workspace)
+        : database.prepare("DELETE FROM tl_records WHERE store_name = ? AND workspace_id = ?").run(name, workspace);
+      return { storeName: name, workspaceId: workspace, deletedCount: Math.max(0, Number(result.changes) || 0) };
     } finally {
       database.close();
     }

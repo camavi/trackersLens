@@ -31,6 +31,8 @@ const trackers = Object.freeze({
       readDevelopmentRecordPage: ({ storeName, workspaceId = "", offset = 0, limit = 25 } = {}) => request("desktop.persistence.readDevelopmentRecordPage", { storeName: String(storeName || ""), workspaceId: String(workspaceId || ""), offset: Number(offset) || 0, limit: Number(limit) || 25 }),
       readDevelopmentRecordSummaryPage: ({ storeName, workspaceId = "", offset = 0, limit = 25 } = {}) => request("desktop.persistence.readDevelopmentRecordSummaryPage", { storeName: String(storeName || ""), workspaceId: String(workspaceId || ""), offset: Number(offset) || 0, limit: Number(limit) || 25 }),
       readDevelopmentRecordById: ({ storeName, id } = {}) => request("desktop.persistence.readDevelopmentRecordById", { storeName: String(storeName || ""), id: String(id || "") }),
+      readFlowMapLibraryIndex: () => request("desktop.persistence.readFlowMapLibraryIndex"),
+      deleteDevelopmentRecordsByWorkspace: ({ storeName, workspaceId, includeRecordId = true } = {}) => request("desktop.persistence.deleteDevelopmentRecordsByWorkspace", { storeName: String(storeName || ""), workspaceId: String(workspaceId || ""), includeRecordId: Boolean(includeRecordId) }),
       writeDevelopmentRecords: ({ storeName, records = [] } = {}) => request("desktop.persistence.writeDevelopmentRecords", { storeName: String(storeName || ""), records }),
       deleteDevelopmentRecords: ({ storeName, ids = [] } = {}) => request("desktop.persistence.deleteDevelopmentRecords", { storeName: String(storeName || ""), ids }),
       setDevelopmentRuntimeActive: (active) => request("desktop.persistence.setDevelopmentRuntimeActive", { active: Boolean(active) })
@@ -109,6 +111,8 @@ contextBridge.exposeInMainWorld("trackersDesktop", Object.freeze({
   readDevelopmentRecordPage: trackers.desktop.persistence.readDevelopmentRecordPage,
   readDevelopmentRecordSummaryPage: trackers.desktop.persistence.readDevelopmentRecordSummaryPage,
   readDevelopmentRecordById: trackers.desktop.persistence.readDevelopmentRecordById,
+  readFlowMapLibraryIndex: trackers.desktop.persistence.readFlowMapLibraryIndex,
+  deleteDevelopmentRecordsByWorkspace: trackers.desktop.persistence.deleteDevelopmentRecordsByWorkspace,
   writeDevelopmentRecords: trackers.desktop.persistence.writeDevelopmentRecords,
   deleteDevelopmentRecords: trackers.desktop.persistence.deleteDevelopmentRecords,
   setDevelopmentRuntimeActive: trackers.desktop.persistence.setDevelopmentRuntimeActive

@@ -300,6 +300,44 @@ test("desktop persistence verifies a development first-cohort import without act
   assert.deepEqual(persistence.listDevelopmentStores().map((store) => store.name).sort(), ["tl_knowledge_documents", "tl_pages"]);
 });
 
+test("desktop persistence projects Flow Map library cards without returning runtime records", (context) => {
+  const fixtureDirectory = fs.mkdtempSync(path.join(os.tmpdir(), "trackers-lens-flow-library-"));
+  context.after(() => fs.rmSync(fixtureDirectory, { recursive: true, force: true }));
+  const persistence = new DesktopPersistence({ databasePath: path.join(fixtureDirectory, "development.sqlite") });
+  persistence.initialize();
+  persistence.writeDevelopmentRecords({ storeName: "tl_pages", records: [{
+    id: "flowmap_alpha",
+    content: { id: "flowmap_alpha", type: "flowmap", name: "Alpha", category: "knowledge", description: "Knowledge graph", ui: { color: "#38bdf8" } }
+  }] });
+  persistence.writeDevelopmentRecords({ storeName: "tl_flows", records: [{
+    id: "flow_alpha", workspaceId: "flowmap_alpha", type: "flowmap", name: "Alpha", status: "active"
+  }] });
+  persistence.writeDevelopmentRecords({ storeName: "tl_runtime_nodes", records: [
+    { id: "node_1", workspaceId: "flowmap_alpha", metadata: { large: "not returned" } },
+    { id: "node_2", workspaceId: "flowmap_alpha" },
+  ] });
+  persistence.writeDevelopmentRecords({ storeName: "tl_runtime_dependencies", records: [{ id: "edge_1", workspaceId: "flowmap_alpha" }] });
+
+  const index = persistence.readFlowMapLibraryIndex();
+  assert.deepEqual(index.map(({ updatedAt, ...record }) => record), [{
+    id: "flowmap_alpha",
+    flowRecordId: "flow_alpha",
+    name: "Alpha",
+    category: "knowledge",
+    color: "#38bdf8",
+    description: "Knowledge graph",
+    nodes: 2,
+    dependencies: 1,
+    status: "active",
+  }]);
+  assert.match(index[0].updatedAt, /^\d{4}-\d{2}-\d{2}T/);
+  assert.deepEqual(
+    persistence.deleteDevelopmentRecordsByWorkspace({ storeName: "tl_runtime_nodes", workspaceId: "flowmap_alpha" }),
+    { storeName: "tl_runtime_nodes", workspaceId: "flowmap_alpha", deletedCount: 2 }
+  );
+  assert.deepEqual(persistence.readDevelopmentRecords({ storeName: "tl_runtime_nodes", workspaceId: "flowmap_alpha" }), []);
+});
+
 test("TL Core keeps the Python POC opt-in behind narrow commands", async () => {
   const calls = [];
   const pythonPoc = {

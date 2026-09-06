@@ -103,6 +103,12 @@ const createTlCore = ({ appVersion = "0.0.0", platform = "unknown", mode = "prod
       case "desktop.persistence.readDevelopmentRecordById":
         if (!persistence?.readDevelopmentRecordById) throw errorWithCode("Desktop persistence is unavailable", "PERSISTENCE_UNAVAILABLE");
         return persistence.readDevelopmentRecordById(payload);
+      case "desktop.persistence.readFlowMapLibraryIndex":
+        if (!persistence?.readFlowMapLibraryIndex) throw errorWithCode("Desktop persistence is unavailable", "PERSISTENCE_UNAVAILABLE");
+        return persistence.readFlowMapLibraryIndex();
+      case "desktop.persistence.deleteDevelopmentRecordsByWorkspace":
+        if (!persistence?.deleteDevelopmentRecordsByWorkspace) throw errorWithCode("Desktop persistence is unavailable", "PERSISTENCE_UNAVAILABLE");
+        return persistence.deleteDevelopmentRecordsByWorkspace(payload);
       case "desktop.persistence.listDevelopmentStores":
         if (!persistence?.listDevelopmentStores) throw errorWithCode("Desktop persistence is unavailable", "PERSISTENCE_UNAVAILABLE");
         return persistence.listDevelopmentStores();
