@@ -150,6 +150,19 @@ window.TrackerLensLocalLibrary = (() => {
     ];
   };
 
+  const listLibrarySummaryPage = async ({ offset = 0, limit = 25 } = {}) => {
+    const persistence = desktopPersistence();
+    if (!await usesDesktopSqlite() || !persistence?.readLibrarySummaryPage) throw new Error("Local Library richiede SQLite nell'app desktop.");
+    const page = await persistence.readLibrarySummaryPage({ offset, limit });
+    return {
+      ...page,
+      records: (Array.isArray(page?.records) ? page.records : []).map((item) => ({
+        ...item,
+        searchText: [item.name, item.description, item.category, item.type, item.author].map((value) => normalizeText(value).toLowerCase()).join(" "),
+      })),
+    };
+  };
+
   const inspect = async () => {
     const [widgets, pages] = await Promise.all([readAll(WIDGET_STORE), readAll(PAGE_STORE)]);
     return { name: "trackers-lens.sqlite", version: "tl-desktop-persistence/v1", stores: [WIDGET_STORE, PAGE_STORE], counts: { [WIDGET_STORE]: widgets.length, [PAGE_STORE]: pages.length }, origin: "tl-core", href: window.location.href };
@@ -157,6 +170,7 @@ window.TrackerLensLocalLibrary = (() => {
 
   return {
     inspect,
+    listLibrarySummaryPage,
     listLibraryItems,
     listWidgetAssets,
     normalizeWidgetAsset,

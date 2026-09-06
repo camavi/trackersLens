@@ -338,6 +338,23 @@ test("desktop persistence projects Flow Map library cards without returning runt
   assert.deepEqual(persistence.readDevelopmentRecords({ storeName: "tl_runtime_nodes", workspaceId: "flowmap_alpha" }), []);
 });
 
+test("desktop persistence pages Library cards without transferring asset code or Flow Maps", (context) => {
+  const fixtureDirectory = fs.mkdtempSync(path.join(os.tmpdir(), "trackers-lens-library-summary-"));
+  context.after(() => fs.rmSync(fixtureDirectory, { recursive: true, force: true }));
+  const persistence = new DesktopPersistence({ databasePath: path.join(fixtureDirectory, "development.sqlite") });
+  persistence.initialize();
+  persistence.writeDevelopmentRecords({ storeName: "tl_widgets", records: [{ id: "lens_1", content: { id: "lens_1", name: "Lens", code: { source: "large private code" }, runtime: { permissions: ["network"] } } }] });
+  persistence.writeDevelopmentRecords({ storeName: "tl_pages", records: [
+    { id: "workspace_1", content: { id: "workspace_1", name: "Workspace", boxes: [{ id: "box_1" }], connections: [] } },
+    { id: "flowmap_1", content: { id: "flowmap_1", type: "flowmap", name: "Flow Map" } },
+  ] });
+  const page = persistence.readLibrarySummaryPage({ limit: 25 });
+  assert.equal(page.total, 2);
+  assert.deepEqual(page.records.map((record) => record.id).sort(), ["lens_1", "workspace_1"]);
+  assert.equal(Object.hasOwn(page.records.find((record) => record.id === "lens_1"), "code"), false);
+  assert.deepEqual(persistence.readDevelopmentRecordById({ storeName: "tl_widgets", id: "lens_1" }).content.code, { source: "large private code" });
+});
+
 test("desktop persistence pages compact connection records without their configuration mapping", (context) => {
   const fixtureDirectory = fs.mkdtempSync(path.join(os.tmpdir(), "trackers-lens-connections-"));
   context.after(() => fs.rmSync(fixtureDirectory, { recursive: true, force: true }));

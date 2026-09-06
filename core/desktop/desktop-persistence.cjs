@@ -121,6 +121,34 @@ const connectionSummary = (record = {}, { id = "", createdAt = "", updatedAt = "
     channel: String(content?.channel || "default"),
   };
 };
+const librarySummary = (record = {}, { id = "", storeName = "", createdAt = "", updatedAt = "" } = {}) => {
+  const content = recordContent(record);
+  const isWorkspace = storeName === "tl_pages";
+  const type = isWorkspace ? "workspace" : (content?.type === "boxTracker" || content?.kind === "boxTracker" || content?.boxType === "boxTracker" ? "boxTracker" : "boxLens");
+  const boxes = Array.isArray(content?.boxes) ? content.boxes : [];
+  const connections = Array.isArray(content?.connections) ? content.connections : [];
+  const name = String(content?.name || content?.title || (isWorkspace ? "Workspace" : type === "boxTracker" ? "Box Tracker" : "Box Lens"));
+  const description = String(content?.description || (isWorkspace ? `${boxes.length} box · ${connections.length} collegamenti · ${Number(content?.columns) || 48} colonne` : "Nessuna descrizione disponibile."));
+  const trust = isPlainObject(content?.trust)
+    ? {
+      status: String(content.trust.status || ""), trustLevel: String(content.trust.trustLevel || ""), score: Number(content.trust.score) || 0,
+      runtime: isPlainObject(content.trust.runtime) && Array.isArray(content.trust.runtime.violations)
+        ? { violations: content.trust.runtime.violations.map((violation) => String(violation)) }
+        : null,
+    }
+    : null;
+  const ui = isPlainObject(content?.ui) ? content.ui : {};
+  return {
+    id: String(record?.id || content?.id || id || ""), storeName, name, type,
+    category: String(content?.category || (isWorkspace ? "Workspace" : type === "boxTracker" ? "Dati" : "Custom")),
+    description, author: String(content?.author || "Locale"),
+    icon: String(content?.icon || (isWorkspace ? "dashboard_customize" : type === "boxTracker" ? "cloud_queue" : "dashboard")),
+    color: validHexColor(ui.color) ? ui.color : validHexColor(content?.color) ? content.color : (isWorkspace ? "#38bdf8" : type === "boxTracker" ? "#35c979" : "#9b5cf5"),
+    version: String(content?.version || "0.1.0"),
+    runtimeVersion: String(content?.runtimeVersion || content?.versioning?.runtimeVersion || ""), trust,
+    updatedAt: String(content?.updatedAt || content?.savedAt || content?.createdAt || updatedAt || createdAt || ""),
+  };
+};
 
 const normalizeRecords = (records = []) => {
   if (!Array.isArray(records)) throw new Error("Persistence records must be an array.");
@@ -588,6 +616,27 @@ class DesktopPersistence {
           updatedAt: String(pageContent.updatedAt || pageContent.savedAt || flowRecord.updatedAt || pageContent.createdAt || flowRecord.createdAt || page?.updatedAt || flow?.updatedAt || ""),
         };
       });
+    } finally {
+      database.close();
+    }
+  }
+
+  readLibrarySummaryPage({ offset = 0, limit = 25 } = {}) {
+    if (!this.databasePath || !fs.existsSync(this.databasePath)) throw new Error("SQLite development candidate does not exist.");
+    const safeOffset = Math.max(0, Math.floor(Number(offset) || 0));
+    const safeLimit = Math.max(1, Math.floor(Number(limit) || 25));
+    const database = new DatabaseSync(this.databasePath, { readOnly: true });
+    try {
+      const records = database.prepare(
+        "SELECT store_name AS storeName, id, record_json, created_at AS createdAt, updated_at AS updatedAt FROM tl_records WHERE store_name IN (?, ?) ORDER BY updated_at DESC, id DESC"
+      ).all("tl_widgets", "tl_pages")
+        .map((row) => ({ row, record: parseStoredJson(row.record_json) }))
+        .filter(({ row, record }) => row.storeName !== "tl_pages" || !isFlowMapPage(record))
+        .map(({ row, record }) => librarySummary(record, row));
+      return {
+        records: records.slice(safeOffset, safeOffset + safeLimit), total: records.length,
+        offset: safeOffset, limit: safeLimit, hasMore: safeOffset + safeLimit < records.length,
+      };
     } finally {
       database.close();
     }

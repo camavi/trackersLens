@@ -217,12 +217,9 @@ const serializeWorkspaceBox = (box) => ({
 });
 
 const waitForWorkspaceStore = async () => {
-  const table = tlConfig.TABLES.TL_PAGES;
+  // SQLite is Core-owned: unlike the retired IndexedDB implementation it has
+  // no renderer `objectStoreNames` collection to inspect.
   await db.ready;
-
-  if (!db.db?.objectStoreNames?.contains(table)) {
-    throw new Error(`Store SQLite non disponibile: ${table}`);
-  }
 };
 
 const workspacePayload = () => ({

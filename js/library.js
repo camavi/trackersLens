@@ -4,6 +4,7 @@ const btn = (props, ...children) => _.Btn({ type: "button", ...props }, ...child
 
 const libraryState = {
   loading: true,
+  loadingMore: false,
   verifying: false,
   error: "",
   widgets: [],
@@ -14,6 +15,7 @@ const libraryState = {
   category: "Tutti",
   sort: "recent",
   view: "grid",
+  page: { offset: 0, limit: 25, total: 0, hasMore: false },
   searchFocus: false,
   searchSelectionStart: 0,
 };
@@ -102,14 +104,14 @@ const contentOf = (record) => record?.content && typeof record.content === "obje
 const libraryPersistence = () => window.trackers?.desktop?.persistence || null;
 const ensureLibraryPersistence = async () => {
   const persistence = libraryPersistence();
-  if (!persistence?.getStatus || !persistence.readDevelopmentRecords || !persistence.writeDevelopmentRecords || !persistence.deleteDevelopmentRecords) throw new Error("Libreria richiede SQLite nell'app desktop.");
+  if (!persistence?.getStatus || !persistence.readDevelopmentRecordById || !persistence.deleteDevelopmentRecordsByWorkspace || !persistence.writeDevelopmentRecords || !persistence.deleteDevelopmentRecords) throw new Error("Libreria richiede SQLite nell'app desktop.");
   if ((await persistence.getStatus())?.mode !== "desktop-sqlite") throw new Error("Libreria richiede SQLite nell'app desktop.");
   return persistence;
 };
 
 const readLibraryRecord = async (storeName, id) => {
   if (!storeName || !id) return null;
-  return (await (await ensureLibraryPersistence()).readDevelopmentRecords({ storeName })).find((record) => record.id === id) || null;
+  return (await (await ensureLibraryPersistence()).readDevelopmentRecordById({ storeName, id })) || null;
 };
 
 const writeLibraryRecord = async (storeName, record) => {
@@ -127,16 +129,8 @@ const deleteLibraryRecord = async (storeName, id) => {
 const deleteScopedLibraryRecords = async (storeName, workspaceId = "") => {
   if (!storeName || !workspaceId) return [];
   const persistence = await ensureLibraryPersistence();
-  {
-    const records = await persistence.readDevelopmentRecords({ storeName });
-    const ids = records
-      .filter((record) => record?.workspaceId === workspaceId || record?.id === workspaceId)
-      .map((record) => record.id)
-      .filter(Boolean);
-    if (!ids.length) return [];
-    await persistence.deleteDevelopmentRecords({ storeName, ids });
-    return ids;
-  }
+  const result = await persistence.deleteDevelopmentRecordsByWorkspace({ storeName, workspaceId, includeRecordId: true });
+  return result?.deletedCount ? [workspaceId] : [];
 };
 
 const exportLibraryItem = async (item, event = null) => {
@@ -246,8 +240,7 @@ const scanMarketplaceTrust = async () => {
 const ensureSettingsStore = ensureLibraryPersistence;
 
 const loadFavoriteIds = async () => {
-  const records = await (await ensureSettingsStore()).readDevelopmentRecords({ storeName: SETTINGS_STORE });
-  const record = records.find((item) => item.id === FAVORITES_RECORD_ID) || {};
+  const record = await (await ensureSettingsStore()).readDevelopmentRecordById({ storeName: SETTINGS_STORE, id: FAVORITES_RECORD_ID }) || {};
   const ids = Array.isArray(record.favoriteIds) ? record.favoriteIds : Array.isArray(record.items) ? record.items : [];
   return new Set(ids.filter(Boolean).map(String));
 };
@@ -545,7 +538,7 @@ const renderToolbar = (items) =>
     _.Row(
       { class: "tl-result-heading", align: "baseline", gap: 10 },
       _.h2(libraryState.favoritesOnly ? "I miei preferiti" : libraryState.category === "Tutti" ? "Tutta la libreria" : libraryState.category),
-      _.span({ class: "tl-result-count" }, `${items.length} elementi`)
+      _.span({ class: "tl-result-count" }, `${items.length} di ${libraryState.page.total} elementi caricati`)
     ),
     _.Row(
       { class: "tl-toolbar-actions", align: "center", gap: 12 },
@@ -719,7 +712,12 @@ const renderMain = () => {
         : libraryState.error
           ? renderErrorState()
           : items.length
-            ? _.Grid({ class: modeClass, cols: libraryState.view === "list" ? 1 : "repeat(auto-fill, minmax(220px, 1fr))", gap: libraryState.view === "list" ? 12 : "28px 18px" }, ...items.map(renderBoxCard))
+            ? _.div(
+              _.Grid({ class: modeClass, cols: libraryState.view === "list" ? 1 : "repeat(auto-fill, minmax(220px, 1fr))", gap: libraryState.view === "list" ? 12 : "28px 18px" }, ...items.map(renderBoxCard)),
+              libraryState.page.hasMore
+                ? _.div({ class: "tl-library-load-more" }, _.p("Filtri applicati agli elementi già caricati."), btn({ class: "st-btn-secondary", disabled: libraryState.loadingMore, onclick: loadMoreLibraryItems }, libraryState.loadingMore ? "Caricamento…" : "Carica altri"))
+                : null
+            )
             : renderEmptyState()
     )
   );
@@ -765,14 +763,14 @@ const loadLibrary = async () => {
   mountLibrary();
 
   try {
-    await window.TrackerLensLocalLibrary.inspect();
-    const items = await window.TrackerLensLocalLibrary.listLibraryItems();
+    const page = await window.TrackerLensLocalLibrary.listLibrarySummaryPage({ offset: 0, limit: libraryState.page.limit });
     const favoriteIds = await loadFavoriteIds()
       .catch((error) => {
         console.warn("[TrackerLens Library Favorites]", error);
         return new Set();
       });
-    libraryState.widgets = items;
+    libraryState.widgets = page.records;
+    libraryState.page = { offset: page.offset, limit: page.limit, total: page.total, hasMore: page.hasMore };
     libraryState.favoriteIds = favoriteIds;
     if (window.TrackerLensMarketplaceVerification) {
       libraryState.widgets = await window.TrackerLensMarketplaceVerification.enrichAssets(libraryState.widgets);
@@ -786,6 +784,23 @@ const loadLibrary = async () => {
   }
 
   mountLibrary();
+};
+
+const loadMoreLibraryItems = async () => {
+  if (libraryState.loading || libraryState.loadingMore || !libraryState.page.hasMore) return;
+  libraryState.loadingMore = true;
+  mountLibrary();
+  try {
+    const page = await window.TrackerLensLocalLibrary.listLibrarySummaryPage({ offset: libraryState.widgets.length, limit: libraryState.page.limit });
+    const records = window.TrackerLensMarketplaceVerification ? await window.TrackerLensMarketplaceVerification.enrichAssets(page.records) : page.records;
+    libraryState.widgets = [...libraryState.widgets, ...records];
+    libraryState.page = { offset: page.offset, limit: page.limit, total: page.total, hasMore: page.hasMore };
+  } catch (error) {
+    libraryState.error = error?.message || "Errore durante la lettura di SQLite.";
+  } finally {
+    libraryState.loadingMore = false;
+    mountLibrary();
+  }
 };
 
 window.TrackerLensViews = window.TrackerLensViews || {};
