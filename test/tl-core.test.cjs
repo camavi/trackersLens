@@ -369,6 +369,21 @@ test("desktop persistence projects the compact Workspace editor asset index", (c
   assert.deepEqual(index.flowMaps, [{ id: "flow_1", name: "Flow", category: "global", description: "1 nodi runtime", version: "0.1.0", hasInput: true, hasOutput: false, inputPorts: [{ name: "flow.in", type: "object" }], outputPorts: [] }]);
 });
 
+test("desktop persistence projects AI DevTools summaries without memory payloads", (context) => {
+  const fixtureDirectory = fs.mkdtempSync(path.join(os.tmpdir(), "trackers-lens-ai-devtools-"));
+  context.after(() => fs.rmSync(fixtureDirectory, { recursive: true, force: true }));
+  const persistence = new DesktopPersistence({ databasePath: path.join(fixtureDirectory, "development.sqlite") });
+  persistence.initialize();
+  persistence.writeDevelopmentRecords({ storeName: "tl_ai_providers", records: [{ id: "provider_1", name: "Local", model: "small" }] });
+  persistence.writeDevelopmentRecords({ storeName: "tl_ai_memory", records: [{ id: "memory_1", name: "Memory", payload: { large: "not transferred" } }] });
+  persistence.writeDevelopmentRecords({ storeName: "tl_ai_jobs", records: [{ id: "job_1" }] });
+  const summary = persistence.readAiDevToolsSummary();
+  assert.equal(summary.providers[0].name, "Local");
+  assert.equal(summary.jobs, 1);
+  assert.equal(summary.memory[0].name, "Memory");
+  assert.equal(Object.hasOwn(summary.memory[0], "payload"), false);
+});
+
 test("desktop persistence pages compact connection records without their configuration mapping", (context) => {
   const fixtureDirectory = fs.mkdtempSync(path.join(os.tmpdir(), "trackers-lens-connections-"));
   context.after(() => fs.rmSync(fixtureDirectory, { recursive: true, force: true }));

@@ -683,6 +683,31 @@ class DesktopPersistence {
     }
   }
 
+  readAiDevToolsSummary({ memoryOffset = 0, memoryLimit = 25 } = {}) {
+    if (!this.databasePath || !fs.existsSync(this.databasePath)) throw new Error("SQLite development candidate does not exist.");
+    const safeOffset = Math.max(0, Math.floor(Number(memoryOffset) || 0));
+    const safeLimit = Math.max(1, Math.floor(Number(memoryLimit) || 25));
+    const database = new DatabaseSync(this.databasePath, { readOnly: true });
+    try {
+      const count = (storeName) => Number(database.prepare("SELECT COUNT(*) AS count FROM tl_records WHERE store_name = ?").get(storeName)?.count) || 0;
+      const providers = database.prepare("SELECT id, record_json, updated_at AS updatedAt FROM tl_records WHERE store_name = ? ORDER BY updated_at DESC, id DESC").all("tl_ai_providers")
+        .map((row) => {
+          const content = recordContent(parseStoredJson(row.record_json));
+          const local = Boolean(content?.local || content?.localFirst || /^local_/.test(String(row.id || "")));
+          return { id: String(row.id || ""), name: String(content?.name || content?.provider || "Provider AI"), model: String(content?.model || content?.defaultModel || content?.runtime?.model || "modello non configurato"), status: String(content?.status || content?.state || "idle"), local, updatedAt: String(content?.updatedAt || row.updatedAt || "") };
+        });
+      const totalMemory = count("tl_ai_memory");
+      const memory = database.prepare("SELECT id, record_json, updated_at AS updatedAt FROM tl_records WHERE store_name = ? ORDER BY updated_at DESC, id DESC LIMIT ? OFFSET ?").all("tl_ai_memory", safeLimit, safeOffset)
+        .map((row) => {
+          const content = recordContent(parseStoredJson(row.record_json));
+          return { id: String(row.id || ""), name: String(content?.name || content?.title || content?.key || "Memory"), kind: String(content?.kind || content?.type || "memory"), scope: String(content?.scope || "workspace"), workspaceId: String(content?.workspaceId || "global"), status: String(content?.status || "active"), pinned: Boolean(content?.pinned), updatedAt: String(content?.updatedAt || row.updatedAt || ""), stored: true };
+        });
+      return { providers, agents: count("tl_ai_agents") + count("tl_ai_runtime"), jobs: count("tl_ai_jobs"), memory, memoryPage: { total: totalMemory, offset: safeOffset, limit: safeLimit, hasMore: safeOffset + memory.length < totalMemory } };
+    } finally {
+      database.close();
+    }
+  }
+
   readConnectionSummaryPage({ offset = 0, limit = 25 } = {}) {
     if (!this.databasePath || !fs.existsSync(this.databasePath)) throw new Error("SQLite development candidate does not exist.");
     const safeOffset = Math.max(0, Math.floor(Number(offset) || 0));

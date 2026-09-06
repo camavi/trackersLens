@@ -112,6 +112,9 @@ const createTlCore = ({ appVersion = "0.0.0", platform = "unknown", mode = "prod
       case "desktop.persistence.readWorkspaceEditorIndex":
         if (!persistence?.readWorkspaceEditorIndex) throw errorWithCode("Desktop persistence is unavailable", "PERSISTENCE_UNAVAILABLE");
         return persistence.readWorkspaceEditorIndex();
+      case "desktop.persistence.readAiDevToolsSummary":
+        if (!persistence?.readAiDevToolsSummary) throw errorWithCode("Desktop persistence is unavailable", "PERSISTENCE_UNAVAILABLE");
+        return persistence.readAiDevToolsSummary(payload);
       case "desktop.persistence.readConnectionSummaryPage":
         if (!persistence?.readConnectionSummaryPage) throw errorWithCode("Desktop persistence is unavailable", "PERSISTENCE_UNAVAILABLE");
         return persistence.readConnectionSummaryPage(payload);

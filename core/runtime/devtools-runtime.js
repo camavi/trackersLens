@@ -19,7 +19,7 @@ window.TrackerLensDevToolsRuntime = (() => {
     }
   };
 
-  const load = async ({ snapshotOffset = 0, snapshotLimit = 25 } = {}) => {
+  const load = async ({ snapshotOffset = 0, snapshotLimit = 25, includeAi = false } = {}) => {
     // The overview needs topology, not historical payloads. Keeping this
     // explicit avoids falling back to RuntimeSnapshotStore's full snapshot.
     const graph = await safeValue(() => window.TrackerLensGraphEngine?.buildGraph?.({ purpose: "graph" }), null);
@@ -34,7 +34,9 @@ window.TrackerLensDevToolsRuntime = (() => {
     );
     const snapshots = Array.isArray(snapshotPage?.records) ? snapshotPage.records : [];
     const performance = await safeList(window.TrackerLensBoxPerformanceMonitor?.list);
-    const ai = await safeValue(() => window.TrackerLensAiRuntimeStore?.list?.(), null);
+    const ai = includeAi
+      ? await safeValue(() => window.trackers?.desktop?.persistence?.readAiDevToolsSummary?.(), null)
+      : null;
 
     return {
       schemaVersion: SCHEMA_VERSION,

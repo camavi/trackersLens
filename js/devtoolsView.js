@@ -33,6 +33,7 @@ const state = {
   },
   timeDiff: null,
   timeReplay: null,
+  aiLoading: false,
 };
 
 const formatDate = (value) => {
@@ -79,6 +80,7 @@ const setTab = (tab) => {
   query.set("tab", tab);
   history.replaceState(null, "", `${window.location.pathname}?${query.toString()}`);
   mount();
+  if (tab === "ai" && !state.data?.ai) void loadAiDevToolsSummary();
 };
 
 const updateFilter = (key, value) => {
@@ -155,7 +157,7 @@ const parseMaybeJson = (value) => {
 };
 
 const isStoredMemory = (item = {}) =>
-  Boolean(item.id && item.raw && !Array.isArray(item.raw.items) && !/^memory_(scope|widgets|workspaces|connections)/.test(item.id));
+  Boolean(item.id && (item.stored || (item.raw && !Array.isArray(item.raw.items))) && !/^memory_(scope|widgets|workspaces|connections)/.test(item.id));
 
 const pinMemoryRecord = async (item, pinned) => {
   if (!isStoredMemory(item) || !window.TrackerLensAiRuntimeStore?.pinMemory) return;
@@ -513,8 +515,8 @@ const renderPerformance = () =>
 const renderAi = () => {
   const ai = state.data?.ai || {};
   const providers = ai.providers || [];
-  const agents = ai.agents || [];
-  const jobs = ai.jobs || [];
+  const agents = Array.isArray(ai.agents) ? ai.agents.length : Number(ai.agents) || 0;
+  const jobs = Array.isArray(ai.jobs) ? ai.jobs.length : Number(ai.jobs) || 0;
   const memory = ai.memory || [];
   return _.section(
     { class: "tl-devtools-panel" },
@@ -523,8 +525,8 @@ const renderAi = () => {
       _.h2("AI Runtime"),
       table(["Metric", "Value"], [
         _.tr(_.td("Providers"), _.td(number(providers.length))),
-        _.tr(_.td("Agents"), _.td(number(agents.length))),
-        _.tr(_.td("Jobs"), _.td(number(jobs.length))),
+        _.tr(_.td("Agents"), _.td(number(agents))),
+        _.tr(_.td("Jobs"), _.td(number(jobs))),
         _.tr(_.td("Memory blocks"), _.td(number(memory.length))),
       ])
     ),
@@ -855,7 +857,7 @@ async function loadDevTools({ snapshotOffset = 0, appendSnapshots = false } = {}
   mount();
   try {
     if (!window.TrackerLensDevToolsRuntime?.load) throw new Error("TrackerLensDevToolsRuntime non disponibile");
-    const loaded = await window.TrackerLensDevToolsRuntime.load({ snapshotOffset });
+    const loaded = await window.TrackerLensDevToolsRuntime.load({ snapshotOffset, includeAi: false });
     if (appendSnapshots && state.data) {
       const existing = Array.isArray(state.data.snapshots) ? state.data.snapshots : [];
       const next = Array.isArray(loaded.snapshots) ? loaded.snapshots : [];
@@ -873,6 +875,21 @@ async function loadDevTools({ snapshotOffset = 0, appendSnapshots = false } = {}
   } finally {
     state.loading = false;
     mount();
+    if (state.tab === "ai") void loadAiDevToolsSummary();
+  }
+}
+
+async function loadAiDevToolsSummary() {
+  if (state.aiLoading || state.data?.ai) return;
+  state.aiLoading = true;
+  try {
+    const ai = await window.trackers?.desktop?.persistence?.readAiDevToolsSummary?.();
+    if (state.data) state.data = { ...state.data, ai: ai || { providers: [], agents: 0, jobs: 0, memory: [] } };
+  } catch (error) {
+    console.error("Errore riepilogo AI DevTools:", error);
+  } finally {
+    state.aiLoading = false;
+    if (state.tab === "ai") mount();
   }
 }
 
@@ -888,6 +905,7 @@ window.TrackerLensViews.devtools = {
     devtoolsEmbedded = true;
     window.TrackerLensAppShell?.setActive?.("devtools");
     await loadDevTools();
+    if (state.tab === "ai") await loadAiDevToolsSummary();
   },
   dispose() {
     root?.replaceChildren();
