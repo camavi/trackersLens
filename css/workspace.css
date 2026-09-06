@@ -253,7 +253,7 @@ body {
   text-align: center;
 }
 
-.tl-asset-card.cms-card {
+.tl-workspace-shell .tl-asset-card.cms-card {
   border: 1px solid var(--tl-border-soft);
   border-radius: var(--tl-radius-sm);
   background: linear-gradient(180deg, rgba(255, 255, 255, 0.06), rgba(255, 255, 255, 0.025));
@@ -262,7 +262,7 @@ body {
   -webkit-user-drag: element;
 }
 
-.tl-asset-card>.cms-card-body {
+.tl-workspace-shell .tl-asset-card>.cms-card-body {
   padding: 10px 12px;
   display: grid;
   grid-template-columns: 34px minmax(0, 1fr) 28px;
@@ -279,8 +279,8 @@ body {
   background: var(--asset-color);
 }
 
-.tl-asset-card.is-selected.cms-card,
-.tl-asset-card.cms-card:hover {
+.tl-workspace-shell .tl-asset-card.is-selected.cms-card,
+.tl-workspace-shell .tl-asset-card.cms-card:hover {
   border-color: rgba(255, 199, 44, 0.6);
 }
 
@@ -852,7 +852,7 @@ body.is-dragging-workspace-asset .tl-canvas {
   padding: 10px;
 }
 
-.tl-card-head {
+.tl-workspace-shell .tl-card-head {
   margin-bottom: 9px;
   font-weight: 800;
 }
