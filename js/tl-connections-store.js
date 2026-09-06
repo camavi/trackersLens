@@ -34,7 +34,9 @@ window.TrackerLensConnectionsStore = (() => {
 
   const readRecord = async (storeName, id) => {
     if (!id) return null;
-    return (await readAll(storeName)).find((record) => record.id === id) || null;
+    const persistence = desktopPersistence();
+    if (!await usesDesktopSqlite() || !persistence?.readDevelopmentRecordById) throw new Error("Connections Store richiede SQLite nell'app desktop.");
+    return persistence.readDevelopmentRecordById({ storeName, id });
   };
 
   const write = async (storeName, record) => {
@@ -357,11 +359,14 @@ window.TrackerLensConnectionsStore = (() => {
 
   const list = async () => {
     const records = (await readAll(CONNECTION_STORE)).map(normalizeConnection);
-    if (records.length) return records;
+    return records;
+  };
 
-    const imported = await buildWorkspaceConnections();
-    await Promise.all(imported.map((connection) => write(CONNECTION_STORE, connection)));
-    return imported;
+  const listSummaryPage = async ({ offset = 0, limit = 25 } = {}) => {
+    const persistence = desktopPersistence();
+    if (!await usesDesktopSqlite() || !persistence?.readConnectionSummaryPage) throw new Error("Connections Store richiede SQLite nell'app desktop.");
+    const page = await persistence.readConnectionSummaryPage({ offset, limit });
+    return { ...page, records: (page.records || []).map(normalizeConnection) };
   };
 
   const upsert = async (connection) => write(CONNECTION_STORE, normalizeConnection(connection));
@@ -435,6 +440,7 @@ window.TrackerLensConnectionsStore = (() => {
     CONNECTION_STORE,
     duplicate,
     list,
+    listSummaryPage,
     normalizeConnection,
     remove,
     removeMany,

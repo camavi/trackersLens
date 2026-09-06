@@ -338,6 +338,24 @@ test("desktop persistence projects Flow Map library cards without returning runt
   assert.deepEqual(persistence.readDevelopmentRecords({ storeName: "tl_runtime_nodes", workspaceId: "flowmap_alpha" }), []);
 });
 
+test("desktop persistence pages compact connection records without their configuration mapping", (context) => {
+  const fixtureDirectory = fs.mkdtempSync(path.join(os.tmpdir(), "trackers-lens-connections-"));
+  context.after(() => fs.rmSync(fixtureDirectory, { recursive: true, force: true }));
+  const persistence = new DesktopPersistence({ databasePath: path.join(fixtureDirectory, "development.sqlite") });
+  persistence.initialize();
+  persistence.writeDevelopmentRecords({ storeName: "tl_connections", records: [
+    { id: "conn_1", name: "First", type: "API Endpoint", endpoint: "https://example.test/one", mapping: { secretLargeConfig: "not in summary" } },
+    { id: "conn_2", name: "Second", type: "WebSocket", endpoint: "wss://example.test/two" },
+  ] });
+
+  const page = persistence.readConnectionSummaryPage({ offset: 0, limit: 1 });
+  assert.equal(page.total, 2);
+  assert.equal(page.records.length, 1);
+  assert.equal(page.records[0].id, "conn_2");
+  assert.equal(Object.hasOwn(page.records[0], "mapping"), false);
+  assert.deepEqual(persistence.readDevelopmentRecordById({ storeName: "tl_connections", id: "conn_1" }).mapping, { secretLargeConfig: "not in summary" });
+});
+
 test("TL Core keeps the Python POC opt-in behind narrow commands", async () => {
   const calls = [];
   const pythonPoc = {

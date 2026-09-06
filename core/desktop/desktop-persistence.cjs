@@ -93,6 +93,34 @@ const flowMapColor = (record = {}) => {
   const ui = isPlainObject(content?.ui) ? content.ui : {};
   return validHexColor(ui.color) ? ui.color : validHexColor(content?.color) ? content.color : "";
 };
+const connectionSummary = (record = {}, { id = "", createdAt = "", updatedAt = "" } = {}) => {
+  const content = recordContent(record);
+  const connectionId = String(record?.id || content?.id || id || "");
+  return {
+    id: connectionId,
+    name: String(content?.name || content?.label || "Collegamento"),
+    type: String(content?.type || "Widget -> Widget"),
+    from: String(content?.from || content?.sourceName || content?.fromName || content?.fromBoxId || "Source"),
+    fromKind: String(content?.fromKind || content?.sourceType || "box"),
+    to: String(content?.to || content?.targetName || content?.toName || content?.toBoxId || "Target"),
+    targetMeta: String(content?.targetMeta || content?.endpoint || content?.toBoxId || "local"),
+    status: String(content?.status || "active"),
+    lastTest: String(content?.lastTest || "Mai"),
+    result: String(content?.result || "Non testato"),
+    method: String(content?.method || "EVENT"),
+    frequency: String(content?.frequency || content?.channel || "On event"),
+    timeout: String(content?.timeout || "10 secondi"),
+    retries: Math.max(0, Number(content?.retries) || 0),
+    createdAt: String(content?.createdAt || createdAt || ""),
+    updatedAt: String(content?.updatedAt || updatedAt || createdAt || ""),
+    endpoint: String(content?.endpoint || content?.targetMeta || "local://connection"),
+    workspaceId: String(content?.workspaceId || ""),
+    workspaceName: String(content?.workspaceName || ""),
+    fromBoxId: String(content?.fromBoxId || ""),
+    toBoxId: String(content?.toBoxId || ""),
+    channel: String(content?.channel || "default"),
+  };
+};
 
 const normalizeRecords = (records = []) => {
   if (!Array.isArray(records)) throw new Error("Persistence records must be an array.");
@@ -560,6 +588,23 @@ class DesktopPersistence {
           updatedAt: String(pageContent.updatedAt || pageContent.savedAt || flowRecord.updatedAt || pageContent.createdAt || flowRecord.createdAt || page?.updatedAt || flow?.updatedAt || ""),
         };
       });
+    } finally {
+      database.close();
+    }
+  }
+
+  readConnectionSummaryPage({ offset = 0, limit = 25 } = {}) {
+    if (!this.databasePath || !fs.existsSync(this.databasePath)) throw new Error("SQLite development candidate does not exist.");
+    const safeOffset = Math.max(0, Math.floor(Number(offset) || 0));
+    const safeLimit = Math.max(1, Math.floor(Number(limit) || 25));
+    const database = new DatabaseSync(this.databasePath, { readOnly: true });
+    try {
+      const total = Number(database.prepare("SELECT COUNT(*) AS count FROM tl_records WHERE store_name = ?").get("tl_connections")?.count) || 0;
+      const rows = database.prepare(
+        "SELECT id, record_json, created_at AS createdAt, updated_at AS updatedAt FROM tl_records WHERE store_name = ? ORDER BY updated_at DESC, id DESC LIMIT ? OFFSET ?"
+      ).all("tl_connections", safeLimit, safeOffset);
+      const records = rows.map((row) => connectionSummary(parseStoredJson(row.record_json), row));
+      return { records, total, offset: safeOffset, limit: safeLimit, hasMore: safeOffset + records.length < total };
     } finally {
       database.close();
     }
