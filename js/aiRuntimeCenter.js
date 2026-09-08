@@ -35,6 +35,9 @@ let aiRuntimeMeta = {
 let aiJobsPage = { total: 0, offset: 0, limit: 25, hasMore: false };
 let aiLogsPage = { total: 0, offset: 0, limit: 25, hasMore: false };
 let aiMemoryPage = { total: 0, offset: 0, limit: 25, hasMore: false };
+const GLOBAL_EXTERNAL_PROVIDER_IDS = Object.freeze(["codex", "claude"]);
+let externalProviderStatuses = {};
+let externalProviderBusy = "";
 
 let metrics = [
   { label: "Modelli Attivi", value: "4", delta: "+2 attivi", source: "demo", tone: "gold", icon: "psychology" },
@@ -273,7 +276,7 @@ const applyRuntimeViewModel = (viewModel) => {
   aiRuntimeMeta = viewModel.meta;
   metrics = viewModel.metrics;
   agents = viewModel.agents;
-  providers = viewModel.providers;
+  providers = globalExternalProviderRows(viewModel.providers);
   jobs = viewModel.jobs;
   logs = viewModel.logs;
   memory = viewModel.memory;
@@ -624,6 +627,38 @@ const providerOf = (provider = {}) => Array.isArray(provider)
   }
   : provider;
 
+const externalProviderIdOf = (provider = {}) => {
+  const item = providerOf(provider);
+  const candidates = [item.id, item.provider, item.name]
+    .map((value) => String(value || "").trim().toLowerCase().replace(/[\s_-]+/g, ""));
+  return GLOBAL_EXTERNAL_PROVIDER_IDS.find((providerId) => candidates.some((candidate) => candidate === providerId || candidate.includes(providerId))) || "";
+};
+
+const externalProviderLabel = (providerId = "") => providerId === "codex" ? "Codex" : providerId === "claude" ? "Claude" : providerId;
+
+const globalExternalProviderRows = (items = []) => {
+  const rows = Array.isArray(items) ? [...items] : [];
+  GLOBAL_EXTERNAL_PROVIDER_IDS.forEach((providerId) => {
+    if (rows.some((item) => externalProviderIdOf(item) === providerId)) return;
+    rows.push({
+      id: `external_${providerId}`,
+      name: externalProviderLabel(providerId),
+      provider: providerId,
+      model: "modello non configurato",
+      endpoint: "",
+      healthPath: "",
+      state: "Verifica account",
+      latency: "n/d",
+      status: "warn",
+      icon: providerId === "codex" ? "terminal" : "auto_awesome",
+      local: false,
+      globalExternal: true,
+      placeholder: false,
+    });
+  });
+  return rows;
+};
+
 const providerMatches = (provider, query = "") => {
   const item = providerOf(provider);
   const q = String(query || "").trim().toLowerCase();
@@ -740,6 +775,140 @@ const probeProvider = async (provider) => {
   await refreshAiRuntime();
 };
 
+const refreshExternalProviderStatus = async (providerId = "") => {
+  if (!GLOBAL_EXTERNAL_PROVIDER_IDS.includes(providerId)) return null;
+  const getStatus = window.trackers?.desktop?.externalAi?.getStatus;
+  if (typeof getStatus !== "function") {
+    const status = { provider: providerId, installed: false, authenticated: false, message: "Il bridge desktop AI non è disponibile." };
+    externalProviderStatuses = { ...externalProviderStatuses, [providerId]: status };
+    return status;
+  }
+  try {
+    const status = await getStatus({ provider: providerId });
+    externalProviderStatuses = { ...externalProviderStatuses, [providerId]: status || {} };
+    return status;
+  } catch (error) {
+    const status = { provider: providerId, installed: false, authenticated: false, message: error?.message || "Stato account non disponibile." };
+    externalProviderStatuses = { ...externalProviderStatuses, [providerId]: status };
+    return status;
+  }
+};
+
+const refreshGlobalExternalProviderStatuses = async () => {
+  await Promise.all(GLOBAL_EXTERNAL_PROVIDER_IDS.map((providerId) => refreshExternalProviderStatus(providerId)));
+  mountAiRuntime();
+};
+
+const changeGlobalExternalProviderAuthentication = async (providerId = "", action = "login") => {
+  if (!GLOBAL_EXTERNAL_PROVIDER_IDS.includes(providerId) || externalProviderBusy) return;
+  const api = action === "logout"
+    ? window.trackers?.desktop?.externalAi?.logout
+    : window.trackers?.desktop?.externalAi?.startLogin;
+  if (typeof api !== "function") return;
+  if (action === "logout" && !window.confirm(`Disconnettere ${externalProviderLabel(providerId)} da questo computer?`)) return;
+  externalProviderBusy = providerId;
+  aiRuntimeMeta = { ...aiRuntimeMeta, error: "", storage: action === "logout" ? `Logout ${externalProviderLabel(providerId)}` : `Login ${externalProviderLabel(providerId)}` };
+  mountAiRuntime();
+  try {
+    const result = await api({ provider: providerId, confirmed: true });
+    aiRuntimeMeta = { ...aiRuntimeMeta, storage: result?.message || `${externalProviderLabel(providerId)}: azione avviata` };
+  } catch (error) {
+    aiRuntimeMeta = { ...aiRuntimeMeta, error: error?.message || "Operazione account non riuscita." };
+  } finally {
+    externalProviderBusy = "";
+    await refreshExternalProviderStatus(providerId);
+    mountAiRuntime();
+  }
+};
+
+const readGlobalExternalProviderDefaults = async (providerId = "") => {
+  const fallback = providerId === "codex"
+    ? { provider: "codex", model: "", reasoningEffort: "medium", speed: "standard" }
+    : { provider: providerId, model: "", reasoningEffort: "", speed: "" };
+  try {
+    return await window.TrackerLensAiRuntimeStore?.getExternalProviderDefaults?.(providerId) || fallback;
+  } catch (error) {
+    aiRuntimeMeta = { ...aiRuntimeMeta, error: error?.message || "Impostazioni globali del provider non disponibili." };
+    return fallback;
+  }
+};
+
+const saveGlobalExternalProviderDefaults = async (providerId = "", settings = {}) => {
+  try {
+    const saveDefaults = window.TrackerLensAiRuntimeStore?.saveExternalProviderDefaults;
+    if (typeof saveDefaults !== "function") throw new Error("Archivio impostazioni globali del provider non disponibile.");
+    await saveDefaults({ provider: providerId, ...settings });
+    aiRuntimeMeta = { ...aiRuntimeMeta, error: "", storage: `Preferenze globali ${externalProviderLabel(providerId)} salvate` };
+    await refreshAiRuntime();
+  } catch (error) {
+    aiRuntimeMeta = { ...aiRuntimeMeta, error: error?.message || "Impossibile salvare le preferenze globali." };
+    mountAiRuntime();
+  }
+};
+
+const openGlobalExternalProviderAccountDialog = async (providerId = "") => {
+  if (!GLOBAL_EXTERNAL_PROVIDER_IDS.includes(providerId)) return;
+  const [status, defaults] = await Promise.all([
+    refreshExternalProviderStatus(providerId),
+    readGlobalExternalProviderDefaults(providerId),
+  ]);
+  const pending = { ...defaults };
+  let dialog = null;
+  const reopen = () => {
+    dialog?.close?.();
+    void openGlobalExternalProviderAccountDialog(providerId);
+  };
+  const runAccountAction = async (action) => {
+    dialog?.close?.();
+    await changeGlobalExternalProviderAuthentication(providerId, action);
+    reopen();
+  };
+  const refreshAccountStatus = async () => {
+    dialog?.close?.();
+    await refreshExternalProviderStatus(providerId);
+    mountAiRuntime();
+    reopen();
+  };
+  dialog = _.Dialog({
+    class: "tl-ai-provider-account-dialog",
+    panelClass: "tl-ai-prompt-panel",
+    size: "md",
+    title: `Impostazioni ${externalProviderLabel(providerId)}`,
+    subtitle: "Provider, modello e account globale.",
+    icon: providerId === "codex" ? "terminal" : "auto_awesome",
+    closeButton: true,
+    content: () => _.div(
+      { class: "tl-flow-prompt-provider-settings" },
+      _.p(`Queste preferenze sono globali e valgono per tutte le chat ${externalProviderLabel(providerId)}.`),
+      _.label("Modello", _.select({
+        value: pending.model,
+        onchange: (event) => { pending.model = String(event.currentTarget.value || ""); },
+      }, ...(window.TrackerLensExternalAiAccountUi?.modelsFor?.(providerId) || [["", "Predefinito provider"]]).map(([value, label]) => _.option({ value, selected: value === pending.model }, label)))),
+      window.TrackerLensExternalAiAccountUi?.renderAccountPanel?.({
+        providerId,
+        status,
+        onLogin: () => { void runAccountAction("login"); },
+        onLogout: () => { void runAccountAction("logout"); },
+        onRefresh: () => { void refreshAccountStatus(); },
+      }) || _.p("Pannello account non disponibile."),
+      providerId === "codex" ? _.label("Ragionamento", _.select({
+          value: pending.reasoningEffort,
+          onchange: (event) => { pending.reasoningEffort = String(event.currentTarget.value || "medium"); },
+        }, ...(window.TrackerLensExternalAiAccountUi?.reasoningOptions?.() || [["medium", "Medio"]]).map(([value, label]) => _.option({ value, selected: value === pending.reasoningEffort }, label)))) : null,
+      providerId === "codex" ? _.label("Velocità", _.select({
+          value: pending.speed,
+          onchange: (event) => { pending.speed = String(event.currentTarget.value || "standard"); },
+        }, ...(window.TrackerLensExternalAiAccountUi?.speedOptions?.() || [["standard", "Standard"]]).map(([value, label]) => _.option({ value, selected: value === pending.speed }, label)))) : null
+    ),
+    actions: ({ close }) => _.Toolbar(
+      { align: "end", gap: 8 },
+      btn({ class: "st-btn-primary", onclick: async () => { await saveGlobalExternalProviderDefaults(providerId, pending); close(); } }, icon("save", "sm"), "Salva"),
+      btn({ onclick: close }, "Chiudi")
+    ),
+  });
+  dialog.open();
+};
+
 const deleteProvider = async (provider, close = null) => {
   const current = providerOf(provider);
   if (!current?.id || current.placeholder) return;
@@ -771,20 +940,38 @@ const openProviderDeleteDialog = (provider) => {
 
 const renderProviderRow = (provider, compact = false) => {
   const item = providerOf(provider);
+  const externalProviderId = externalProviderIdOf(item);
+  const externalStatus = externalProviderId ? externalProviderStatuses[externalProviderId] : null;
+  const savedExternalModel = ["", "modello non configurato"].includes(String(item.model || "").trim().toLowerCase()) ? "" : item.model;
+  const external = Boolean(externalProviderId);
+  const displayed = externalStatus
+    ? {
+      ...item,
+      model: savedExternalModel || externalStatus.configuredModel || item.model,
+      state: externalStatus.authenticated ? "Collegato" : externalStatus.installed ? "Login richiesto" : "CLI non installata",
+      status: externalStatus.authenticated ? "online" : externalStatus.installed ? "warn" : "error",
+      latency: externalStatus.accountEmail || externalStatus.version || "n/d",
+    }
+    : item;
   const isDefaultLocal = ["local_ollama", "local_lm_studio"].includes(item.id);
   return _.div(
-    { class: `tl-ai-provider is-${item.status}${item.placeholder ? " is-empty" : ""}` },
-    _.span(icon(item.icon || "psychology", "sm"), item.name),
-    _.em(item.model || "modello non configurato"),
-    _.strong({ class: `is-${item.status}` }, item.state || sourceLabel(item.status)),
-    _.small(item.latency || "n/d"),
+    { class: `tl-ai-provider is-${displayed.status}${item.placeholder ? " is-empty" : ""}` },
+    _.span(icon(displayed.icon || "psychology", "sm"), displayed.name),
+    _.em(displayed.model || "modello non configurato"),
+    _.strong({ class: `is-${displayed.status}` }, displayed.state || sourceLabel(displayed.status)),
+    _.small({ title: externalStatus?.message || "" }, displayed.latency || "n/d"),
     item.placeholder ? null : _.Toolbar(
       { class: "tl-ai-provider-row-actions", gap: 6 },
-      btn({ "aria-label": "Probe provider", title: "Probe", onclick: () => probeProvider(item) }, icon("radar", "sm")),
-      btn({ "aria-label": "Modifica provider", title: "Modifica", onclick: () => openProviderEditorDialog(item) }, icon("edit", "sm")),
-      btn({ "aria-label": "Elimina provider", title: isDefaultLocal ? "Provider locale default" : "Elimina", disabled: isDefaultLocal, onclick: () => openProviderDeleteDialog(item) }, icon("delete", "sm"))
+      ...(external ? [
+        btn({ "aria-label": `Aggiorna stato ${displayed.name}`, title: "Aggiorna stato account globale", disabled: externalProviderBusy === externalProviderId, onclick: () => { void refreshExternalProviderStatus(externalProviderId).then(mountAiRuntime); } }, icon("refresh", "sm")),
+        externalStatus?.authenticated
+          ? btn({ "aria-label": `Logout ${displayed.name}`, title: "Logout globale", disabled: Boolean(externalProviderBusy), onclick: () => { void changeGlobalExternalProviderAuthentication(externalProviderId, "logout"); } }, icon("logout", "sm"))
+          : btn({ "aria-label": `Login ${displayed.name}`, title: "Login globale", disabled: Boolean(externalProviderBusy) || externalStatus?.installed === false, onclick: () => { void changeGlobalExternalProviderAuthentication(externalProviderId, "login"); } }, icon("login", "sm")),
+      ] : [btn({ "aria-label": "Probe provider", title: "Probe", onclick: () => probeProvider(item) }, icon("radar", "sm"))]),
+      btn({ "aria-label": external ? `Gestisci account ${displayed.name}` : "Modifica provider", title: external ? "Gestisci account globale" : "Modifica", onclick: () => external ? openGlobalExternalProviderAccountDialog(externalProviderId) : openProviderEditorDialog(item) }, icon(external ? "manage_accounts" : "edit", "sm")),
+      btn({ "aria-label": "Elimina provider", title: external ? "Provider globale: account gestito dal CLI" : isDefaultLocal ? "Provider locale default" : "Elimina", disabled: isDefaultLocal || external, onclick: () => openProviderDeleteDialog(item) }, icon("delete", "sm"))
     ),
-    compact && item.endpoint ? _.pre({ class: "tl-ai-prompt-preview" }, item.endpoint) : null
+    compact && displayed.endpoint ? _.pre({ class: "tl-ai-prompt-preview" }, displayed.endpoint) : null
   );
 };
 
@@ -1470,6 +1657,7 @@ const refreshAiRuntime = async () => {
     };
   }
   mountAiRuntime();
+  void refreshGlobalExternalProviderStatuses();
 };
 
 const loadMoreAiJobs = async () => {

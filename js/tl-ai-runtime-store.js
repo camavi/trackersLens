@@ -44,6 +44,10 @@ window.TrackerLensAiRuntimeStore = (() => {
       icon: "dns",
     },
   ];
+  const EXTERNAL_PROVIDER_DEFAULTS = Object.freeze({
+    codex: Object.freeze({ model: "", reasoningEffort: "medium", speed: "standard" }),
+    claude: Object.freeze({ model: "", reasoningEffort: "", speed: "" }),
+  });
   const normalizeText = (value, fallback = "") => {
     if (value === null || value === undefined) return fallback;
     return String(value).trim() || fallback;
@@ -54,6 +58,10 @@ window.TrackerLensAiRuntimeStore = (() => {
 
   const safeId = (value = "") => normalizeText(value, "memory").replace(/[^A-Za-z0-9_-]/g, "_");
   const providerKey = (provider = {}) => normalizeText(provider.id || provider.provider || provider.name).toLowerCase();
+  const externalProviderId = (value = "") => {
+    const normalized = normalizeText(value).toLowerCase().replace(/[\s_-]+/g, "");
+    return Object.keys(EXTERNAL_PROVIDER_DEFAULTS).find((provider) => normalized === provider || normalized.includes(provider)) || "";
+  };
 
   const desktopPersistence = () => window.trackers?.desktop?.persistence || null;
 
@@ -565,6 +573,51 @@ window.TrackerLensAiRuntimeStore = (() => {
     return { created: missing.length, existing: existing.length };
   };
 
+  const externalProviderRecord = (records = [], provider = "") => records.find((record) => {
+    const content = contentOf(record);
+    return externalProviderId(content.provider || content.id || record?.id || content.name) === provider;
+  }) || null;
+
+  const getExternalProviderDefaults = async (provider = "") => {
+    const providerId = externalProviderId(provider);
+    if (!providerId) throw new Error("Provider esterno non supportato.");
+    const persistence = await ensureStores();
+    const record = externalProviderRecord(await readAllFromDb(persistence, STORES.providers), providerId);
+    const content = contentOf(record);
+    const fallback = EXTERNAL_PROVIDER_DEFAULTS[providerId];
+    return {
+      provider: providerId,
+      model: normalizeText(content.defaultModel || content.model),
+      reasoningEffort: normalizeText(content.defaultReasoningEffort || content.reasoningEffort, fallback.reasoningEffort),
+      speed: normalizeText(content.defaultSpeed || content.speed, fallback.speed),
+      updatedAt: normalizeText(content.updatedAt || record?.updatedAt),
+    };
+  };
+
+  const saveExternalProviderDefaults = async ({ provider = "", model = "", reasoningEffort = "", speed = "" } = {}) => {
+    const providerId = externalProviderId(provider);
+    if (!providerId) throw new Error("Provider esterno non supportato.");
+    const persistence = await ensureStores();
+    const record = externalProviderRecord(await readAllFromDb(persistence, STORES.providers), providerId);
+    const content = contentOf(record);
+    const fallback = EXTERNAL_PROVIDER_DEFAULTS[providerId];
+    return write(STORES.providers, {
+      ...content,
+      id: normalizeText(content.id || record?.id, `global_external_${providerId}`),
+      createdAt: normalizeText(content.createdAt || record?.createdAt),
+      name: providerId === "codex" ? "Codex" : "Claude",
+      provider: providerId,
+      model: normalizeText(model),
+      defaultModel: normalizeText(model),
+      defaultReasoningEffort: normalizeText(reasoningEffort, fallback.reasoningEffort),
+      defaultSpeed: normalizeText(speed, fallback.speed),
+      globalExternal: true,
+      local: false,
+      priority: Number(content.priority || 90),
+      icon: normalizeText(content.icon, providerId === "codex" ? "terminal" : "auto_awesome"),
+    });
+  };
+
   const providerHealthUrl = (provider = {}) => {
     const endpoint = normalizeText(provider.endpoint || provider.baseUrl).replace(/\/+$/g, "");
     const path = normalizeText(provider.healthPath, provider.provider === "ollama" ? "/api/tags" : "/models");
@@ -697,10 +750,12 @@ window.TrackerLensAiRuntimeStore = (() => {
     MEMORY_SCOPES,
     MEMORY_LIMITS,
     LOCAL_PROVIDER_DEFS,
+    EXTERNAL_PROVIDER_DEFAULTS,
     buildMemoryContext,
     cleanupShortMemory,
     forgetMemory,
     forgetMemoryForAgent,
+    getExternalProviderDefaults,
     getAgent,
     listJobsForAgent,
     listRunRecords,
@@ -713,6 +768,7 @@ window.TrackerLensAiRuntimeStore = (() => {
     probeProvider,
     remember,
     seedLocalProviders,
+    saveExternalProviderDefaults,
     upsertProvider: (record) => write(STORES.providers, record),
     deleteProvider: (id) => deleteRecord(STORES.providers, id),
     upsertAgent: (record) => write(STORES.agents, record),

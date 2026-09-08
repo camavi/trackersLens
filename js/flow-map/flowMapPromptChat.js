@@ -618,6 +618,10 @@ const flowPromptBuildExternalReply = async (providerId = "", prompt = "", { conv
   if (!status?.authenticated) throw new Error(`${flowPromptExternalProviderLabel(provider)} non è collegato. Apri il selettore provider e completa l'accesso ufficiale.`);
   const api = window.trackers?.desktop?.externalAi?.sendMessage;
   if (typeof api !== "function") throw new Error("Il bridge desktop AI non è disponibile.");
+  const readGlobalDefaults = window.TrackerLensAiRuntimeStore?.getExternalProviderDefaults;
+  const globalDefaults = typeof readGlobalDefaults === "function"
+    ? await readGlobalDefaults(provider).catch(() => ({}))
+    : {};
   // External providers must not inherit old assistant prose as pseudo-evidence.
   // The current user request is supplied separately. Previous user requests are
   // useful only when the user explicitly refers back to an earlier turn.
@@ -662,8 +666,9 @@ const flowPromptBuildExternalReply = async (providerId = "", prompt = "", { conv
     currentToolObservations.length ? `Latest tool observation returned by Trackers Lens in this same request (use it as evidence; do not claim more than it says). ${forceNaturalAnswer ? "The latest requested observation was already available. Do not request that same tool again. Use it, request a different necessary tool, or answer the user." : "Now answer the user's original request. Request another tool only if this observation is insufficient and the next request is different."}\n${JSON.stringify(currentToolObservations)}` : "",
     `User request: ${String(prompt || "").trim()}`,
   ].filter(Boolean).join("\n\n");
-  const effectiveModel = String(model || "").trim() || String(status?.configuredModel || "").trim() || "provider-default";
-  const effectiveReasoning = String(reasoningEffort || "").trim() || String(status?.configuredReasoningEffort || "").trim() || "provider-default";
+  const effectiveModel = String(model || "").trim() || String(globalDefaults.model || "").trim() || String(status?.configuredModel || "").trim() || "provider-default";
+  const effectiveReasoning = String(reasoningEffort || "").trim() || String(globalDefaults.reasoningEffort || "").trim() || String(status?.configuredReasoningEffort || "").trim() || "provider-default";
+  const effectiveSpeed = String(speed || "").trim() || String(globalDefaults.speed || "").trim() || "standard";
   console.groupCollapsed(`[TL AI Chat] → ${flowPromptExternalProviderLabel(provider)} · ${request.length.toLocaleString()} chars`);
   console.log("Request payload", request);
   console.log("Prompt composition", {
@@ -674,12 +679,12 @@ const flowPromptBuildExternalReply = async (providerId = "", prompt = "", { conv
   console.log("Transport metadata", {
     provider,
     model: effectiveModel,
-    modelSource: String(model || "").trim() ? "chat setting" : status?.configuredModel ? "Codex configuration" : "provider default",
+    modelSource: String(model || "").trim() ? "chat override" : globalDefaults.model ? "impostazione globale Trackers Lens" : status?.configuredModel ? "Codex configuration" : "provider default",
     reasoningEffort: effectiveReasoning,
-    speed: speed || "standard",
+    speed: effectiveSpeed,
   });
   console.groupEnd();
-  const response = await api({ provider, prompt: request, model: String(model || "").trim(), reasoningEffort, speed });
+  const response = await api({ provider, prompt: request, model: effectiveModel === "provider-default" ? "" : effectiveModel, reasoningEffort: effectiveReasoning === "provider-default" ? "" : effectiveReasoning, speed: effectiveSpeed });
   console.groupCollapsed(`[TL AI Chat] ← ${flowPromptExternalProviderLabel(provider)}`);
   console.log("Response payload", response);
   console.groupEnd();
@@ -6799,9 +6804,11 @@ const openFlowPromptChatDialog = async (options = {}) => {
       : flowPromptBuildLocalToolProtocolReply(prompt, replyOptions);
     const baseReplyOptions = {
       ...options,
-      model: selectedProviderModel(),
-      reasoningEffort: draft.activeChat?.providerReasoningEffort || "medium",
-      speed: draft.activeChat?.providerSpeed || "standard",
+      // External-provider defaults are global. Existing per-chat values are
+      // intentionally not sent so a prior chat cannot silently override them.
+      model: externalProvider ? "" : selectedProviderModel(),
+      reasoningEffort: externalProvider ? "" : draft.activeChat?.providerReasoningEffort || "medium",
+      speed: externalProvider ? "" : draft.activeChat?.providerSpeed || "standard",
       shareFlowSummary: Boolean(draft.activeChat?.permissions?.flowSummary),
       sessionContext: flowPromptActiveSessionContext({ chatWorkspaceId: draft.workspaceId }),
       toolCatalog,
@@ -10121,6 +10128,22 @@ const openFlowPromptChatDialog = async (options = {}) => {
     let settingsProviderStatus = pending.providerId === selectedProviderId() ? draft.providerStatus : null;
     let settingsProviderLoading = false;
     let refreshDialog = () => {};
+    const loadGlobalExternalDefaults = async () => {
+      if (!FLOW_PROMPT_EXTERNAL_PROVIDER_IDS.has(pending.providerId)) return;
+      const readDefaults = window.TrackerLensAiRuntimeStore?.getExternalProviderDefaults;
+      if (typeof readDefaults !== "function") return;
+      try {
+        const defaults = await readDefaults(pending.providerId);
+        pending.providerModel = String(defaults?.model || "");
+        if (pending.providerId === "codex") {
+          pending.reasoningEffort = String(defaults?.reasoningEffort || "medium");
+          pending.speed = String(defaults?.speed || "standard");
+        }
+        refreshDialog();
+      } catch (_) {
+        // The existing chat value remains visible if the global record cannot be read.
+      }
+    };
     const refreshSettingsProviderStatus = async () => {
       if (!FLOW_PROMPT_EXTERNAL_PROVIDER_IDS.has(pending.providerId)) {
         settingsProviderStatus = null;
@@ -10188,11 +10211,12 @@ const openFlowPromptChatDialog = async (options = {}) => {
       pending.providerId = String(event.currentTarget.value || "local").toLowerCase();
       if (!modelsForProvider(pending.providerId).some(([value]) => value === pending.providerModel)) pending.providerModel = "";
       void refreshSettingsProviderStatus();
+      void loadGlobalExternalDefaults();
     };
     const changeModel = (event) => { pending.providerModel = String(event.currentTarget.value || ""); };
     const renderBody = () => _.div(
       { class: "tl-flow-prompt-provider-settings" },
-      _.p("Queste preferenze sono salvate solo nella chat corrente."),
+      _.p(FLOW_PROMPT_EXTERNAL_PROVIDER_IDS.has(pending.providerId) ? `Le impostazioni ${flowPromptExternalProviderLabel(pending.providerId)} sono globali per tutte le chat.` : "Queste preferenze sono salvate solo nella chat corrente."),
       _.label("Provider", _.select({
         value: pending.providerId,
         onchange: changeProvider,
@@ -10203,29 +10227,18 @@ const openFlowPromptChatDialog = async (options = {}) => {
         onchange: changeModel,
         oninput: changeModel,
       }, ...modelsForProvider(pending.providerId).map(([value, label]) => _.option({ value, selected: value === pending.providerModel }, label)))),
-      FLOW_PROMPT_EXTERNAL_PROVIDER_IDS.has(pending.providerId) ? _.div(
-        { class: "tl-flow-prompt-provider-account" },
-        _.strong(flowMapIcon("account_circle", "sm"), "Account provider"),
-        settingsProviderLoading ? _.span("Aggiornamento stato account…") : settingsProviderStatus?.authenticated
-          ? _.span(String(settingsProviderStatus.accountEmail || "").trim() || "Connected account (email not exposed by the official CLI status)")
-          : _.span(settingsProviderStatus?.message || "Accesso richiesto"),
-        _.small("L'email viene mostrata solo se il comando ufficiale del provider la espone. Trackers Lens non legge token o file di credenziali."),
-        _.div(
-          { class: "tl-flow-prompt-provider-account-actions" },
-          !settingsProviderStatus?.authenticated ? flowMapBtn({
-            class: "is-ghost",
-            disabled: settingsProviderLoading || !settingsProviderStatus?.installed,
-            onclick: startSettingsProviderLogin,
-          }, flowMapIcon("login", "sm"), "Login") : flowMapBtn({
-            class: "is-ghost is-danger",
-            disabled: settingsProviderLoading,
-            onclick: logoutSettingsProvider,
-          }, flowMapIcon("logout", "sm"), "Logout"),
-          flowMapBtn({ class: "is-ghost", disabled: settingsProviderLoading, onclick: () => { void refreshSettingsProviderStatus(); } }, flowMapIcon("refresh", "sm"), "Refresh")
-        )
-      ) : null,
-      pending.providerId === "codex" ? _.label("Ragionamento", _.select({ value: pending.reasoningEffort, onchange: (event) => { pending.reasoningEffort = event.currentTarget.value; } }, ...[["low", "Light"], ["medium", "Medio"], ["high", "Alto"], ["xhigh", "Molto alto"], ["ultra", "Ultra"]].map(([value, label]) => _.option({ value, selected: value === pending.reasoningEffort }, label)))) : null,
-      pending.providerId === "codex" ? _.label("Velocità", _.select({ value: pending.speed, onchange: (event) => { pending.speed = event.currentTarget.value; } }, _.option({ value: "standard", selected: pending.speed === "standard" }, "Standard"), _.option({ value: "fast", selected: pending.speed === "fast" }, "Rapida"))) : null,
+      FLOW_PROMPT_EXTERNAL_PROVIDER_IDS.has(pending.providerId)
+        ? window.TrackerLensExternalAiAccountUi?.renderAccountPanel?.({
+          providerId: pending.providerId,
+          status: settingsProviderStatus,
+          loading: settingsProviderLoading,
+          onLogin: startSettingsProviderLogin,
+          onLogout: logoutSettingsProvider,
+          onRefresh: () => { void refreshSettingsProviderStatus(); },
+        })
+        : null,
+      pending.providerId === "codex" ? _.label("Ragionamento", _.select({ value: pending.reasoningEffort, onchange: (event) => { pending.reasoningEffort = event.currentTarget.value; } }, ...(window.TrackerLensExternalAiAccountUi?.reasoningOptions?.() || [["medium", "Medio"]]).map(([value, label]) => _.option({ value, selected: value === pending.reasoningEffort }, label)))) : null,
+      pending.providerId === "codex" ? _.label("Velocità", _.select({ value: pending.speed, onchange: (event) => { pending.speed = event.currentTarget.value; } }, ...(window.TrackerLensExternalAiAccountUi?.speedOptions?.() || [["standard", "Standard"]]).map(([value, label]) => _.option({ value, selected: value === pending.speed }, label)))) : null,
       _.div(
         { class: "tl-flow-prompt-permission" },
         _.strong(flowMapIcon("policy", "sm"), "Permessi dati"),
@@ -10241,12 +10254,22 @@ const openFlowPromptChatDialog = async (options = {}) => {
       if (host) host.replaceChildren(renderBody());
     };
     const saveSettings = async () => {
+      if (FLOW_PROMPT_EXTERNAL_PROVIDER_IDS.has(pending.providerId)) {
+        const saveDefaults = window.TrackerLensAiRuntimeStore?.saveExternalProviderDefaults;
+        if (typeof saveDefaults !== "function") throw new Error("Archivio impostazioni globali del provider non disponibile.");
+        await saveDefaults({
+          provider: pending.providerId,
+          model: String(pending.providerModel || "").trim(),
+          reasoningEffort: pending.reasoningEffort,
+          speed: pending.speed,
+        });
+      }
       draft.activeChat = {
         ...draft.activeChat,
         providerId: pending.providerId,
-        providerModel: String(pending.providerModel || "").trim(),
-        providerReasoningEffort: pending.reasoningEffort,
-        providerSpeed: pending.speed,
+        providerModel: FLOW_PROMPT_EXTERNAL_PROVIDER_IDS.has(pending.providerId) ? "" : String(pending.providerModel || "").trim(),
+        providerReasoningEffort: FLOW_PROMPT_EXTERNAL_PROVIDER_IDS.has(pending.providerId) ? "" : pending.reasoningEffort,
+        providerSpeed: FLOW_PROMPT_EXTERNAL_PROVIDER_IDS.has(pending.providerId) ? "" : pending.speed,
         permissions: { ...(draft.activeChat?.permissions || {}), flowSummary: pending.flowSummary },
       };
       await persistActiveChat();
@@ -10282,6 +10305,7 @@ const openFlowPromptChatDialog = async (options = {}) => {
     });
     dialog.open();
     void refreshSettingsProviderStatus();
+    void loadGlobalExternalDefaults();
   };
 
   function renderContentBody() {
