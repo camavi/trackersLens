@@ -9,11 +9,13 @@ Last updated: 2026-09-03.
 
 ### TASK-032: Unified Flow Map Chat Providers
 
-Status: Active. Evolve the single global AI Chat into a provider-neutral Agent Workspace: the selected AI plans its answer and decides which explicit Trackers Lens tools to call; TL supplies real, attributed tool results and owns permission/confirmation boundaries.
+Status: Current implemented-provider QA closed. Evolve the single global AI Chat into a provider-neutral Agent Workspace: the selected AI plans its answer and decides which explicit Trackers Lens tools to call; TL supplies real, attributed tool results and owns permission/confirmation boundaries. Planned Phase 4/6 scope remains future work.
 Priority: High.
 Risk: High because provider authentication, credential storage, external context transfer and mutation authority must remain explicit and secure.
 
 Current sub-steps:
+
+- QA closure: user-approved for all currently implemented provider, capability-map, consent, Locale and legacy-planner-retirement paths. Earlier per-phase `interactive QA pending` labels record implementation sequencing and are superseded for this gate; they do not apply to planned Phase 4/6 work.
 
 - Unified surface: implemented. The separate dock and canvas trigger are retired. A single `AI Chat` (`auto_awesome`) entry button in the persistent desktop sidebar opens the one persistent Flow Map Chat from every route and preserves its open state across navigation. Provider selection happens only inside Chat Settings. Every saved Flow chat records its selected `Locale`, `Codex` or `Claude` provider.
 - Chat settings and consent: implemented. A compact header `Impostazioni chat` dialog owns provider, optional model and per-chat consent. Codex and Claude pass an explicitly selected model as a process argument only; leaving it empty retains the provider default. The only external context permission currently available is user-confirmed Flow-summary sharing (node/link/channel/event counts). Filesystem, document contents and mutation access cannot be enabled there.
@@ -57,11 +59,13 @@ Current sub-steps:
 
 ### TASK-031: Persistent Desktop Shell Navigation
 
-Status: Started. Replace document-level sidebar navigation with one Electron renderer shell, internal History API routes and explicit view lifecycles. This is a desktop-app migration, not a cosmetic SPA overlay.
+Status: Current lifecycle QA closed. Replace document-level sidebar navigation with one Electron renderer shell, internal History API routes and explicit view lifecycles. This is a desktop-app migration, not a cosmetic SPA overlay; remaining legacy-route cleanup is future migration work.
 Priority: High.
 Risk: High because Flow Map and Workspace own live runtimes, workers, listeners and unsaved UI state that must not be duplicated, leaked or silently reset.
 
 Current sub-steps:
+
+- QA closure: user-approved for the current Flow Map start/stop lifecycle, including worker ownership, Live Test cleanup and canvas recovery. No lifecycle QA blocker remains for the current shell.
 
 - Router foundation: implemented in `js/tl-app-router.js`. It provides a framework-neutral registry with `mount` / `dispose`, push/pop navigation and a persistent shell contract.
 - Navigation contract: internal routes use the History API and an explicit `mount` / `dispose` lifecycle; unregistered URLs remain temporary legacy document routes during the migration.
