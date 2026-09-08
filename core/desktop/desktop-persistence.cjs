@@ -617,6 +617,74 @@ class DesktopPersistence {
     }
   }
 
+  readAiAgentJobPage({ agentId = "", workspaceId = "", offset = 0, limit = 8 } = {}) {
+    const agent = String(agentId || "");
+    if (!agent) throw new Error("AI agent id is required.");
+    if (!this.databasePath || !fs.existsSync(this.databasePath)) throw new Error("SQLite development candidate does not exist.");
+    const safeOffset = Math.max(0, Math.floor(Number(offset) || 0));
+    const safeLimit = Math.max(1, Math.floor(Number(limit) || 8));
+    const workspace = String(workspaceId || "");
+    const workspaceAliases = workspace === "workspace_global" ? ["workspace_global", "global"] : workspace ? [workspace] : [];
+    const database = new DatabaseSync(this.databasePath, { readOnly: true });
+    try {
+      const agentWhere = "(COALESCE(json_extract(record_json, '$.agentId'), json_extract(record_json, '$.content.agentId'), '') = ? OR COALESCE(json_extract(record_json, '$.runtimeNodeId'), json_extract(record_json, '$.content.runtimeNodeId'), '') = ?)";
+      const workspaceWhere = workspaceAliases.length ? ` AND COALESCE(NULLIF(json_extract(record_json, '$.workspaceId'), ''), NULLIF(json_extract(record_json, '$.content.workspaceId'), ''), workspace_id, 'workspace_global') IN (${workspaceAliases.map(() => "?").join(", ")})` : "";
+      const args = [agent, agent, ...workspaceAliases];
+      const total = Number(database.prepare(`SELECT COUNT(*) AS count FROM tl_records WHERE store_name = ? AND ${agentWhere}${workspaceWhere}`).get("tl_ai_jobs", ...args)?.count) || 0;
+      const records = database.prepare(`SELECT record_json FROM tl_records WHERE store_name = ? AND ${agentWhere}${workspaceWhere} ORDER BY updated_at DESC, id DESC LIMIT ? OFFSET ?`).all("tl_ai_jobs", ...args, safeLimit, safeOffset).map((row) => parseStoredJson(row.record_json));
+      return { records, total, offset: safeOffset, limit: safeLimit, hasMore: safeOffset + records.length < total };
+    } finally {
+      database.close();
+    }
+  }
+
+  readAiMemoryMatches({ scope = "", workspaceId = "", agentId = "", query = "", limit = 50, includeShared = true } = {}) {
+    if (!this.databasePath || !fs.existsSync(this.databasePath)) throw new Error("SQLite development candidate does not exist.");
+    const safeLimit = Math.max(1, Math.floor(Number(limit) || 50));
+    const requestedScope = String(scope || "");
+    const requestedWorkspace = String(workspaceId || "");
+    const requestedAgent = String(agentId || "");
+    const normalizedQuery = String(query || "").trim().toLowerCase();
+    const score = (item) => {
+      if (!normalizedQuery) return 1;
+      const haystack = [item.name, item.kind, item.meta, item.text, item.tags.join(" ")].join(" ").toLowerCase();
+      if (haystack.includes(normalizedQuery)) return 100;
+      const tokens = normalizedQuery.split(/[^a-z0-9._:-]+/i).filter((token) => token.length > 2);
+      return tokens.reduce((total, token) => total + (haystack.includes(token) ? 1 : 0), 0);
+    };
+    const database = new DatabaseSync(this.databasePath, { readOnly: true });
+    try {
+      return database.prepare("SELECT record_json, updated_at AS updatedAt FROM tl_records WHERE store_name = ?").all("tl_ai_memory")
+        .map((row) => ({ record: parseStoredJson(row.record_json), updatedAt: String(row.updatedAt || "") }))
+        .map(({ record, updatedAt }) => {
+          const content = recordContent(record);
+          const item = {
+            scope: String(content.scope || "workspace"),
+            workspaceId: String(content.workspaceId || record.workspaceId || (content.scope === "global" ? "global" : "workspace_global")),
+            agentId: String(content.agentId || content.agent || record.agentId || "shared"),
+            name: String(content.name || content.title || content.key || ""),
+            kind: String(content.kind || content.type || "note"),
+            meta: String(content.meta || content.description || content.summary || content.updatedAt || record.updatedAt || ""),
+            text: String(content.text || content.value || content.content || content.summary || ""),
+            tags: Array.isArray(content.tags) ? content.tags.map(String) : [],
+            pinned: Boolean(content.pinned || content.status === "pinned"),
+            weight: Number(content.weight || content.score || 1),
+            updatedAt: String(content.updatedAt || record.updatedAt || content.createdAt || record.createdAt || updatedAt),
+          };
+          return { record, item, queryScore: score(item) };
+        })
+        .filter(({ item }) => !requestedScope || item.scope === requestedScope)
+        .filter(({ item }) => !requestedWorkspace || item.workspaceId === requestedWorkspace || item.scope === "global")
+        .filter(({ item }) => !requestedAgent || item.agentId === requestedAgent || (includeShared && item.agentId === "shared"))
+        .filter(({ queryScore }) => !normalizedQuery || queryScore > 0)
+        .sort((a, b) => (b.queryScore - a.queryScore) || (Number(b.item.pinned) - Number(a.item.pinned)) || (b.item.weight - a.item.weight) || (new Date(b.item.updatedAt) - new Date(a.item.updatedAt)))
+        .slice(0, safeLimit)
+        .map(({ record }) => record);
+    } finally {
+      database.close();
+    }
+  }
+
   readFlowMapLibraryIndex() {
     if (!this.databasePath || !fs.existsSync(this.databasePath)) throw new Error("SQLite development candidate does not exist.");
     const database = new DatabaseSync(this.databasePath, { readOnly: true });

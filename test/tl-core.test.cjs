@@ -445,6 +445,38 @@ test("desktop persistence pages compact connection records without their configu
   assert.deepEqual(persistence.readConnectionRecordsForWorkspace({ workspaceId: "workspace_alpha", includeGlobal: false }).map((record) => record.id), ["conn_1"]);
 });
 
+test("desktop persistence pages AI jobs for one agent and workspace only", (context) => {
+  const fixtureDirectory = fs.mkdtempSync(path.join(os.tmpdir(), "trackers-lens-agent-jobs-"));
+  context.after(() => fs.rmSync(fixtureDirectory, { recursive: true, force: true }));
+  const persistence = new DesktopPersistence({ databasePath: path.join(fixtureDirectory, "development.sqlite") });
+  persistence.initialize();
+  persistence.writeDevelopmentRecords({ storeName: "tl_ai_jobs", records: [
+    { id: "job_global", agentId: "node_target", workspaceId: "global", task: "Global" },
+    { id: "job_target", runtimeNodeId: "node_target", workspaceId: "workspace_alpha", task: "Target" },
+    { id: "job_other", agentId: "node_other", workspaceId: "workspace_alpha", task: "Other agent" },
+    { id: "job_elsewhere", agentId: "node_target", workspaceId: "workspace_beta", task: "Elsewhere" },
+  ] });
+  const page = persistence.readAiAgentJobPage({ agentId: "node_target", workspaceId: "workspace_alpha", limit: 8 });
+  assert.equal(page.total, 1);
+  assert.deepEqual(page.records.map((record) => record.id), ["job_target"]);
+  const global = persistence.readAiAgentJobPage({ agentId: "node_target", workspaceId: "workspace_global", limit: 8 });
+  assert.deepEqual(global.records.map((record) => record.id), ["job_global"]);
+});
+
+test("desktop persistence ranks matching AI memory without returning the full store", (context) => {
+  const fixtureDirectory = fs.mkdtempSync(path.join(os.tmpdir(), "trackers-lens-ai-memory-"));
+  context.after(() => fs.rmSync(fixtureDirectory, { recursive: true, force: true }));
+  const persistence = new DesktopPersistence({ databasePath: path.join(fixtureDirectory, "development.sqlite") });
+  persistence.initialize();
+  persistence.writeDevelopmentRecords({ storeName: "tl_ai_memory", records: [
+    { id: "memory_match", workspaceId: "workspace_alpha", agentId: "flow-map-agent", scope: "workspace", name: "Knowledge pattern", text: "knowledge graph source" },
+    { id: "memory_other", workspaceId: "workspace_alpha", agentId: "flow-map-agent", scope: "workspace", name: "Other", text: "unrelated" },
+    { id: "memory_elsewhere", workspaceId: "workspace_beta", agentId: "flow-map-agent", scope: "workspace", name: "Knowledge elsewhere", text: "knowledge" },
+  ] });
+  const records = persistence.readAiMemoryMatches({ scope: "workspace", workspaceId: "workspace_alpha", agentId: "flow-map-agent", query: "knowledge", limit: 4 });
+  assert.deepEqual(records.map((record) => record.id), ["memory_match"]);
+});
+
 test("desktop persistence finds one latest Storage Runtime record without reading its store", (context) => {
   const fixtureDirectory = fs.mkdtempSync(path.join(os.tmpdir(), "trackers-lens-latest-runtime-record-"));
   context.after(() => fs.rmSync(fixtureDirectory, { recursive: true, force: true }));

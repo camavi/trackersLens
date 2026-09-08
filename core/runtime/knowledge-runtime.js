@@ -2,6 +2,7 @@ window.TrackerLensKnowledgeRuntime = (() => {
   const instances = new Map();
   const tokenUsageTotals = new Map();
   const graphAutoClearRuns = new Set();
+  const inFlightChatRequests = new Map();
 
   const tableName = (key, fallback) => window.tlConfig?.TABLES?.[key] || fallback;
   const STORES = {
@@ -8320,16 +8321,36 @@ window.TrackerLensKnowledgeRuntime = (() => {
   };
 
   const postChatJson = async ({ url = "", body = {}, headers = {} } = {}) => {
-    if (isLocalChatEndpoint(url) && typeof window !== "undefined" && /^https?:/i.test(window.location?.protocol || "")) {
-      const proxyResponse = await fetch("api/ai-chat-proxy.php", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ endpoint: url, body }),
-      }).catch(() => null);
-      const contentType = proxyResponse?.headers?.get?.("content-type") || "";
-      if (proxyResponse && proxyResponse.status !== 404 && contentType.includes("application/json")) return proxyResponse;
+    // One logical runtime event can briefly reach a listener through both its
+    // normal EventBus subscription and the stale-subscription fallback. The
+    // event execution key blocks that path; this is the final transport guard
+    // for an identical LLM request that is already in flight.
+    const requestKey = JSON.stringify({
+      url: String(url || ""),
+      headers: Object.entries(headers || {}).sort(([left], [right]) => left.localeCompare(right)),
+      body,
+    });
+    const existing = inFlightChatRequests.get(requestKey);
+    if (existing) return (await existing.promise).clone();
+    const request = (async () => {
+      if (isLocalChatEndpoint(url) && typeof window !== "undefined" && /^https?:/i.test(window.location?.protocol || "")) {
+        const proxyResponse = await fetch("api/ai-chat-proxy.php", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ endpoint: url, body }),
+        }).catch(() => null);
+        const contentType = proxyResponse?.headers?.get?.("content-type") || "";
+        if (proxyResponse && proxyResponse.status !== 404 && contentType.includes("application/json")) return proxyResponse;
+      }
+      return fetch(url, { method: "POST", headers, body: JSON.stringify(body) });
+    })();
+    const entry = { promise: request };
+    inFlightChatRequests.set(requestKey, entry);
+    try {
+      return (await request).clone();
+    } finally {
+      if (inFlightChatRequests.get(requestKey) === entry) inFlightChatRequests.delete(requestKey);
     }
-    return fetch(url, { method: "POST", headers, body: JSON.stringify(body) });
   };
 
   const chatErrorText = async (response = null) => {

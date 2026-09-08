@@ -411,6 +411,11 @@ window.TrackerLensAiRuntimeStore = (() => {
   };
 
   const listMemory = async ({ scope = "", workspaceId = "", agentId = "", query = "", limit = 50, includeShared = true } = {}) => {
+    const persistence = await ensureStores();
+    if (persistence.readAiMemoryMatches) {
+      const records = await persistence.readAiMemoryMatches({ scope, workspaceId, agentId, query, limit, includeShared });
+      return records.map(normalizeMemory);
+    }
     const records = await readMemoryRecords();
     return records
       .filter((item) => !scope || item.scope === scope)
@@ -508,6 +513,18 @@ window.TrackerLensAiRuntimeStore = (() => {
     if (template) return normalizeAgent(template, 0);
     const runtime = await persistence.readDevelopmentRecordById({ storeName: STORES.runtime, id: agentId });
     return runtime ? normalizeRuntimeAgent(runtime, 0) : null;
+  };
+
+  const listJobsForAgent = async ({ agentId = "", workspaceId = "", offset = 0, limit = 8 } = {}) => {
+    const id = normalizeText(agentId);
+    if (!id) return { records: [], total: 0, offset: 0, limit, hasMore: false };
+    const persistence = await ensureStores();
+    if (persistence.readAiAgentJobPage) {
+      const page = await persistence.readAiAgentJobPage({ agentId: id, workspaceId, offset, limit });
+      return { ...page, records: (page.records || []).map(normalizeJob) };
+    }
+    const jobs = (await list()).jobs.filter((job) => job.agentId === id || job.raw?.runtimeNodeId === id);
+    return { records: jobs.slice(offset, offset + limit), total: jobs.length, offset, limit, hasMore: offset + limit < jobs.length };
   };
 
   const seedLocalProviders = async () => {
@@ -660,6 +677,7 @@ window.TrackerLensAiRuntimeStore = (() => {
     forgetMemory,
     forgetMemoryForAgent,
     getAgent,
+    listJobsForAgent,
     list,
     listForCenter,
     listMemory,

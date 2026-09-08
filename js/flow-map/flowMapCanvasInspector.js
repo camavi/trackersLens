@@ -1551,11 +1551,8 @@ const aiAgentJobTime = (job = {}) =>
   Date.parse(job.updatedAt || job.raw?.updatedAt || job.startedAt || job.raw?.createdAt || 0) || 0;
 
 const latestAiAgentJobs = async (node = {}, limit = 8) => {
-  const data = await window.TrackerLensAiRuntimeStore?.list?.().catch(() => null);
-  return (data?.jobs || [])
-    .filter((job) => job.agentId === node.id || job.raw?.agentId === node.id || job.raw?.runtimeNodeId === node.id)
-    .sort((a, b) => aiAgentJobTime(b) - aiAgentJobTime(a))
-    .slice(0, limit);
+  const page = await window.TrackerLensAiRuntimeStore?.listJobsForAgent?.({ agentId: node.id, workspaceId: node.workspaceId || state.filters.workspaceId || "workspace_global", limit }).catch(() => null);
+  return page?.records || [];
 };
 
 const aiAgentRuntimeDialogViews = new Map();
@@ -3458,23 +3455,15 @@ const loadAiInspectorJob = async (node = {}, { force = false } = {}) => {
     },
   };
   try {
-    const data = await window.TrackerLensAiRuntimeStore?.list?.().catch((error) => {
-      throw error;
-    });
     const workspaceId = node.workspaceId || state.filters.workspaceId || "workspace_global";
-    const workspaceAliases = new Set([workspaceId, workspaceId === "workspace_global" ? "global" : "workspace_global"]);
-    const jobs = (data?.jobs || []).filter((job) =>
-      job.agentId === node.id &&
-      workspaceAliases.has(job.workspaceId || "workspace_global")
-    );
-    const latest = jobs
-      .sort((a, b) => Date.parse(b.updatedAt || b.createdAt || "") - Date.parse(a.updatedAt || a.createdAt || ""))[0] || null;
+    const page = await window.TrackerLensAiRuntimeStore?.listJobsForAgent?.({ agentId: node.id, workspaceId, limit: 1 });
+    const latest = page?.records?.[0] || null;
     state.aiInspectorJobs = {
       ...state.aiInspectorJobs,
       [node.id]: {
         loading: false,
         job: latest,
-        count: jobs.length,
+        count: Number(page?.total || 0),
         loadedAt: Date.now(),
         error: "",
       },
