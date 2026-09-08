@@ -576,6 +576,32 @@ class DesktopPersistence {
     }
   }
 
+  readLatestDevelopmentRecord({ storeName = "", nodeId = "", runId = "" } = {}) {
+    const name = String(storeName || "");
+    const targetNodeId = String(nodeId || "");
+    const targetRunId = String(runId || "");
+    if (!isAllowedRepositoryStore(name)) throw new Error(`Unsupported persistence store: ${name}`);
+    if (!targetNodeId && !targetRunId) throw new Error("A nodeId or runId is required.");
+    if (!this.databasePath || !fs.existsSync(this.databasePath)) throw new Error("SQLite development candidate does not exist.");
+    const database = new DatabaseSync(this.databasePath, { readOnly: true });
+    try {
+      const filters = ["store_name = ?"];
+      const args = [name];
+      if (targetNodeId) {
+        filters.push("COALESCE(json_extract(record_json, '$.nodeId'), json_extract(record_json, '$.content.nodeId'), '') = ?");
+        args.push(targetNodeId);
+      }
+      if (targetRunId) {
+        filters.push("COALESCE(json_extract(record_json, '$.payload.runId'), json_extract(record_json, '$.content.payload.runId'), json_extract(record_json, '$.runId'), json_extract(record_json, '$.content.runId'), '') = ?");
+        args.push(targetRunId);
+      }
+      const row = database.prepare(`SELECT record_json FROM tl_records WHERE ${filters.join(" AND ")} ORDER BY updated_at DESC, id DESC LIMIT 1`).get(...args);
+      return row ? parseStoredJson(row.record_json) : null;
+    } finally {
+      database.close();
+    }
+  }
+
   readFlowMapLibraryIndex() {
     if (!this.databasePath || !fs.existsSync(this.databasePath)) throw new Error("SQLite development candidate does not exist.");
     const database = new DatabaseSync(this.databasePath, { readOnly: true });
@@ -591,6 +617,32 @@ class DesktopPersistence {
       ).all(storeName).map((row) => [String(row.workspaceId || ""), Number(row.recordCount) || 0]));
       const nodeCounts = countByWorkspace("tl_runtime_nodes");
       const dependencyCounts = countByWorkspace("tl_runtime_dependencies");
+      const portsByWorkspace = new Map();
+      database.prepare("SELECT workspace_id AS workspaceId, record_json FROM tl_records WHERE store_name = ?").all("tl_runtime_nodes").forEach((row) => {
+        const record = parseStoredJson(row.record_json);
+        const content = recordContent(record);
+        const workspaceId = String(content.workspaceId || row.workspaceId || "");
+        const metadata = content.metadata && typeof content.metadata === "object" ? content.metadata : {};
+        const subtype = String(metadata.subtype || content.subtype || "").toLowerCase();
+        const label = String(metadata.paletteLabel || content.label || "").toLowerCase();
+        const flowIn = subtype === "flow-in" || label === "flow in";
+        const flowOut = subtype === "flow-out" || label === "flow out";
+        if ((!flowIn && !flowOut) || !workspaceId) return;
+        const direction = flowOut ? "inputs" : "outputs";
+        const fallback = flowOut ? "flow.out" : "flow.in";
+        const stored = Array.isArray(metadata.flowPorts) ? metadata.flowPorts : [];
+        const source = stored.length ? stored : Array.isArray(content[direction]) ? content[direction] : [];
+        const ports = source.map((port) => {
+          if (typeof port === "string") return { name: port || fallback, type: "object" };
+          return { name: String(port?.name || port?.id || fallback), type: String(port?.type || "object") };
+        }).filter((port) => port.name && port.name !== "all" && port.name !== "agent_control");
+        const bucket = portsByWorkspace.get(workspaceId) || { inputPorts: new Map(), outputPorts: new Map() };
+        const target = flowIn ? bucket.inputPorts : bucket.outputPorts;
+        ports.forEach((port) => {
+          if (!target.has(port.name)) target.set(port.name, port);
+        });
+        portsByWorkspace.set(workspaceId, bucket);
+      });
       const pageById = new Map(pages.map((page) => [page.id, page]));
       const flowByWorkspace = new Map(flows.map((flow) => [String(flow.record?.workspaceId || flow.record?.id || ""), flow]));
       const workspaceIds = new Set([
@@ -605,6 +657,7 @@ class DesktopPersistence {
         const flowRecord = flow?.record || {};
         const nodes = nodeCounts.get(workspaceId) || 0;
         const dependencies = dependencyCounts.get(workspaceId) || 0;
+        const ports = portsByWorkspace.get(workspaceId) || { inputPorts: new Map(), outputPorts: new Map() };
         return {
           id: workspaceId,
           flowRecordId: flow?.id || "",
@@ -614,6 +667,8 @@ class DesktopPersistence {
           description: String(pageContent.description || `${nodes} nodi runtime · ${dependencies} collegamenti`),
           nodes,
           dependencies,
+          inputPorts: [...ports.inputPorts.values()],
+          outputPorts: [...ports.outputPorts.values()],
           status: String(flowRecord.status || pageContent.status || "active"),
           updatedAt: String(pageContent.updatedAt || pageContent.savedAt || flowRecord.updatedAt || pageContent.createdAt || flowRecord.createdAt || page?.updatedAt || flow?.updatedAt || ""),
         };

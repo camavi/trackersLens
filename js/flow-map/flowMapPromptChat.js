@@ -1582,7 +1582,7 @@ const flowPromptReadSettingsSnapshot = async () => {
 };
 
 const flowPromptReadAiRuntimeSnapshot = async () => {
-  const data = await window.TrackerLensAiRuntimeStore?.list?.().catch(() => null);
+  const data = await (window.TrackerLensAiRuntimeStore?.listForCenter?.() || window.TrackerLensAiRuntimeStore?.list?.()).catch(() => null);
   if (!data) return { providers: [], agents: [], runtimeAgents: [], jobs: [], logs: [], prompts: [] };
   return {
     providers: Array.from(data.providers || []),
@@ -5514,7 +5514,7 @@ const flowPromptProviderKey = (value = "") =>
   flowPromptNormalize(value).replace(/\s+/g, "");
 
 const flowPromptPickProvider = async (aiSettings = {}) => {
-  const data = await window.TrackerLensAiRuntimeStore?.list?.().catch(() => null);
+  const data = await (window.TrackerLensAiRuntimeStore?.listForCenter?.() || window.TrackerLensAiRuntimeStore?.list?.()).catch(() => null);
   const providers = (data?.providers?.length ? data.providers : window.TrackerLensAiRuntimeStore?.localProviderDefaults?.() || []);
   const wanted = flowPromptProviderKey(aiSettings.provider);
   return providers.find((provider) =>

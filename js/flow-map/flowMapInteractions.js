@@ -372,7 +372,7 @@ const listExistingLibraryAssets = async (kind = "boxTracker") => {
 
 const listExistingAiAgents = async () => {
   try {
-    const data = await window.TrackerLensAiRuntimeStore?.list?.();
+    const data = await (window.TrackerLensAiRuntimeStore?.listForCenter?.() || window.TrackerLensAiRuntimeStore?.list?.());
     const agents = Array.isArray(data?.agents) ? data.agents : [];
     return agents.filter((agent) =>
       agent?.id &&
@@ -439,13 +439,33 @@ const uniqueComposableFlowPorts = (nodes = [], subtype = "") => {
 };
 
 const listAvailableFlowMaps = async () => {
+  const persistence = window.trackers?.desktop?.persistence;
+  const currentWorkspaceId = state.filters.workspaceId || "";
+  if (persistence?.readFlowMapLibraryIndex) {
+    const flowMaps = await persistence.readFlowMapLibraryIndex();
+    return flowMaps.map((record) => {
+      const inputPorts = Array.isArray(record.inputPorts) ? record.inputPorts : [];
+      const outputPorts = Array.isArray(record.outputPorts) ? record.outputPorts : [];
+      return {
+        id: String(record.id || "").trim(),
+        name: record.name || record.id || "",
+        category: record.category || "global",
+        description: record.description || `${Number(record.nodes) || 0} nodi runtime`,
+        version: record.version || "0.1.0",
+        hasInput: inputPorts.length > 0,
+        hasOutput: outputPorts.length > 0,
+        inputPorts,
+        outputPorts,
+        portCount: inputPorts.length + outputPorts.length,
+      };
+    }).filter((item) => item.id && item.id !== currentWorkspaceId);
+  }
   const pageStore = flowMapStoreName("TL_PAGES", "tl_pages");
   const nodeStore = flowMapStoreName("TL_RUNTIME_NODES", "tl_runtime_nodes");
   const [pages, nodes] = await Promise.all([
     readFlowMapLocalStore(pageStore),
     readFlowMapLocalStore(nodeStore),
   ]);
-  const currentWorkspaceId = state.filters.workspaceId || "";
   return pages
     .filter(isFlowMapPageRecord)
     .map((record) => {
@@ -1169,8 +1189,11 @@ const resolveAiAgentAliasNodes = async (nodes = []) => {
   const aliasNodes = nodes.filter((node) => node.type === "aiAgent" && node.metadata?.aiAgentAlias);
   if (!aliasNodes.length) return nodes;
   try {
-    const data = await window.TrackerLensAiRuntimeStore?.list?.();
-    const agentsById = new Map((data?.agents || []).map((agent) => [agent.id, agent]));
+    const sourceIds = [...new Set(aliasNodes
+      .map((node) => node.metadata?.aliasSourceAgentId || node.metadata?.config?.aliasSourceAgentId || "")
+      .filter(Boolean))];
+    const records = await Promise.all(sourceIds.map((id) => window.TrackerLensAiRuntimeStore?.getAgent?.(id)));
+    const agentsById = new Map(records.filter(Boolean).map((agent) => [agent.id, agent]));
     return nodes.map((node) => {
       if (node.type !== "aiAgent" || !node.metadata?.aiAgentAlias) return node;
       const sourceId = node.metadata?.aliasSourceAgentId || node.metadata?.config?.aliasSourceAgentId || "";

@@ -439,7 +439,7 @@ const hydrateWorkspaceBoxes = async (boxes) => {
 const readWorkspaceRecord = async (workspaceId) => {
   const persistence = window.trackers?.desktop?.persistence;
   if (!persistence?.readDevelopmentRecords) throw new Error("Workspace richiede SQLite nell'app desktop.");
-  return (await persistence.readDevelopmentRecords({ storeName: "tl_pages" })).find((record) => record.id === workspaceId) || null;
+  return persistence.readDevelopmentRecordById({ storeName: "tl_pages", id: workspaceId });
 };
 
 const cleanupRuntimeBoxes = () => {

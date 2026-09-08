@@ -5006,10 +5006,9 @@ const readRuntimeDefaultAiSettings = async () => {
   };
   const storeName = window.tlConfig?.TABLES?.TL_SETTINGS || "tl_settings";
   const persistence = window.trackers?.desktop?.persistence;
-  const records = persistence?.readDevelopmentRecords
-    ? await persistence.readDevelopmentRecords({ storeName }).catch(() => [])
-    : [];
-  const record = records?.find((item) => item.id === "global");
+  const record = persistence?.readDevelopmentRecordById
+    ? await persistence.readDevelopmentRecordById({ storeName, id: "global" }).catch(() => null)
+    : null;
   runtimeDefaultAiSettingsCache = { ...fallback, ...(record?.settings?.ai || {}) };
   return runtimeDefaultAiSettingsCache;
 };
@@ -5034,7 +5033,7 @@ const runtimeDefaultAiProviderConfig = async (providers = []) => {
 const runtimeAiProvidersForConfig = async () => {
   let providers = [];
   try {
-    providers = (await window.TrackerLensAiRuntimeStore?.list?.())?.providers || [];
+    providers = (await (window.TrackerLensAiRuntimeStore?.listForCenter?.() || window.TrackerLensAiRuntimeStore?.list?.()))?.providers || [];
   } catch (error) {
     console.warn("Provider AI non caricati per default runtime:", error);
   }
@@ -5280,6 +5279,9 @@ const persistKnowledgeAiEditorPayload = async ({ node, payload, form, dialog, cl
 const findSavedAiAgent = async (agentId = "") => {
   if (!agentId) return null;
   try {
+    if (window.TrackerLensAiRuntimeStore?.getAgent) {
+      return await window.TrackerLensAiRuntimeStore.getAgent(agentId);
+    }
     const data = await window.TrackerLensAiRuntimeStore?.list?.();
     return (data?.agents || []).find((agent) => agent.id === agentId) || null;
   } catch (error) {

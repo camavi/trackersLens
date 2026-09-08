@@ -313,8 +313,8 @@ test("desktop persistence projects Flow Map library cards without returning runt
     id: "flow_alpha", workspaceId: "flowmap_alpha", type: "flowmap", name: "Alpha", status: "active"
   }] });
   persistence.writeDevelopmentRecords({ storeName: "tl_runtime_nodes", records: [
-    { id: "node_1", workspaceId: "flowmap_alpha", metadata: { large: "not returned" } },
-    { id: "node_2", workspaceId: "flowmap_alpha" },
+    { id: "node_1", workspaceId: "flowmap_alpha", metadata: { large: "not returned", subtype: "flow-in", flowPorts: [{ name: "knowledge.in", type: "object" }] } },
+    { id: "node_2", workspaceId: "flowmap_alpha", metadata: { subtype: "flow-out" }, inputs: ["knowledge.out"] },
   ] });
   persistence.writeDevelopmentRecords({ storeName: "tl_runtime_dependencies", records: [{ id: "edge_1", workspaceId: "flowmap_alpha" }] });
 
@@ -328,6 +328,8 @@ test("desktop persistence projects Flow Map library cards without returning runt
     description: "Knowledge graph",
     nodes: 2,
     dependencies: 1,
+    inputPorts: [{ name: "knowledge.in", type: "object" }],
+    outputPorts: [{ name: "knowledge.out", type: "object" }],
     status: "active",
   }]);
   assert.match(index[0].updatedAt, /^\d{4}-\d{2}-\d{2}T/);
@@ -438,6 +440,21 @@ test("desktop persistence pages compact connection records without their configu
   assert.equal(page.records[0].id, "conn_2");
   assert.equal(Object.hasOwn(page.records[0], "mapping"), false);
   assert.deepEqual(persistence.readDevelopmentRecordById({ storeName: "tl_connections", id: "conn_1" }).mapping, { secretLargeConfig: "not in summary" });
+});
+
+test("desktop persistence finds one latest Storage Runtime record without reading its store", (context) => {
+  const fixtureDirectory = fs.mkdtempSync(path.join(os.tmpdir(), "trackers-lens-latest-runtime-record-"));
+  context.after(() => fs.rmSync(fixtureDirectory, { recursive: true, force: true }));
+  const persistence = new DesktopPersistence({ databasePath: path.join(fixtureDirectory, "development.sqlite") });
+  persistence.initialize();
+  persistence.writeDevelopmentRecords({ storeName: "tl_history", records: [
+    { id: "other", nodeId: "node_other", payload: { runId: "run_1" } },
+    { id: "match", nodeId: "node_target", payload: { runId: "run_1" }, fullPayload: { preserved: true } },
+  ] });
+  const record = persistence.readLatestDevelopmentRecord({ storeName: "tl_history", nodeId: "node_target", runId: "run_1" });
+  assert.equal(record.id, "match");
+  assert.deepEqual(record.fullPayload, { preserved: true });
+  assert.equal(persistence.readLatestDevelopmentRecord({ storeName: "tl_history", nodeId: "missing" }), null);
 });
 
 test("TL Core keeps the Python POC opt-in behind narrow commands", async () => {

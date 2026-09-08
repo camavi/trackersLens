@@ -496,6 +496,20 @@ window.TrackerLensAiRuntimeStore = (() => {
 
   const localProviderDefaults = () => LOCAL_PROVIDER_DEFS.map((provider) => ({ ...provider }));
 
+  const getAgent = async (id = "") => {
+    const agentId = normalizeText(id);
+    if (!agentId) return null;
+    const persistence = await ensureStores();
+    if (!persistence.readDevelopmentRecordById) {
+      const data = await list();
+      return (data.agents || []).find((agent) => agent.id === agentId) || null;
+    }
+    const template = await persistence.readDevelopmentRecordById({ storeName: STORES.agents, id: agentId });
+    if (template) return normalizeAgent(template, 0);
+    const runtime = await persistence.readDevelopmentRecordById({ storeName: STORES.runtime, id: agentId });
+    return runtime ? normalizeRuntimeAgent(runtime, 0) : null;
+  };
+
   const seedLocalProviders = async () => {
     const persistence = await ensureStores();
     const existing = (await readAllFromDb(persistence, STORES.providers)).map(normalizeProvider);
@@ -645,6 +659,7 @@ window.TrackerLensAiRuntimeStore = (() => {
     cleanupShortMemory,
     forgetMemory,
     forgetMemoryForAgent,
+    getAgent,
     list,
     listForCenter,
     listMemory,

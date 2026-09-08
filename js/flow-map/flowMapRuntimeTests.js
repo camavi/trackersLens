@@ -1564,18 +1564,15 @@ const waitForMinimumTestAnimation = async (startedAt = "") => {
   if (remaining > 0) await wait(remaining);
 };
 
-const readStorageRuntimeRecords = async (storeName = "tl_history") => {
+const readStorageRuntimeRecord = async (storeName = "tl_history", nodeId = "", runId = "") => {
   const persistence = window.trackers?.desktop?.persistence;
-  return persistence?.readDevelopmentRecords ? persistence.readDevelopmentRecords({ storeName }).catch(() => []) : [];
+  return persistence?.readLatestDevelopmentRecord ? persistence.readLatestDevelopmentRecord({ storeName, nodeId, runId }).catch(() => null) : null;
 };
 
 const waitForStorageRuntimeRecord = async ({ storeName = "tl_history", nodeId = "", runId = "", timeoutMs = 3000 } = {}) => {
   const started = Date.now();
   while (Date.now() - started < timeoutMs) {
-    const records = await readStorageRuntimeRecords(storeName);
-    const record = records
-      .filter((item) => (!nodeId || item.nodeId === nodeId) && (!runId || item.payload?.runId === runId))
-      .sort((a, b) => Date.parse(b.createdAt || "") - Date.parse(a.createdAt || ""))[0];
+    const record = await readStorageRuntimeRecord(storeName, nodeId, runId);
     if (record) return record;
     await wait(120);
   }

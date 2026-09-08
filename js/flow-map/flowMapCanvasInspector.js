@@ -3357,9 +3357,9 @@ const storageInspectorStoreName = (node = {}) => {
   return raw.replace(/[^A-Za-z0-9_-]/g, "_") || "tl_history";
 };
 
-const readStorageInspectorRecords = async (storeName = "tl_history") => {
+const readStorageInspectorRecord = async (storeName = "tl_history", nodeId = "") => {
   const persistence = window.trackers?.desktop?.persistence;
-  return persistence?.readDevelopmentRecords ? persistence.readDevelopmentRecords({ storeName }).catch(() => []) : [];
+  return persistence?.readLatestDevelopmentRecord ? persistence.readLatestDevelopmentRecord({ storeName, nodeId }).catch(() => null) : null;
 };
 
 const loadStorageInspectorRecord = async (node = {}, { force = false } = {}) => {
@@ -3377,10 +3377,7 @@ const loadStorageInspectorRecord = async (node = {}, { force = false } = {}) => 
     },
   };
   try {
-    const records = await readStorageInspectorRecords(storeName);
-    const latest = records
-      .filter((record) => record.nodeId === node.id)
-      .sort((a, b) => Date.parse(b.createdAt || "") - Date.parse(a.createdAt || ""))[0] || null;
+    const latest = await readStorageInspectorRecord(storeName, node.id);
     state.storageInspectorRecords = {
       ...state.storageInspectorRecords,
       [node.id]: {

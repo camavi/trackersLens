@@ -181,6 +181,7 @@ const settingsState = {
     updatedAt: "",
   },
   connections: [],
+  connectionTotal: 0,
   stores: [],
   storage: {
     usage: 0,
@@ -237,7 +238,7 @@ const ensureSettingsStore = async () => {
 const readAllFromDb = (persistence, storeName) => persistence.readDevelopmentRecords({ storeName });
 const getSettingsRecord = async () => {
   const persistence = await ensureSettingsStore();
-  return (await readAllFromDb(persistence, SETTINGS_STORE)).find((record) => record.id === SETTINGS_RECORD_ID) || null;
+  return persistence.readDevelopmentRecordById({ storeName: SETTINGS_STORE, id: SETTINGS_RECORD_ID });
 };
 const saveSettings = async (silent = false) => {
   const persistence = await ensureSettingsStore();
@@ -734,7 +735,7 @@ const renderConnections = () =>
     ),
     renderSettingToggle("Riconnessione automatica", "connections.autoReconnect"),
     renderSettingToggle("SSL verification", "connections.sslVerification"),
-    _.p({ class: "tl-settings-meta" }, `${settingsState.connections.length} connessioni reali in tl_connections`)
+    _.p({ class: "tl-settings-meta" }, `${settingsState.connectionTotal} connessioni reali in tl_connections`)
   );
 
 const renderStorage = () =>
@@ -844,7 +845,7 @@ const renderNotifications = () =>
   );
 
 const runtimeServices = () => {
-  const hasConnections = settingsState.connections.length > 0;
+  const hasConnections = settingsState.connectionTotal > 0;
   const hasProviders = settingsState.providers.length > 0;
   const hasBackup = Boolean(settingsState.settings.backup.lastBackupAt);
   return [
@@ -1106,17 +1107,17 @@ const loadSettingsStores = async () => {
 
   const persistence = await ensureSettingsStore();
   settingsState.stores = (await persistence.listDevelopmentStores()).map((store) => store.name);
-  const fallbackConnections = await readAllFromDb(persistence, "tl_connections").catch(() => []);
   const providersResult = await withTimeout(
-    window.TrackerLensAiRuntimeStore?.list?.().catch(() => null) || Promise.resolve(null),
+    (window.TrackerLensAiRuntimeStore?.listForCenter?.() || window.TrackerLensAiRuntimeStore?.list?.()).catch(() => null) || Promise.resolve(null),
     1600,
     "ai-runtime"
   );
   settingsState.providers = providersResult?.__timeout ? [] : providersResult?.providers || [];
-  const connectionsResult = window.TrackerLensConnectionsStore?.list
-    ? await withTimeout(window.TrackerLensConnectionsStore.list().catch(() => fallbackConnections), 1600, "connections")
-    : fallbackConnections;
-  settingsState.connections = connectionsResult?.__timeout ? fallbackConnections : connectionsResult;
+  const connectionsResult = window.TrackerLensConnectionsStore?.listSummaryPage
+    ? await withTimeout(window.TrackerLensConnectionsStore.listSummaryPage({ limit: 1 }).catch(() => null), 1600, "connections")
+    : null;
+  settingsState.connections = connectionsResult?.records || [];
+  settingsState.connectionTotal = connectionsResult?.__timeout ? 0 : Number(connectionsResult?.total || settingsState.connections.length) || 0;
   if (providersResult?.__timeout || connectionsResult?.__timeout) {
     settingsState.error = "Alcuni repository SQLite non hanno risposto in tempo";
   }
@@ -1248,7 +1249,7 @@ const runBackupNow = async () => {
 };
 
 const runDiagnostics = async () => {
-  settingsState.notice = `Diagnostica OK: ${settingsState.stores.length} store, ${settingsState.connections.length} connessioni, ${settingsState.providers.length} provider AI`;
+  settingsState.notice = `Diagnostica OK: ${settingsState.stores.length} store, ${settingsState.connectionTotal} connessioni, ${settingsState.providers.length} provider AI`;
   settingsState.error = "";
   patchSettingsRuntimeChrome();
 };

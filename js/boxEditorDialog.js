@@ -29,7 +29,7 @@ window.TrackerLensBoxEditorDialog = (() => {
     if (!id) return null;
     const persistence = desktopPersistence();
     if (!await usesDesktopSqlite() || !persistence?.readDevelopmentRecords) throw new Error("Box Editor richiede SQLite nell'app desktop.");
-    return (await persistence.readDevelopmentRecords({ storeName: WIDGET_STORE() })).find((record) => record.id === id) || null;
+    return persistence.readDevelopmentRecordById({ storeName: WIDGET_STORE(), id });
   };
 
   const putWidgetRecord = async (payload) => {
