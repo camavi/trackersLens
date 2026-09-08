@@ -1624,7 +1624,7 @@ const waitForKnowledgeAiRagJob = async ({ workspaceId = "", runId = "", agentId 
   const started = Date.now();
   const expectedQuery = String(query || "").trim().toLowerCase();
   while (Date.now() - started < timeoutMs) {
-    const data = await window.TrackerLensAiRuntimeStore?.list?.().catch(() => ({ jobs: [] }));
+    const data = await window.TrackerLensAiRuntimeStore?.listRunRecords?.({ workspaceId, runId, agentId, includeFlowRecords: false }).catch(() => ({ jobs: [] }));
     const job = (data?.jobs || [])
       .filter((item) =>
         (!workspaceId || item.workspaceId === workspaceId) &&
@@ -1643,7 +1643,7 @@ const waitForKnowledgeAiRagJob = async ({ workspaceId = "", runId = "", agentId 
 const waitForKnowledgeAgentToolJob = async ({ workspaceId = "", runId = "", agentId = "", timeoutMs = 10000 } = {}) => {
   const started = Date.now();
   while (Date.now() - started < timeoutMs) {
-    const data = await window.TrackerLensAiRuntimeStore?.list?.().catch(() => ({ jobs: [] }));
+    const data = await window.TrackerLensAiRuntimeStore?.listRunRecords?.({ workspaceId, runId, agentId, includeFlowRecords: false }).catch(() => ({ jobs: [] }));
     const job = (data?.jobs || [])
       .filter((item) =>
         (!workspaceId || item.workspaceId === workspaceId) &&
@@ -1738,7 +1738,7 @@ const waitForKnowledgeAiGraphJob = async ({ workspaceId = "", runId = "", agentI
   const started = Date.now();
   const expectedQuery = String(query || "").trim().toLowerCase();
   while (Date.now() - started < timeoutMs) {
-    const data = await window.TrackerLensAiRuntimeStore?.list?.().catch(() => ({ jobs: [] }));
+    const data = await window.TrackerLensAiRuntimeStore?.listRunRecords?.({ workspaceId, runId, agentId, includeFlowRecords: false }).catch(() => ({ jobs: [] }));
     const job = (data?.jobs || [])
       .filter((item) =>
         (!workspaceId || item.workspaceId === workspaceId) &&
@@ -1882,23 +1882,15 @@ const runRecordMatches = (record = {}, runId = "") =>
   );
 
 const loadRunRecords = async ({ workspaceId = "", runId = "" } = {}) => {
-  const [events, flowLogs, aiData] = await Promise.all([
-    window.TrackerLensEventLogStore?.listEvents
-      ? window.TrackerLensEventLogStore.listEvents().catch(() => [])
-      : Promise.resolve([]),
-    window.TrackerLensEventLogStore?.listFlowLogs
-      ? window.TrackerLensEventLogStore.listFlowLogs().catch(() => [])
-      : Promise.resolve([]),
-    window.TrackerLensAiRuntimeStore?.list
-      ? window.TrackerLensAiRuntimeStore.list().catch(() => ({ jobs: [], logs: [], providers: [] }))
-      : Promise.resolve({ jobs: [], logs: [], providers: [] }),
-  ]);
+  const aiData = window.TrackerLensAiRuntimeStore?.listRunRecords
+    ? await window.TrackerLensAiRuntimeStore.listRunRecords({ workspaceId, runId }).catch(() => ({ jobs: [], logs: [], events: [], flowLogs: [] }))
+    : { jobs: [], logs: [], events: [], flowLogs: [] };
   return {
-    events: events.filter((event) => (!workspaceId || event.workspaceId === workspaceId) && runRecordMatches(event, runId)),
-    flowLogs: flowLogs.filter((log) => (!workspaceId || log.workspaceId === workspaceId) && runRecordMatches(log, runId)),
-    aiJobs: (aiData.jobs || []).filter((job) => (!workspaceId || job.workspaceId === workspaceId) && (job.runId === runId || job.result?.runId === runId)),
-    aiLogs: (aiData.logs || []).filter((log) => (!workspaceId || log.workspaceId === workspaceId) && runRecordMatches(log, runId)),
-    aiProviders: aiData.providers || [],
+    events: (aiData.events || []).filter((event) => (!workspaceId || event.workspaceId === workspaceId) && runRecordMatches(event, runId)),
+    flowLogs: (aiData.flowLogs || []).filter((log) => (!workspaceId || log.workspaceId === workspaceId) && runRecordMatches(log, runId)),
+    aiJobs: aiData.jobs || [],
+    aiLogs: aiData.logs || [],
+    aiProviders: [],
   };
 };
 

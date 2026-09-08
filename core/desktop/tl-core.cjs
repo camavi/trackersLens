@@ -112,6 +112,9 @@ const createTlCore = ({ appVersion = "0.0.0", platform = "unknown", mode = "prod
       case "desktop.persistence.readAiAgentJobPage":
         if (!persistence?.readAiAgentJobPage) throw errorWithCode("Desktop persistence is unavailable", "PERSISTENCE_UNAVAILABLE");
         return persistence.readAiAgentJobPage(payload);
+      case "desktop.persistence.readAiRunRecords":
+        if (!persistence?.readAiRunRecords) throw errorWithCode("Desktop persistence is unavailable", "PERSISTENCE_UNAVAILABLE");
+        return persistence.readAiRunRecords(payload);
       case "desktop.persistence.readAiMemoryMatches":
         if (!persistence?.readAiMemoryMatches) throw errorWithCode("Desktop persistence is unavailable", "PERSISTENCE_UNAVAILABLE");
         return persistence.readAiMemoryMatches(payload);

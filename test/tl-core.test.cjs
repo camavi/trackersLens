@@ -463,6 +463,32 @@ test("desktop persistence pages AI jobs for one agent and workspace only", (cont
   assert.deepEqual(global.records.map((record) => record.id), ["job_global"]);
 });
 
+test("desktop persistence reads only AI records for the requested live run", (context) => {
+  const fixtureDirectory = fs.mkdtempSync(path.join(os.tmpdir(), "trackers-lens-ai-run-records-"));
+  context.after(() => fs.rmSync(fixtureDirectory, { recursive: true, force: true }));
+  const persistence = new DesktopPersistence({ databasePath: path.join(fixtureDirectory, "development.sqlite") });
+  persistence.initialize();
+  persistence.writeDevelopmentRecords({ storeName: "tl_ai_jobs", records: [
+    { id: "job_match", workspaceId: "workspace_alpha", runId: "run_alpha", agentId: "node_alpha" },
+    { id: "job_other_run", workspaceId: "workspace_alpha", runId: "run_beta", agentId: "node_alpha" },
+    { id: "job_other_agent", workspaceId: "workspace_alpha", runId: "run_alpha", agentId: "node_beta" },
+    { id: "job_elsewhere", workspaceId: "workspace_beta", runId: "run_alpha", agentId: "node_alpha" },
+  ] });
+  persistence.writeDevelopmentRecords({ storeName: "tl_ai_logs", records: [
+    { id: "log_match", workspaceId: "workspace_alpha", payload: { runId: "run_alpha" } },
+    { id: "log_other_run", workspaceId: "workspace_alpha", context: { runId: "run_beta" } },
+    { id: "log_elsewhere", workspaceId: "workspace_beta", meta: { runId: "run_alpha" } },
+  ] });
+  persistence.writeDevelopmentRecords({ storeName: "tl_events", records: [
+    { id: "event_match", workspaceId: "workspace_alpha", payload: { runId: "run_alpha" } },
+    { id: "event_other", workspaceId: "workspace_alpha", payload: { runId: "run_beta" } },
+  ] });
+  const records = persistence.readAiRunRecords({ workspaceId: "workspace_alpha", runId: "run_alpha", agentId: "node_alpha" });
+  assert.deepEqual(records.jobs.map((record) => record.id), ["job_match"]);
+  assert.deepEqual(records.logs.map((record) => record.id), ["log_match"]);
+  assert.deepEqual(records.events.map((record) => record.id), ["event_match"]);
+});
+
 test("desktop persistence ranks matching AI memory without returning the full store", (context) => {
   const fixtureDirectory = fs.mkdtempSync(path.join(os.tmpdir(), "trackers-lens-ai-memory-"));
   context.after(() => fs.rmSync(fixtureDirectory, { recursive: true, force: true }));

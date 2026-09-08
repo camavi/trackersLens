@@ -638,6 +638,42 @@ class DesktopPersistence {
     }
   }
 
+  readAiRunRecords({ workspaceId = "", runId = "", agentId = "", includeFlowRecords = true } = {}) {
+    const workspace = String(workspaceId || "");
+    const run = String(runId || "");
+    const agent = String(agentId || "");
+    if (!workspace && !run && !agent) throw new Error("AI run scope is required.");
+    if (!this.databasePath || !fs.existsSync(this.databasePath)) throw new Error("SQLite development candidate does not exist.");
+    const database = new DatabaseSync(this.databasePath, { readOnly: true });
+    try {
+      const read = (storeName, { filterAgent = false } = {}) => {
+        const filters = ["store_name = ?"];
+        const args = [storeName];
+        if (workspace) {
+          filters.push("COALESCE(NULLIF(json_extract(record_json, '$.workspaceId'), ''), NULLIF(json_extract(record_json, '$.content.workspaceId'), ''), workspace_id, 'workspace_global') = ?");
+          args.push(workspace);
+        }
+        if (run) {
+          filters.push("(COALESCE(json_extract(record_json, '$.runId'), json_extract(record_json, '$.content.runId'), json_extract(record_json, '$.meta.runId'), json_extract(record_json, '$.content.meta.runId'), json_extract(record_json, '$.context.runId'), json_extract(record_json, '$.content.context.runId'), json_extract(record_json, '$.payload.runId'), json_extract(record_json, '$.content.payload.runId'), '') = ? OR COALESCE(json_extract(record_json, '$.result.runId'), json_extract(record_json, '$.content.result.runId'), '') = ?)");
+          args.push(run, run);
+        }
+        if (filterAgent && agent) {
+          filters.push("(COALESCE(json_extract(record_json, '$.agentId'), json_extract(record_json, '$.content.agentId'), '') = ? OR COALESCE(json_extract(record_json, '$.runtimeNodeId'), json_extract(record_json, '$.content.runtimeNodeId'), '') = ?)");
+          args.push(agent, agent);
+        }
+        return database.prepare(`SELECT record_json FROM tl_records WHERE ${filters.join(" AND ")} ORDER BY updated_at DESC, id DESC`).all(...args).map((row) => parseStoredJson(row.record_json));
+      };
+      return {
+        jobs: read("tl_ai_jobs", { filterAgent: true }),
+        logs: read("tl_ai_logs"),
+        events: includeFlowRecords ? read("tl_events") : [],
+        flowLogs: includeFlowRecords ? read("tl_flow_logs") : [],
+      };
+    } finally {
+      database.close();
+    }
+  }
+
   readAiMemoryMatches({ scope = "", workspaceId = "", agentId = "", query = "", limit = 50, includeShared = true } = {}) {
     if (!this.databasePath || !fs.existsSync(this.databasePath)) throw new Error("SQLite development candidate does not exist.");
     const safeLimit = Math.max(1, Math.floor(Number(limit) || 50));

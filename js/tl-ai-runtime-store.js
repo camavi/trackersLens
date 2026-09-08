@@ -194,6 +194,11 @@ window.TrackerLensAiRuntimeStore = (() => {
     const content = contentOf(record);
     return {
       id: normalizeText(record?.id || content.id, `log_${index}`),
+      workspaceId: normalizeText(content.workspaceId || record?.workspaceId),
+      runId: normalizeText(content.runId || record?.runId || content.meta?.runId || content.context?.runId || content.payload?.runId || content.result?.runId),
+      meta: content.meta || {},
+      context: content.context || {},
+      payload: content.payload || {},
       time: normalizeText(content.time || content.createdAt || record?.createdAt || content.updatedAt || record?.updatedAt),
       source: normalizeText(content.source || content.agent || content.name, "AI Runtime"),
       message: normalizeText(content.message || content.result || content.description, "Evento runtime AI"),
@@ -527,6 +532,26 @@ window.TrackerLensAiRuntimeStore = (() => {
     return { records: jobs.slice(offset, offset + limit), total: jobs.length, offset, limit, hasMore: offset + limit < jobs.length };
   };
 
+  const listRunRecords = async ({ workspaceId = "", runId = "", agentId = "", includeFlowRecords = true } = {}) => {
+    const persistence = await ensureStores();
+    if (persistence.readAiRunRecords) {
+      const records = await persistence.readAiRunRecords({ workspaceId, runId, agentId, includeFlowRecords });
+      return {
+        jobs: (records.jobs || []).map(normalizeJob),
+        logs: (records.logs || []).map(normalizeLog),
+        events: records.events || [],
+        flowLogs: records.flowLogs || [],
+      };
+    }
+    const data = await list();
+    return {
+      jobs: (data.jobs || []).filter((job) => (!workspaceId || job.workspaceId === workspaceId) && (!runId || job.runId === runId || job.result?.runId === runId) && (!agentId || job.agentId === agentId)),
+      logs: (data.logs || []).filter((log) => (!workspaceId || log.workspaceId === workspaceId) && (!runId || log.runId === runId || log.raw?.result?.runId === runId)),
+      events: [],
+      flowLogs: [],
+    };
+  };
+
   const seedLocalProviders = async () => {
     const persistence = await ensureStores();
     const existing = (await readAllFromDb(persistence, STORES.providers)).map(normalizeProvider);
@@ -678,6 +703,7 @@ window.TrackerLensAiRuntimeStore = (() => {
     forgetMemoryForAgent,
     getAgent,
     listJobsForAgent,
+    listRunRecords,
     list,
     listForCenter,
     listMemory,
