@@ -140,13 +140,11 @@ const runtimeConnectionKey = (connection = {}) => {
 const loadWorkspaceConnections = async ({ workspaceId = "", contentConnections = [] } = {}) => {
   const baseConnections = contentConnections.map(normalizeRuntimeConnection);
   const store = window.TrackerLensConnectionsStore;
-  if (!store?.list) return baseConnections;
+  if (!store?.listForWorkspace) return baseConnections;
 
   try {
-    const allConnections = await store.list();
-    const storeConnections = allConnections
+    const storeConnections = (await store.listForWorkspace(workspaceId))
       .map(normalizeRuntimeConnection)
-      .filter((connection) => !workspaceId || !connection.workspaceId || connection.workspaceId === workspaceId)
       .filter((connection) => connection.fromBoxId && connection.toBoxId);
     const merged = new Map();
     [...baseConnections, ...storeConnections].forEach((connection) => {

@@ -507,6 +507,21 @@ class DesktopPersistence {
     }
   }
 
+  readConnectionRecordsForWorkspace({ workspaceId = "", includeGlobal = true } = {}) {
+    const workspace = String(workspaceId || "");
+    if (!workspace) throw new Error("Connection workspace id is required.");
+    if (!this.databasePath || !fs.existsSync(this.databasePath)) throw new Error("SQLite development candidate does not exist.");
+    const database = new DatabaseSync(this.databasePath, { readOnly: true });
+    try {
+      const rows = includeGlobal
+        ? database.prepare("SELECT record_json FROM tl_records WHERE store_name = ? AND (workspace_id = ? OR workspace_id = '') ORDER BY id").all("tl_connections", workspace)
+        : database.prepare("SELECT record_json FROM tl_records WHERE store_name = ? AND workspace_id = ? ORDER BY id").all("tl_connections", workspace);
+      return rows.map((row) => parseStoredJson(row.record_json));
+    } finally {
+      database.close();
+    }
+  }
+
   readDevelopmentRecordPage({ storeName = "", workspaceId = "", offset = 0, limit = 25 } = {}) {
     const name = String(storeName || "");
     if (!isAllowedRepositoryStore(name)) throw new Error(`Unsupported persistence store: ${name}`);

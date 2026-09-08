@@ -1247,7 +1247,7 @@ const loadRuntime = async (options = {}) => {
         readScopedRuntimeStore(runtimeStoreName("TL_FLOW_LOGS", "tl_flow_logs"), workspaceId),
         readScopedRuntimeStore(runtimeStoreName("TL_RUNTIME_NODES", "tl_runtime_nodes"), workspaceId),
         readScopedRuntimeStore(runtimeStoreName("TL_RUNTIME_DEPENDENCIES", "tl_runtime_dependencies"), workspaceId),
-        window.TrackerLensConnectionsStore?.list ? window.TrackerLensConnectionsStore.list().then((items) => items.filter((item) => item.workspaceId === workspaceId)) : Promise.resolve([]),
+        window.TrackerLensConnectionsStore?.listForWorkspace ? window.TrackerLensConnectionsStore.listForWorkspace(workspaceId) : Promise.resolve([]),
         Promise.resolve([]),
         window.TrackerLensBoxPerformanceMonitor?.list ? window.TrackerLensBoxPerformanceMonitor.list({ workspaceId }) : Promise.resolve([]),
       ]);

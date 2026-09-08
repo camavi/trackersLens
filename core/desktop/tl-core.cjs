@@ -94,6 +94,9 @@ const createTlCore = ({ appVersion = "0.0.0", platform = "unknown", mode = "prod
       case "desktop.persistence.readDevelopmentRecords":
         if (!persistence?.readDevelopmentRecords) throw errorWithCode("Desktop persistence is unavailable", "PERSISTENCE_UNAVAILABLE");
         return persistence.readDevelopmentRecords(payload);
+      case "desktop.persistence.readConnectionRecordsForWorkspace":
+        if (!persistence?.readConnectionRecordsForWorkspace) throw errorWithCode("Desktop persistence is unavailable", "PERSISTENCE_UNAVAILABLE");
+        return persistence.readConnectionRecordsForWorkspace(payload);
       case "desktop.persistence.readDevelopmentRecordPage":
         if (!persistence?.readDevelopmentRecordPage) throw errorWithCode("Desktop persistence is unavailable", "PERSISTENCE_UNAVAILABLE");
         return persistence.readDevelopmentRecordPage(payload);

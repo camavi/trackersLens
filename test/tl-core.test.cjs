@@ -430,16 +430,19 @@ test("desktop persistence pages compact connection records without their configu
   const persistence = new DesktopPersistence({ databasePath: path.join(fixtureDirectory, "development.sqlite") });
   persistence.initialize();
   persistence.writeDevelopmentRecords({ storeName: "tl_connections", records: [
-    { id: "conn_1", name: "First", type: "API Endpoint", endpoint: "https://example.test/one", mapping: { secretLargeConfig: "not in summary" } },
+    { id: "conn_1", workspaceId: "workspace_alpha", name: "First", type: "API Endpoint", endpoint: "https://example.test/one", mapping: { secretLargeConfig: "not in summary" } },
     { id: "conn_2", name: "Second", type: "WebSocket", endpoint: "wss://example.test/two" },
+    { id: "conn_3", workspaceId: "workspace_beta", name: "Elsewhere", type: "WebSocket", endpoint: "wss://example.test/three" },
   ] });
 
   const page = persistence.readConnectionSummaryPage({ offset: 0, limit: 1 });
-  assert.equal(page.total, 2);
+  assert.equal(page.total, 3);
   assert.equal(page.records.length, 1);
-  assert.equal(page.records[0].id, "conn_2");
+  assert.equal(page.records[0].id, "conn_3");
   assert.equal(Object.hasOwn(page.records[0], "mapping"), false);
   assert.deepEqual(persistence.readDevelopmentRecordById({ storeName: "tl_connections", id: "conn_1" }).mapping, { secretLargeConfig: "not in summary" });
+  assert.deepEqual(persistence.readConnectionRecordsForWorkspace({ workspaceId: "workspace_alpha" }).map((record) => record.id), ["conn_1", "conn_2"]);
+  assert.deepEqual(persistence.readConnectionRecordsForWorkspace({ workspaceId: "workspace_alpha", includeGlobal: false }).map((record) => record.id), ["conn_1"]);
 });
 
 test("desktop persistence finds one latest Storage Runtime record without reading its store", (context) => {

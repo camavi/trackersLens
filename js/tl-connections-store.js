@@ -365,8 +365,8 @@ window.TrackerLensConnectionsStore = (() => {
   const listForWorkspace = async (workspaceId = "") => {
     const persistence = desktopPersistence();
     if (!workspaceId) return [];
-    if (!await usesDesktopSqlite() || !persistence?.readDevelopmentRecords) throw new Error("Connections Store richiede SQLite nell'app desktop.");
-    return (await persistence.readDevelopmentRecords({ storeName: CONNECTION_STORE, workspaceId })).map(normalizeConnection);
+    if (!await usesDesktopSqlite() || !persistence?.readConnectionRecordsForWorkspace) throw new Error("Connections Store richiede SQLite nell'app desktop.");
+    return (await persistence.readConnectionRecordsForWorkspace({ workspaceId, includeGlobal: true })).map(normalizeConnection);
   };
 
   const listSummaryPage = async ({ offset = 0, limit = 25 } = {}) => {
