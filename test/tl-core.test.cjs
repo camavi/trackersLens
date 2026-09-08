@@ -384,6 +384,44 @@ test("desktop persistence projects AI DevTools summaries without memory payloads
   assert.equal(Object.hasOwn(summary.memory[0], "payload"), false);
 });
 
+test("desktop persistence pages AI Runtime Center jobs and keeps editable records exact", (context) => {
+  const fixtureDirectory = fs.mkdtempSync(path.join(os.tmpdir(), "trackers-lens-ai-runtime-center-"));
+  context.after(() => fs.rmSync(fixtureDirectory, { recursive: true, force: true }));
+  const persistence = new DesktopPersistence({ databasePath: path.join(fixtureDirectory, "development.sqlite") });
+  persistence.initialize();
+  persistence.writeDevelopmentRecords({ storeName: "tl_ai_providers", records: [{ id: "provider_1", name: "Provider", privateConfig: { preserved: true } }] });
+  persistence.writeDevelopmentRecords({ storeName: "tl_ai_jobs", records: [{ id: "job_1", task: "First", result: { payload: "not in summary" } }, { id: "job_2", task: "Second" }] });
+  persistence.writeDevelopmentRecords({ storeName: "tl_ai_logs", records: [{ id: "log_1", message: "full secret log" }, { id: "log_2", message: "second" }] });
+  const summary = persistence.readAiRuntimeCenterSummary({ jobsLimit: 1, logsLimit: 1 });
+  assert.equal(summary.jobs.length, 1);
+  assert.equal(summary.jobsPage.total, 2);
+  assert.equal(summary.jobsPage.hasMore, true);
+  assert.equal(summary.jobs[0].storeName, "tl_ai_jobs");
+  assert.equal(Object.hasOwn(summary.jobs[0], "result"), false);
+  assert.equal(summary.logs[0].message, "Apri dettagli per il log completo.");
+  assert.equal(summary.providers[0].storeName, "tl_ai_providers");
+  assert.deepEqual(persistence.readDevelopmentRecordById({ storeName: "tl_ai_providers", id: "provider_1" }).privateConfig, { preserved: true });
+});
+
+test("desktop persistence aggregates Statistics without returning SQLite payloads", (context) => {
+  const fixtureDirectory = fs.mkdtempSync(path.join(os.tmpdir(), "trackers-lens-analytics-summary-"));
+  context.after(() => fs.rmSync(fixtureDirectory, { recursive: true, force: true }));
+  const persistence = new DesktopPersistence({ databasePath: path.join(fixtureDirectory, "development.sqlite") });
+  persistence.initialize();
+  persistence.writeDevelopmentRecords({ storeName: "tl_widgets", records: [{ id: "tracker_1", type: "boxTracker", name: "Tracker", endpoint: "https://example.test/data", privateCode: "not returned" }] });
+  persistence.writeDevelopmentRecords({ storeName: "tl_connections", records: [{ id: "connection_1", name: "API", type: "API Endpoint", endpoint: "https://example.test/data", mapping: { large: "not returned" } }] });
+  persistence.writeDevelopmentRecords({ storeName: "tl_ai_jobs", records: [{ id: "job_1", prompt: "not returned" }] });
+  persistence.writeDevelopmentRecords({ storeName: "tl_events", records: [{ id: "event_1", eventType: "received", channel: "updates", createdAt: new Date().toISOString(), payload: { large: "not returned" } }] });
+
+  const summary = persistence.readAnalyticsSummary();
+  assert.equal(summary.trackerTotal, 1);
+  assert.equal(summary.connectionTotal, 1);
+  assert.equal(summary.aiJobs, 1);
+  assert.equal(summary.liveEvents[0].title, "updates");
+  assert.equal(Object.hasOwn(summary.liveEvents[0], "payload"), false);
+  assert.equal(Object.hasOwn(summary, "records"), false);
+});
+
 test("desktop persistence pages compact connection records without their configuration mapping", (context) => {
   const fixtureDirectory = fs.mkdtempSync(path.join(os.tmpdir(), "trackers-lens-connections-"));
   context.after(() => fs.rmSync(fixtureDirectory, { recursive: true, force: true }));

@@ -615,6 +615,27 @@ window.TrackerLensAiRuntimeStore = (() => {
     };
   };
 
+  const listForCenter = async ({ jobsOffset = 0, jobsLimit = 25, logsOffset = 0, logsLimit = 25, memoryOffset = 0, memoryLimit = 25 } = {}) => {
+    const persistence = await ensureStores();
+    if (!persistence.readAiRuntimeCenterSummary) return list();
+    const data = await persistence.readAiRuntimeCenterSummary({ jobsOffset, jobsLimit, logsOffset, logsLimit, memoryOffset, memoryLimit });
+    const normalizedProviders = (data.providers || []).map(normalizeProvider);
+    const seededLocalProviders = localProviderDefaults()
+      .filter((provider) => !normalizedProviders.some((item) => providerKey(item) === providerKey(provider)))
+      .map(normalizeProvider);
+    const memoryRecords = (data.memory || []).map(normalizeMemory);
+    return {
+      providers: [...normalizedProviders, ...seededLocalProviders].sort((a, b) => (Number(a.priority) || 100) - (Number(b.priority) || 100)),
+      agents: (data.agents || []).map((item) => item.scope === "runtime" ? normalizeRuntimeAgent(item) : normalizeAgent(item)),
+      jobs: (data.jobs || []).map(normalizeJob),
+      logs: (data.logs || []).map(normalizeLog),
+      memory: [...scopeSummaryMemory(memoryRecords), ...memoryRecords],
+      promptFlows: (data.promptFlows || []).map(normalizePromptFlow),
+      runtime: (data.agents || []).filter((item) => item.scope === "runtime").map(normalizeRuntimeAgent),
+      metrics: [], globalChats: [], widgets: [], pages: [], connections: [], stores: data.stores || [], jobsPage: data.jobsPage || { total: (data.jobs || []).length, offset: 0, limit: jobsLimit, hasMore: false }, logsPage: data.logsPage || { total: (data.logs || []).length, offset: 0, limit: logsLimit, hasMore: false }, memoryPage: data.memoryPage || { total: (data.memory || []).length, offset: 0, limit: memoryLimit, hasMore: false },
+    };
+  };
+
   return {
     STORES,
     MEMORY_SCOPES,
@@ -625,6 +646,7 @@ window.TrackerLensAiRuntimeStore = (() => {
     forgetMemory,
     forgetMemoryForAgent,
     list,
+    listForCenter,
     listMemory,
     localProviderDefaults,
     pinMemory,
@@ -652,7 +674,7 @@ window.TrackerLensAiRuntimeStore = (() => {
     upsertGlobalChat: (record) => write(STORES.globalChats, record),
     deleteGlobalChat: (id) => deleteRecord(STORES.globalChats, id),
     upsertPrompt: (record) => write(STORES.prompts, record),
-    upsertPromptFlow: (record) => write(STORES.prompts, record),
+    upsertPromptFlow: (record) => write(record?.storeName === STORES.promptFlows ? STORES.promptFlows : STORES.prompts, record),
     deletePromptFlow: async (id) => {
       await deleteRecord(STORES.prompts, id);
       return deleteRecord(STORES.promptFlows, id);

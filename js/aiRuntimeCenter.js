@@ -32,6 +32,9 @@ let aiRuntimeMeta = {
   lastUpdate: "",
   storage: "Loading",
 };
+let aiJobsPage = { total: 0, offset: 0, limit: 25, hasMore: false };
+let aiLogsPage = { total: 0, offset: 0, limit: 25, hasMore: false };
+let aiMemoryPage = { total: 0, offset: 0, limit: 25, hasMore: false };
 
 let metrics = [
   { label: "Modelli Attivi", value: "4", delta: "+2 attivi", source: "demo", tone: "gold", icon: "psychology" },
@@ -248,13 +251,13 @@ const buildRuntimeViewModel = (data, queryMs = 0) => {
       }))
       : [{ id: "", name: "Nessun provider configurato", provider: "custom", model: "tl_ai_providers", endpoint: "", healthPath: "", state: "Idle", latency: "n/d", status: "warn", icon: "dns", local: false, placeholder: true }],
     jobs: data.jobs.length
-      ? data.jobs.map((item) => ({ id: item.id, agent: item.agent, task: item.task, state: sourceLabel(item.status), start: timeLabel(item.startedAt), duration: durationLabel(item.durationMs), tokens: item.tokens ? formatNumber(item.tokens) : "-", status: statusTone(item.status), raw: item.raw, result: item.result, provider: item.provider, model: item.model, prompt: item.prompt, memoryContext: item.memoryContext }))
+      ? data.jobs.map((item) => ({ id: item.id, agent: item.agent, task: item.task, state: sourceLabel(item.status), start: timeLabel(item.startedAt), duration: durationLabel(item.durationMs), tokens: item.tokens ? formatNumber(item.tokens) : "-", status: statusTone(item.status), raw: item.raw || item, result: item.result, provider: item.provider, model: item.model, prompt: item.prompt, memoryContext: item.memoryContext }))
       : [{ id: "-", agent: "Runtime AI", task: "Nessun job reale in tl_ai_jobs", state: "Idle", start: "Mai", duration: "-", tokens: "-", status: "warn", raw: null }],
     logs: data.logs.length
-      ? data.logs.map((item) => ({ id: item.id, time: timeLabel(item.time), source: item.source, message: item.message, status: statusTone(item.status), raw: item.raw }))
+      ? data.logs.map((item) => ({ id: item.id, time: timeLabel(item.time), source: item.source, message: item.message, status: statusTone(item.status), raw: item.raw || item }))
       : [{ id: "-", time: "-", source: "AI Runtime", message: "Nessun log reale in tl_ai_logs", status: "warn", raw: null }],
     memory: data.memory.length
-      ? data.memory.map((item) => ({ id: item.id, name: item.name, meta: item.meta || "Context locale", count: `${formatNumber(item.count)} items`, icon: item.icon || "database", scope: item.scope || "workspace", text: item.text || "", raw: item.raw }))
+      ? data.memory.map((item) => ({ id: item.id, name: item.name, meta: item.meta || "Context locale", count: `${formatNumber(item.count)} items`, icon: item.icon || "database", scope: item.scope || "workspace", text: item.text || "", raw: item.raw || item }))
       : [{ id: "", name: "Memoria AI vuota", meta: "tl_ai_memory", count: "0 items", icon: "database", scope: "workspace", text: "", raw: null }],
     prompts: buildPrompts(data.promptFlows),
     workspaceActivity: data.pages.length
@@ -403,14 +406,27 @@ const renderAgentEmptyState = () =>
     btn({ class: "tl-ai-agent-empty-cta", onclick: () => openAgentEditorDialog() }, "Aggiungi Agente")
   );
 
-const openAgentEditorDialog = (agent = null) => window.TrackerLensAiAgentEditor.open({
-  agent,
+const loadFullAiRecord = async (item, fallbackStore = "") => {
+  if (!item?.id) return item;
+  const summary = item.raw && typeof item.raw === "object" ? item.raw : item;
+  const storeName = summary.storeName || fallbackStore;
+  if (!storeName) return item;
+  const record = await window.trackers?.desktop?.persistence?.readDevelopmentRecordById?.({ storeName, id: item.id });
+  if (!record) return item;
+  const content = record.content && typeof record.content === "object" ? record.content : record;
+  return { ...item, ...content, id: String(record.id || content.id || item.id), storeName, raw: { ...content, id: String(record.id || content.id || item.id), storeName, createdAt: record.createdAt || content.createdAt || "" } };
+};
+
+const openAgentEditorDialog = async (agent = null) => {
+  const current = agent?.id ? await loadFullAiRecord(agent, agent.scope === "runtime" ? "tl_ai_runtime" : "tl_ai_agents") : agent;
+  return window.TrackerLensAiAgentEditor.open({
+  agent: current,
   providers: providers.map(providerOf).filter((item) => !item.placeholder),
   onSave: async ({ payload, close }) => {
     if (payload.scope === "runtime") {
-      await window.TrackerLensAiRuntimeStore?.upsertRuntimeAgent?.(payload);
+      await window.TrackerLensAiRuntimeStore?.upsertRuntimeAgent?.({ ...(current?.raw || {}), ...payload });
     } else {
-      await window.TrackerLensAiRuntimeStore?.upsertAgent?.(payload);
+      await window.TrackerLensAiRuntimeStore?.upsertAgent?.({ ...(current?.raw || {}), ...payload });
     }
     await window.TrackerLensAiRuntimeStore?.upsertMetric?.({
       id: `metric_${payload.id || payload.name.replace(/\W+/g, "_").toLowerCase()}`,
@@ -422,7 +438,8 @@ const openAgentEditorDialog = (agent = null) => window.TrackerLensAiAgentEditor.
     close?.();
     await refreshAiRuntime();
   },
-});
+  });
+};
 
 const deleteAgent = async (agent, close = null) => {
   if (!agent?.id) return;
@@ -620,6 +637,7 @@ const saveProviderFromForm = async (form, close, current = null) => {
   const name = providerFormValue(form, "name");
   if (!name) return;
   await window.TrackerLensAiRuntimeStore?.upsertProvider?.({
+    ...(current?.raw || {}),
     ...(current?.id ? { id: current.id, createdAt: current.raw?.createdAt } : {}),
     name,
     provider: providerFormValue(form, "provider") || "custom",
@@ -635,8 +653,9 @@ const saveProviderFromForm = async (form, close, current = null) => {
   await refreshAiRuntime();
 };
 
-const openProviderEditorDialog = (provider = null) => {
-  const current = provider ? providerOf(provider) : null;
+const openProviderEditorDialog = async (provider = null) => {
+  const summary = provider ? providerOf(provider) : null;
+  const current = summary?.id ? providerOf(await loadFullAiRecord(summary, "tl_ai_providers")) : summary;
   const isEdit = Boolean(current?.id);
   const dialog = _.Dialog({
     class: "tl-ai-provider-dialog",
@@ -865,6 +884,7 @@ const savePromptFromForm = async (form, close, current = null) => {
   const prompt = promptFormValue(form, "prompt");
   if (!name || !prompt) return;
   await window.TrackerLensAiRuntimeStore?.upsertPromptFlow?.({
+    ...(current?.raw || {}),
     ...(current?.id ? { id: current.id, createdAt: current.raw?.createdAt } : {}),
     name,
     title: name,
@@ -879,9 +899,10 @@ const savePromptFromForm = async (form, close, current = null) => {
   await refreshAiRuntime();
 };
 
-const openPromptEditorDialog = (prompt = null) => {
-  const isEdit = Boolean(prompt?.id);
-  const toneValue = prompt?.tone || "gold";
+const openPromptEditorDialog = async (prompt = null) => {
+  const current = prompt?.id ? await loadFullAiRecord(prompt, "tl_ai_prompts") : prompt;
+  const isEdit = Boolean(current?.id);
+  const toneValue = current?.tone || "gold";
   const dialog = _.Dialog({
     class: "tl-ai-prompt-dialog",
     panelClass: "tl-ai-prompt-panel",
@@ -895,16 +916,16 @@ const openPromptEditorDialog = (prompt = null) => {
         class: "tl-ai-prompt-form",
         onsubmit: (event) => {
           event.preventDefault();
-          savePromptFromForm(event.currentTarget, close, prompt);
+          savePromptFromForm(event.currentTarget, close, current);
         },
       },
-      _.Input({ label: "Nome", name: "name", required: true, value: prompt?.name || "", placeholder: "Nome prompt" }),
-      _.Input({ label: "Descrizione", name: "description", value: prompt?.description || "", placeholder: "Breve contesto" }),
-      _.Input({ label: "Categoria", name: "category", value: prompt?.category || "Generale", placeholder: "Generale" }),
-      _.label({ class: "tl-ai-prompt-textarea-field" }, _.span("Prompt"), _.textarea({ name: "prompt", required: true, rows: 7, placeholder: "Scrivi il prompt...", value: prompt?.prompt || "" })),
+      _.Input({ label: "Nome", name: "name", required: true, value: current?.name || "", placeholder: "Nome prompt" }),
+      _.Input({ label: "Descrizione", name: "description", value: current?.description || "", placeholder: "Breve contesto" }),
+      _.Input({ label: "Categoria", name: "category", value: current?.category || "Generale", placeholder: "Generale" }),
+      _.label({ class: "tl-ai-prompt-textarea-field" }, _.span("Prompt"), _.textarea({ name: "prompt", required: true, rows: 7, placeholder: "Scrivi il prompt...", value: current?.prompt || "" })),
       _.div(
         { class: "tl-ai-prompt-form-row" },
-        _.Input({ label: "Icona", name: "icon", value: prompt?.icon || "psychology", placeholder: "psychology" }),
+        _.Input({ label: "Icona", name: "icon", value: current?.icon || "psychology", placeholder: "psychology" }),
         _.div(
           { class: "tl-ai-prompt-tone-field" },
           _.input({ type: "hidden", name: "tone", value: toneValue }),
@@ -1149,7 +1170,14 @@ const itemMatches = (item, query = "", keys = []) => {
   return keys.map((key) => item?.[key]).filter(Boolean).join(" ").toLowerCase().includes(q);
 };
 
-const openJsonDialog = ({ title, subtitle, iconName = "data_object", record = null }) => {
+const openJsonDialog = async ({ title, subtitle, iconName = "data_object", record = null }) => {
+  if (record?.storeName && record?.id) {
+    try {
+      record = await window.trackers?.desktop?.persistence?.readDevelopmentRecordById?.({ storeName: record.storeName, id: record.id }) || record;
+    } catch (error) {
+      console.warn("Dettaglio AI non disponibile:", error);
+    }
+  }
   const dialog = _.Dialog({
     class: "tl-ai-json-dialog",
     panelClass: "tl-ai-prompt-list-panel",
@@ -1224,7 +1252,7 @@ const openJobsDialog = () => {
       _.div({ class: "tl-ai-prompt-search" }, icon("search", "sm"), _.input({ type: "search", value: jobListSearchQuery, placeholder: "Cerca job...", oninput: (event) => refresh(event.currentTarget.value) })),
       _.div({ "data-ai-job-dialog-list": "true" }, renderList(jobListSearchQuery))
     ),
-    actions: ({ close }) => _.Toolbar({ align: "end", gap: 8 }, btn({ onclick: refreshAiRuntime }, icon("refresh", "sm"), "Aggiorna"), btn({ onclick: close }, "Chiudi")),
+    actions: ({ close }) => _.Toolbar({ align: "end", gap: 8 }, aiJobsPage.hasMore ? btn({ onclick: loadMoreAiJobs }, icon("expand_more", "sm"), `Carica altri (${Math.max(0, aiJobsPage.total - jobs.length)})`) : null, btn({ onclick: refreshAiRuntime }, icon("refresh", "sm"), "Aggiorna"), btn({ onclick: close }, "Chiudi")),
   });
   dialog.open();
 };
@@ -1289,7 +1317,7 @@ const openLogsDialog = () => {
       _.div({ class: "tl-ai-prompt-search" }, icon("search", "sm"), _.input({ type: "search", value: logListSearchQuery, placeholder: "Cerca log...", oninput: (event) => refresh(event.currentTarget.value) })),
       _.div({ "data-ai-log-dialog-list": "true" }, renderList(logListSearchQuery))
     ),
-    actions: ({ close }) => _.Toolbar({ align: "end", gap: 8 }, btn({ onclick: refreshAiRuntime }, icon("refresh", "sm"), "Aggiorna"), btn({ onclick: close }, "Chiudi")),
+    actions: ({ close }) => _.Toolbar({ align: "end", gap: 8 }, aiLogsPage.hasMore ? btn({ onclick: loadMoreAiLogs }, icon("expand_more", "sm"), `Carica altri (${Math.max(0, aiLogsPage.total - logs.length)})`) : null, btn({ onclick: refreshAiRuntime }, icon("refresh", "sm"), "Aggiorna"), btn({ onclick: close }, "Chiudi")),
   });
   dialog.open();
 };
@@ -1338,7 +1366,7 @@ const openMemoryDialog = () => {
       _.div({ class: "tl-ai-prompt-search" }, icon("search", "sm"), _.input({ type: "search", value: memoryListSearchQuery, placeholder: "Cerca memoria...", oninput: (event) => refresh(event.currentTarget.value) })),
       _.div({ "data-ai-memory-dialog-list": "true" }, renderList(memoryListSearchQuery))
     ),
-    actions: ({ close }) => _.Toolbar({ align: "end", gap: 8 }, btn({ onclick: refreshAiRuntime }, icon("refresh", "sm"), "Aggiorna"), btn({ onclick: close }, "Chiudi")),
+    actions: ({ close }) => _.Toolbar({ align: "end", gap: 8 }, aiMemoryPage.hasMore ? btn({ onclick: loadMoreAiMemory }, icon("expand_more", "sm"), `Carica altri (${Math.max(0, aiMemoryPage.total - memory.filter((item) => item.raw?.storeName).length)})`) : null, btn({ onclick: refreshAiRuntime }, icon("refresh", "sm"), "Aggiorna"), btn({ onclick: close }, "Chiudi")),
   });
   dialog.open();
 };
@@ -1427,7 +1455,10 @@ const renderShell = () =>
 const refreshAiRuntime = async () => {
   const started = performance.now();
   try {
-    const data = await window.TrackerLensAiRuntimeStore.list();
+    const data = await window.TrackerLensAiRuntimeStore.listForCenter();
+    aiJobsPage = data.jobsPage || aiJobsPage;
+    aiLogsPage = data.logsPage || aiLogsPage;
+    aiMemoryPage = data.memoryPage || aiMemoryPage;
     applyRuntimeViewModel(buildRuntimeViewModel(data, Math.max(1, Math.round(performance.now() - started))));
   } catch (error) {
     aiRuntimeMeta = {
@@ -1438,6 +1469,37 @@ const refreshAiRuntime = async () => {
       storage: "Error",
     };
   }
+  mountAiRuntime();
+};
+
+const loadMoreAiJobs = async () => {
+  if (!aiJobsPage.hasMore) return;
+  const data = await window.TrackerLensAiRuntimeStore.listForCenter({ jobsOffset: aiJobsPage.offset + jobs.filter((job) => !job.placeholder).length, jobsLimit: aiJobsPage.limit });
+  const next = buildRuntimeViewModel(data, 0);
+  const existing = new Set(jobs.map((job) => job.id));
+  jobs = [...jobs.filter((job) => !job.placeholder), ...next.jobs.filter((job) => !existing.has(job.id))];
+  aiJobsPage = data.jobsPage || aiJobsPage;
+  mountAiRuntime();
+};
+
+const loadMoreAiLogs = async () => {
+  if (!aiLogsPage.hasMore) return;
+  const data = await window.TrackerLensAiRuntimeStore.listForCenter({ logsOffset: aiLogsPage.offset + logs.filter((item) => !item.placeholder).length, logsLimit: aiLogsPage.limit });
+  const next = buildRuntimeViewModel(data, 0);
+  const existing = new Set(logs.map((item) => item.id));
+  logs = [...logs.filter((item) => !item.placeholder), ...next.logs.filter((item) => !existing.has(item.id))];
+  aiLogsPage = data.logsPage || aiLogsPage;
+  mountAiRuntime();
+};
+
+const loadMoreAiMemory = async () => {
+  if (!aiMemoryPage.hasMore) return;
+  const currentStored = memory.filter((item) => item.raw?.storeName).length;
+  const data = await window.TrackerLensAiRuntimeStore.listForCenter({ memoryOffset: aiMemoryPage.offset + currentStored, memoryLimit: aiMemoryPage.limit });
+  const next = buildRuntimeViewModel(data, 0);
+  const existing = new Set(memory.map((item) => item.id));
+  memory = [...memory, ...next.memory.filter((item) => item.raw?.storeName && !existing.has(item.id))];
+  aiMemoryPage = data.memoryPage || aiMemoryPage;
   mountAiRuntime();
 };
 

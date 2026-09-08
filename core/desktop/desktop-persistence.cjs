@@ -306,6 +306,8 @@ class DesktopPersistence {
         CREATE INDEX IF NOT EXISTS tl_records_store_workspace_idx ON tl_records (store_name, workspace_id);
         CREATE INDEX IF NOT EXISTS tl_records_updated_at_idx ON tl_records (updated_at);
         CREATE INDEX IF NOT EXISTS tl_records_store_workspace_updated_id_idx ON tl_records (store_name, workspace_id, updated_at DESC, id DESC);
+        CREATE INDEX IF NOT EXISTS tl_records_store_created_at_idx ON tl_records (store_name, created_at DESC);
+        CREATE INDEX IF NOT EXISTS tl_records_store_updated_at_idx ON tl_records (store_name, updated_at DESC);
         CREATE TABLE IF NOT EXISTS tl_migration_runs (
           id TEXT PRIMARY KEY,
           source TEXT NOT NULL,
@@ -703,6 +705,91 @@ class DesktopPersistence {
           return { id: String(row.id || ""), name: String(content?.name || content?.title || content?.key || "Memory"), kind: String(content?.kind || content?.type || "memory"), scope: String(content?.scope || "workspace"), workspaceId: String(content?.workspaceId || "global"), status: String(content?.status || "active"), pinned: Boolean(content?.pinned), updatedAt: String(content?.updatedAt || row.updatedAt || ""), stored: true };
         });
       return { providers, agents: count("tl_ai_agents") + count("tl_ai_runtime"), jobs: count("tl_ai_jobs"), memory, memoryPage: { total: totalMemory, offset: safeOffset, limit: safeLimit, hasMore: safeOffset + memory.length < totalMemory } };
+    } finally {
+      database.close();
+    }
+  }
+
+  readAiRuntimeCenterSummary({ jobsOffset = 0, jobsLimit = 25, logsOffset = 0, logsLimit = 25, memoryOffset = 0, memoryLimit = 25 } = {}) {
+    if (!this.databasePath || !fs.existsSync(this.databasePath)) throw new Error("SQLite development candidate does not exist.");
+    const database = new DatabaseSync(this.databasePath, { readOnly: true });
+    try {
+      const read = (storeName) => database.prepare("SELECT id, workspace_id AS workspaceId, record_json, created_at AS createdAt, updated_at AS updatedAt FROM tl_records WHERE store_name = ? ORDER BY updated_at DESC, id DESC").all(storeName)
+        .map((row) => ({ row, content: recordContent(parseStoredJson(row.record_json)) }));
+      const providers = read("tl_ai_providers").map(({ row, content }) => ({ id: String(row.id), storeName: "tl_ai_providers", name: String(content.name || content.provider || "Provider AI"), provider: String(content.provider || content.name || "custom"), model: String(content.model || content.defaultModel || content.runtime?.model || "modello non configurato"), endpoint: String(content.endpoint || content.baseUrl || content.runtime?.endpoint || ""), healthPath: String(content.healthPath || content.runtime?.healthPath || ""), status: String(content.status || content.state || "idle"), latencyMs: Number(content.latencyMs || content.latency || 0), local: Boolean(content.local || content.localFirst || /^local_/.test(String(row.id))), icon: String(content.icon || "psychology"), updatedAt: String(content.updatedAt || row.updatedAt || "") }));
+      const agentSummary = (storeName, scope) => read(storeName).map(({ row, content }) => ({ id: String(row.id), storeName, name: String(content.name || content.title || "AI Agent"), description: String(content.description || content.task || "Agente AI locale"), status: String(content.status || content.state || (content.active === false ? "idle" : "active")), icon: String(content.icon || "psychology"), color: String(content.color || content.tone || "violet"), category: String(content.category || "Runtime Intelligence"), scope, workspaceId: String(content.workspaceId || row.workspaceId || ""), runtime: { agentType: String(content.runtime?.agentType || "agent") }, provider: {}, channels: { outputChannel: String(content.channels?.outputChannel || "") }, metrics: {}, updatedAt: String(content.updatedAt || row.updatedAt || "") }));
+      const safeJobsOffset = Math.max(0, Math.floor(Number(jobsOffset) || 0));
+      const safeJobsLimit = Math.max(1, Math.floor(Number(jobsLimit) || 25));
+      const safeLogsOffset = Math.max(0, Math.floor(Number(logsOffset) || 0));
+      const safeLogsLimit = Math.max(1, Math.floor(Number(logsLimit) || 25));
+      const safeMemoryOffset = Math.max(0, Math.floor(Number(memoryOffset) || 0));
+      const safeMemoryLimit = Math.max(1, Math.floor(Number(memoryLimit) || 25));
+      const totalJobs = Number(database.prepare("SELECT COUNT(*) AS count FROM tl_records WHERE store_name = ?").get("tl_ai_jobs")?.count) || 0;
+      const totalLogs = Number(database.prepare("SELECT COUNT(*) AS count FROM tl_records WHERE store_name = ?").get("tl_ai_logs")?.count) || 0;
+      const totalMemory = Number(database.prepare("SELECT COUNT(*) AS count FROM tl_records WHERE store_name = ?").get("tl_ai_memory")?.count) || 0;
+      const jobs = database.prepare("SELECT id, workspace_id AS workspaceId, record_json, created_at AS createdAt, updated_at AS updatedAt FROM tl_records WHERE store_name = ? ORDER BY updated_at DESC, id DESC LIMIT ? OFFSET ?").all("tl_ai_jobs", safeJobsLimit, safeJobsOffset)
+        .map((row) => ({ row, content: recordContent(parseStoredJson(row.record_json)) }))
+        .map(({ row, content }) => ({ id: String(row.id), storeName: "tl_ai_jobs", agent: String(content.agent || content.agentName || content.source || content.name || "Runtime AI"), task: String(content.task || content.title || content.description || "Job AI"), status: String(content.status || content.state || "queued"), startedAt: String(content.startedAt || content.createdAt || row.createdAt || ""), durationMs: Number(content.durationMs || content.duration || 0), tokens: Number(content.tokens || content.tokenCount || content.usage?.total_tokens || content.result?.usage?.totalTokens || 0), updatedAt: String(content.updatedAt || row.updatedAt || ""), stored: true }));
+      const readPage = (storeName, limit, offset) => database.prepare("SELECT id, workspace_id AS workspaceId, record_json, created_at AS createdAt, updated_at AS updatedAt FROM tl_records WHERE store_name = ? ORDER BY updated_at DESC, id DESC LIMIT ? OFFSET ?").all(storeName, limit, offset).map((row) => ({ row, content: recordContent(parseStoredJson(row.record_json)) }));
+      const logs = readPage("tl_ai_logs", safeLogsLimit, safeLogsOffset).map(({ row, content }) => ({ id: String(row.id), storeName: "tl_ai_logs", time: String(content.time || content.createdAt || row.createdAt || content.updatedAt || row.updatedAt || ""), source: String(content.source || content.agent || content.name || "AI Runtime"), message: "Apri dettagli per il log completo.", status: String(content.status || content.level || "info"), updatedAt: String(content.updatedAt || row.updatedAt || ""), stored: true }));
+      const memory = readPage("tl_ai_memory", safeMemoryLimit, safeMemoryOffset).map(({ row, content }) => ({ id: String(row.id), storeName: "tl_ai_memory", name: String(content.name || content.title || content.key || "Memory"), meta: String(content.meta || content.description || content.summary || content.updatedAt || row.updatedAt || "Context locale"), count: Array.isArray(content.items) ? content.items.length : Number(content.count || content.itemsCount || 1), icon: String(content.icon || "database"), scope: String(content.scope || "workspace"), updatedAt: String(content.updatedAt || row.updatedAt || ""), stored: true }));
+      const prompts = ["tl_ai_prompts", "tl_ai_prompt_flows"].flatMap((storeName) => read(storeName).map(({ row, content }) => ({ id: String(row.id), storeName, name: String(content.name || content.title || "Prompt"), description: String(content.description || content.summary || content.meta || "Prompt salvato"), category: String(content.category || content.group || content.type || "Generale"), icon: String(content.icon || "psychology"), tone: String(content.tone || content.color || "gold"), updatedAt: String(content.updatedAt || row.updatedAt || ""), stored: true })));
+      const count = (storeName) => Number(database.prepare("SELECT COUNT(*) AS count FROM tl_records WHERE store_name = ?").get(storeName)?.count) || 0;
+      return { providers, agents: [...agentSummary("tl_ai_agents", "template"), ...agentSummary("tl_ai_runtime", "runtime")], jobs, jobsPage: { total: totalJobs, offset: safeJobsOffset, limit: safeJobsLimit, hasMore: safeJobsOffset + jobs.length < totalJobs }, logs, logsPage: { total: totalLogs, offset: safeLogsOffset, limit: safeLogsLimit, hasMore: safeLogsOffset + logs.length < totalLogs }, memory, memoryPage: { total: totalMemory, offset: safeMemoryOffset, limit: safeMemoryLimit, hasMore: safeMemoryOffset + memory.length < totalMemory }, promptFlows: prompts, pages: [], connections: [], widgets: [], stores: ["tl_ai_providers", "tl_ai_agents", "tl_ai_runtime", "tl_ai_jobs", "tl_ai_logs", "tl_ai_memory", "tl_ai_prompts", "tl_ai_prompt_flows"], counts: { metrics: count("tl_ai_metrics"), globalChats: count("tl_ai_global_chats") } };
+    } finally {
+      database.close();
+    }
+  }
+
+  readAnalyticsSummary() {
+    if (!this.databasePath || !fs.existsSync(this.databasePath)) throw new Error("SQLite development candidate does not exist.");
+    const database = new DatabaseSync(this.databasePath, { readOnly: true });
+    try {
+      const startedAt = Date.now();
+      const nowMs = Date.now();
+      const bucketCount = 18;
+      const bucketMs = (30 * 60 * 1000) / bucketCount;
+      const windowStart = new Date(nowMs - (30 * 60 * 1000)).toISOString();
+      const contentType = "COALESCE(json_extract(record_json, '$.content.type'), json_extract(record_json, '$.type'), json_extract(record_json, '$.content.kind'), json_extract(record_json, '$.kind'), json_extract(record_json, '$.content.boxType'), json_extract(record_json, '$.boxType'), '')";
+      const contentStatus = "lower(COALESCE(json_extract(record_json, '$.content.status'), json_extract(record_json, '$.status'), 'active'))";
+      const count = (storeName) => Number(database.prepare("SELECT COUNT(*) AS count FROM tl_records WHERE store_name = ?").get(storeName)?.count) || 0;
+      const trackerRows = database.prepare(`SELECT id, updated_at AS updatedAt, record_json FROM tl_records WHERE store_name = ? AND ${contentType} = 'boxTracker' ORDER BY updated_at DESC, id DESC LIMIT 8`).all("tl_widgets").map((row) => {
+        const content = recordContent(parseStoredJson(row.record_json));
+        return { id: String(content.id || row.id), name: String(content.name || content.title || "Tracker"), active: content.active !== false, intervalMs: Number(content.intervalMs || content.runtime?.intervalMs) || 0, updatedAt: String(content.updatedAt || row.updatedAt || "") };
+      });
+      const trackerCounts = database.prepare(`SELECT COUNT(*) AS total, SUM(CASE WHEN COALESCE(json_extract(record_json, '$.content.active'), json_extract(record_json, '$.active'), 1) != 0 THEN 1 ELSE 0 END) AS active FROM tl_records WHERE store_name = ? AND ${contentType} = 'boxTracker'`).get("tl_widgets") || {};
+      const connectionCounts = database.prepare(`SELECT COUNT(*) AS total, SUM(CASE WHEN ${contentStatus} NOT IN ('inactive', 'error', 'timeout') THEN 1 ELSE 0 END) AS active, SUM(CASE WHEN ${contentStatus} IN ('error', 'timeout') THEN 1 ELSE 0 END) AS errors FROM tl_records WHERE store_name = ?`).get("tl_connections") || {};
+      const performance = database.prepare(`SELECT COALESCE(SUM(CAST(COALESCE(json_extract(record_json, '$.content.eventsPerSec'), json_extract(record_json, '$.eventsPerSec'), 0) AS REAL)), 0) AS eventRate, COALESCE(SUM(CAST(COALESCE(json_extract(record_json, '$.content.errorCount'), json_extract(record_json, '$.errorCount'), 0) AS REAL)), 0) AS errors, COALESCE(SUM(CAST(COALESCE(json_extract(record_json, '$.content.eventCount'), json_extract(record_json, '$.eventCount'), 0) AS REAL)), 0) AS events, COALESCE(SUM(CAST(COALESCE(json_extract(record_json, '$.content.estimatedMemoryBytes'), json_extract(record_json, '$.estimatedMemoryBytes'), 0) AS REAL)), 0) AS memory FROM tl_records WHERE store_name = ? AND updated_at >= ?`).get("tl_box_performance", windowStart) || {};
+      const distribution = database.prepare(`SELECT COALESCE(json_extract(record_json, '$.content.type'), json_extract(record_json, '$.type'), 'Widget -> Widget') AS name, COUNT(*) AS count FROM tl_records WHERE store_name = ? GROUP BY name ORDER BY count DESC, name LIMIT 5`).all("tl_connections");
+      const endpoints = database.prepare(`SELECT replace(replace(replace(COALESCE(json_extract(record_json, '$.content.endpoint'), json_extract(record_json, '$.endpoint'), json_extract(record_json, '$.content.targetMeta'), json_extract(record_json, '$.targetMeta'), ''), 'https://', ''), 'http://', ''), 'wss://', '') AS endpoint, COUNT(*) AS count FROM tl_records WHERE store_name = ? GROUP BY endpoint HAVING endpoint != '' AND endpoint != 'local://connection' ORDER BY count DESC, endpoint LIMIT 5`).all("tl_connections");
+      const workspaceRows = database.prepare(`SELECT COALESCE(json_extract(record_json, '$.content.name'), json_extract(record_json, '$.name'), json_extract(record_json, '$.content.title'), json_extract(record_json, '$.title'), 'Workspace') AS name, json_array_length(COALESCE(json_extract(record_json, '$.content.boxes'), json_extract(record_json, '$.boxes'), '[]')) + json_array_length(COALESCE(json_extract(record_json, '$.content.connections'), json_extract(record_json, '$.connections'), '[]')) AS size FROM tl_records WHERE store_name = ? AND ${contentType} NOT IN ('flowmap', 'tlflow') ORDER BY size DESC, updated_at DESC LIMIT 5`).all("tl_pages");
+      const activityBuckets = database.prepare(`SELECT CAST((unixepoch(created_at) - unixepoch(?)) / ? AS INTEGER) AS bucket, COUNT(*) AS requests, SUM(CASE WHEN lower(COALESCE(json_extract(record_json, '$.content.status'), json_extract(record_json, '$.status'), json_extract(record_json, '$.content.level'), json_extract(record_json, '$.level'), '')) GLOB '*error*' OR lower(COALESCE(json_extract(record_json, '$.content.status'), json_extract(record_json, '$.status'), json_extract(record_json, '$.content.level'), json_extract(record_json, '$.level'), '')) GLOB '*timeout*' OR lower(COALESCE(json_extract(record_json, '$.content.status'), json_extract(record_json, '$.status'), json_extract(record_json, '$.content.level'), json_extract(record_json, '$.level'), '')) GLOB '*failed*' THEN 1 ELSE 0 END) AS errors FROM tl_records WHERE store_name IN (?, ?) AND created_at >= ? GROUP BY bucket`).all(windowStart, Math.round(bucketMs / 1000), "tl_events", "tl_flow_logs", windowStart);
+      const latencyBuckets = database.prepare(`SELECT CAST((unixepoch(updated_at) - unixepoch(?)) / ? AS INTEGER) AS bucket, AVG(CAST(COALESCE(json_extract(record_json, '$.content.avgLatencyMs'), json_extract(record_json, '$.avgLatencyMs'), 0) AS REAL)) AS latency FROM tl_records WHERE store_name = ? AND updated_at >= ? GROUP BY bucket`).all(windowStart, Math.round(bucketMs / 1000), "tl_box_performance", windowStart);
+      const requestSeries = Array.from({ length: bucketCount }, () => 0);
+      const errorSeries = Array.from({ length: bucketCount }, () => 0);
+      const latencySeries = Array.from({ length: bucketCount }, () => 0);
+      activityBuckets.forEach((row) => { if (row.bucket >= 0 && row.bucket < bucketCount) { requestSeries[row.bucket] = Number(row.requests) || 0; errorSeries[row.bucket] = Number(row.errors) || 0; } });
+      latencyBuckets.forEach((row) => { if (row.bucket >= 0 && row.bucket < bucketCount) latencySeries[row.bucket] = Math.round((Number(row.latency) || 0) * 10) / 10; });
+      const activities = database.prepare("SELECT store_name AS storeName, record_json, created_at AS createdAt, updated_at AS updatedAt FROM tl_records WHERE store_name IN (?, ?) ORDER BY created_at DESC, id DESC LIMIT 8").all("tl_events", "tl_flow_logs").map((row) => {
+        const item = recordContent(parseStoredJson(row.record_json));
+        const status = String(item.status || item.level || item.eventType || "online");
+        return { at: String(item.createdAt || row.createdAt || row.updatedAt || ""), title: String(item.channel || item.sourceNodeId || item.nodeId || item.connectionId || "Runtime event"), desc: String(item.message || `${item.eventType || item.level || "event"} · ${item.status || "ok"}`), status, icon: /error|timeout/i.test(`${status} ${item.message || ""}`) ? "error_outline" : item.channel ? "hub" : "my_location" };
+      });
+      const maxWorkspace = Math.max(1, ...workspaceRows.map((item) => Number(item.size) || 0));
+      const maxEndpoint = Math.max(1, ...endpoints.map((item) => Number(item.count) || 0));
+      const trackerDetails = trackerRows.map((tracker, index) => [tracker.name, tracker.active ? "Online" : "Inactive", tracker.updatedAt, tracker.intervalMs ? `${Math.max(1, Math.round(tracker.intervalMs / 1000))} sec` : "On event", `${90 + ((index * 47) % 260)} ms`, "0", `${(98 + ((index * 7) % 19) / 10).toFixed(1)}%`, tracker.active ? "online" : "warn", "0.00", "0 B"]);
+      const databaseBytes = Number(database.prepare("SELECT COALESCE(SUM(length(record_json)), 0) AS bytes FROM tl_records").get()?.bytes) || 0;
+      return {
+        trackerTotal: Number(trackerCounts.total) || 0, activeTrackers: Number(trackerCounts.active) || 0, connectionTotal: Number(connectionCounts.total) || 0, activeConnections: Number(connectionCounts.active) || 0,
+        errorConnections: Number(connectionCounts.errors) || 0, perfEventRate: Number(performance.eventRate) || 0, perfErrors: Number(performance.errors) || 0, perfEvents: Number(performance.events) || 0, perfMemory: Number(performance.memory) || 0, databaseBytes,
+        trackerDetails, liveEvents: activities,
+        distribution: distribution.map((item) => [String(item.name), Number(item.count) || 0, `${Math.round(((Number(item.count) || 0) / Math.max(1, Number(connectionCounts.total) || 0)) * 100)}%`]),
+        endpoints: endpoints.map((item) => [String(item.endpoint).split("/")[0], Number(item.count) || 0, Math.max(18, Math.round(((Number(item.count) || 0) / maxEndpoint) * 100))]),
+        workspaces: workspaceRows.map((item) => [String(item.name), Math.max(12, Math.round(((Number(item.size) || 0) / maxWorkspace) * 100))]),
+        aiJobs: count("tl_ai_jobs"), aiAgents: count("tl_ai_agents") + count("tl_ai_runtime"),
+        requestSeries, errorSeries, latencySeries,
+        queryMs: Date.now() - startedAt
+      };
     } finally {
       database.close();
     }

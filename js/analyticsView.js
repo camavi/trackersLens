@@ -272,165 +272,75 @@ const bucketValues = (items = [], { valueOf = () => 1, dateOf = (item) => item.c
 
 const buildAnalyticsData = async () => {
   const started = performance.now();
-  const [widgetRecords, pageRecords, connections, storage] = await Promise.all([
-    readStore(tlConfig.TABLES.TL_WIDGETS),
-    readStore(tlConfig.TABLES.TL_PAGES),
-    window.TrackerLensConnectionsStore?.list?.() || [],
-    getStorageEstimate(),
-  ]);
-  const performanceRecords = window.TrackerLensBoxPerformanceMonitor?.list
-    ? await window.TrackerLensBoxPerformanceMonitor.list().catch((error) => {
-      console.warn("Performance records non disponibili:", error);
-      return [];
-    })
-    : [];
-
-  const widgets = widgetRecords.map(normalizeWidgetRecord);
-  const pages = pageRecords.map(normalizeWorkspaceRecord);
-  const workspaceTrackers = pages.flatMap((page) =>
-    page.boxes.filter((box) => box.type === "boxTracker").map((box) => ({
-      id: box.id,
-      name: box.name || box.title || "boxTracker",
-      type: "boxTracker",
-      category: box.category || "Workspace",
-      active: box.active !== false,
-      endpoint: box.endpoint || box.runtime?.endpoint || "",
-      intervalMs: Number(box.intervalMs || box.runtime?.intervalMs) || 0,
-      updatedAt: page.updatedAt,
-    }))
-  );
-  const trackers = [...widgets.filter((item) => item.type === "boxTracker"), ...workspaceTrackers];
-  const performanceByBox = new Map((performanceRecords || []).map((record) => [record.boxId, record]));
-  const activeConnections = connections.filter((item) => !["inactive", "error", "timeout"].includes(String(item.status).toLowerCase()));
-  const errorConnections = connections.filter((item) => ["error", "timeout"].includes(String(item.status).toLowerCase()));
-  const perfEventRate = performanceRecords.reduce((sum, item) => sum + (Number(item.eventsPerSec) || 0), 0);
-  const perfErrors = performanceRecords.reduce((sum, item) => sum + (Number(item.errorCount) || 0), 0);
-  const perfEvents = performanceRecords.reduce((sum, item) => sum + (Number(item.eventCount) || 0), 0);
-  const perfMemory = performanceRecords.reduce((sum, item) => sum + (Number(item.estimatedMemoryBytes) || 0), 0);
-  const requestEstimate = perfEventRate ? Math.round(perfEventRate * 60) : activeConnections.length * 24 + trackers.filter((item) => item.active).length * 11 + pages.length * 3;
-  const successRate = perfEvents ? Math.max(0, 100 - ((perfErrors / perfEvents) * 100)) : connections.length ? (activeConnections.length / connections.length) * 100 : trackers.length ? 98 : 0;
-  const errorRate = perfEvents ? (perfErrors / perfEvents) * 100 : connections.length ? (errorConnections.length / connections.length) * 100 : 0;
-  const aiItems = [...widgets, ...connections].filter((item) => /ai/i.test(`${item.name || ""} ${item.type || ""} ${item.category || ""}`));
-  const usage = storage?.usage || JSON.stringify({ widgetRecords, pageRecords, connections }).length;
-  const quota = storage?.quota || 5 * 1024 * 1024 * 1024;
+  const persistence = window.trackers?.desktop?.persistence;
+  if (!persistence?.getStatus || !persistence.readAnalyticsSummary) throw new Error("Statistiche richiede la proiezione SQLite dell'app desktop.");
+  const [status, summary, storage] = await Promise.all([persistence.getStatus(), persistence.readAnalyticsSummary(), getStorageEstimate()]);
+  if (status?.mode !== "desktop-sqlite") throw new Error("Statistiche richiede SQLite nell'app desktop.");
+  const usage = storage?.usage || summary.databaseBytes;
+  const quota = storage?.quota || Math.max(summary.databaseBytes, 1);
   const storagePercent = quota ? Math.min(99, Math.round((usage / quota) * 100)) : 0;
-
-  const byType = new Map();
-  connections.forEach((connection) => byType.set(connection.type || "Widget -> Widget", (byType.get(connection.type || "Widget -> Widget") || 0) + 1));
-  const distributionTotal = Math.max(1, connections.length);
-  const distribution = [...byType.entries()]
-    .sort((a, b) => b[1] - a[1])
-    .slice(0, 5)
-    .map(([name, count]) => [name, count, `${Math.round((count / distributionTotal) * 100)}%`]);
-  if (!distribution.length) distribution.push(["Nessun collegamento", 0, "0%"]);
-
-  const endpointCounts = new Map();
-  [...connections, ...trackers].forEach((item) => {
-    const key = hostFrom(item.endpoint || item.targetMeta || item.to || "");
-    if (!key || key === "local") return;
-    endpointCounts.set(key, (endpointCounts.get(key) || 0) + 1);
-  });
-  const maxEndpoint = Math.max(1, ...endpointCounts.values());
-  const endpoints = [...endpointCounts.entries()]
-    .sort((a, b) => b[1] - a[1])
-    .slice(0, 5)
-    .map(([name, count]) => [name, formatNumber(count), Math.max(18, Math.round((count / maxEndpoint) * 100))]);
-
-  const lastItems = [
-    ...connections.map((item) => ({ at: item.updatedAt || item.createdAt, title: item.name, desc: `${item.type || "Collegamento"} · ${item.result || item.status || "sincronizzato"}`, status: String(item.status || "active").toLowerCase(), icon: item.type === "WebSocket" ? "settings_input_antenna" : "hub" })),
-    ...trackers.map((item) => ({ at: item.updatedAt, title: item.name, desc: `${item.category || "Tracker"} · ${item.endpoint ? hostFrom(item.endpoint) : "runtime locale"}`, status: item.active ? "online" : "warn", icon: /ai/i.test(item.name) ? "psychology" : "my_location" })),
-  ];
-  const runtimeItems = await readRuntimeActivity();
-  const liveEvents = liveEventTuples(runtimeItems.length ? runtimeItems : lastItems.length ? lastItems : fallbackLiveEvents.map(([time, title, desc, status, iconName]) => ({ time, title, desc, status, icon: iconName })));
-  const runtimeEventRows = runtimeItems.filter((item) => item.at);
-  const requestSeries = bucketValues(runtimeEventRows, { valueOf: () => 1, dateOf: (item) => item.at });
-  const latencySeries = bucketValues(performanceRecords, { valueOf: (item) => Number(item.avgLatencyMs) || 0, dateOf: (item) => item.updatedAt || item.createdAt });
-  const errorItems = [
-    ...runtimeEventRows.filter((item) => activityStatus(item.status) === "error"),
-    ...errorConnections.map((item) => ({ at: item.updatedAt || item.createdAt })),
-  ];
-  const errorSeries = bucketValues(errorItems, { valueOf: () => 1, dateOf: (item) => item.at });
-
-  const realTrackerRows = trackers.slice(0, 8).map((tracker, index) => {
-    const perf = performanceByBox.get(tracker.id) || {};
-    const hasError = errorConnections.some((connection) => connection.fromBoxId === tracker.id || connection.name?.includes(tracker.name));
-    const freq = tracker.intervalMs ? `${Math.max(1, Math.round(tracker.intervalMs / 1000))} sec` : "On event";
-    const latency = perf.avgLatencyMs ? `${Math.round(perf.avgLatencyMs)} ms` : hasError ? "Timeout" : `${90 + ((index * 47) % 260)} ms`;
-    const successValue = perf.eventCount ? Math.max(0, 100 - (Number(perf.errorRate) || 0)) : hasError ? 87.2 : 98 + ((index * 7) % 19) / 10;
-    const success = `${successValue.toFixed(1)}%`;
-    const eventsPerSec = perf.eventsPerSec ? Number(perf.eventsPerSec).toFixed(2) : "0.00";
-    const network = perf.networkBytesPerMin ? formatBytes(perf.networkBytesPerMin) : "0 B";
-    return [tracker.name, hasError || perf.status === "error" ? "Errore" : tracker.active ? "Online" : "Inactive", timeLabel(perf.updatedAt || tracker.updatedAt), freq, latency, String(perf.errorCount ?? (hasError ? 1 : 0)), success, hasError || perf.status === "error" ? "error" : tracker.active ? "online" : "warn", eventsPerSec, network];
-  });
-
-  const workspaceMax = Math.max(1, ...pages.map((page) => page.boxes.length + page.connections.length));
-  const workspaces = pages
-    .slice()
-    .sort((a, b) => (b.boxes.length + b.connections.length) - (a.boxes.length + a.connections.length))
-    .slice(0, 5)
-    .map((page) => [page.name, Math.max(12, Math.round(((page.boxes.length + page.connections.length) / workspaceMax) * 100))]);
-
-  const dbOnline = widgetRecords.length || pageRecords.length || connections.length;
-  const queryMs = Math.max(1, Math.round(performance.now() - started));
-  const avgLatency = realTrackerRows.length
-    ? Math.round(realTrackerRows.reduce((total, row) => total + (Number.parseInt(row[4], 10) || 0), 0) / realTrackerRows.length)
-    : 0;
+  const requestEstimate = summary.perfEventRate ? Math.round(summary.perfEventRate * 60) : summary.activeConnections * 24 + summary.activeTrackers * 11;
+  const successRate = summary.perfEvents ? Math.max(0, 100 - ((summary.perfErrors / summary.perfEvents) * 100)) : summary.connectionTotal ? (summary.activeConnections / summary.connectionTotal) * 100 : 0;
+  const errorRate = summary.perfEvents ? (summary.perfErrors / summary.perfEvents) * 100 : summary.connectionTotal ? (summary.errorConnections / summary.connectionTotal) * 100 : 0;
+  const avgLatency = summary.trackerDetails.length ? Math.round(summary.trackerDetails.reduce((total, row) => total + (Number.parseInt(row[4], 10) || 0), 0) / summary.trackerDetails.length) : 0;
   const healthScore = Math.max(0, Math.min(100, Math.round(successRate - (storagePercent > 80 ? 6 : 0))));
+  const queryMs = Math.max(1, Math.round(performance.now() - started));
+  const liveEvents = liveEventTuples(summary.liveEvents);
   return {
     loading: false,
     error: "",
     queryMs,
-    source: dbOnline ? "sqlite" : "empty",
+    source: "sqlite",
     metrics: [
-      { label: "Tracker Attivi", value: formatNumber(trackers.filter((item) => item.active).length), delta: `${trackers.length} totali`, source: "SQLite", tone: "gold", icon: "my_location" },
-      { label: "Connessioni Live", value: formatNumber(activeConnections.length), delta: `${connections.length} totali`, source: "SQLite", tone: "green", icon: "hub" },
-      { label: "Richieste/min", value: formatNumber(requestEstimate), delta: "stima runtime", source: perfEventRate ? "Performance" : "Stimato", tone: "blue", icon: "lan" },
-      { label: "Events/sec", value: perfEventRate.toFixed(2), delta: performanceRecords.length ? "runtime reale" : "in attesa", source: performanceRecords.length ? "Performance" : "idle", tone: "blue", icon: "speed" },
-      { label: "AI Jobs Attivi", value: formatNumber(aiItems.length), delta: `${aiItems.length ? "rilevati" : "0"}`, source: "SQLite", tone: "gold", icon: "psychology" },
-      { label: "Success Rate", value: `${successRate.toFixed(1)}%`, delta: `${activeConnections.length} ok`, source: connections.length ? "Connessioni" : "Stimato", tone: "green", icon: "donut_large" },
-      { label: "Error Rate", value: `${errorRate.toFixed(1)}%`, delta: `${errorConnections.length} errori`, source: connections.length || perfEvents ? "Runtime" : "idle", tone: "red", icon: "error_outline" },
-      { label: "Memoria Box", value: formatBytes(perfMemory), delta: performanceRecords.length ? "stimata" : "idle", source: performanceRecords.length ? "Performance" : "idle", tone: "gold", icon: "memory" },
+      { label: "Tracker Attivi", value: formatNumber(summary.activeTrackers), delta: `${summary.trackerTotal} totali`, source: "SQLite", tone: "gold", icon: "my_location" },
+      { label: "Connessioni Live", value: formatNumber(summary.activeConnections), delta: `${summary.connectionTotal} totali`, source: "SQLite", tone: "green", icon: "hub" },
+      { label: "Richieste/min", value: formatNumber(requestEstimate), delta: "stima runtime", source: summary.perfEventRate ? "Performance" : "Stimato", tone: "blue", icon: "lan" },
+      { label: "Events/sec", value: summary.perfEventRate.toFixed(2), delta: summary.perfEvents ? "runtime reale" : "in attesa", source: summary.perfEvents ? "Performance" : "idle", tone: "blue", icon: "speed" },
+      { label: "AI Jobs Attivi", value: formatNumber(summary.aiJobs), delta: `${summary.aiAgents} agenti`, source: "SQLite", tone: "gold", icon: "psychology" },
+      { label: "Success Rate", value: `${successRate.toFixed(1)}%`, delta: `${summary.activeConnections} ok`, source: summary.connectionTotal ? "Connessioni" : "idle", tone: "green", icon: "donut_large" },
+      { label: "Error Rate", value: `${errorRate.toFixed(1)}%`, delta: `${summary.errorConnections} errori`, source: summary.connectionTotal || summary.perfEvents ? "Runtime" : "idle", tone: "red", icon: "error_outline" },
+      { label: "Memoria Box", value: formatBytes(summary.perfMemory), delta: summary.perfEvents ? "stimata" : "idle", source: summary.perfEvents ? "Performance" : "idle", tone: "gold", icon: "memory" },
       { label: "Memoria Usata", value: formatBytes(usage), delta: `${storagePercent}% quota`, source: storage ? "Storage API" : "Stimato", tone: "gold", icon: "inventory_2" },
     ],
     liveEvents,
-    trackers: realTrackerRows.length ? realTrackerRows : fallbackTrackers,
+    trackers: summary.trackerDetails.map((row) => [...row.slice(0, 2), timeLabel(row[2]), ...row.slice(3)]),
     services: [
-      ["SQLite", dbOnline ? "Online" : "Vuoto", dbOnline ? "online" : "warn", "database"],
-      ["WebSocket", connections.some((item) => item.type === "WebSocket") ? "Online" : "Idle", connections.some((item) => item.type === "WebSocket") ? "online" : "warn", "settings_input_antenna"],
-      ["API Services", connections.some((item) => /api|endpoint/i.test(item.type)) ? "Online" : "Idle", connections.some((item) => /api|endpoint/i.test(item.type)) ? "online" : "warn", "api"],
+      ["SQLite", "Online", "online", "database"],
+      ["WebSocket", summary.connectionTotal ? "Online" : "Idle", summary.connectionTotal ? "online" : "warn", "settings_input_antenna"],
+      ["API Services", summary.connectionTotal ? "Online" : "Idle", summary.connectionTotal ? "online" : "warn", "api"],
       ["Cache System", storage ? "Online" : "Stimato", storage ? "online" : "warn", "cached"],
-      ["AI Services", aiItems.length ? "Online" : "Idle", aiItems.length ? "online" : "warn", "psychology"],
+      ["AI Services", summary.aiJobs || summary.aiAgents ? "Online" : "Idle", summary.aiJobs || summary.aiAgents ? "online" : "warn", "psychology"],
       ["Storage", storagePercent > 80 ? "Warn" : "Online", storagePercent > 80 ? "warn" : "online", "inventory_2"],
     ],
-    endpoints: endpoints.length ? endpoints : fallbackEndpoints,
+    endpoints: summary.endpoints.map(([name, count, width]) => [name, formatNumber(count), width]),
     chart: {
       requests: `${formatNumber(requestEstimate)} req/min`,
       latency: avgLatency ? `${avgLatency} ms` : "idle",
-      errors: `${formatNumber(perfErrors || errorConnections.length)} errori`,
+      errors: `${formatNumber(summary.perfErrors || summary.errorConnections)} errori`,
       health: String(healthScore),
-      requestSeries,
-      latencySeries,
-      errorSeries,
-      hasRequestSeries: requestSeries.some(Boolean),
-      hasLatencySeries: latencySeries.some(Boolean),
-      hasErrorSeries: errorSeries.some(Boolean),
+      requestSeries: summary.requestSeries,
+      latencySeries: summary.latencySeries,
+      errorSeries: summary.errorSeries,
+      hasRequestSeries: summary.requestSeries.some(Boolean),
+      hasLatencySeries: summary.latencySeries.some(Boolean),
+      hasErrorSeries: summary.errorSeries.some(Boolean),
     },
-    distribution,
-    ai: [`Jobs Completati ${formatNumber(aiItems.length)}`, `Tracker AI ${formatNumber(widgets.filter((item) => /ai/i.test(item.name)).length)}`, `Connessioni AI ${formatNumber(connections.filter((item) => /ai/i.test(item.name || item.type)).length)}`, `Modelli Usati ${aiItems.length ? "local/runtime" : "0"}`],
+    distribution: summary.distribution.length ? summary.distribution : [["Nessun collegamento", 0, "0%"]],
+    ai: [`Jobs ${formatNumber(summary.aiJobs)}`, `Agenti ${formatNumber(summary.aiAgents)}`, "Dati completi in AI Runtime", "Modelli: ispeziona AI Runtime"],
     storage: {
       totalLabel: formatBytes(usage),
       quotaLabel: `/ ${formatBytes(quota)}`,
       percent: storagePercent,
-      lines: [`SQLite ${formatBytes(usage)} (${storagePercent}%)`, `Widget ${formatNumber(widgets.length)} record`, `Workspace ${formatNumber(pages.length)} record`, `Collegamenti ${formatNumber(connections.length)} record`],
+      lines: [`SQLite ${formatBytes(summary.databaseBytes)}`, `Trasferito: solo riepilogo`, `Connessioni ${formatNumber(summary.connectionTotal)}`, `Tracker ${formatNumber(summary.trackerTotal)}`],
     },
-    workspaces: workspaces.length ? workspaces : analyticsState.workspaces,
+    workspaces: summary.workspaces,
     footer: {
       query: `${queryMs} ms`,
       uptime: "runtime locale",
       memory: formatBytes(usage),
       cache: storage ? "Storage API ok" : "Storage stimato",
-      storage: dbOnline ? "SQLite connected" : "SQLite empty",
-      lastUpdate: timeLabel(lastItems[0]?.at || new Date()),
+      storage: "SQLite connected",
+      lastUpdate: timeLabel(new Date()),
     },
   };
 };
@@ -865,9 +775,10 @@ let smallAnalyticsTimer = null;
 
 const startLiveStreamRefresh = () => {
   if (smallAnalyticsTimer) window.clearInterval(smallAnalyticsTimer);
-  smallAnalyticsTimer = window.setInterval(() => {
-    refreshSmallAnalytics().catch((error) => console.warn("KPI/live analytics non aggiornati:", error));
-  }, 5000);
+  // The aggregate is intentionally refreshed only by the explicit Refresh action.
+  // A fixed five-second synchronous Core query can still interrupt interaction on
+  // large local histories, even when it transfers only compact projections.
+  smallAnalyticsTimer = null;
 };
 
 window.TrackerLensViews = window.TrackerLensViews || {};
