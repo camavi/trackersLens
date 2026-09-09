@@ -32,74 +32,23 @@ let aiRuntimeMeta = {
   lastUpdate: "",
   storage: "Loading",
 };
-let aiJobsPage = { total: 0, offset: 0, limit: 25, hasMore: false };
+let aiJobsPage = { total: 0, offset: 0, limit: 20, hasMore: false };
 let aiLogsPage = { total: 0, offset: 0, limit: 25, hasMore: false };
 let aiMemoryPage = { total: 0, offset: 0, limit: 25, hasMore: false };
+let aiRuntimeHasLoaded = false;
 const GLOBAL_EXTERNAL_PROVIDER_IDS = Object.freeze(["codex", "claude"]);
 let externalProviderStatuses = {};
 let externalProviderBusy = "";
 
-let metrics = [
-  { label: "Modelli Attivi", value: "4", delta: "+2 attivi", source: "demo", tone: "gold", icon: "psychology" },
-  { label: "AI Jobs Attivi", value: "12", delta: "+3 da ieri", source: "demo", tone: "green", icon: "radar" },
-  { label: "Richieste AI / min", value: "128", delta: "+18.4%", source: "demo", tone: "blue", icon: "rocket_launch" },
-  { label: "Token Utilizzati (oggi)", value: "1.2M", delta: "+21.7%", source: "demo", tone: "gold", icon: "database" },
-  { label: "Success Rate", value: "97.6%", delta: "+2.1%", source: "demo", tone: "green", icon: "verified_user" },
-  { label: "Error Rate", value: "2.4%", delta: "-1.3%", source: "demo", tone: "red", icon: "report" },
-  { label: "Costo Stimato (oggi)", value: "$0.82", delta: "+11.3%", source: "demo", tone: "gold", icon: "toll" },
-];
-
-let agents = [
-  { id: "demo_market", name: "Market Analyzer", description: "Analizza mercati crypto in tempo reale", state: "Attivo", status: "online", icon: "monitoring" },
-  { id: "demo_news", name: "News Summarizer", description: "Riassume news da fonti RSS", state: "Attivo", status: "online", icon: "article" },
-  { id: "demo_sentiment", name: "Sentiment Analyzer", description: "Analizza sentiment social e news", state: "Attivo", status: "online", icon: "sentiment_satisfied" },
-  { id: "demo_automation", name: "Automation Agent", description: "Crea automazioni e trigger intelligenti", state: "Warning", status: "warn", icon: "bolt" },
-  { id: "demo_workspace", name: "Workspace Assistant", description: "Aiuta a costruire workspace e box", state: "Attivo", status: "online", icon: "dashboard_customize" },
-  { id: "demo_endpoint", name: "Endpoint Debugger", description: "Monitora e risolve problemi endpoint", state: "Offline", status: "error", icon: "bug_report" },
-];
-
-let providers = [
-  ["OpenAI", "gpt-4.1-mini", "Online", "324ms", "online", "all_inclusive"],
-  ["Anthropic", "claude-3-5-sonnet", "Online", "412ms", "online", "neurology"],
-  ["Google Gemini", "gemini-1.5-pro", "Online", "298ms", "online", "auto_awesome"],
-  ["Ollama (Local)", "llama3.1:70b", "Online", "45ms", "online", "memory"],
-  ["LM Studio (Local)", "mistral-nemo:latest", "Online", "62ms", "online", "dns"],
-];
-
-let jobs = [
-  ["job_8f71a2", "Market Analyzer", "Analizza BTC trend", "In Esecuzione", "12:32:15", "14s", "1.2K", "online"],
-  ["job_8f71a3", "News Summarizer", "Riassumi 5 news", "In Esecuzione", "12:32:10", "18s", "856", "online"],
-  ["job_8f71a4", "Sentiment Analyzer", "Analizza sentiment", "In Coda", "12:32:20", "-", "-", "warn"],
-  ["job_8f71a5", "Automation Agent", "Valuta trigger", "In Esecuzione", "12:32:05", "27s", "1.5K", "online"],
-  ["job_8f71a6", "Workspace Assistant", "Suggerisci layout", "Completato", "12:31:55", "22s", "743", "complete"],
-  ["job_8f71a7", "Endpoint Debugger", "Diagnostica CoinGecko", "Errore", "12:31:40", "10s", "412", "error"],
-];
-
-let logs = [
-  ["12:32:18", "Market Analyzer", "Analisi completata con successo", "ai"],
-  ["12:32:17", "Sentiment Analyzer", "Sentiment score: 72% bullish", "success"],
-  ["12:32:16", "News Summarizer", "5 news riassunte in 18s", "success"],
-  ["12:32:15", "Automation Agent", "Trigger valutato: BTC_DROP", "warn"],
-  ["12:32:14", "Workspace Assistant", "Layout suggerito generato", "ai"],
-  ["12:32:12", "Endpoint Debugger", "API CoinGecko timeout (10s)", "error"],
-  ["12:32:09", "Prompt Cache", "Context window ottimizzata", "success"],
-  ["12:32:06", "Runtime Core", "Routing provider completato", "ai"],
-];
-
-let memory = [
-  ["Mercato BTC", "Ultimo update: 2 min fa", "24 items", "psychology"],
-  ["News Crypto", "Ultimo update: 5 min fa", "18 items", "article"],
-  ["Sentiment Data", "Ultimo update: 2 min fa", "32 items", "sentiment_satisfied"],
-  ["Workspace Context", "Ultimo update: 1 ora fa", "12 items", "deployed_code"],
-];
-
-let workspaceActivity = [
-  ["Crypto Dashboard", 92, "142"],
-  ["News Monitor", 70, "98"],
-  ["DeFi Analyzer", 54, "76"],
-  ["Social Sentiment", 42, "54"],
-  ["Market Overview", 31, "38"],
-];
+// The first render must never show fabricated runtime data. Values are assigned only
+// after the Core-owned projection has answered.
+let metrics = [];
+let agents = [];
+let providers = [];
+let jobs = [];
+let logs = [];
+let memory = [];
+let workspaceActivity = [];
 
 const promptTone = (index = 0, tone = "") => {
   const normalized = String(tone || "").toLowerCase();
@@ -139,7 +88,7 @@ const buildPrompts = (flows = []) => {
     }));
 };
 
-let prompts = buildPrompts();
+let prompts = [];
 const getStoredAiUiPref = (key, fallback = "") => {
   try {
     return localStorage.getItem(`tl_ai_${key}`) || fallback;
@@ -357,7 +306,6 @@ const renderHeader = () =>
       _.Toolbar(
         { class: "tl-ai-head-actions", gap: 14 },
         _.span({ class: "tl-ai-live-pill" }, dot(aiRuntimeMeta.error ? "error" : "online"), aiRuntimeMeta.error ? "AI System Error" : "AI System Online"),
-        btn({ class: "st-btn-primary", onclick: () => window.TrackerLensSidebar?.navigate?.("settings.html#ai") || window.location.assign("settings.html#ai") }, icon("settings", "sm"), "Impostazioni AI"),
         btn({ class: "tl-ai-icon-btn", "aria-label": "Aggiorna runtime AI", onclick: refreshAiRuntime }, icon("refresh", "sm"))
       )
     ),
@@ -1428,6 +1376,8 @@ const openJobsDialog = () => {
     class: "tl-ai-job-list-dialog",
     panelClass: "tl-ai-prompt-list-panel",
     size: "xl",
+    width: "calc(100vw - 64px)",
+    maxWidth: "1800px",
     title: "AI Jobs",
     subtitle: "Coda e storico recente da tl_ai_jobs.",
     icon: "radar",
@@ -1526,6 +1476,15 @@ const renderMemoryRows = (query = "") => memory
   .map(memoryOf)
   .filter((item) => itemMatches(item, query, ["name", "meta", "scope", "text"]));
 
+const memoryPreviewMeta = (item = {}) => {
+  const meta = String(item.meta || "Context locale").trim();
+  const looksStructured = meta.startsWith("{")
+    || meta.startsWith("[")
+    || meta.startsWith('"{')
+    || /(?:^|[,{])"(?:applied|answer|debug|items|json|query|snapshot|usage)"\s*:/.test(meta);
+  return looksStructured ? "Payload strutturato · apri Vedi tutto per l'ispezione completa" : meta;
+};
+
 const openMemoryDialog = () => {
   const renderList = (query = "") => _.div(
     { class: "tl-ai-memory-scroll" },
@@ -1542,6 +1501,8 @@ const openMemoryDialog = () => {
     class: "tl-ai-memory-list-dialog",
     panelClass: "tl-ai-prompt-list-panel",
     size: "lg",
+    width: "calc(100vw - 64px)",
+    maxWidth: "1800px",
     title: "AI Memory",
     subtitle: "Memoria locale short/workspace/global.",
     icon: "database",
@@ -1561,19 +1522,44 @@ const openMemoryDialog = () => {
 const renderMemory = () =>
   _.aside(
     { class: "tl-ai-memory" },
-    _.Row({ justify: "space-between", align: "center" }, _.h3("AI Memory (Context)"), btn({ class: "tl-ai-link-btn", onclick: openMemoryDialog }, "Vedi tutto")),
-    ...renderMemoryRows(memoryListSearchQuery).map((item) =>
-      _.div({ class: "tl-ai-memory-row" }, _.span(icon(item.icon, "sm")), _.div(_.strong(item.name), _.p(item.meta)), _.em(item.count), _.small(item.scope || "workspace"))
-    )
+    _.Row({ justify: "space-between", align: "center" }, _.h3("AI Memory (Context)")),
+    _.div(
+      { class: "tl-ai-memory-list" },
+      ...renderMemoryRows(memoryListSearchQuery).map((item) =>
+        _.div({ class: "tl-ai-memory-row" }, _.span(icon(item.icon, "sm")), _.div(_.strong(item.name), _.p(memoryPreviewMeta(item))), _.em(item.count), _.small(item.scope || "workspace"))
+      )
+    ),
+    btn({ class: "tl-ai-link-btn", onclick: openMemoryDialog }, "Visualizza tutta la memoria", icon("arrow_forward", "sm"))
   );
 
 const renderDonut = (className, value, label) => _.div({ class: `tl-ai-donut ${className}` }, _.strong(value), _.span(label));
 
-const renderAnalytics = () =>
-  _.section(
-    { class: "tl-ai-analytics" },
+const memorySourceIcon = (item = {}) => {
+  const name = String(item.name || "").toLowerCase();
+  if (name.includes("workspace")) return "dashboard_customize";
+  if (name.includes("debug")) return "bug_report";
+  if (name.includes("knowledge")) return "menu_book";
+  if (name.includes("agent tool")) return "handyman";
+  if (name.includes("flow")) return "account_tree";
+  return item.icon || "database";
+};
+
+const groupedMemorySources = () => {
+  const groups = new Map();
+  memory.map(memoryOf).forEach((item) => {
+    const name = item.name || "Memoria senza nome";
+    const current = groups.get(name) || { name, icon: memorySourceIcon(item), items: 0, records: 0 };
+    current.items += Number.parseInt(String(item.count || "0"), 10) || 0;
+    current.records += 1;
+    groups.set(name, current);
+  });
+  return [...groups.values()].sort((a, b) => b.items - a.items || a.name.localeCompare(b.name, "it"));
+};
+
+const renderAnalyticsCards = () =>
+  [
     _.Card(
-      { class: "tl-ai-analytics-card" },
+      { class: "tl-ai-analytics-card is-distribution" },
       _.h3("Distribuzione per Tipo"),
       _.div({ class: "tl-ai-donut-row" }, renderDonut("is-multi", metrics[1]?.value || "0", "Jobs"), _.div(...metrics.map((item) => _.p(`${item.label} ${item.value}`))))
     ),
@@ -1582,17 +1568,37 @@ const renderAnalytics = () =>
       _.h3("AI Performance (24h)"),
       _.Grid(
         { cols: "repeat(4, minmax(0, 1fr))", gap: 8 },
-        _.div(_.span("Jobs Attivi"), _.strong(metrics[1]?.value || "0"), _.em(metrics[1]?.delta || "")),
-        _.div(_.span("Query"), _.strong(`${aiRuntimeMeta.queryMs || 0}ms`), _.em("SQLite")),
-        _.div(_.span("Token Totali"), _.strong(metrics[3]?.value || "0"), _.em(metrics[3]?.delta || "")),
-        _.div(_.span("Costo Stimato"), _.strong(metrics[6]?.value || "$0.00"), _.em(metrics[6]?.delta || ""))
+        _.div({ class: "tl-ai-performance-stat" }, _.span("Jobs Attivi"), _.strong(metrics[1]?.value || "0"), _.em(metrics[1]?.delta || "")),
+        _.div({ class: "tl-ai-performance-stat" }, _.span("Query"), _.strong(`${aiRuntimeMeta.queryMs || 0}ms`), _.em("SQLite")),
+        _.div({ class: "tl-ai-performance-stat" }, _.span("Token Totali"), _.strong(metrics[3]?.value || "0"), _.em(metrics[3]?.delta || "")),
+        _.div({ class: "tl-ai-performance-stat" }, _.span("Costo Stimato"), _.strong(metrics[6]?.value || "$0.00"), _.em(metrics[6]?.delta || ""))
       ),
-      renderSpark("gold", 20)
+      _.div(
+        { class: "tl-ai-performance-meta" },
+        _.span(dot(aiRuntimeMeta.error ? "error" : "online"), aiRuntimeMeta.error ? "Dati da verificare" : "Dati runtime disponibili"),
+        _.span(`SQLite · ${aiJobsPage.total} job`),
+        _.span(`Aggiornato ${aiRuntimeMeta.lastUpdate || "ora"}`)
+      )
     ),
     _.Card(
-      { class: "tl-ai-analytics-card" },
+      { class: "tl-ai-analytics-card is-storage" },
       _.h3("Storage AI"),
-      _.div({ class: "tl-ai-donut-row" }, renderDonut("is-storage", memory.length, "Blocchi"), _.div(...memory.map(memoryOf).map((item) => _.p(`${item.name} ${item.count}`))))
+      _.div(
+        { class: "tl-ai-donut-row" },
+        renderDonut("is-storage", memory.length, "Blocchi"),
+        _.div(
+          { class: "tl-ai-storage-chips" },
+          ...groupedMemorySources().map((group) =>
+            _.div(
+              { class: "tl-ai-storage-chip", title: `${group.records} record${group.records === 1 ? "" : "s"} · ${group.items} item${group.items === 1 ? "" : "s"}` },
+              _.span({ class: "tl-ai-storage-chip-icon" }, icon(group.icon, "sm")),
+              _.span({ class: "tl-ai-storage-chip-name" }, group.name),
+              _.strong(`${formatNumber(group.items)} ${group.items === 1 ? "item" : "items"}`),
+              group.records > 1 ? _.small(`${group.records} fonti`) : null
+            )
+          )
+        )
+      )
     ),
     _.Card(
       { class: "tl-ai-analytics-card" },
@@ -1600,7 +1606,7 @@ const renderAnalytics = () =>
       ...workspaceActivity.map(([name, width, count]) => _.div({ class: "tl-ai-workspace-bar" }, _.span(name), _.span({ class: "tl-ai-bar", style: { "--w": `${width}%` } }), _.strong(count))),
       btn({ class: "tl-ai-link-btn" }, "Richieste AI (24h)")
     )
-  );
+  ];
 
 const renderFooter = () =>
   _.footer(
@@ -1616,6 +1622,13 @@ const renderFooter = () =>
     renderSpark("green", 28)
   );
 
+const renderInitialLoadingState = () =>
+  _.section(
+    { class: "tl-ai-initial-loading", "aria-live": "polite" },
+    _.span({ class: "tl-ai-orb" }, icon("psychology_alt", "md")),
+    _.strong(aiRuntimeMeta.error || "Caricamento AI Center…")
+  );
+
 const renderShell = () =>
   _.div(
     { class: `tl-ai-shell${aiEmbedded ? " is-embedded" : ""}` },
@@ -1626,15 +1639,17 @@ const renderShell = () =>
       _.main(
         { class: "tl-ai-main" },
         _.div({ class: "tl-ai-grid-bg", "aria-hidden": "true" }),
-        renderHeader(),
-        renderAgents(),
-        renderProviders(),
-        renderMemory(),
-        renderPrompts(),
-        renderLogs(),
-        renderJobsTable(),
-        renderAnalytics(),
-        renderFooter()
+        ...(aiRuntimeHasLoaded ? [
+          renderHeader(),
+          renderProviders(),
+          renderAgents(),
+          renderPrompts(),
+          renderLogs(),
+          ...renderAnalyticsCards(),
+          renderJobsTable(),
+          renderMemory(),
+          renderFooter(),
+        ] : [renderInitialLoadingState()])
       )
     )
   );
@@ -1647,6 +1662,7 @@ const refreshAiRuntime = async () => {
     aiLogsPage = data.logsPage || aiLogsPage;
     aiMemoryPage = data.memoryPage || aiMemoryPage;
     applyRuntimeViewModel(buildRuntimeViewModel(data, Math.max(1, Math.round(performance.now() - started))));
+    aiRuntimeHasLoaded = true;
   } catch (error) {
     aiRuntimeMeta = {
       loading: false,

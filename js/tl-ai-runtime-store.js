@@ -724,7 +724,7 @@ window.TrackerLensAiRuntimeStore = (() => {
     };
   };
 
-  const listForCenter = async ({ jobsOffset = 0, jobsLimit = 25, logsOffset = 0, logsLimit = 25, memoryOffset = 0, memoryLimit = 25 } = {}) => {
+  const listForCenter = async ({ jobsOffset = 0, jobsLimit = 20, logsOffset = 0, logsLimit = 25, memoryOffset = 0, memoryLimit = 25 } = {}) => {
     const persistence = await ensureStores();
     if (!persistence.readAiRuntimeCenterSummary) return list();
     const data = await persistence.readAiRuntimeCenterSummary({ jobsOffset, jobsLimit, logsOffset, logsLimit, memoryOffset, memoryLimit });
