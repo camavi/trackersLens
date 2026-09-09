@@ -298,7 +298,7 @@ const renderTopbar = () =>
         class: "tl-ai-search-input",
         label: "Cerca agenti, modelli, prompt, workflow...",
         value: globalSearchQuery,
-        "aria-label": "Cerca AI Runtime Center",
+        "aria-label": "Cerca AI Center",
         onInput: (event) => {
           globalSearchQuery = event.target.value;
           agentSearchQuery = globalSearchQuery;
@@ -352,7 +352,7 @@ const renderHeader = () =>
       { class: "tl-ai-title-row" },
       _.div(
         _.span({ class: "tl-ai-orb" }, icon("psychology_alt", "md")),
-        _.div(_.h2("AI Runtime Center"), _.p("Centro di orchestrazione AI di Trackers Lens"))
+        _.div(_.h2("AI Center"), _.p("Centro di orchestrazione AI di Trackers Lens"))
       ),
       _.Toolbar(
         { class: "tl-ai-head-actions", gap: 14 },

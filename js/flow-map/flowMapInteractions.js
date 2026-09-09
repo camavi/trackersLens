@@ -1655,13 +1655,13 @@ const openExistingAiAgentsDialog = async (options = {}) => {
           { class: "tl-flow-library-empty" },
           flowMapIcon("psychology", "md"),
           _.strong("Nessun AI Agent salvato."),
-          _.span("Crea e salva un agent da AI Runtime Center, poi torna nella Flow Map.")
+          _.span("Crea e salva un agent da AI Center, poi torna nella Flow Map.")
         )
     ),
     actions: ({ close }) => _.Toolbar(
       { align: "end", gap: 8 },
       flowMapBtn({ onclick: close }, "Close"),
-      flowMapBtn({ class: "st-btn-primary", onclick: () => window.TrackerLensSidebar?.navigate?.("ai.html") || window.location.assign("ai.html") }, flowMapIcon("add", "sm"), "AI Runtime Center")
+      flowMapBtn({ class: "st-btn-primary", onclick: () => window.TrackerLensSidebar?.navigate?.("ai.html") || window.location.assign("ai.html") }, flowMapIcon("add", "sm"), "AI Center")
     ),
   });
   dialog.open();
