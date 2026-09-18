@@ -215,4 +215,4 @@ const mountPopup = () => {
   );
 };
 
-CMSwift.ready(mountPopup);
+JSswift.ready(mountPopup);

@@ -13,7 +13,7 @@ window.TrackerLensBoxEditorDialog = (() => {
   const icon = (name, size = "md") => _.Icon({ name, size });
   const btn = (props, ...children) => _.Btn({ type: "button", ...props }, ...children);
   const notify = (type, message) => {
-    if (CMSwift.notify?.[type]) CMSwift.notify[type](message);
+    if (JSswift.notify?.[type]) JSswift.notify[type](message);
   };
 
   const boxVersioning = () => window.TrackerLensBoxVersioning;

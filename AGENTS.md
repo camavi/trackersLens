@@ -22,7 +22,7 @@ Last updated: 2026-08-31.
 - Current active work: `docs/ai/current-focus.md`
 - Architecture rules: `docs/ai/architecture.md`
 - File ownership map: `docs/ai/file-map.md`
-- CMSwift usage: `docs/ai/cmswift-guidelines.md`
+- JSswift usage: `docs/ai/jsswift-guidelines.md`
 - Tasks: `docs/ai/task-registry.md`
 - Decisions: `docs/ai/decisions.md`
 - Flow Map overview: `docs/ai/flow-map/overview.md`
@@ -55,7 +55,7 @@ Last updated: 2026-08-31.
 
 - Trackers Lens is a local AI Runtime Operating Environment, not a dashboard builder.
 - Use existing runtime modules in `core/runtime/` before adding new systems.
-- Use CMSwift for app UI: dialogs, toolbar, panels, forms, tables, tabs, inspectors and controls.
+- Use JSswift for app UI: dialogs, toolbar, panels, forms, tables, tabs, inspectors and controls.
 - Keep canvas, node cards, graph links and live visual layers custom only where runtime interaction requires it.
 - Do not invent endpoint URLs or domain-specific data. Endpoint discovery must be attributed and confirmed.
 - Mutating Flow Agent commands must go through the registered tool layer and safe executor.

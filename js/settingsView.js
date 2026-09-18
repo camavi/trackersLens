@@ -199,7 +199,7 @@ const settingsState = {
   queryMs: 0,
 };
 
-const settingsReactive = window.CMSwift?.reactive || window._?.reactive;
+const settingsReactive = window.JSswift?.reactive || window._?.reactive;
 const [, setSettingsSignal] = settingsReactive?.signal
   ? settingsReactive.signal(settingsState.settings)
   : [() => settingsState.settings, (value) => { settingsState.settings = value; }];
@@ -1351,7 +1351,7 @@ window.TrackerLensViews.settings = {
 };
 
 if (!window.TrackerLensAppRouter) {
-  if (window.CMSwift?.ready) CMSwift.ready(bootSettings);
+  if (window.JSswift?.ready) JSswift.ready(bootSettings);
   if (document.readyState === "loading") {
     document.addEventListener("DOMContentLoaded", () => {
       if (!document.getElementById("tl-settings-root")?.children.length) bootSettings();

@@ -1,3 +1,17 @@
+/* JSswift declares this face from Google. A distinct local family prevents
+   Chromium from selecting that remote declaration under Electron's CSP. */
+@font-face {
+  font-family: "Trackers Lens Material Symbols";
+  src: url("../fonts/material-symbols-outlined.ttf") format("truetype");
+  font-weight: 100 700;
+  font-style: normal;
+  font-display: swap;
+}
+
+.material-symbols-outlined {
+  font-family: "Trackers Lens Material Symbols" !important;
+}
+
 :root {
 
   --font-size: 14px;

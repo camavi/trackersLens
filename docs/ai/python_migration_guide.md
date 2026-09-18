@@ -76,7 +76,7 @@ Trackers Lens deve evolvere verso:
 ``` text
 Trackers Lens
 ├── Electron Desktop Shell
-├── UI esistente / CMSwift
+├── UI esistente / JSswift
 ├── TL Core / Runtime JS-Node esistente
 ├── Runtime Manager
 ├── JavaScript Workers
@@ -121,7 +121,7 @@ versionate:
 
 -   Flow Map;
 -   Flow Chat;
--   CMSwift UI;
+-   JSswift UI;
 -   nodi JS;
 -   runtime esistente;
 -   canali/event bus;
@@ -235,7 +235,7 @@ DB = memoria persistente controllata da TL
 │                                                             │
 │  ┌───────────────────────────────────────────────────────┐  │
 │  │ Renderer                                              │  │
-│  │ CMSwift                                               │  │
+│  │ JSswift                                                │  │
 │  │ Flow Map • Flow Chat • DevTools • Memory • Knowledge │  │
 │  └───────────────────────┬───────────────────────────────┘  │
 │                          │ secure bridge                    │
@@ -281,12 +281,12 @@ la business logic.
 # 5. Perché Electron
 
 Electron è la scelta primaria perché permette di riutilizzare gran parte
-del lavoro JS/Node/CMSwift.
+del lavoro JS/Node/JSswift.
 
 Obiettivi:
 
 -   riutilizzare UI;
--   mantenere CMSwift;
+-   mantenere JSswift;
 -   mantenere Flow Map;
 -   usare Node.js;
 -   accesso controllato al filesystem/OS;
@@ -305,7 +305,7 @@ Non introdurre Tauri/Rust durante questa migrazione.
 
 Contiene la UI:
 
--   CMSwift;
+-   JSswift;
 -   Flow Map;
 -   Flow Chat;
 -   Runtime DevTools;
@@ -442,7 +442,7 @@ Fare:
 -   main process;
 -   preload;
 -   renderer con UI esistente;
--   mantenere CMSwift;
+-   mantenere JSswift;
 -   mantenere Flow Map;
 -   mantenere modalità web/dev se utile;
 -   definire app-data paths;
@@ -1652,7 +1652,7 @@ Ogni step usa il runtime più adatto.
 # 45. Regola di scelta del runtime
 
 ``` text
-UI                         → JS/CMSwift
+UI                         → JS/JSswift
 orchestrazione real-time   → Node.js
 Flow lifecycle             → TL Core
 NLP/ML                     → spesso Python
@@ -2277,7 +2277,7 @@ Non:
 
 -   riscrivere TL in Python;
 -   eliminare JS funzionante senza benchmark;
--   sostituire CMSwift;
+-   sostituire JSswift;
 -   rifare Flow Map;
 -   mettere business logic in Electron Main;
 -   dare Node access al renderer;

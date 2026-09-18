@@ -6410,7 +6410,7 @@ const requestOrchestratorAgentConfig = (node) => {
     await loadRuntime({ force: true });
   };
   const selectOptions = (values) => values.map((value) => ({ value, label: value }));
-  const tabModel = window.CMSwift?.reactive?.signal?.("general");
+  const tabModel = window.JSswift?.reactive?.signal?.("general");
   const formId = `tl-flow-orchestrator-${String(node.id || Date.now()).replace(/[^A-Za-z0-9_-]/g, "_")}`;
   const inputField = (label, key, extra = {}) => _.Input({
     size: "sm",

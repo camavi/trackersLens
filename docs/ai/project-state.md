@@ -18,7 +18,7 @@ The core product direction is:
 - Flow Map as the primary graph surface
 - local AI first through Ollama and LM Studio/OpenAI-compatible APIs
 - SQLite as desktop local runtime persistence, owned by TL Core
-- CMSwift as the app UI framework
+- JSswift as the app UI framework
 
 ## Main Pages
 

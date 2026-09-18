@@ -51,7 +51,7 @@ const openChromePage = (url) => window.TrackerLensSidebar?.navigate?.(url) || wi
 
 const openUniversalBoxEditor = (options = {}) => {
   if (!window.TrackerLensBoxEditorDialog?.open) {
-    CMSwift.notify?.error?.("Editor universale non disponibile.");
+    JSswift.notify?.error?.("Editor universale non disponibile.");
     return;
   }
 
@@ -553,7 +553,7 @@ const setView = (view) => {
   mountLibrary();
 };
 
-const looksLikeImage = (value) => /^(https?:|data:image|\.{0,2}\/|icons\/|cmswift-fe\/)/i.test(value);
+const looksLikeImage = (value) => /^(https?:|data:image|\.{0,2}\/|icons\/|jsswift-fe\/)/i.test(value);
 
 const renderBoxIcon = (box) => {
   const className = `tl-card-icon tl-asset-card-icon${box.type === "boxTracker" ? " is-tracker" : ""}${box.type === "workspace" ? " is-workspace" : ""}`;
@@ -818,5 +818,5 @@ window.TrackerLensViews.library = {
   },
 };
 
-if (!window.TrackerLensAppRouter) CMSwift.ready(loadLibrary);
+if (!window.TrackerLensAppRouter) JSswift.ready(loadLibrary);
 })();

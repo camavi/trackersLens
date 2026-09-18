@@ -2272,6 +2272,6 @@ window.TrackerLensViews.workspace = {
 
 if (!window.TrackerLensAppRouter) {
   attachWorkspaceListeners();
-  CMSwift.ready(initializeWorkspace);
+  JSswift.ready(initializeWorkspace);
 }
 })();

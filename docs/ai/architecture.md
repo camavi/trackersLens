@@ -60,7 +60,7 @@ Destructive operations must either be blocked, explicitly confirmed, or routed t
 
 ## UI Framework
 
-Use CMSwift for application UI:
+Use JSswift for application UI:
 
 - dialogs
 - toolbar

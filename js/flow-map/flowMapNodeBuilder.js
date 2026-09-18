@@ -343,7 +343,7 @@ const nodeBuilderTemplateSearchText = (group = "", item = {}) =>
     ...(item.permissions || []),
   ].filter(Boolean).join(" ").toLowerCase();
 
-const nodeBuilderCmswiftComponents = [
+const nodeBuilderJSswiftComponents = [
   { label: "Badge", type: "content", icon: "label", description: "Status badge" },
   { label: "Chip", type: "content", icon: "sell", description: "Compact token" },
   { label: "Input", type: "form", icon: "input", description: "Text field" },
@@ -1082,13 +1082,13 @@ const renderNodeBuilderPortRows = (ports = [], side = "in") =>
     flowMapBtn({ title: "Remove port", "aria-label": "Remove port", "data-node-builder-delete-port": `${side}:${index}`, disabled: ports.length <= 1 }, flowMapIcon("delete", "sm"))
   ));
 
-const renderNodeBuilderCmswiftComponents = () =>
-  nodeBuilderCmswiftComponents.map((component) => _.button(
+const renderNodeBuilderJSswiftComponents = () =>
+  nodeBuilderJSswiftComponents.map((component) => _.button(
     {
       type: "button",
       class: "tl-flow-node-builder-component",
       title: component.description || component.label,
-      "aria-label": `CMSwift ${component.label}`,
+      "aria-label": `JSswift ${component.label}`,
       "data-node-builder-add-component": component.label.toLowerCase(),
     },
     flowMapIcon("drag_indicator", "sm"),
@@ -2172,7 +2172,7 @@ const openNodeBuilderDialog = (options = {}) => {
           ),
           _.div(
             { class: "tl-flow-node-builder-side-body", "data-node-builder-side-body": "components" },
-            _.div({ class: "tl-flow-node-builder-component-list" }, ...renderNodeBuilderCmswiftComponents())
+            _.div({ class: "tl-flow-node-builder-component-list" }, ...renderNodeBuilderJSswiftComponents())
           )
         ),
         _.section(

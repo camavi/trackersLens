@@ -13,7 +13,7 @@ Last updated: 2026-06-11.
 - `file-map.md`: which files own which behavior.
 - `task-registry.md`: task status overview.
 - `decisions.md`: architectural decisions that should not be re-litigated.
-- `cmswift-guidelines.md`: local CMSwift rules.
+- `jsswift-guidelines.md`: local JSswift rules.
 
 ## Flow Map Files
 

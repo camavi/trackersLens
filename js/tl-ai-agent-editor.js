@@ -1,5 +1,5 @@
 window.TrackerLensAiAgentEditor = (() => {
-  const _ = window.CMSwift || window._;
+  const _ = window.JSswift || window._;
   const icon = (name, size = "md") => _.Icon({ name, size });
   const btn = (props, ...children) => _.Btn({ type: "button", ...props }, ...children);
   const dot = (tone = "online") => _.span({ class: `tl-ai-dot is-${tone}`, "aria-hidden": "true" });
@@ -504,7 +504,7 @@ window.TrackerLensAiAgentEditor = (() => {
     footerActions = null,
     onSave = null,
   } = {}) => {
-    const tabModel = window.CMSwift.reactive.signal(initialTab || tabs[0]?.name || "general");
+    const tabModel = window.JSswift.reactive.signal(initialTab || tabs[0]?.name || "general");
     let dialog = null;
     const saveFromForm = async ({ close }) => {
       await onSave?.({ form: document.getElementById(formId), close, dialog, formId });
@@ -590,7 +590,7 @@ window.TrackerLensAiAgentEditor = (() => {
       value: provider.model || "local-model",
       url: "",
     };
-    const tabModel = window.CMSwift.reactive.signal("general");
+    const tabModel = window.JSswift.reactive.signal("general");
     const formId = `tl-ai-agent-editor-${String(agent?.id || Date.now()).replace(/[^A-Za-z0-9_-]/g, "_")}`;
     const dialogTitle = title || values.name || "Runtime Intelligence Agent";
     const dialogSubtitle = subtitle || values.description || "Event-driven AI node for runtime channels";

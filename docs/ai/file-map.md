@@ -53,7 +53,7 @@ Last updated: 2026-08-25.
 
 ## Shared UI / App
 
-- `CMSwift/`: UI framework.
+- `node_modules/jsswift/`: UI framework package.
 - `js/tl-sidebar.js`, `css/tl-sidebar.css`: standard sidebar.
 - `pythonRuntime.html`, `js/pythonRuntimeView.js`, `css/pythonRuntimeView.css`: dedicated transparent management page for Core-registered Python environments, packs and models.
 - `js/TlConfig.js`: store constants and app config.

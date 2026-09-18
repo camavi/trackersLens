@@ -223,7 +223,7 @@ const connectionState = {
   mounted: false,
 };
 
-const connectionsReactive = CMSwift.reactive;
+const connectionsReactive = JSswift.reactive;
 const filtersSnapshot = () => ({
   query: connectionState.query,
   type: connectionState.type,

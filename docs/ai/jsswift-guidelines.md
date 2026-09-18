@@ -1,16 +1,16 @@
-# CMSwift Guidelines
+# JSswift Guidelines
 
-Purpose: project-specific CMSwift usage rules.
+Purpose: project-specific JSswift usage rules.
 Read when: building or changing UI.
 Do not read when: only editing runtime logic without UI.
 Last updated: 2026-06-11.
 
 ## Framework Identity
 
-CMSwift is the primary UI framework.
+JSswift is the primary UI framework.
 The project often uses the global alias `_`; follow existing local style.
 
-## Use CMSwift For
+## Use JSswift For
 
 - `_.Dialog`
 - `_.Toolbar`

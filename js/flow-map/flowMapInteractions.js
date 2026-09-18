@@ -1831,7 +1831,7 @@ const openExistingLibraryDialog = async (item, options = {}) => {
             });
             return;
           }
-          CMSwift.notify?.error?.("Editor universale non disponibile.");
+          JSswift.notify?.error?.("Editor universale non disponibile.");
         },
       }, flowMapIcon("add", "sm"), kind === "boxTracker" ? "New Tracker" : "New Lens")
     ),

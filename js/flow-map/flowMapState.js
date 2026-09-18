@@ -250,7 +250,7 @@ const recentRuntimeRecords = (records = [], limit = 0) =>
 
 state.viewport = flowMapParams.get("workspaceId") ? loadStoredViewport(flowMapParams.get("workspaceId")) || state.viewport : state.viewport;
 
-const flowReactive = CMSwift.reactive;
+const flowReactive = JSswift.reactive;
 const [getRuntimeState, setRuntimeSignal] = flowReactive.signal(state.runtime);
 const [getFiltersState, setFiltersSignal] = flowReactive.signal(state.filters);
 const [getFocusState, setFocusSignal] = flowReactive.signal(state.focus);

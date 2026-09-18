@@ -318,9 +318,9 @@ const isAllowedLocalNavigation = (value) => {
 };
 
 const configureSessionSecurity = () => {
-  const legacySpriteUrl = pathToFileURL(path.join(projectRoot, "cmswift-fe", "img", "svg", "tabler-icons-sprite.svg")).toString();
-  session.defaultSession.webRequest.onBeforeRequest({ urls: ["file:///cmswift-fe/img/svg/tabler-icons-sprite.svg*"] }, (details, callback) => {
-    callback({ redirectURL: legacySpriteUrl + (new URL(details.url).hash || "") });
+  const jsSwiftSpriteUrl = pathToFileURL(path.join(projectRoot, "node_modules", "jsswift", "dist", "img", "svg", "tabler-icons-sprite.svg")).toString();
+  session.defaultSession.webRequest.onBeforeRequest({ urls: ["file:///jsswift-fe/img/svg/tabler-icons-sprite.svg*"] }, (details, callback) => {
+    callback({ redirectURL: jsSwiftSpriteUrl + (new URL(details.url).hash || "") });
   });
   session.defaultSession.webRequest.onHeadersReceived((details, callback) => {
     callback({

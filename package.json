@@ -5,6 +5,7 @@
   "description": "Trackers Lens desktop shell",
   "main": "electron/main.cjs",
   "scripts": {
+    "postinstall": "node scripts/patch-jsswift-assets.cjs",
     "start": "env -u ELECTRON_RUN_AS_NODE electron .",
     "dev": "env -u ELECTRON_RUN_AS_NODE TL_ELECTRON_DEVTOOLS=1 TL_ENABLE_CUSTOM_NODE_SANDBOX=1 electron .",
     "dev:poc": "env -u ELECTRON_RUN_AS_NODE TL_ENABLE_PYTHON_POC=1 TL_ELECTRON_DEVTOOLS=1 electron .",
@@ -18,5 +19,8 @@
   },
   "devDependencies": {
     "electron": "^44.0.0"
+  },
+  "dependencies": {
+    "jsswift": "^1.0.43"
   }
 }

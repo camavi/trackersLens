@@ -1967,4 +1967,4 @@ const loadWorkspaceView = async () => {
   mountWorkspaceView();
 };
 
-CMSwift.ready(loadWorkspaceView);
+JSswift.ready(loadWorkspaceView);

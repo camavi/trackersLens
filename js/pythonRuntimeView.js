@@ -337,7 +337,7 @@ window.TrackerLensViews.pythonRuntime = {
 };
 
 if (!window.TrackerLensAppRouter) {
-  if (window.CMSwift?.ready) CMSwift.ready(boot);
+  if (window.JSswift?.ready) JSswift.ready(boot);
   else if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", boot, { once: true });
   else void boot();
 }

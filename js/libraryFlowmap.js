@@ -721,5 +721,5 @@ window.TrackerLensViews.flowLibrary = {
   },
 };
 
-if (!window.TrackerLensAppRouter) CMSwift.ready(loadFlowLibrary);
+if (!window.TrackerLensAppRouter) JSswift.ready(loadFlowLibrary);
 })();

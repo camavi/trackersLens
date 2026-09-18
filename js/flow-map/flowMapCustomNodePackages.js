@@ -81,7 +81,7 @@ window.TrackerLensCustomNodePackages = (() => {
     );
   };
   const openDialog = async () => {
-    if (!isAvailable()) return CMSwift.notify?.error?.("L'import Custom Node è disponibile solo nell'app desktop.");
+    if (!isAvailable()) return JSswift.notify?.error?.("L'import Custom Node è disponibile solo nell'app desktop.");
     let packages = await refreshInstalled();
     let review = null;
     let busy = false;
@@ -92,15 +92,15 @@ window.TrackerLensCustomNodePackages = (() => {
       review ? _.section({ class: "tl-flow-package-review" }, _.h3("Revisione import"), summary(review), _.div({ class: "tl-flow-package-actions" },
         flowMapBtn({ class: "st-btn-primary", disabled: busy, onclick: async () => {
           busy = true; refresh();
-          try { await bridge().install({ importId: review.importId }); review = null; packages = await refreshInstalled(); CMSwift.notify?.success?.("Custom Node importato: aggiungilo dalla palette, runtime bloccato."); }
-          catch (error) { CMSwift.notify?.error?.(error?.message || "Import non riuscito."); }
+          try { await bridge().install({ importId: review.importId }); review = null; packages = await refreshInstalled(); JSswift.notify?.success?.("Custom Node importato: aggiungilo dalla palette, runtime bloccato."); }
+          catch (error) { JSswift.notify?.error?.(error?.message || "Import non riuscito."); }
           finally { busy = false; refresh(); }
         } }, flowMapIcon("archive", "sm"), busy ? "Importazione…" : "Importa pacchetto"),
         flowMapBtn({ disabled: busy, onclick: () => { review = null; refresh(); } }, "Annulla")
       )) : _.div({ class: "tl-flow-package-actions" }, flowMapBtn({ class: "st-btn-primary", disabled: busy, onclick: async () => {
         busy = true; refresh();
         try { const result = await bridge().inspect(); if (!result?.cancelled) review = result; }
-        catch (error) { CMSwift.notify?.error?.(error?.message || "Archivio non valido."); }
+        catch (error) { JSswift.notify?.error?.(error?.message || "Archivio non valido."); }
         finally { busy = false; refresh(); }
       } }, flowMapIcon("upload_file", "sm"), busy ? "Lettura…" : "Scegli .tl-node.zip")),
       _.hr(), _.h3("Pacchetti installati"), packages.length ? _.div({ class: "tl-flow-package-list" }, ...packages.map((pkg) => summary(pkg, {
@@ -115,8 +115,8 @@ window.TrackerLensCustomNodePackages = (() => {
               confirmed: true
             });
             packages = await refreshInstalled();
-            CMSwift.notify?.success?.("Consenso registrato. Il runtime rimane bloccato finché la sandbox non sarà disponibile.");
-          } catch (error) { CMSwift.notify?.error?.(error?.message || "Registrazione consenso non riuscita."); }
+            JSswift.notify?.success?.("Consenso registrato. Il runtime rimane bloccato finché la sandbox non sarà disponibile.");
+          } catch (error) { JSswift.notify?.error?.(error?.message || "Registrazione consenso non riuscita."); }
           finally { busy = false; refresh(); }
         },
         onActivateSandbox: (target) => {
@@ -125,8 +125,8 @@ window.TrackerLensCustomNodePackages = (() => {
             content: () => _.div(_.p("Il package locale può ora elaborare i dati che riceve dal Flow Map dentro una sandbox isolata."), _.p("La sandbox non rende affidabile codice non verificato. Verifica manifest, permessi e audit statico prima di continuare.")),
             footer: () => [flowMapBtn({ onclick: () => confirmDialog.close() }, "Annulla"), flowMapBtn({ class: "st-btn-warning", onclick: async () => {
               busy = true; confirmDialog.close(); refresh();
-              try { await bridge().activateSandboxRuntime({ packageId: target.packageId, version: target.version, archiveSha256: target.archive?.sha256, confirmed: true }); packages = await refreshInstalled(); CMSwift.notify?.success?.("Sandbox attivata per questa esatta versione del package."); }
-              catch (error) { CMSwift.notify?.error?.(error?.message || "Attivazione sandbox non riuscita."); }
+              try { await bridge().activateSandboxRuntime({ packageId: target.packageId, version: target.version, archiveSha256: target.archive?.sha256, confirmed: true }); packages = await refreshInstalled(); JSswift.notify?.success?.("Sandbox attivata per questa esatta versione del package."); }
+              catch (error) { JSswift.notify?.error?.(error?.message || "Attivazione sandbox non riuscita."); }
               finally { busy = false; refresh(); }
             } }, "Attiva")]
           });

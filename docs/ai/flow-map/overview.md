@@ -28,5 +28,5 @@ Do not auto-display every global library asset as a runtime node.
 
 ## UI Rule
 
-Use CMSwift for shell, dialogs, toolbars and inspectors.
+Use JSswift for shell, dialogs, toolbars and inspectors.
 Use custom graph rendering for canvas, nodes, ports and links.

@@ -6428,7 +6428,7 @@ const openPaletteNode = (item, contextNode = selectedNode()) => {
       });
       return;
     }
-    CMSwift.notify?.error?.("Editor universale non disponibile.");
+    JSswift.notify?.error?.("Editor universale non disponibile.");
     return;
   }
 
@@ -6462,7 +6462,7 @@ const openPaletteNode = (item, contextNode = selectedNode()) => {
       });
       return;
     }
-    CMSwift.notify?.error?.("Editor universale non disponibile.");
+    JSswift.notify?.error?.("Editor universale non disponibile.");
     return;
   }
 

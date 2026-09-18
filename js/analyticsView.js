@@ -106,7 +106,7 @@ const analyticsState = {
   },
 };
 
-const reactive = window.CMSwift?.reactive || window._?.reactive;
+const reactive = window.JSswift?.reactive || window._?.reactive;
 const [getLiveEvents, setLiveEvents] = reactive?.signal
   ? reactive.signal(analyticsState.liveEvents)
   : [() => analyticsState.liveEvents, (value) => { analyticsState.liveEvents = value; }];
