@@ -526,18 +526,7 @@ window.TrackerLensOrchestratorAgentRuntime = (() => {
 
   const defaultAllowedCategories = ["sources", "trackers", "processors", "knowledge", "ai-agents", "actions", "storage", "lens", "dev"];
 
-  const pickProvider = async (config = {}) => {
-    const data = await window.TrackerLensAiRuntimeStore?.list?.().catch(() => null);
-    const providers = data?.providers || window.TrackerLensAiRuntimeStore?.localProviderDefaults?.() || [];
-    const requested = String(config.providerType || config.provider || config.providerProfile || "").toLowerCase();
-    return providers.find((provider) =>
-      requested &&
-      [provider.id, provider.name, provider.provider].some((value) => String(value || "").toLowerCase().includes(requested)))
-      || providers.find((provider) => provider.local && provider.status === "online")
-      || providers.find((provider) => provider.local)
-      || providers[0]
-      || null;
-  };
+  const pickProvider = (config = {}) => window.TrackerLensAiRuntimeStore.resolveNodeProvider(config);
 
   const withLmStudioApiBase = (endpoint = "") => {
     const clean = String(endpoint || "http://127.0.0.1:1234").replace(/\/+$/g, "");
@@ -642,7 +631,9 @@ window.TrackerLensOrchestratorAgentRuntime = (() => {
     ].filter(Boolean).join("\n\n");
     const providerName = String(provider.provider || provider.name || "").toLowerCase();
     const model = String(config.model || provider.model || "local-model");
-    const ai = providerName.includes("ollama")
+    const ai = window.TrackerLensAiRuntimeStore.isLoginProvider(provider)
+      ? await window.TrackerLensAiRuntimeStore.completeNodeLogin({ provider, config, prompt })
+      : providerName.includes("ollama")
       ? await callOllama({ provider, model, prompt })
       : await callLmStudio({ provider, model, prompt, config });
     const plan = parseJsonLoose(ai.text);
@@ -1563,6 +1554,8 @@ window.TrackerLensOrchestratorAgentRuntime = (() => {
           createdAt: new Date().toISOString(),
         };
       } catch (error) {
+        const selected = nodeConfig(node);
+        if (selected.providerProfile || selected.profileId || ["codex", "claude"].includes(selected.providerType || selected.provider)) throw error;
         await this.log({
           node,
           level: "warning",

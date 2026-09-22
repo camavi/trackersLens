@@ -91,7 +91,9 @@ window.TrackerLensAiAgentRuntime = (() => {
     providerProfile: agent.provider?.profileId || "",
     provider: agent.provider?.providerType || agent.provider?.provider || "ollama",
     providerType: agent.provider?.providerType || agent.provider?.provider || "ollama",
-    model: agent.provider?.model || "local-model",
+    model: agent.provider?.model ?? "",
+    reasoningEffort: agent.provider?.reasoningEffort || "",
+    speed: agent.provider?.speed || "",
     temperature: agent.provider?.temperature ?? 0.2,
     maxTokens: agent.provider?.maxTokens ?? 800,
     maxContinuationCalls: agent.provider?.maxContinuationCalls ?? 10,
@@ -700,7 +702,8 @@ window.TrackerLensAiAgentRuntime = (() => {
     return calls.slice(0, limit);
   };
 
-  const callProviderText = async ({ provider = null, model = "", prompt = "", maxTokens = 800 } = {}) => {
+  const callProviderText = async ({ provider = null, model = "", prompt = "", maxTokens = 800, config = {} } = {}) => {
+    if (window.TrackerLensAiRuntimeStore.isLoginProvider(provider)) return window.TrackerLensAiRuntimeStore.completeNodeLogin({ provider, config, prompt });
     const type = String(provider?.provider || provider?.providerType || "").toLowerCase();
     if (type.includes("ollama")) return callOllama({ provider, model, prompt, maxTokens });
     if (type.includes("lm-studio") || type.includes("lmstudio") || type.includes("openai")) {
@@ -776,7 +779,7 @@ window.TrackerLensAiAgentRuntime = (() => {
       }),
     ].join("\n\n");
     try {
-      const ai = await callProviderText({ provider, model, prompt, maxTokens: Math.max(1, Math.floor(Number(config.plannerMaxTokens || config.maxTokens || 420))) });
+      const ai = await callProviderText({ provider, config, model, prompt, maxTokens: Math.max(1, Math.floor(Number(config.plannerMaxTokens || config.maxTokens || 420))) });
       const plan = parseAiText(ai.text || "");
       const calls = validatePlannedToolCalls({ plan, manifests, query, config });
       return { calls, plan, usage: ai.usage || {}, error: calls.length ? "" : "empty-plan" };
@@ -1042,24 +1045,7 @@ window.TrackerLensAiAgentRuntime = (() => {
     });
   };
 
-  const pickProvider = async (config = {}) => {
-    const data = await window.TrackerLensAiRuntimeStore?.list?.().catch(() => null);
-    const providers = data?.providers || window.TrackerLensAiRuntimeStore?.localProviderDefaults?.() || [];
-    const requestedProfile = String(config.providerProfile || config.profileId || "").trim();
-    const requestedType = String(config.providerType || config.provider || "").toLowerCase();
-    const requested = String(config.provider || config.providerType || "").toLowerCase();
-    return providers.find((provider) => requestedProfile && provider.id === requestedProfile)
-      || providers.find((provider) =>
-        requestedType &&
-        [provider.id, provider.name, provider.provider, provider.providerType].some((value) => String(value || "").toLowerCase() === requestedType))
-      || providers.find((provider) =>
-        requested &&
-        [provider.id, provider.name, provider.provider, provider.providerType].some((value) => String(value || "").toLowerCase().includes(requested)))
-      || providers.find((provider) => provider.local && provider.status === "online")
-      || providers.find((provider) => provider.local)
-      || providers[0]
-      || null;
-  };
+  const pickProvider = (config = {}) => window.TrackerLensAiRuntimeStore.resolveNodeProvider(config);
 
   const callOllama = async ({ provider, model, prompt, maxTokens = 800 }) => {
     const endpoint = String(provider.endpoint || "http://127.0.0.1:11434").replace(/\/+$/g, "");
@@ -1161,10 +1147,11 @@ window.TrackerLensAiAgentRuntime = (() => {
     };
   };
 
-  const callAiProvider = async ({ provider = {}, model = "", prompt = "", maxTokens = 800 } = {}) => {
+  const callAiProvider = async ({ provider = {}, model = "", prompt = "", maxTokens = 800, config = {} } = {}) => {
+    if (window.TrackerLensAiRuntimeStore.isLoginProvider(provider)) return window.TrackerLensAiRuntimeStore.completeNodeLogin({ provider, config, prompt });
     const providerName = String(provider?.provider || provider?.name || "").toLowerCase();
     if (providerName.includes("ollama")) return callOllama({ provider, model, prompt, maxTokens });
-    if (providerName.includes("lm") || providerName.includes("studio")) return callLmStudio({ provider, model, prompt, maxTokens });
+    if (providerName.includes("lm") || providerName.includes("studio") || providerName === "openai") return callLmStudio({ provider, model, prompt, maxTokens });
     throw new Error("Provider AI non configurato per chat runtime");
   };
 
@@ -1787,7 +1774,7 @@ window.TrackerLensAiAgentRuntime = (() => {
             payload: { provider: provider?.name || provider?.provider || "", model, maxTokens, maxContinuationCalls },
           },
         });
-        ai = await callAiProvider({ provider, model, prompt, maxTokens });
+        ai = await callAiProvider({ provider, config, model, prompt, maxTokens });
         let text = ai.text || "";
         let finishReason = ai.finishReason || "";
         let usage = normalizeTokenUsage(ai.usage || {});
@@ -1807,7 +1794,7 @@ window.TrackerLensAiAgentRuntime = (() => {
               payload: { attempt, maxTokens, currentChars: text.length },
             },
           });
-          const continuation = await callAiProvider({ provider, model, prompt: continuationPrompt, maxTokens });
+          const continuation = await callAiProvider({ provider, config, model, prompt: continuationPrompt, maxTokens });
           const continuationText = continuation.text || "";
           text = mergeContinuationText(text, continuationText);
           finishReason = continuation.finishReason || "";

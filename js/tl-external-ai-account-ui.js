@@ -1,7 +1,7 @@
 (function () {
   const externalProviderLabel = (providerId = "") => {
     const normalized = String(providerId || "").trim().toLowerCase();
-    return normalized === "codex" ? "Codex" : normalized === "claude" ? "Claude" : normalized || "Provider";
+    return normalized === "codex" ? "ChatGPT · Login (Codex)" : normalized === "claude" ? "Claude · Login" : normalized || "Provider";
   };
 
   const modelsFor = (providerId = "") => String(providerId || "").toLowerCase() === "codex"

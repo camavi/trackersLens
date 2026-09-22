@@ -3,9 +3,25 @@
 Purpose: compact task status overview.
 Read when: changing task status or deciding next work.
 Do not read when: doing a local implementation already scoped by `current-focus.md`.
-Last updated: 2026-09-18.
+Last updated: 2026-09-22.
 
 ## Active
+
+### TASK-034: Per-node LLM API and Login Providers
+
+Status: In progress. Phase 1 implemented and automatically verified (`npm run check`, TL Core suite, provider-connection regression suite). Login runtime routing, AI Center default inheritance and per-node model/reasoning/speed fields are implemented; interactive QA remains open.
+Priority: High.
+Risk: High because account/profile identity, per-node settings, external data transfer and runtime routing must remain explicit.
+
+- TASK-034 reasoning controls: the Agent/Knowledge shared editor uses a reasoning-level select sourced from the selected model catalog, including every advertised effort and preserving a saved value. Standard/Fast is separately labeled service mode; it is not a reasoning level. Node settings retain AI Center inheritance.
+
+- TASK-034 node-provider UI follow-up: Provider Type is internal/derived in the shared Agent and Knowledge dialogs; saved provider type is reconciled from the selected profile. Login models use a select with AI Center inheritance and preserve saved model IDs. Core exposes a narrow `externalAi.listModels`; Codex initializes its official app-server, reads every `model/list` page (including hidden entries), projects model metadata and stops the child without starting a thread. Verified against the installed authenticated client: seven models returned, including gpt-6-astra. Protocol pagination/error/login tests pass. Real Electron dialog smoke also passes (derived provider type, catalog-backed model select and API-field visibility); the earlier sandbox SIGABRT was resolved by running the isolated smoke outside the execution sandbox. API-only fields are hidden using actual JSswift field roots. Claude Login reports catalog unavailability explicitly and retains saved/default choices.
+
+- Phase 1: distinguish OpenAI · API, ChatGPT · Login (Codex), Claude · API and Claude · Login. Store connectionType independently from vendor and bridgeProvider; preserve legacy global account identities without classifying arbitrary Claude API profiles as login accounts. Carry identity through SQLite projections and show consistent profile/account labels.
+- Phase 2 (Login path implemented): route every LLM invocation through a common runtime adapter, including Agent, Orchestrator, Knowledge and JSON repair calls. Keep API and Login distinct; explicit provider failures must never switch to another provider. Desktop calls require the existing restricted Core bridge; a worker without that bridge fails explicitly. Native API transports remain the existing implementation.
+- Phase 3 (implemented, UI QA pending): persist provider connection, model, reasoning effort, speed and supported generation settings per node. Precedence: explicit node values, provider defaults, service default. Shared account login must never overwrite node settings. Expose inheritance and provider capabilities in JSswift forms; embedding/reranking require their own capabilities.
+- Phase 4 (automated provider tests passing; desktop QA pending): cover two nodes with different providers/settings, concurrent runs, persistence/reopen, missing login, unsupported parameters, JSON parsing and existing local providers. Interactive QA must verify the complete Flow path before closure. Electron smoke was attempted in this environment but Electron exited with SIGABRT before producing a test result; no live provider request was made.
+
 
 ### TASK-033: JSswift UI Framework Migration
 

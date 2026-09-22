@@ -1282,6 +1282,7 @@ window.TrackerLensKnowledgeRuntime = (() => {
       };
     }
 
+    if (window.TrackerLensAiRuntimeStore.isLoginProvider(provider)) throw new Error("Login providers do not support embeddings. Select an embedding provider or Python runtime.");
     const type = String(provider.provider || provider.providerType || config.providerType || config.provider || "").toLowerCase();
     try {
       const result = type === "ollama"
@@ -1902,7 +1903,7 @@ window.TrackerLensKnowledgeRuntime = (() => {
         query: compactDebugText(query),
         promptPreview: compactDebugText(prompt),
       });
-      const response = await postChatJson({ url, body, headers: headersForProvider(provider, config) });
+      const response = await postChatJson({ provider, config, url, body, headers: headersForProvider(provider, config) });
       if (!response.ok) {
         const errorText = await chatErrorText(response);
         return { tokens: [], provider: provider.id || providerType || "provider", model, usage: {}, error: `HTTP ${response.status}${errorText ? `: ${errorText}` : ""}`, promptMode: "" };
@@ -2115,12 +2116,12 @@ window.TrackerLensKnowledgeRuntime = (() => {
         query: compactDebugText(query),
         promptPreview: compactDebugText(prompt),
       });
-      let response = await postChatJson({ url, body, headers: headersForProvider(provider, config) });
+      let response = await postChatJson({ provider, config, url, body, headers: headersForProvider(provider, config) });
       let responseErrorText = response.ok ? "" : await chatErrorText(response);
       if (!response.ok && providerType !== "ollama" && /json|format/i.test(responseErrorText)) {
         const fallbackBody = { ...body };
         delete fallbackBody.response_format;
-        response = await postChatJson({ url, body: fallbackBody, headers: headersForProvider(provider, config) });
+        response = await postChatJson({ provider, config, url, body: fallbackBody, headers: headersForProvider(provider, config) });
         responseErrorText = response.ok ? "" : await chatErrorText(response);
       }
       if (!response.ok) {
@@ -2152,12 +2153,12 @@ window.TrackerLensKnowledgeRuntime = (() => {
         const repairBody = providerType === "ollama"
           ? { model, prompt: repairPrompt, stream: false, format: "json", options: { temperature: 0.01, top_p: 0.9, num_predict: repairMaxTokens } }
           : withJsonObjectResponseFormat({ model, messages: [{ role: "user", content: repairPrompt }], temperature: 0.01, max_tokens: repairMaxTokens, top_p: 0.9 }, providerType, config);
-        let repairResponse = await postChatJson({ url, body: repairBody, headers: headersForProvider(provider, config) });
+        let repairResponse = await postChatJson({ provider, config, url, body: repairBody, headers: headersForProvider(provider, config) });
         let repairErrorText = repairResponse.ok ? "" : await chatErrorText(repairResponse);
         if (!repairResponse.ok && providerType !== "ollama" && /json|format/i.test(repairErrorText)) {
           const fallbackBody = { ...repairBody };
           delete fallbackBody.response_format;
-          repairResponse = await postChatJson({ url, body: fallbackBody, headers: headersForProvider(provider, config) });
+          repairResponse = await postChatJson({ provider, config, url, body: fallbackBody, headers: headersForProvider(provider, config) });
           repairErrorText = repairResponse.ok ? "" : await chatErrorText(repairResponse);
         }
         if (repairResponse.ok) {
@@ -3407,12 +3408,12 @@ window.TrackerLensKnowledgeRuntime = (() => {
       promptMode: "worldbuilding",
       prompt,
     });
-    let response = await postChatJson({ url, body: requestBody, headers: headersForProvider(provider, config) });
+    let response = await postChatJson({ provider, config, url, body: requestBody, headers: headersForProvider(provider, config) });
     let errorText = response.ok ? "" : await chatErrorText(response);
     if (!response.ok && providerType !== "ollama" && /json|format/i.test(errorText)) {
       const fallbackBody = { ...requestBody };
       delete fallbackBody.response_format;
-      response = await postChatJson({ url, body: fallbackBody, headers: headersForProvider(provider, config) });
+      response = await postChatJson({ provider, config, url, body: fallbackBody, headers: headersForProvider(provider, config) });
       errorText = response.ok ? "" : await chatErrorText(response);
     }
     if (!response.ok) {
@@ -4440,12 +4441,12 @@ window.TrackerLensKnowledgeRuntime = (() => {
         const repairBody = providerType === "ollama"
           ? { model, prompt: repairPrompt, stream: false, format: "json", options: { temperature: 0.01, top_p: 0.9, num_predict: repairMaxTokens } }
           : withJsonObjectResponseFormat({ model, messages: [{ role: "user", content: repairPrompt }], temperature: 0.01, max_tokens: repairMaxTokens, top_p: 0.9 }, providerType, config);
-        let repairResponse = await postChatJson({ url, body: repairBody, headers: headersForProvider(provider, config) });
+        let repairResponse = await postChatJson({ provider, config, url, body: repairBody, headers: headersForProvider(provider, config) });
         let repairErrorText = repairResponse.ok ? "" : await chatErrorText(repairResponse);
         if (!repairResponse.ok && providerType !== "ollama" && /json|format/i.test(repairErrorText)) {
           const fallbackBody = { ...repairBody };
           delete fallbackBody.response_format;
-          repairResponse = await postChatJson({ url, body: fallbackBody, headers: headersForProvider(provider, config) });
+          repairResponse = await postChatJson({ provider, config, url, body: fallbackBody, headers: headersForProvider(provider, config) });
           repairErrorText = repairResponse.ok ? "" : await chatErrorText(repairResponse);
         }
         if (!repairResponse.ok) {
@@ -4500,12 +4501,12 @@ window.TrackerLensKnowledgeRuntime = (() => {
           maxTokens: body.max_tokens || body.options?.num_predict || 0,
           promptPreview: compactDebugText(prompt),
         });
-        let response = await postChatJson({ url, body, headers: headersForProvider(provider, config) });
+        let response = await postChatJson({ provider, config, url, body, headers: headersForProvider(provider, config) });
         let errorText = response.ok ? "" : await chatErrorText(response);
         if (!response.ok && providerType !== "ollama" && /json|format/i.test(errorText)) {
           const fallbackBody = { ...body };
           delete fallbackBody.response_format;
-          response = await postChatJson({ url, body: fallbackBody, headers: headersForProvider(provider, config) });
+          response = await postChatJson({ provider, config, url, body: fallbackBody, headers: headersForProvider(provider, config) });
           errorText = response.ok ? "" : await chatErrorText(response);
         }
         if (!response.ok) {
@@ -5661,12 +5662,12 @@ window.TrackerLensKnowledgeRuntime = (() => {
         const repairBody = providerType === "ollama"
           ? { model, prompt: repairPrompt, stream: false, format: "json", options: { temperature: 0.01, top_p: 0.9, num_predict: repairMaxTokens } }
           : withJsonObjectResponseFormat({ model, messages: [{ role: "user", content: repairPrompt }], temperature: 0.01, max_tokens: repairMaxTokens, top_p: 0.9 }, providerType, config);
-        let repairResponse = await postChatJson({ url, body: repairBody, headers: headersForProvider(provider, config) });
+        let repairResponse = await postChatJson({ provider, config, url, body: repairBody, headers: headersForProvider(provider, config) });
         let repairErrorText = repairResponse.ok ? "" : await chatErrorText(repairResponse);
         if (!repairResponse.ok && providerType !== "ollama" && /json|format/i.test(repairErrorText)) {
           const fallbackBody = { ...repairBody };
           delete fallbackBody.response_format;
-          repairResponse = await postChatJson({ url, body: fallbackBody, headers: headersForProvider(provider, config) });
+          repairResponse = await postChatJson({ provider, config, url, body: fallbackBody, headers: headersForProvider(provider, config) });
           repairErrorText = repairResponse.ok ? "" : await chatErrorText(repairResponse);
         }
         if (!repairResponse.ok) {
@@ -5724,12 +5725,12 @@ window.TrackerLensKnowledgeRuntime = (() => {
           maxTokens: body.max_tokens || body.options?.num_predict || 0,
           promptPreview: compactDebugText(prompt),
         });
-        let response = await postChatJson({ url, body, headers: headersForProvider(provider, config) });
+        let response = await postChatJson({ provider, config, url, body, headers: headersForProvider(provider, config) });
         let errorText = response.ok ? "" : await chatErrorText(response);
         if (!response.ok && providerType !== "ollama" && /json|format/i.test(errorText)) {
           const fallbackBody = { ...body };
           delete fallbackBody.response_format;
-          response = await postChatJson({ url, body: fallbackBody, headers: headersForProvider(provider, config) });
+          response = await postChatJson({ provider, config, url, body: fallbackBody, headers: headersForProvider(provider, config) });
           errorText = response.ok ? "" : await chatErrorText(response);
         }
         if (!response.ok) {
@@ -6680,12 +6681,12 @@ window.TrackerLensKnowledgeRuntime = (() => {
         const repairBody = providerType === "ollama"
           ? { model, prompt: repairPrompt, stream: false, format: "json", options: { temperature: 0.01, top_p: 0.9, num_predict: repairMaxTokens } }
           : withJsonObjectResponseFormat({ model, messages: [{ role: "user", content: repairPrompt }], temperature: 0.01, max_tokens: repairMaxTokens, top_p: 0.9 }, providerType, config);
-        let repairResponse = await postChatJson({ url, body: repairBody, headers: headersForProvider(provider, config) });
+        let repairResponse = await postChatJson({ provider, config, url, body: repairBody, headers: headersForProvider(provider, config) });
         let repairErrorText = repairResponse.ok ? "" : await chatErrorText(repairResponse);
         if (!repairResponse.ok && providerType !== "ollama" && /json|format/i.test(repairErrorText)) {
           const fallbackBody = { ...repairBody };
           delete fallbackBody.response_format;
-          repairResponse = await postChatJson({ url, body: fallbackBody, headers: headersForProvider(provider, config) });
+          repairResponse = await postChatJson({ provider, config, url, body: fallbackBody, headers: headersForProvider(provider, config) });
           repairErrorText = repairResponse.ok ? "" : await chatErrorText(repairResponse);
         }
         if (!repairResponse.ok) {
@@ -6796,12 +6797,12 @@ window.TrackerLensKnowledgeRuntime = (() => {
             };
           }),
         });
-        let response = await postChatJson({ url, body, headers: headersForProvider(provider, config) });
+        let response = await postChatJson({ provider, config, url, body, headers: headersForProvider(provider, config) });
         let errorText = response.ok ? "" : await chatErrorText(response);
         if (!response.ok && providerType !== "ollama" && /json|format/i.test(errorText)) {
           const fallbackBody = { ...body };
           delete fallbackBody.response_format;
-          response = await postChatJson({ url, body: fallbackBody, headers: headersForProvider(provider, config) });
+          response = await postChatJson({ provider, config, url, body: fallbackBody, headers: headersForProvider(provider, config) });
           errorText = response.ok ? "" : await chatErrorText(response);
         }
         if (!response.ok) {
@@ -8290,24 +8291,7 @@ window.TrackerLensKnowledgeRuntime = (() => {
     return !allowed.length || allowed.includes(String(relationType || "").toLowerCase());
   };
 
-  const pickAiProvider = async (config = {}) => {
-    const requestedProfile = String(config.providerProfile || config.profileId || "").trim();
-    const requestedType = String(config.providerType || config.provider || "").trim().toLowerCase();
-    const requested = String(config.provider || config.providerProfile || "").trim().toLowerCase();
-    if ([requestedProfile, requestedType, requested].some((value) => ["local", "rules", "none"].includes(value))) return null;
-    const data = await window.TrackerLensAiRuntimeStore?.list?.().catch(() => null);
-    const providers = data?.providers || window.TrackerLensAiRuntimeStore?.localProviderDefaults?.() || [];
-    return providers.find((provider) => requestedProfile && provider.id === requestedProfile)
-      || providers.find((provider) =>
-        requestedType &&
-        [provider.id, provider.name, provider.provider, provider.providerType].some((value) => String(value || "").toLowerCase() === requestedType))
-      || providers.find((provider) =>
-        requested &&
-        [provider.id, provider.name, provider.provider, provider.providerType].some((value) => String(value || "").toLowerCase().includes(requested)))
-      || providers.find((provider) => provider.local && provider.status === "online")
-      || providers.find((provider) => provider.local)
-      || null;
-  };
+  const pickAiProvider = (config = {}) => window.TrackerLensAiRuntimeStore.resolveNodeProvider(config);
 
   const isLocalChatEndpoint = (endpoint = "") => {
     try {
@@ -8320,7 +8304,8 @@ window.TrackerLensKnowledgeRuntime = (() => {
     }
   };
 
-  const postChatJson = async ({ url = "", body = {}, headers = {} } = {}) => {
+  const postChatJson = async ({ provider = {}, config = {}, url = "", body = {}, headers = {} } = {}) => {
+    if (window.TrackerLensAiRuntimeStore.isLoginProvider(provider)) return window.TrackerLensAiRuntimeStore.loginChatResponse({ provider, config, body });
     // One logical runtime event can briefly reach a listener through both its
     // normal EventBus subscription and the stale-subscription fallback. The
     // event execution key blocks that path; this is the final transport guard
@@ -8365,6 +8350,7 @@ window.TrackerLensKnowledgeRuntime = (() => {
   };
 
   const resolveOpenAiCompatibleModel = async ({ provider = {}, model = "" } = {}) => {
+    if (window.TrackerLensAiRuntimeStore.isLoginProvider(provider)) return String(model || provider.model || "");
     const requested = String(model || provider.model || "").trim();
     const endpoint = withOpenAiChatApiBase(provider.endpoint);
     try {
@@ -8553,7 +8539,7 @@ window.TrackerLensKnowledgeRuntime = (() => {
           maxTokens: body.max_tokens || body.options?.num_predict || 0,
           promptPreview: compactDebugText(prompt),
         });
-        const response = await postChatJson({ url, body, headers: headersForProvider(provider, config) });
+        const response = await postChatJson({ provider, config, url, body, headers: headersForProvider(provider, config) });
         if (!response.ok) {
           const errorText = await chatErrorText(response);
           lastError = `HTTP ${response.status}${errorText ? `: ${errorText}` : ""}`;
@@ -8741,12 +8727,12 @@ window.TrackerLensKnowledgeRuntime = (() => {
         const repairBody = providerType === "ollama"
           ? { model, prompt: repairPrompt, stream: false, format: "json", options: { temperature: 0.01, top_p: 0.9, num_predict: repairMaxTokens } }
           : withJsonObjectResponseFormat({ model, messages: [{ role: "user", content: repairPrompt }], temperature: 0.01, max_tokens: repairMaxTokens, top_p: 0.9 }, providerType, config);
-        let repairResponse = await postChatJson({ url, body: repairBody, headers: headersForProvider(provider, config) });
+        let repairResponse = await postChatJson({ provider, config, url, body: repairBody, headers: headersForProvider(provider, config) });
         let repairErrorText = repairResponse.ok ? "" : await chatErrorText(repairResponse);
         if (!repairResponse.ok && providerType !== "ollama" && /json|format/i.test(repairErrorText)) {
           const fallbackBody = { ...repairBody };
           delete fallbackBody.response_format;
-          repairResponse = await postChatJson({ url, body: fallbackBody, headers: headersForProvider(provider, config) });
+          repairResponse = await postChatJson({ provider, config, url, body: fallbackBody, headers: headersForProvider(provider, config) });
           repairErrorText = repairResponse.ok ? "" : await chatErrorText(repairResponse);
         }
         if (!repairResponse.ok) {
@@ -8806,12 +8792,12 @@ window.TrackerLensKnowledgeRuntime = (() => {
           maxTokens: requestBody.max_tokens || requestBody.options?.num_predict || 0,
           promptPreview: compactDebugText(prompt),
         });
-        response = await postChatJson({ url, body: requestBody, headers: headersForProvider(provider, config) });
+        response = await postChatJson({ provider, config, url, body: requestBody, headers: headersForProvider(provider, config) });
         let errorText = response.ok ? "" : await chatErrorText(response);
         if (!response.ok && providerType !== "ollama" && /json|format/i.test(errorText)) {
           const fallbackBody = { ...requestBody };
           delete fallbackBody.response_format;
-          response = await postChatJson({ url, body: fallbackBody, headers: headersForProvider(provider, config) });
+          response = await postChatJson({ provider, config, url, body: fallbackBody, headers: headersForProvider(provider, config) });
           errorText = response.ok ? "" : await chatErrorText(response);
         }
         if (response.ok) {
@@ -11548,7 +11534,7 @@ window.TrackerLensKnowledgeRuntime = (() => {
           maxTokens: body.max_tokens || body.options?.num_predict || 0,
           promptPreview: compactDebugText(prompt),
         });
-        const response = await postChatJson({ url, body, headers: headersForProvider(provider, config) });
+        const response = await postChatJson({ provider, config, url, body, headers: headersForProvider(provider, config) });
         if (!response.ok) {
           const errorText = await chatErrorText(response);
           lastError = `HTTP ${response.status}${errorText ? `: ${errorText}` : ""}`;

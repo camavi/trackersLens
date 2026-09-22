@@ -1,3 +1,4 @@
+const { readCodexModels } = require("./codex-model-catalog.cjs");
 const { spawnSync } = require("node:child_process");
 const fs = require("node:fs");
 const os = require("node:os");
@@ -112,7 +113,8 @@ const readConfiguredCodexModel = () => {
 };
 
 class ExternalAiProviderBridge {
-  constructor({ versionReader = readCliVersion, authenticationReader = readAuthentication, logoutRunner = logoutProvider, executableResolver = resolveExecutable, loginLauncher = null, chatRunner = null } = {}) {
+  constructor({ modelReader = readCodexModels, versionReader = readCliVersion, authenticationReader = readAuthentication, logoutRunner = logoutProvider, executableResolver = resolveExecutable, loginLauncher = null, chatRunner = null } = {}) {
+    this.modelReader = modelReader;
     this.versionReader = typeof versionReader === "function" ? versionReader : readCliVersion;
     this.executableResolver = typeof executableResolver === "function" ? executableResolver : resolveExecutable;
     this.authenticationReader = typeof authenticationReader === "function" ? authenticationReader : readAuthentication;
@@ -150,6 +152,15 @@ class ExternalAiProviderBridge {
           ? `${definition.label} è collegato. TL non legge né copia le credenziali.`
           : `Apri il login ufficiale di ${definition.label}; TL non legge né copia le credenziali.`
     };
+  }
+
+  async listModels({ provider = "" } = {}) {
+    const definition = supportedProvider(provider);
+    if (!definition) throw new Error("Unsupported provider.");
+    const status = this.getStatus({ provider });
+    if (!status.installed || !status.authenticated) throw new Error("Connect the provider in AI Center before loading models.");
+    if (definition.id !== "codex") return { models: [], source: "unavailable", message: "This Login bridge does not expose a model catalog." };
+    return { models: await this.modelReader(this.executableResolver(definition.executable)), source: "codex-app-server" };
   }
 
   async startLogin({ provider = "" } = {}) {

@@ -576,13 +576,10 @@ const providerOf = (provider = {}) => Array.isArray(provider)
   : provider;
 
 const externalProviderIdOf = (provider = {}) => {
-  const item = providerOf(provider);
-  const candidates = [item.id, item.provider, item.name]
-    .map((value) => String(value || "").trim().toLowerCase().replace(/[\s_-]+/g, ""));
-  return GLOBAL_EXTERNAL_PROVIDER_IDS.find((providerId) => candidates.some((candidate) => candidate === providerId || candidate.includes(providerId))) || "";
+  return window.TrackerLensAiRuntimeStore.providerConnection(providerOf(provider)).bridgeProvider;
 };
 
-const externalProviderLabel = (providerId = "") => providerId === "codex" ? "Codex" : providerId === "claude" ? "Claude" : providerId;
+const externalProviderLabel = (providerId = "") => providerId === "codex" ? "ChatGPT · Login (Codex)" : providerId === "claude" ? "Claude · Login" : providerId;
 
 const globalExternalProviderRows = (items = []) => {
   const rows = Array.isArray(items) ? [...items] : [];
@@ -601,6 +598,8 @@ const globalExternalProviderRows = (items = []) => {
       icon: providerId === "codex" ? "terminal" : "auto_awesome",
       local: false,
       globalExternal: true,
+      connectionType: "login",
+      bridgeProvider: providerId,
       placeholder: false,
     });
   });
@@ -624,6 +623,10 @@ const saveProviderFromForm = async (form, close, current = null) => {
     ...(current?.id ? { id: current.id, createdAt: current.raw?.createdAt } : {}),
     name,
     provider: providerFormValue(form, "provider") || "custom",
+    connectionType: "api",
+    globalExternal: false,
+    bridgeProvider: "",
+    vendor: "",
     model: providerFormValue(form, "model") || "local-model",
     endpoint: providerFormValue(form, "endpoint"),
     healthPath: providerFormValue(form, "healthPath"),
@@ -887,7 +890,8 @@ const openProviderDeleteDialog = (provider) => {
 };
 
 const renderProviderRow = (provider, compact = false) => {
-  const item = providerOf(provider);
+  const source = providerOf(provider);
+  const item = { ...source, name: window.TrackerLensAiRuntimeStore.providerDisplayLabel(source) };
   const externalProviderId = externalProviderIdOf(item);
   const externalStatus = externalProviderId ? externalProviderStatuses[externalProviderId] : null;
   const savedExternalModel = ["", "modello non configurato"].includes(String(item.model || "").trim().toLowerCase()) ? "" : item.model;

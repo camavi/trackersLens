@@ -59,8 +59,43 @@ window.TrackerLensAiRuntimeStore = (() => {
   const safeId = (value = "") => normalizeText(value, "memory").replace(/[^A-Za-z0-9_-]/g, "_");
   const providerKey = (provider = {}) => normalizeText(provider.id || provider.provider || provider.name).toLowerCase();
   const externalProviderId = (value = "") => {
-    const normalized = normalizeText(value).toLowerCase().replace(/[\s_-]+/g, "");
-    return Object.keys(EXTERNAL_PROVIDER_DEFAULTS).find((provider) => normalized === provider || normalized.includes(provider)) || "";
+    const id = normalizeText(value).toLowerCase();
+    return Object.hasOwn(EXTERNAL_PROVIDER_DEFAULTS, id) ? id : "";
+  };
+
+  // Display names are never routing identities. Preserve legacy account records
+  // by their explicit global flag or canonical id; an endpoint denotes an API.
+  const providerConnection = (record = {}) => {
+    const content = contentOf(record);
+    const type = normalizeText(content.provider || content.providerType).toLowerCase();
+    const id = normalizeText(content.id || record.id).toLowerCase();
+    const legacyBridge = /^(?:global_)?external_(codex|claude)$/.exec(id)?.[1] || "";
+    const explicit = normalizeText(content.connectionType).toLowerCase();
+    const endpoint = normalizeText(content.endpoint || content.baseUrl || content.runtime?.endpoint);
+    const bridge = externalProviderId(content.bridgeProvider || type || legacyBridge);
+    const login = explicit === "login" || (!explicit && !endpoint && (content.globalExternal || legacyBridge || type === "codex"));
+    const bridgeProvider = login ? bridge || legacyBridge : "";
+    return {
+      connectionType: login ? "login" : "api",
+      vendor: normalizeText(content.vendor, ["codex", "openai"].includes(type) || bridgeProvider === "codex" ? "openai" : ["claude", "anthropic"].includes(type) || bridgeProvider === "claude" ? "anthropic" : type),
+      bridgeProvider,
+    };
+  };
+
+  const providerDisplayLabel = (record = {}) => {
+    const content = contentOf(record);
+    const connection = providerConnection(record);
+    if (connection.connectionType === "login") {
+      if (connection.bridgeProvider === "codex") return "ChatGPT · Login (Codex)";
+      if (connection.bridgeProvider === "claude") return "Claude · Login";
+    }
+    const name = normalizeText(content.name || content.provider, "Provider AI");
+    if (["openai", "anthropic"].includes(connection.vendor)) {
+      const canonical = connection.vendor === "openai" ? "OpenAI" : "Claude";
+      const custom = !["openai", "anthropic", "claude", "chatgpt", "codex", "openai · api", "claude · api"].includes(name.toLowerCase());
+      return `${canonical} · API${custom ? ` · ${name}` : ""}`;
+    }
+    return name;
   };
 
   const desktopPersistence = () => window.trackers?.desktop?.persistence || null;
@@ -113,6 +148,8 @@ window.TrackerLensAiRuntimeStore = (() => {
       id: normalizeText(record?.id || content.id, `provider_${index}`),
       name: normalizeText(content.name || content.provider, "Provider AI"),
       provider: normalizeText(content.provider || content.name, "custom"),
+      ...providerConnection(record),
+      globalExternal: Boolean(content.globalExternal),
       model: normalizeText(content.model || content.defaultModel || content.runtime?.model, "modello non configurato"),
       endpoint: normalizeText(content.endpoint || content.baseUrl || content.runtime?.endpoint),
       healthPath: normalizeText(content.healthPath || content.runtime?.healthPath),
@@ -574,8 +611,7 @@ window.TrackerLensAiRuntimeStore = (() => {
   };
 
   const externalProviderRecord = (records = [], provider = "") => records.find((record) => {
-    const content = contentOf(record);
-    return externalProviderId(content.provider || content.id || record?.id || content.name) === provider;
+    return providerConnection(record).bridgeProvider === provider;
   }) || null;
 
   const getExternalProviderDefaults = async (provider = "") => {
@@ -612,10 +648,83 @@ window.TrackerLensAiRuntimeStore = (() => {
       defaultReasoningEffort: normalizeText(reasoningEffort, fallback.reasoningEffort),
       defaultSpeed: normalizeText(speed, fallback.speed),
       globalExternal: true,
+      connectionType: "login",
+      vendor: providerId === "codex" ? "openai" : "anthropic",
+      bridgeProvider: providerId,
       local: false,
       priority: Number(content.priority || 90),
       icon: normalizeText(content.icon, providerId === "codex" ? "terminal" : "auto_awesome"),
     });
+  };
+
+  const listProviderProfiles = async () => {
+    const persistence = await ensureStores();
+    const records = (await readAllFromDb(persistence, STORES.providers)).map((record, index) => ({
+      ...contentOf(record), ...normalizeProvider(record, index),
+    }));
+    for (const record of LOCAL_PROVIDER_DEFS) if (!records.some((item) => item.id === record.id)) records.push({ ...record });
+    for (const bridgeProvider of Object.keys(EXTERNAL_PROVIDER_DEFAULTS)) {
+      if (!records.some((item) => providerConnection(item).bridgeProvider === bridgeProvider)) records.push({
+        id: `global_external_${bridgeProvider}`, provider: bridgeProvider,
+        connectionType: 'login', bridgeProvider, globalExternal: true,
+        name: bridgeProvider === 'codex' ? 'ChatGPT · Login (Codex)' : 'Claude · Login', model: '',
+      });
+    }
+    return records;
+  };
+
+  const resolveNodeProvider = async (config = {}) => {
+    const providers = await listProviderProfiles();
+    const profile = normalizeText(config.providerProfile || config.profileId);
+    const type = normalizeText(config.providerType || config.provider).toLowerCase();
+    let selected = profile ? providers.find((item) => item.id === profile) : null;
+    if (profile && !selected) throw new Error(`Provider profile unavailable: ${profile}`);
+    if (!selected && type && !['local', 'auto'].includes(type)) {
+      const candidates = providers.filter((item) => [item.id, item.provider, item.providerType].includes(type)
+        && (!config.connectionType || providerConnection(item).connectionType === config.connectionType));
+      if (candidates.length > 1) throw new Error(`Select an explicit provider profile for ${type} (API or Login).`);
+      selected = candidates[0];
+      if (!selected) throw new Error(`Provider unavailable: ${type}`);
+    }
+    selected ||= providers.find((item) => item.local && item.status === 'online') || providers.find((item) => item.local);
+    if (!selected) throw new Error('No AI provider configured.');
+    return { ...selected, ...providerConnection(selected) };
+  };
+
+  const isLoginProvider = (provider) => providerConnection(provider).connectionType === 'login';
+  const completeNodeLogin = async ({ provider, config = {}, prompt = '' } = {}) => {
+    const connection = providerConnection(provider);
+    if (!connection.bridgeProvider) throw new Error('Unsupported Login provider.');
+    const bridge = window.trackers?.desktop?.externalAi;
+    if (!bridge?.getStatus || !bridge?.sendMessage) throw new Error('Login AI requires the desktop provider bridge.');
+    const status = await bridge.getStatus({ provider: connection.bridgeProvider });
+    const label = providerDisplayLabel(provider);
+    if (!status.installed) throw new Error(`${label}: client not installed. Open AI Center.`);
+    if (!status.authenticated) throw new Error(`${label}: login required. Connect the account in AI Center.`);
+    const defaults = await getExternalProviderDefaults(connection.bridgeProvider);
+    const cleanModel = (value) => ['local-model', 'modello non configurato'].includes(normalizeText(value)) ? '' : normalizeText(value);
+    const effective = {
+      provider: connection.bridgeProvider,
+      model: cleanModel(config.model) || cleanModel(defaults.model) || '',
+      reasoningEffort: normalizeText(config.reasoningEffort) || defaults.reasoningEffort || '',
+      speed: normalizeText(config.speed) || defaults.speed || '',
+    };
+    if (connection.bridgeProvider === 'claude' && (effective.reasoningEffort || effective.speed)) throw new Error('Claude Login: reasoning and speed are not supported by this bridge.');
+    const result = await bridge.sendMessage({ ...effective, prompt });
+    const rawUsage = result.raw?.usage || result.raw?.events?.findLast?.((event) => event.type === 'turn.completed')?.usage || {};
+    const promptTokens = Number(rawUsage.input_tokens ?? rawUsage.prompt_tokens ?? 0);
+    const completionTokens = Number(rawUsage.output_tokens ?? rawUsage.completion_tokens ?? 0);
+    const usage = { ...rawUsage, promptTokens, completionTokens, totalTokens: promptTokens + completionTokens,
+      prompt_tokens: promptTokens, completion_tokens: completionTokens, total_tokens: promptTokens + completionTokens };
+    return { text: String(result.text || ''), model: effective.model || status.configuredModel || '', usage,
+      finishReason: '', raw: result.raw, effectiveConfig: effective };
+  };
+
+  const loginChatResponse = async ({ provider, config = {}, body = {} } = {}) => {
+    const prompt = body.prompt || (body.messages || []).map((message) => `${message.role}:\n${typeof message.content === 'string' ? message.content : JSON.stringify(message.content)}`).join('\n\n');
+    const result = await completeNodeLogin({ provider, config, prompt });
+    return new Response(JSON.stringify({ model: result.model, choices: [{ message: { content: result.text }, finish_reason: 'stop' }],
+      usage: result.usage, effectiveConfig: result.effectiveConfig, providerRaw: result.raw }), { status: 200, headers: { 'Content-Type': 'application/json' } });
   };
 
   const providerHealthUrl = (provider = {}) => {
@@ -751,6 +860,13 @@ window.TrackerLensAiRuntimeStore = (() => {
     MEMORY_LIMITS,
     LOCAL_PROVIDER_DEFS,
     EXTERNAL_PROVIDER_DEFAULTS,
+    listProviderProfiles,
+    resolveNodeProvider,
+    isLoginProvider,
+    completeNodeLogin,
+    loginChatResponse,
+    providerConnection,
+    providerDisplayLabel,
     buildMemoryContext,
     cleanupShortMemory,
     forgetMemory,
@@ -769,7 +885,7 @@ window.TrackerLensAiRuntimeStore = (() => {
     remember,
     seedLocalProviders,
     saveExternalProviderDefaults,
-    upsertProvider: (record) => write(STORES.providers, record),
+    upsertProvider: (record) => write(STORES.providers, { ...record, ...providerConnection(record) }),
     deleteProvider: (id) => deleteRecord(STORES.providers, id),
     upsertAgent: (record) => write(STORES.agents, record),
     upsertRuntimeAgent: (record) => write(STORES.runtime, record),

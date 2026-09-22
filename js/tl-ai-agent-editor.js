@@ -1,5 +1,15 @@
 window.TrackerLensAiAgentEditor = (() => {
   const _ = window.JSswift || window._;
+  const iconTabPanel = (props) => {
+    const panel = _.TabPanel(props);
+    panel.querySelectorAll('.cms-tabpanel-nav-btn').forEach((wrapper) => {
+      const button = wrapper.querySelector('[role="tab"]');
+      const label = button?.querySelector('.cms-tabpanel-tab-label')?.textContent?.trim() || "Tab";
+      wrapper.title = label;
+      button?.setAttribute("aria-label", label);
+    });
+    return panel;
+  };
   const icon = (name, size = "md") => _.Icon({ name, size });
   const btn = (props, ...children) => _.Btn({ type: "button", ...props }, ...children);
   const dot = (tone = "online") => _.span({ class: `tl-ai-dot is-${tone}`, "aria-hidden": "true" });
@@ -39,7 +49,7 @@ window.TrackerLensAiAgentEditor = (() => {
   const selectedProviderId = (agent = null) =>
     agentNested(agent, "provider").profileId || agentNested(agent, "provider").providerId || "";
   const providerLabel = (provider = {}) =>
-    `${provider.name || provider.provider || "Provider"} · ${provider.model || provider.provider || "model"}`;
+    [window.TrackerLensAiRuntimeStore.providerDisplayLabel(provider), !["", "modello non configurato", "local-model"].includes(provider.model || "") ? provider.model : ""].filter(Boolean).join(" · ");
 
   const normalizeProviderName = (value = "") =>
     cleanText(value).toLowerCase().replace(/[\s_-]+/g, "");
@@ -156,7 +166,7 @@ window.TrackerLensAiAgentEditor = (() => {
   const AI_RESPONSE_FORMATS = ["text", "json", "markdown", "structured", "signal"];
   const AI_PROMPT_STRATEGIES = ["simple", "contextual", "memory-aware", "multi-step", "chain-of-thought", "structured-output"];
   const AI_MEMORY_MODES = ["none", "short", "workspace", "persistent"];
-  const AI_PROVIDER_TYPES = ["local", "openai", "claude", "gemini", "ollama", "lm-studio", "custom"];
+  const AI_PROVIDER_TYPES = ["local", "openai", "codex", "claude", "gemini", "ollama", "lm-studio", "custom"];
   const AI_PERMISSION_FIELDS = [
     ["canAccessWeb", "Can Access Web"],
     ["canAccessMemory", "Can Access Memory"],
@@ -217,7 +227,9 @@ window.TrackerLensAiAgentEditor = (() => {
       provider: {
         profileId: agentFormValue(form, "providerProfile"),
         providerType: agentFormValue(form, "providerType") || "ollama",
-        model: agentFormValue(form, "model") || "local-model",
+        model: agentFormValue(form, "model"),
+        reasoningEffort: agentFormValue(form, "reasoningEffort"),
+        speed: agentFormValue(form, "speed"),
         temperature: numberValue(form, "temperature", 0.2),
         maxTokens: numberValue(form, "maxTokens", 800),
         maxContinuationCalls: numberValue(form, "maxContinuationCalls", 10),
@@ -530,7 +542,7 @@ window.TrackerLensAiAgentEditor = (() => {
             await saveFromForm({ close });
           },
         },
-        _.TabPanel({
+        iconTabPanel({
           class: "tl-ai-agent-tabs",
           model: tabModel,
           orientation: "horizontal",
@@ -587,7 +599,8 @@ window.TrackerLensAiAgentEditor = (() => {
       loading: false,
       error: "",
       items: [],
-      value: provider.model || "local-model",
+      catalog: [],
+      value: provider.model ?? "",
       url: "",
     };
     const tabModel = window.JSswift.reactive.signal("general");
@@ -602,10 +615,12 @@ window.TrackerLensAiAgentEditor = (() => {
         form.querySelector("[name='name']")?.focus?.();
         return;
       }
+      const selected = providers.find((item) => item.id === payload.provider.profileId);
+      if (selected) payload.provider.providerType = selected.providerType || selected.provider;
       await onSave?.({ payload, form, close, agent, dialog });
     };
     const providerForModelLookup = (form = document.getElementById(formId)) => {
-      const providerProfile = agentFormValue(form, "providerProfile");
+      const providerProfile = form ? agentFormValue(form, "providerProfile") : selectedProviderId(agent);
       const providerType = agentFormValue(form, "providerType") || provider.providerType || provider.provider || "ollama";
       const selectedProvider = providers.find((item) => item.id === providerProfile) || null;
       if (selectedProvider) return selectedProvider;
@@ -623,35 +638,95 @@ window.TrackerLensAiAgentEditor = (() => {
     const updateModelField = () => {
       const host = document.querySelector(`#${formId} [data-ai-model-field-host="true"]`);
       if (host) host.replaceWith(agentModelSelect());
+      updateReasoningField();
     };
+    const reasoningField = (value = provider.reasoningEffort || "") => {
+      const selected = providerForModelLookup();
+      const model = modelState.value || selected.defaultModel || selected.model;
+      const metadata = modelState.catalog.find((item) => item.id === model) || (!model || model === "modello non configurato" ? modelState.catalog.find((item) => item.isDefault) : null);
+      const labels = { low: "Light", medium: "Medio", high: "Alto", xhigh: "Molto alto", max: "Massimo", ultra: "Ultra" };
+      const values = [...new Set([...(metadata?.reasoningEfforts || []), ...(value ? [value] : [])])];
+      const field = agentSelect("Livello di ragionamento", "reasoningEffort", value, [
+        { value: "", label: "Default" },
+        ...values.map((value) => ({ value, label: labels[value] || value })),
+      ]);
+      field.dataset.reasoningField = "true";
+      return field;
+    };
+    const updateReasoningField = () => {
+      const form = document.getElementById(formId);
+      const current = form?.querySelector('[data-reasoning-field]');
+      if (!current) return;
+      const field = reasoningField(agentFormValue(form, "reasoningEffort"));
+      field.hidden = current.hidden;
+      field.style.display = current.style.display;
+      current.replaceWith(field);
+    };
+    let modelLoadSequence = 0;
     const loadModelsForCurrentProvider = async ({ force = false } = {}) => {
       const form = document.getElementById(formId);
-      if (!form) return;
+      if (!form?.querySelector("[data-ai-model-field-host]")) return;
       const providerConfig = providerForModelLookup(form);
+      const sequence = ++modelLoadSequence;
+      const connection = window.TrackerLensAiRuntimeStore.providerConnection(providerConfig);
+      const typeInput = form.querySelector('[name="providerType"]');
+      if (typeInput) typeInput.value = providerConfig.providerType || providerConfig.provider || "local";
+      for (const name of ["reasoningEffort", "speed", "temperature", "maxTokens", "maxContinuationCalls", "topP", "streaming"]) {
+        const input = form.querySelector(`[name="${name}"]`);
+        let root = input;
+        while (root?.parentElement && !root.parentElement.classList.contains('tl-ai-agent-tab-grid')) root = root.parentElement;
+        const visible = ["reasoningEffort", "speed"].includes(name) ? connection.bridgeProvider === "codex" : connection.connectionType !== "login";
+        if (root && root !== form && root.parentElement?.classList.contains('tl-ai-agent-tab-grid')) {
+          root.hidden = !visible;
+          root.style.display = visible ? "" : "none";
+        }
+      }
+      if (connection.connectionType === "login") {
+        modelState.value = agentFormValue(form, "model");
+        modelState.items = [];
+        modelState.catalog = [];
+        modelState.loading = true;
+        modelState.error = "";
+        updateModelField();
+        try {
+          const catalog = await window.trackers.desktop.externalAi.listModels({ provider: connection.bridgeProvider });
+          if (sequence !== modelLoadSequence) return;
+          modelState.catalog = catalog.models || [];
+          modelState.items = modelState.catalog.map((item) => item.id);
+          modelState.error = catalog.message || "";
+        } catch (error) {
+          if (sequence !== modelLoadSequence) return;
+          modelState.error = error.message || "Model catalog unavailable";
+        }
+        modelState.loading = false;
+        updateModelField();
+        return;
+      }
       const key = modelProviderKey(providerConfig);
       if (!force && modelState.providerKey === key && (modelState.items.length || modelState.loading)) return;
       modelState.providerKey = key;
       modelState.loading = true;
       modelState.error = "";
       modelState.items = [];
-      modelState.value = agentFormValue(form, "model") || modelState.value || providerConfig.model || providerConfig.defaultModel || "";
+      modelState.value = agentFormValue(form, "model");
       updateModelField();
       const result = await fetchAiProviderModels(providerConfig);
-      const currentModel = agentFormValue(document.getElementById(formId), "model") || modelState.value || providerConfig.model || providerConfig.defaultModel || "";
+      if (sequence !== modelLoadSequence) return;
+      const currentModel = agentFormValue(document.getElementById(formId), "model");
       modelState.loading = false;
       modelState.error = result.error || "";
       modelState.items = result.models || [];
       modelState.url = result.url || "";
-      modelState.value = currentModel && (modelState.items.includes(currentModel) || !modelState.items.length)
-        ? currentModel
-        : modelState.items[0] || currentModel || "";
+      modelState.value = currentModel;
       updateModelField();
     };
     const agentModelSelect = () => {
-      const currentValue = modelState.value || provider.model || "local-model";
-      const options = modelState.items.length
-        ? [...new Set([currentValue, ...modelState.items].filter(Boolean))]
-        : [currentValue || "", ""].filter((item, index, items) => item || index === items.length - 1);
+      const activeProvider = providerForModelLookup();
+      const login = window.TrackerLensAiRuntimeStore.isLoginProvider(activeProvider);
+      const currentValue = modelState.value ?? provider.model ?? "";
+      const inherited = activeProvider.defaultModel || activeProvider.model || "";
+      const defaultLabel = ["", "modello non configurato", "local-model"].includes(inherited) ? "Default" : inherited;
+      const options = [...new Set(["", currentValue, inherited === "modello non configurato" ? "" : inherited, ...modelState.items].filter((value) => value !== undefined))];
       const label = modelState.loading ? "Model (loading...)" : modelState.error ? "Model (fallback)" : "Model";
       return _.div(
         { class: "tl-ai-agent-field tl-ai-agent-model-field", "data-ai-model-field-host": "true" },
@@ -661,7 +736,7 @@ window.TrackerLensAiAgentEditor = (() => {
           value: currentValue,
           options: optionItems(options.map((item) => ({
             value: item,
-            label: item || (modelState.loading ? "Loading models..." : "No models loaded"),
+            label: item || defaultLabel,
           }))),
           slots: { arrow: () => icon("keyboard_arrow_down", "sm") },
           onChange: (nextValue) => {
@@ -670,6 +745,7 @@ window.TrackerLensAiAgentEditor = (() => {
             document.querySelectorAll(`#${formId} input[name='model'], #${formId} [data-ai-model-value='true']`).forEach((input) => {
               input.value = value;
             });
+            updateReasoningField();
           },
         }),
         _.small(
@@ -677,8 +753,10 @@ window.TrackerLensAiAgentEditor = (() => {
           modelState.loading
             ? "Loading models from provider..."
             : modelState.items.length
-              ? `${modelState.items.length} models available`
-              : modelState.error || "Model list unavailable; saved value is still editable after provider refresh."
+              ? `${modelState.items.length} models available${login ? " · Login" : ""}`
+              : modelState.error || "Default AI Center e modello salvato disponibili.",
+        ),
+        _.Btn({ type: "button", onclick: () => loadModelsForCurrentProvider({ force: true }), disabled: modelState.loading }, "Aggiorna modelli"
         )
       );
     };
@@ -692,8 +770,12 @@ window.TrackerLensAiAgentEditor = (() => {
       const providerType = form?.querySelector?.("input[name='providerType']");
       const model = form?.querySelector?.("input[name='model']");
       if (providerType) providerType.value = selected.providerType || selected.provider || providerType.value || "local";
+      for (const name of ["reasoningEffort", "speed"]) {
+        const input = form?.querySelector(`[name="${name}"]`);
+        if (input) input.value = "";
+      }
       if (model) {
-        model.value = selected.model || selected.defaultModel || model.value || "local-model";
+        model.value = "";
         modelState.value = model.value;
       }
       loadModelsForCurrentProvider({ force: true });
@@ -742,13 +824,13 @@ window.TrackerLensAiAgentEditor = (() => {
         icon: "dns",
         content: _.div(
           { class: "tl-ai-agent-tab-grid" },
-          agentSelect("Provider Profile", "providerProfile", selectedProviderId(agent), providerProfiles, {
+          agentSelect("Provider", "providerProfile", selectedProviderId(agent), providerProfiles, {
             onChange: syncProviderFieldsAndModels,
           }),
-          agentSelect("Provider Type", "providerType", provider.providerType || provider.provider || "ollama", AI_PROVIDER_TYPES, {
-            onChange: () => loadModelsForCurrentProvider({ force: true }),
-          }),
+          _.input({ type: "hidden", name: "providerType", value: provider.providerType || provider.provider || "ollama" }),
           agentModelSelect(),
+          reasoningField(),
+          agentSelect("Modalità servizio", "speed", provider.speed || "", [{ value: "", label: "Default" }, { value: "standard", label: "Standard" }, { value: "fast", label: "Fast" }]),
           agentInput("Temperature", "temperature", provider.temperature ?? 0.2, { type: "number", step: "0.1" }),
           agentInput("Max Tokens", "maxTokens", provider.maxTokens ?? 800, { type: "number" }),
           agentInputWithHint(
@@ -893,7 +975,7 @@ window.TrackerLensAiAgentEditor = (() => {
             await saveFromForm({ form: event.currentTarget, close });
           },
         },
-        _.TabPanel({
+        iconTabPanel({
           class: "tl-ai-agent-tabs",
           model: tabModel,
           orientation: "horizontal",
@@ -913,6 +995,11 @@ window.TrackerLensAiAgentEditor = (() => {
       ),
     });
     dialog.open();
+    const mountedForm = document.getElementById(formId);
+    mountedForm?.addEventListener("click", (event) => {
+      if (event.target.closest('[role="tab"]')) window.requestAnimationFrame(() => loadModelsForCurrentProvider());
+    });
+    window.requestAnimationFrame(() => loadModelsForCurrentProvider());
     return dialog;
   };
 
@@ -921,6 +1008,7 @@ window.TrackerLensAiAgentEditor = (() => {
     openMemoryManager: openAgentMemoryManager,
     openRuntimeEditorShell,
     contractFromForm,
+    fetchAiProviderModels,
     splitList,
   };
 })();

@@ -1052,13 +1052,15 @@ const runtimeContractSchemaFields = (schema = {}) =>
     ? window.TrackerLensRuntimeContract.normalizeSettingsSchema(schema)
     : Object.entries(schema || {}).map(([key, type]) => ({ key, label: key, type: String(type || "string") }));
 
-const AI_PROVIDER_CONFIG_KEYS = new Set(["providerProfile", "providerType", "model", "temperature", "maxTokens", "maxContinuationCalls", "topP", "streaming", "responseFormat"]);
+const AI_PROVIDER_CONFIG_KEYS = new Set(["providerProfile", "providerType", "model", "reasoningEffort", "speed", "temperature", "maxTokens", "maxContinuationCalls", "topP", "streaming", "responseFormat"]);
 const AI_PROMPT_CONFIG_KEYS = new Set(["systemPrompt", "promptTemplate", "outputInstructions"]);
 const KNOWLEDGE_RULE_MODE_CONFIG_KEYS = new Set(["entityMode", "dictionaryMode", "eventMode", "enrichmentMode", "cueMode", "queryExpansionMode", "compositionMode"]);
 const AI_PROVIDER_FIELD_DEFINITIONS = Object.freeze([
-  { key: "providerProfile", label: "Provider Profile", type: "ai-provider-profile" },
+  { key: "providerProfile", label: "Provider", type: "ai-provider-profile" },
   { key: "providerType", label: "Provider Type", type: "ai-provider-type" },
   { key: "model", label: "Model", type: "ai-model" },
+  { key: "reasoningEffort", label: "Livello di ragionamento", type: "string", placeholder: "Default" },
+  { key: "speed", label: "Modalità servizio", type: "select", options: ["", "standard", "fast"] },
   { key: "temperature", label: "Temperature", type: "number", placeholder: "0.2", defaultValue: "0.2", step: "0.1" },
   { key: "maxTokens", label: "Max Tokens", type: "number", placeholder: "800", defaultValue: "800" },
   { key: "maxContinuationCalls", label: "Max Continuations", type: "number", placeholder: "10", defaultValue: "10" },
@@ -5033,7 +5035,7 @@ const runtimeDefaultAiProviderConfig = async (providers = []) => {
 const runtimeAiProvidersForConfig = async () => {
   let providers = [];
   try {
-    providers = (await (window.TrackerLensAiRuntimeStore?.listForCenter?.() || window.TrackerLensAiRuntimeStore?.list?.()))?.providers || [];
+    providers = await window.TrackerLensAiRuntimeStore.listProviderProfiles();
   } catch (error) {
     console.warn("Provider AI non caricati per default runtime:", error);
   }
@@ -5098,7 +5100,9 @@ const aiAgentFromRuntimeNode = (node = {}, aiDefaults = {}) => {
     provider: {
       profileId: config.providerProfile || aiDefaults.providerProfile || "",
       providerType: config.providerType || config.provider || aiDefaults.providerType || "ollama",
-      model: config.model || aiDefaults.model || "local-model",
+      model: config.model ?? "",
+      reasoningEffort: config.reasoningEffort || "",
+      speed: config.speed || "",
       temperature: config.temperature ?? aiDefaults.temperature ?? 0.2,
       maxTokens: config.maxTokens ?? aiDefaults.maxTokens ?? 800,
       maxContinuationCalls: config.maxContinuationCalls ?? aiDefaults.maxContinuationCalls ?? 10,
@@ -5187,7 +5191,9 @@ const aiAgentPayloadConfig = (payload = {}) => ({
   triggerPolicy: payload.runtime?.triggerPolicy || "connected_event",
   providerProfile: payload.provider?.profileId || "",
   providerType: payload.provider?.providerType || "ollama",
-  model: payload.provider?.model || "local-model",
+  model: payload.provider?.model ?? "",
+  reasoningEffort: payload.provider?.reasoningEffort || "",
+  speed: payload.provider?.speed || "",
   temperature: payload.provider?.temperature ?? 0.2,
   maxTokens: payload.provider?.maxTokens ?? 800,
   maxContinuationCalls: payload.provider?.maxContinuationCalls ?? 10,
@@ -6283,7 +6289,9 @@ const requestOrchestratorAgentConfig = (node) => {
       routePolicy: config.routePolicy || "direct-linked-only",
       providerProfile: config.providerProfile || "",
       providerType: config.providerType || config.provider || "local",
-      model: config.model || "local-model",
+      model: config.model ?? "",
+      reasoningEffort: config.reasoningEffort || "",
+      speed: config.speed || "",
       temperature: config.temperature || "0.2",
       maxTokens: config.maxTokens || "1200",
       responseFormat: config.responseFormat || "json",
@@ -6548,8 +6556,10 @@ const requestOrchestratorAgentConfig = (node) => {
             content: _.div(
               { class: "tl-ai-agent-tab-grid" },
               inputField("Provider profile", "providerProfile"),
-              selectField("Provider type", "providerType", ["local", "ollama", "lm-studio", "openai", "claude", "gemini", "custom"]),
-              inputField("Model", "model"),
+              selectField("Provider type", "providerType", ["local", "ollama", "lm-studio", "openai", "codex", "claude", "gemini", "custom"]),
+              inputField("Model", "model", { placeholder: "Default" }),
+              inputField("Livello di ragionamento", "reasoningEffort"),
+              selectField("Modalità servizio", "speed", ["", "standard", "fast"]),
               inputField("Temperature", "temperature", { type: "number", step: "0.1" }),
               inputField("Max tokens", "maxTokens", { type: "number" }),
               inputField("Max continuations", "maxContinuationCalls", { type: "number" }),
@@ -6659,7 +6669,7 @@ const requestOrchestratorAgentConfig = (node) => {
 };
 
 const providerLabelForRuntimeConfig = (provider = {}) => {
-  const name = provider.name || provider.provider || provider.id || "AI Provider";
+  const name = window.TrackerLensAiRuntimeStore.providerDisplayLabel(provider);
   const model = provider.model || provider.defaultModel || "";
   const type = provider.provider || provider.providerType || "";
   return [name, model || type].filter(Boolean).join(" · ");
@@ -6799,7 +6809,36 @@ const requestRuntimeNodeConfig = async (node) => {
     const typeInput = formRef.querySelector('[data-config-key="providerType"]');
     const modelInput = formRef.querySelector('[data-config-key="model"]');
     if (typeInput) typeInput.value = provider.provider || provider.providerType || typeInput.value || "local";
-    if (modelInput) modelInput.value = provider.model || provider.defaultModel || modelInput.value || "local-model";
+    if (modelInput) { modelInput.value = ""; modelInput.placeholder = provider.model || "Default"; }
+    for (const key of ["reasoningEffort", "speed"]) {
+      const input = formRef.querySelector(`[data-config-key="${key}"]`);
+      if (input) input.value = "";
+    }
+  };
+  let modelCatalogSequence = 0;
+  let modelCatalogProfile = null;
+  const refreshNodeModelCatalog = async (form, provider) => {
+    const select = form.querySelector('[data-config-key="model"]');
+    if (!select || !provider || modelCatalogProfile === provider.id) return;
+    modelCatalogProfile = provider.id;
+    const sequence = ++modelCatalogSequence;
+    const saved = select.value;
+    const status = select.parentElement.querySelector('[data-model-status]');
+    if (status) status.textContent = "Caricamento modelli…";
+    try {
+      const connection = window.TrackerLensAiRuntimeStore.providerConnection(provider);
+      const catalog = connection.connectionType === "login"
+        ? await window.trackers.desktop.externalAi.listModels({ provider: connection.bridgeProvider })
+        : await window.TrackerLensAiAgentEditor.fetchAiProviderModels(provider);
+      if (sequence !== modelCatalogSequence) return;
+      const inherited = ["local-model", "modello non configurato"].includes(provider.model) ? "" : provider.model || "";
+      const values = [...new Set(["", saved, inherited, ...(catalog.models || []).map((item) => typeof item === "string" ? item : item.id)])];
+      select.replaceChildren(...values.map((value) => _.option({ value, selected: value === saved }, value || inherited || "Default")));
+      select.value = saved;
+      if (status) status.textContent = catalog.message || catalog.error || "";
+    } catch (error) {
+      if (sequence === modelCatalogSequence && status) status.textContent = error.message;
+    }
   };
   const refreshConditionalConfigFields = (form = formRef) => {
     if (!form) return;
@@ -6813,6 +6852,16 @@ const requestRuntimeNodeConfig = async (node) => {
       fieldRoot.style.display = visible ? "" : "none";
       input.disabled = !visible;
     };
+    const profile = aiProviders.find((item) => item.id === form.querySelector('[data-config-key="providerProfile"]')?.value);
+    if (profile) {
+      const input = form.querySelector('[data-config-key="providerType"]');
+      if (input) input.value = profile.providerType || profile.provider;
+      void refreshNodeModelCatalog(form, profile);
+    }
+    const connection = window.TrackerLensAiRuntimeStore.providerConnection(profile || {});
+    const login = connection.connectionType === "login";
+    for (const key of ["temperature", "maxTokens", "maxContinuationCalls", "topP", "streaming"]) setConfigFieldVisible(key, !login);
+    for (const key of ["reasoningEffort", "speed"]) setConfigFieldVisible(key, connection.bridgeProvider === "codex");
     if (subtype === "chunk-processor") {
       setConfigFieldVisible("maxChunkTokens", ["structured", "section", "token"].includes(strategy));
       setConfigFieldVisible("chunkOverlapTokens", strategy === "structured");
@@ -6852,7 +6901,7 @@ const requestRuntimeNodeConfig = async (node) => {
   });
   const configField = (definition) => {
     const value = defaults[definition.key] ?? defaults.configObject?.[definition.key] ??
-      (AI_PROVIDER_CONFIG_KEYS.has(definition.key) ? aiConfigDefaults[definition.key] : undefined) ??
+      (AI_PROVIDER_CONFIG_KEYS.has(definition.key) && definition.key !== "model" ? aiConfigDefaults[definition.key] : undefined) ??
       (definition.key === "previewMode" ? defaults.configObject?.mode : undefined) ??
       definition.defaultValue ?? "";
     const isFixedNlpDimension = ["embedding-generator", "vector-memory"].includes(subtype) &&
@@ -6879,28 +6928,17 @@ const requestRuntimeNodeConfig = async (node) => {
       );
     }
     if (definition.type === "ai-provider-type") {
-      const options = aiProviderTypeOptions(aiProviders);
-      return _.label(
-        configFieldAttrs(definition),
-        _.span(definition.label),
-        _.select(
-          { "data-config-key": definition.key, value: value || options[0] || "local" },
-          ...options.map((option) => _.option({ value: option, selected: option === value }, option))
-        )
-      );
+      return _.input({ type: "hidden", "data-config-key": definition.key, value });
     }
     if (definition.type === "ai-model") {
-      const selectedProvider = aiProviders.find((provider) => provider.id === defaults.configObject?.providerProfile) || null;
-      return _.label(
-        configFieldAttrs(definition),
-        _.span(definition.label),
-        _.input({
-          "data-config-key": definition.key,
-          value: value || selectedProvider?.model || "",
-          placeholder: selectedProvider?.model || "auto from provider profile",
-          autocomplete: "off",
-        })
-      );
+      const profile = aiProviders.find((item) => item.id === defaults.configObject?.providerProfile);
+      const inherited = profile?.defaultModel || profile?.model || "";
+      const defaultLabel = ["", "local-model", "modello non configurato"].includes(inherited) ? "Default" : inherited;
+      return _.label(configFieldAttrs(definition), _.span(definition.label),
+        _.select({ "data-config-key": definition.key, value: value || "" },
+          _.option({ value: "", selected: !value }, defaultLabel),
+          value ? _.option({ value, selected: true }, value) : null),
+        _.small({ "data-model-status": "true" }, ""));
     }
     if (definition.type === "checkbox") {
       const inputId = `${formId}-${definition.key}`;

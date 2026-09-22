@@ -582,3 +582,36 @@
     grid-template-columns: 1fr;
   }
 }
+/* Compact node settings navigation; names remain available to assistive tech. */
+.tl-ai-agent-tabs > .cms-tabpanel-nav .cms-tabpanel-tab-copy {
+  display: none;
+}
+
+.tl-ai-agent-tabs > .cms-tabpanel-nav .cms-tabpanel-tab-icon,
+.tl-ai-agent-tabs > .cms-tabpanel-nav .cms-tabpanel-tab-icon .cms-icon {
+  display: inline-flex;
+  color: #d9e7f1;
+  opacity: 1;
+  visibility: visible;
+}
+
+.tl-ai-agent-tabs > .cms-tabpanel-nav .cms-tabpanel-tab.active .cms-tabpanel-tab-icon,
+.tl-ai-agent-tabs > .cms-tabpanel-nav .cms-tabpanel-tab.active .cms-tabpanel-tab-icon .cms-icon {
+  color: #171000;
+}
+
+.tl-ai-agent-tabs > .cms-tabpanel-nav > .cms-tabpanel-nav-btn {
+  flex: 0 0 auto;
+}
+
+.tl-ai-agent-tabs > .cms-tabpanel-nav [role="tab"] {
+  width: 44px;
+  min-width: 44px;
+  height: 44px;
+  padding: 10px;
+}
+
+.tl-ai-agent-tabs > .cms-tabpanel-nav .cms-tabpanel-tab-inner {
+  justify-content: center;
+  gap: 0;
+}

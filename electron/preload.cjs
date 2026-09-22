@@ -9,6 +9,7 @@ const trackers = Object.freeze({
     getStatus: () => request("desktop.getStatus"),
     openExternal: (url) => request("desktop.openExternal", { url: String(url || "") }),
     externalAi: Object.freeze({
+      listModels: ({ provider } = {}) => request("desktop.externalAi.listModels", { provider: String(provider || "") }),
       getStatus: ({ provider } = {}) => request("desktop.externalAi.getStatus", { provider: String(provider || "") }),
       onLoginProgress: (listener) => {
         if (typeof listener !== "function") return () => {};

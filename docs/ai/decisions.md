@@ -59,3 +59,9 @@ Last updated: 2026-08-25.
 - `AI.md` is the only mandatory markdown entrypoint.
 - Do not recreate large monolithic files like the old `INFO_AI.md`.
 - Prefer small module-specific markdown files with `Purpose`, `Read when`, `Do not read when`.
+
+## LLM Provider Connection Identity (2026-09-22)
+
+- TASK-034 separates provider vendor (`openai`, `anthropic`, etc.) from `connectionType` (`api` or `login`) and the allow-listed Login `bridgeProvider` (`codex` or `claude`). Display names must never select a transport.
+- Legacy global account records are recognized by their explicit global marker or canonical external id. Endpoint-backed Claude profiles remain API profiles; no substring matching on a profile name may grant account controls.
+- Account authentication remains global. The planned node runtime resolves explicit node settings before provider defaults and service defaults, preserving independent configurations across concurrent nodes. API and Login capabilities are distinct; unsupported options must be exposed explicitly, never silently ignored.

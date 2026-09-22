@@ -284,8 +284,8 @@ const flowPromptCapabilityDetails = (name = "", preferredDomainId = "") => {
 };
 
 const flowPromptExternalProviderLabel = (providerId = "") => ({
-  codex: "Codex",
-  claude: "Claude",
+  codex: "ChatGPT · Login (Codex)",
+  claude: "Claude · Login",
 }[providerId] || "Provider esterno");
 
 // The Core catalog is intentionally path-free. Keep the provider boundary
@@ -10083,8 +10083,8 @@ const openFlowPromptChatDialog = async (options = {}) => {
         { class: "tl-flow-prompt-provider-options", role: "group", "aria-label": "Provider chat" },
         ...[
           ["local", "Locale", "memory"],
-          ["codex", "Codex", "terminal"],
-          ["claude", "Claude", "auto_awesome"],
+          ["codex", "ChatGPT · Login (Codex)", "terminal"],
+          ["claude", "Claude · Login", "auto_awesome"],
         ].map(([id, label, icon]) => _.button(
           {
             type: "button",
@@ -10221,7 +10221,7 @@ const openFlowPromptChatDialog = async (options = {}) => {
         value: pending.providerId,
         onchange: changeProvider,
         oninput: changeProvider,
-      }, _.option({ value: "local", selected: pending.providerId === "local" }, "Locale (AI & Modelli)"), _.option({ value: "codex", selected: pending.providerId === "codex" }, "Codex"), _.option({ value: "claude", selected: pending.providerId === "claude" }, "Claude"))),
+      }, _.option({ value: "local", selected: pending.providerId === "local" }, "Locale (AI & Modelli)"), _.option({ value: "codex", selected: pending.providerId === "codex" }, "ChatGPT · Login (Codex)"), _.option({ value: "claude", selected: pending.providerId === "claude" }, "Claude · Login"))),
       _.label("Modello", _.select({
         value: pending.providerModel,
         onchange: changeModel,

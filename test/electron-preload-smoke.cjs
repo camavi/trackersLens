@@ -7,6 +7,7 @@ const preloadPath = path.join(projectRoot, "electron", "preload.cjs");
 const appPage = path.join(projectRoot, "app.html");
 
 ipcMain.handle("trackers-core:request", (_event, command) => {
+  if (command === "desktop.externalAi.listModels") return { models: [{ id: "fixture-model" }, { id: "center-model", reasoningEfforts: ["low", "medium", "high", "xhigh", "max", "ultra"] }], source: "fixture" };
   if (command === "desktop.persistence.getStatus") {
     return { owner: "tl-core", mode: "desktop-sqlite", sqlite: { exists: true } };
   }
@@ -59,6 +60,37 @@ app.whenReady().then(async () => {
         ready: "function",
         reactive: "object",
       });
+      if (route === "flowMap.html") {
+        const ui = await window.webContents.executeJavaScript(`(async () => {
+          const dialog = window.TrackerLensAiAgentEditor.open({
+            agent: { name: 'Catalog fixture', provider: { profileId: 'fixture-codex', providerType: 'lm-studio', model: '' } },
+            providers: [{ id: 'fixture-codex', provider: 'codex', connectionType: 'login', model: 'center-model' }]
+          });
+          const form = document.querySelector('.tl-ai-agent-runtime-editor');
+          const tab = Array.from(form.querySelectorAll('[role="tab"]')).find(el => el.textContent.includes('Provider'));
+          tab?.click();
+          await new Promise(resolve => setTimeout(resolve, 150));
+          const host = form.querySelector('[data-ai-model-field-host]');
+          const type = form.querySelector('[name="providerType"]');
+          let temperature = form.querySelector('[name="temperature"]');
+          while (temperature?.parentElement && !temperature.parentElement.classList.contains('tl-ai-agent-tab-grid')) temperature = temperature.parentElement;
+          const effort = form.querySelector('[data-reasoning-field]');
+          const tabPanel = form.querySelector('.tl-ai-agent-tabs');
+          const navTabs = Array.from(tabPanel?.querySelectorAll('[role="tab"]') || []);
+          const result = { reasoningSelect: effort?.querySelector('[name="reasoningEffort"]')?.type === 'hidden', reasoningLevels: effort?.textContent.includes('Medio') && effort?.textContent.includes('Ultra') && effort?.textContent.includes('Massimo'), apiFieldsHidden: temperature?.style.display === 'none', hiddenType: type?.type === 'hidden', type: type?.value, modelInput: host?.querySelector('[name="model"]')?.type, catalog: host?.textContent.includes('fixture-model'), select: Boolean(host?.querySelector('[role="combobox"], select, .jss-select')), iconTabs: navTabs.length > 0 && navTabs.every(tab => Boolean(tab.querySelector('.cms-tabpanel-tab-icon')) && Boolean(tab.getAttribute('aria-label')) && Boolean(tab.closest('.cms-tabpanel-nav-btn')?.title)) };
+          dialog.close();
+          return result;
+        })()`);
+        assert.equal(ui.reasoningSelect, true);
+        assert.equal(ui.reasoningLevels, true);
+        assert.equal(ui.apiFieldsHidden, true);
+        assert.equal(ui.hiddenType, true);
+        assert.equal(ui.type, 'codex');
+        assert.equal(ui.modelInput, 'hidden');
+        assert.equal(ui.catalog, true);
+        assert.equal(ui.iconTabs, true, JSON.stringify(ui));
+      }
+
     }
     const bridge = await window.webContents.executeJavaScript(`
       Promise.all([

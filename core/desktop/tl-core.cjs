@@ -62,6 +62,9 @@ const createTlCore = ({ appVersion = "0.0.0", platform = "unknown", mode = "prod
         await openExternal(url);
         return { opened: true };
       }
+      case "desktop.externalAi.listModels":
+        if (!externalAi?.listModels) throw errorWithCode("Model catalog unavailable", "EXTERNAL_AI_UNAVAILABLE");
+        return externalAi.listModels({ provider: String(payload?.provider || "") });
       case "desktop.externalAi.getStatus":
         if (!externalAi?.getStatus) throw errorWithCode("External AI provider bridge is unavailable", "EXTERNAL_AI_UNAVAILABLE");
         return externalAi.getStatus({ provider: String(payload?.provider || "") });
