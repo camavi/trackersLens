@@ -8,6 +8,7 @@ const appPage = path.join(projectRoot, "app.html");
 
 ipcMain.handle("trackers-core:request", (_event, command) => {
   if (command === "desktop.externalAi.listModels") return { models: [{ id: "fixture-model" }, { id: "center-model", reasoningEfforts: ["low", "medium", "high", "xhigh", "max", "ultra"] }], source: "fixture" };
+  if (command === "desktop.externalAi.getStatus") return { installed: true, authenticated: true, message: "Fixture account" };
   if (command === "desktop.persistence.getStatus") {
     return { owner: "tl-core", mode: "desktop-sqlite", sqlite: { exists: true } };
   }
@@ -46,7 +47,7 @@ app.whenReady().then(async () => {
     },
   });
   try {
-    for (const route of ["flowMap.html", "settings.html", "database.html"]) {
+    for (const route of ["flowMap.html", "settings.html", "database.html", "ai.html"]) {
       await window.loadFile(appPage, { query: { "tl-route": route } });
       const jsSwiftRuntime = await window.webContents.executeJavaScript(`
         ({
@@ -89,6 +90,27 @@ app.whenReady().then(async () => {
         assert.equal(ui.modelInput, 'hidden');
         assert.equal(ui.catalog, true);
         assert.equal(ui.iconTabs, true, JSON.stringify(ui));
+      }
+      if (route === "ai.html") {
+        const ui = await window.webContents.executeJavaScript(`(async () => {
+          await new Promise(resolve => setTimeout(resolve, 150));
+          document.querySelector('[aria-label="Gestisci account ChatGPT · Login (Codex)"]')?.click();
+          await new Promise(resolve => setTimeout(resolve, 150));
+          const dialog = document.querySelector('.tl-ai-provider-account-dialog');
+          const model = dialog?.querySelector('select');
+          const result = {
+            dialog: Boolean(dialog),
+            catalog: dialog?.textContent.includes('2 modelli disponibili · Login'),
+            fixtureModel: Array.from(model?.options || []).some(option => option.value === 'fixture-model'),
+            staticModelAbsent: !dialog?.textContent.includes('GPT-5.6 Sol'),
+          };
+          dialog?.querySelector('[aria-label="Chiudi"]')?.click();
+          return result;
+        })()`);
+        assert.equal(ui.dialog, true, JSON.stringify(ui));
+        assert.equal(ui.catalog, true, JSON.stringify(ui));
+        assert.equal(ui.fixtureModel, true, JSON.stringify(ui));
+        assert.equal(ui.staticModelAbsent, true, JSON.stringify(ui));
       }
 
     }

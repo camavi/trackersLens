@@ -797,13 +797,45 @@ const saveGlobalExternalProviderDefaults = async (providerId = "", settings = {}
   }
 };
 
+const readExternalProviderModelCatalog = async (providerId = "") => {
+  const listModels = window.trackers?.desktop?.externalAi?.listModels;
+  if (typeof listModels !== "function") {
+    return { models: [], message: "Catalogo modelli non disponibile nel bridge desktop." };
+  }
+  try {
+    const catalog = await listModels({ provider: providerId });
+    return {
+      models: Array.isArray(catalog?.models) ? catalog.models : [],
+      message: String(catalog?.message || ""),
+    };
+  } catch (error) {
+    return { models: [], message: error?.message || "Catalogo modelli non disponibile." };
+  }
+};
+
+const globalExternalProviderModelOptions = (providerId = "", catalog = [], selectedModel = "") => {
+  const defaultLabel = providerId === "codex"
+    ? "Predefinito Codex"
+    : providerId === "claude"
+      ? "Predefinito Claude Code"
+      : "Predefinito provider";
+  const options = [["", defaultLabel], ...(Array.isArray(catalog) ? catalog : [])
+    .map((model) => [String(model?.id || "").trim(), String(model?.label || model?.id || "").trim()])
+    .filter(([id]) => id)];
+  const saved = String(selectedModel || "").trim();
+  if (saved && !options.some(([id]) => id === saved)) options.push([saved, `Modello salvato: ${saved}`]);
+  return options;
+};
+
 const openGlobalExternalProviderAccountDialog = async (providerId = "") => {
   if (!GLOBAL_EXTERNAL_PROVIDER_IDS.includes(providerId)) return;
-  const [status, defaults] = await Promise.all([
+  const [status, defaults, modelCatalog] = await Promise.all([
     refreshExternalProviderStatus(providerId),
     readGlobalExternalProviderDefaults(providerId),
+    readExternalProviderModelCatalog(providerId),
   ]);
   const pending = { ...defaults };
+  const modelOptions = globalExternalProviderModelOptions(providerId, modelCatalog.models, pending.model);
   let dialog = null;
   const reopen = () => {
     dialog?.close?.();
@@ -834,7 +866,10 @@ const openGlobalExternalProviderAccountDialog = async (providerId = "") => {
       _.label("Modello", _.select({
         value: pending.model,
         onchange: (event) => { pending.model = String(event.currentTarget.value || ""); },
-      }, ...(window.TrackerLensExternalAiAccountUi?.modelsFor?.(providerId) || [["", "Predefinito provider"]]).map(([value, label]) => _.option({ value, selected: value === pending.model }, label)))),
+      }, ...modelOptions.map(([value, label]) => _.option({ value, selected: value === pending.model }, label)))),
+      _.small(modelCatalog.models.length
+        ? `${modelCatalog.models.length} modelli disponibili · Login`
+        : modelCatalog.message || "Nessun catalogo modelli disponibile."),
       window.TrackerLensExternalAiAccountUi?.renderAccountPanel?.({
         providerId,
         status,

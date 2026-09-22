@@ -10127,7 +10127,34 @@ const openFlowPromptChatDialog = async (options = {}) => {
     let dialog = null;
     let settingsProviderStatus = pending.providerId === selectedProviderId() ? draft.providerStatus : null;
     let settingsProviderLoading = false;
+    let settingsModelCatalog = [];
+    let settingsModelsLoading = false;
+    let settingsModelsError = "";
     let refreshDialog = () => {};
+    const loadSettingsModelCatalog = async () => {
+      if (pending.providerId !== "codex") {
+        settingsModelCatalog = [];
+        settingsModelsError = "";
+        refreshDialog();
+        return;
+      }
+      const api = window.trackers?.desktop?.externalAi?.listModels;
+      if (typeof api !== "function") return;
+      settingsModelsLoading = true;
+      settingsModelsError = "";
+      refreshDialog();
+      try {
+        const catalog = await api({ provider: "codex" });
+        settingsModelCatalog = Array.isArray(catalog?.models) ? catalog.models : [];
+        settingsModelsError = String(catalog?.message || "");
+      } catch (error) {
+        settingsModelCatalog = [];
+        settingsModelsError = error?.message || "Catalogo modelli non disponibile.";
+      } finally {
+        settingsModelsLoading = false;
+        refreshDialog();
+      }
+    };
     const loadGlobalExternalDefaults = async () => {
       if (!FLOW_PROMPT_EXTERNAL_PROVIDER_IDS.has(pending.providerId)) return;
       const readDefaults = window.TrackerLensAiRuntimeStore?.getExternalProviderDefaults;
@@ -10198,7 +10225,7 @@ const openFlowPromptChatDialog = async (options = {}) => {
       const configuredModel = providerId === "codex" ? String(draft.providerStatus?.configuredModel || "").trim() : "";
       const configuredReasoning = providerId === "codex" ? String(draft.providerStatus?.configuredReasoningEffort || "").trim() : "";
       const base = providerId === "codex"
-        ? [["", configuredModel ? `Predefinito Codex · ${configuredModel}${configuredReasoning ? ` · ${configuredReasoning}` : ""}` : "Predefinito Codex"], ["gpt-5.6-sol", "GPT-5.6 Sol"], ["gpt-5.6-terra", "GPT-5.6 Terra"], ["gpt-5.6-luna", "GPT-5.6 Luna"], ["gpt-5.5", "GPT-5.5"], ["gpt-5.4", "GPT-5.4"], ["gpt-5.4-mini", "GPT-5.4 Mini"], ["gpt-5.3-codex-spark", "GPT-5.3 Codex Spark"]]
+        ? [["", configuredModel ? `Predefinito Codex · ${configuredModel}${configuredReasoning ? ` · ${configuredReasoning}` : ""}` : "Predefinito Codex"], ...settingsModelCatalog.map((model) => [String(model.id || ""), String(model.label || model.id || "")]).filter(([value]) => value)]
         : providerId === "claude"
           ? [["", "Predefinito Claude Code"]]
           : [["", "Predefinito da AI & Modelli"]];
@@ -10212,6 +10239,7 @@ const openFlowPromptChatDialog = async (options = {}) => {
       if (!modelsForProvider(pending.providerId).some(([value]) => value === pending.providerModel)) pending.providerModel = "";
       void refreshSettingsProviderStatus();
       void loadGlobalExternalDefaults();
+      void loadSettingsModelCatalog();
     };
     const changeModel = (event) => { pending.providerModel = String(event.currentTarget.value || ""); };
     const renderBody = () => _.div(
@@ -10227,6 +10255,8 @@ const openFlowPromptChatDialog = async (options = {}) => {
         onchange: changeModel,
         oninput: changeModel,
       }, ...modelsForProvider(pending.providerId).map(([value, label]) => _.option({ value, selected: value === pending.providerModel }, label)))),
+      pending.providerId === "codex" ? _.small(settingsModelsLoading ? "Caricamento modelli Codex…" : settingsModelCatalog.length ? `${settingsModelCatalog.length} modelli disponibili · Login` : settingsModelsError || "Apri o aggiorna il catalogo modelli." ) : null,
+      pending.providerId === "codex" ? flowMapBtn({ class: "is-ghost", disabled: settingsModelsLoading, onclick: () => { void loadSettingsModelCatalog(); } }, flowMapIcon("refresh", "sm"), "Aggiorna modelli") : null,
       FLOW_PROMPT_EXTERNAL_PROVIDER_IDS.has(pending.providerId)
         ? window.TrackerLensExternalAiAccountUi?.renderAccountPanel?.({
           providerId: pending.providerId,
@@ -10306,6 +10336,7 @@ const openFlowPromptChatDialog = async (options = {}) => {
     dialog.open();
     void refreshSettingsProviderStatus();
     void loadGlobalExternalDefaults();
+    void loadSettingsModelCatalog();
   };
 
   function renderContentBody() {

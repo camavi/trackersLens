@@ -4,13 +4,16 @@
     return normalized === "codex" ? "ChatGPT · Login (Codex)" : normalized === "claude" ? "Claude · Login" : normalized || "Provider";
   };
 
+  // Model IDs are account-specific and change independently from Trackers Lens.
+  // Callers load the live catalog through desktop.externalAi.listModels; this
+  // only supplies the neutral default option for older surfaces.
   const modelsFor = (providerId = "") => String(providerId || "").toLowerCase() === "codex"
-    ? [["", "Predefinito Codex"], ["gpt-5.6-sol", "GPT-5.6 Sol"], ["gpt-5.6-terra", "GPT-5.6 Terra"], ["gpt-5.6-luna", "GPT-5.6 Luna"], ["gpt-5.5", "GPT-5.5"], ["gpt-5.4", "GPT-5.4"], ["gpt-5.4-mini", "GPT-5.4 Mini"], ["gpt-5.3-codex-spark", "GPT-5.3 Codex Spark"]]
+    ? [["", "Predefinito Codex"]]
     : String(providerId || "").toLowerCase() === "claude"
       ? [["", "Predefinito Claude Code"]]
       : [["", "Predefinito provider"]];
 
-  const reasoningOptions = () => [["low", "Light"], ["medium", "Medio"], ["high", "Alto"], ["xhigh", "Molto alto"], ["ultra", "Ultra"]];
+  const reasoningOptions = () => [["low", "Light"], ["medium", "Medio"], ["high", "Alto"], ["xhigh", "Molto alto"], ["max", "Massimo"], ["ultra", "Ultra"]];
   const speedOptions = () => [["standard", "Standard"], ["fast", "Rapida"]];
 
   const renderAccountPanel = ({
