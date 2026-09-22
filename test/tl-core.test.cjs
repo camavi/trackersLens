@@ -186,6 +186,47 @@ test("external AI provider bridge reports only CLI availability and never creden
   await assert.rejects(core.request("desktop.externalAi.getStatus", { provider: "unknown" }), /non supportato/);
 });
 
+test("external account display identity persists, updates and clears without authenticating from cache", async (context) => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "tl-account-identity-"));
+  context.after(() => fs.rmSync(directory, { recursive: true, force: true }));
+  const persistence = new DesktopPersistence({ databasePath: path.join(directory, "fixture.sqlite"), profileId: "test" });
+  persistence.initialize();
+  let status = { provider: "codex", authenticated: true, accountEmail: "first@example.test" };
+  let logoutFails = false;
+  const externalAi = {
+    getStatus: () => ({ ...status }),
+    logout: () => {
+      if (logoutFails) throw new Error("Logout failed");
+      return { provider: "codex", loggedOut: true };
+    },
+  };
+  let core = createTlCore({ adapters: { persistence, externalAi } });
+  const get = () => core.request("desktop.externalAi.getStatus", { provider: "codex" });
+  const record = () => persistence.readDevelopmentRecordById({ storeName: "tl_settings", id: "external-ai-account-identity-codex" });
+  assert.equal((await get()).accountEmail, "first@example.test");
+  assert.equal(record().email, "first@example.test");
+  status.accountEmail = "";
+  core = createTlCore({ adapters: { persistence, externalAi } });
+  const cached = await get();
+  assert.equal(cached.accountEmail, "");
+  assert.equal(cached.rememberedAccountEmail, "first@example.test");
+  status.accountEmail = "second@example.test";
+  await get();
+  assert.equal(record().email, "second@example.test");
+  logoutFails = true;
+  await assert.rejects(core.request("desktop.externalAi.logout", { provider: "codex", confirmed: true }), /Logout failed/);
+  assert.equal(record().email, "second@example.test");
+  logoutFails = false;
+  await core.request("desktop.externalAi.logout", { provider: "codex", confirmed: true });
+  assert.equal(record(), null);
+  await get();
+  status = { provider: "codex", authenticated: false, accountEmail: "" };
+  assert.equal((await get()).authenticated, false);
+  assert.equal(record(), null);
+  status = { provider: "codex", authenticated: true, accountEmail: "" };
+  assert.equal((await get()).rememberedAccountEmail, "");
+});
+
 test("desktop persistence exposes only status and an allow-listed import plan", async (context) => {
   const fixtureDirectory = fs.mkdtempSync(path.join(os.tmpdir(), "trackers-lens-persistence-"));
   context.after(() => fs.rmSync(fixtureDirectory, { recursive: true, force: true }));

@@ -27,15 +27,19 @@
     const provider = externalProviderLabel(providerId);
     const connected = Boolean(status?.authenticated);
     const accountEmail = String(status?.accountEmail || "").trim();
+    const rememberedEmail = String(status?.rememberedAccountEmail || "").trim();
     const stateText = loading
       ? "Aggiornamento stato account…"
       : connected
-        ? accountEmail || "Connected account (email not exposed by the official CLI status)"
+        ? accountEmail ? `Collegato come ${accountEmail}` : "Collegato · email non disponibile dal client ufficiale"
         : status?.message || "Accesso richiesto";
     return _.div(
       { class: "tl-flow-prompt-provider-account", "data-external-ai-account": String(providerId || "") },
       _.strong(_.Icon({ name: "account_circle", size: "sm" }), "Account provider"),
       _.span(stateText),
+      connected && !accountEmail && rememberedEmail
+        ? _.small(`Ultimo account rilevato: ${rememberedEmail}. L'account attuale non è verificabile dal client.`)
+        : null,
       _.small("L'email viene mostrata solo se il comando ufficiale del provider la espone. Trackers Lens non legge token o file di credenziali."),
       _.div(
         { class: "tl-flow-prompt-provider-account-actions" },

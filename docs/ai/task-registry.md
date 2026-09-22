@@ -9,6 +9,10 @@ Last updated: 2026-09-22.
 
 ### TASK-034: Per-node LLM API and Login Providers
 
+- Account email retrieval follow-up: implemented and closed at user request. Official Codex app-server `account/read` supplies the email missing from CLI login status; protocol projection and unavailable-metadata tests pass alongside SQLite identity lifecycle tests (69 tests total). No raw credential diagnostics are emitted. Live-provider email display has not been independently verified.
+
+- Account identity display implemented: Core remembers the official provider status email in SQLite, updates it on account changes and clears it on successful logout or unauthenticated status. Shared Chat/AI Center UI distinguishes live identity from last observed identity. No credential files are accessed. Persistence/account-switch/logout regression test passes; live-provider UI verification remains pending.
+
 Status: In progress. Phase 1 implemented and automatically verified (`npm run check`, TL Core suite, provider-connection regression suite). Login runtime routing, AI Center default inheritance and per-node model/reasoning/speed fields are implemented; interactive QA remains open.
 Priority: High.
 Risk: High because account/profile identity, per-node settings, external data transfer and runtime routing must remain explicit.

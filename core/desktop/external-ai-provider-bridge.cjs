@@ -1,4 +1,4 @@
-const { readCodexModels } = require("./codex-model-catalog.cjs");
+const { readCodexModels, readCodexAccount } = require("./codex-model-catalog.cjs");
 const { spawnSync } = require("node:child_process");
 const fs = require("node:fs");
 const os = require("node:os");
@@ -113,7 +113,8 @@ const readConfiguredCodexModel = () => {
 };
 
 class ExternalAiProviderBridge {
-  constructor({ modelReader = readCodexModels, versionReader = readCliVersion, authenticationReader = readAuthentication, logoutRunner = logoutProvider, executableResolver = resolveExecutable, loginLauncher = null, chatRunner = null } = {}) {
+  constructor({ accountReader = readCodexAccount, modelReader = readCodexModels, versionReader = readCliVersion, authenticationReader = readAuthentication, logoutRunner = logoutProvider, executableResolver = resolveExecutable, loginLauncher = null, chatRunner = null } = {}) {
+    this.accountReader = accountReader;
     this.modelReader = modelReader;
     this.versionReader = typeof versionReader === "function" ? versionReader : readCliVersion;
     this.executableResolver = typeof executableResolver === "function" ? executableResolver : resolveExecutable;
@@ -123,14 +124,24 @@ class ExternalAiProviderBridge {
     this.chatRunner = typeof chatRunner === "function" ? chatRunner : null;
   }
 
-  getStatus({ provider = "" } = {}) {
+  async getStatus({ provider = "" } = {}) {
     const definition = supportedProvider(provider);
     if (!definition) throw Object.assign(new Error("Provider AI esterno non supportato."), { code: "EXTERNAL_AI_PROVIDER_UNSUPPORTED" });
     const executablePath = this.executableResolver(definition.executable);
     const cli = this.versionReader(executablePath);
     const authentication = cli?.installed ? this.authenticationReader(definition, executablePath) || {} : {};
     const authenticated = Boolean(cli?.installed && authentication.authenticated);
-    const accountEmail = authenticated ? normalizeAccountEmail(authentication.accountEmail) : "";
+    let accountEmail = authenticated ? normalizeAccountEmail(authentication.accountEmail) : "";
+    let accountIdentity = accountEmail ? "provider-cli-status" : authenticated ? "provider-cli-status-without-email" : "not-authenticated";
+    if (authenticated && definition.id === "codex" && !accountEmail) {
+      try {
+        const account = await this.accountReader(executablePath);
+        accountEmail = normalizeAccountEmail(account?.email);
+        accountIdentity = accountEmail ? "codex-account-read" : "codex-account-read-without-email";
+      } catch (_) {
+        accountIdentity = "codex-account-read-unavailable";
+      }
+    }
     const configured = definition.id === "codex" ? readConfiguredCodexModel() : { model: "", reasoningEffort: "" };
     return {
       provider: definition.id,
@@ -142,7 +153,7 @@ class ExternalAiProviderBridge {
       authentication: !cli?.installed ? "cli-not-installed" : authenticated ? "authenticated" : "requires-official-login",
       authenticated,
       accountEmail,
-      accountIdentity: accountEmail ? "provider-cli-status" : authenticated ? "provider-cli-status-without-email" : "not-authenticated",
+      accountIdentity,
       installUrl: definition.installUrl,
       loginCommand: definition.loginCommand,
       credentialAccess: "provider-owned-only",
@@ -157,7 +168,7 @@ class ExternalAiProviderBridge {
   async listModels({ provider = "" } = {}) {
     const definition = supportedProvider(provider);
     if (!definition) throw new Error("Unsupported provider.");
-    const status = this.getStatus({ provider });
+    const status = await this.getStatus({ provider });
     if (!status.installed || !status.authenticated) throw new Error("Connect the provider in AI Center before loading models.");
     if (definition.id !== "codex") return { models: [], source: "unavailable", message: "This Login bridge does not expose a model catalog." };
     return { models: await this.modelReader(this.executableResolver(definition.executable)), source: "codex-app-server" };

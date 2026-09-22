@@ -25,6 +25,10 @@ The hierarchical capability map QA is closed: the compact `tl.catalog.*` discove
 
 ## Current Work
 
+- Account email follow-up closed for implementation: Codex now reads official app-server `account/read` with `refreshToken: false` when CLI login status omits the email. Only account type/email are projected; no raw responses or credentials are logged. Chat/AI Center use the existing SQLite display identity. Check and 69 tests pass; the updated Core requires an app restart.
+
+- Provider account identity: Core persists only the official status email as display metadata in SQLite settings. Chat Settings and AI Center show the current reported email; when absent, a remembered email is explicitly labeled as the last observed account, never proof of current identity or authentication. A successful logout or unauthenticated status removes it. Account changes replace it. SQLite regression coverage passes.
+
 - JSswift migration: QA closed. `jsswift` is the local UI dependency; desktop, workspace, popup and legacy options entries load its bundled CSS/JS, application code uses `window.JSswift`, and packaged fonts/icons resolve from its distribution. `postinstall` patches each distributed JSswift CSS asset to reference the local Material Symbols font rather than Google's URL, preserving the Electron CSP `font-src 'self' data:`. Electron smoke now loads Flow Map, Settings and Database Explorer through the real preload and asserts the JSswift runtime is present. Old framework assets remain untouched pending a separate deletion decision.
 
 - AI Runtime Center SQLite projection: interactive QA passed. Opening the Center reads a Core-owned metadata projection for providers, agents, jobs, logs, memory and prompts instead of the previous 13 full stores. Jobs, logs and memory use explicit 25-record pages with `Carica altri`; full detail JSON is read only when opened. Editing a Provider, Agent or Prompt fetches its exact Core record first and merges form changes into it, preserving unrendered configuration; prompt writes retain their original AI prompt store.
