@@ -213,15 +213,35 @@ window.TrackerLensRuntimeGraphModel = (() => {
     const now = Date.now();
     const nodeActivity = new Map();
     const edgeActivity = new Map();
+    let nextExpiryAt = null;
+    const isLifecycle = (event) => Boolean(event.meta?.runtimeActivityVisual) || event.eventType === 'ai_agent_step';
+    const owner = (event) => event.meta?.knowledgeRuntime || event.meta?.aiAgentRuntime || event.payload?.nodeId || event.targetNodeId || event.sourceNodeId;
+    const lifecycleKey = (event) => `${event.workspaceId || graph.workspaceId || ''}:${owner(event)}`;
+    const latestLifecycle = new Map();
+    events.forEach(event => {
+      if (!isLifecycle(event)) return;
+      const id = lifecycleKey(event);
+      if (!latestLifecycle.has(id) || Date.parse(event.createdAt) >= Date.parse(latestLifecycle.get(id).createdAt)) latestLifecycle.set(id, event);
+    });
 
     events.forEach((event) => {
+      if (String(event.eventType || '').toLowerCase().includes('pulse')) return;
+      const lifecycle = isLifecycle(event);
+      if (lifecycle && latestLifecycle.get(lifecycleKey(event)) !== event) return;
       const created = Date.parse(event.createdAt);
-      const visualUntil = Date.parse(event.meta?.visualUntil || event.payload?.visualUntil || "");
+      const terminal = ['complete', 'completed', 'idle', 'error', 'fallback', 'emitting', 'done'].includes(String(event.payload?.status || event.status || '').toLowerCase());
+      const visualUntil = terminal ? NaN : Date.parse(event.meta?.visualUntil || event.payload?.visualUntil || "");
       if (Number.isNaN(created)) return;
       if (now - created > windowMs && (!Number.isFinite(visualUntil) || now > visualUntil)) return;
+      const expiresAt = Math.max(created + windowMs, Number.isFinite(visualUntil) ? visualUntil : 0);
+      if (expiresAt >= now) nextExpiryAt = nextExpiryAt === null ? expiresAt : Math.min(nextExpiryAt, expiresAt);
       const eventChannel = event.channel || "";
-      const matchedDependencies = (graph.dependencies || []).filter((dependency) => {
-        if (event.meta?.dependencyId && dependency.id === event.meta.dependencyId) return true;
+      const matchedDependencies = lifecycle ? [] : (graph.dependencies || []).filter((dependency) => {
+        if (dependency.enabled === false || dependency.status === 'disabled') return false;
+        if (event.workspaceId && dependency.workspaceId && event.workspaceId !== dependency.workspaceId) return false;
+        if (event.sourceNodeId && dependency.sourceNodeId !== event.sourceNodeId) return false;
+        if (event.targetNodeId && dependency.targetNodeId !== event.targetNodeId) return false;
+        if (event.meta?.dependencyId) return dependency.id === event.meta.dependencyId;
         if (event.meta?.orchestratorRuntime && event.meta?.executedNodeId) {
           const orchestratorId = String(event.meta.orchestratorRuntime || "");
           const executedNodeId = String(event.meta.executedNodeId || "");
@@ -238,7 +258,7 @@ window.TrackerLensRuntimeGraphModel = (() => {
         }
         return false;
       });
-      const related = [
+      const related = lifecycle ? [owner(event)] : [
         event.sourceNodeId,
         event.targetNodeId,
         event.meta?.orchestratorRuntime,
@@ -247,6 +267,7 @@ window.TrackerLensRuntimeGraphModel = (() => {
       ].filter(Boolean);
 
       (graph.nodes || []).forEach((node) => {
+        if (event.workspaceId && node.workspaceId && event.workspaceId !== node.workspaceId) return;
         if (related.includes(node.id)) {
           const current = nodeActivity.get(node.id) || { count: 0, status: "ok", lastAt: event.createdAt };
           const type = String(event.eventType || "").toLowerCase();
@@ -288,7 +309,7 @@ window.TrackerLensRuntimeGraphModel = (() => {
       });
     });
 
-    return { nodeActivity, edgeActivity };
+    return { nodeActivity, edgeActivity, nextExpiryAt };
   };
 
   const filterByActivity = ({ graph = {}, activity = {}, filter = "all" } = {}) => {

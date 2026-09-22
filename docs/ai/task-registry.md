@@ -7,6 +7,15 @@ Last updated: 2026-09-22.
 
 ## Active
 
+### TASK-036: Synchronize node and link activity with runtime events
+
+Status: Closed after user approval, 2026-09-22.
+
+- Shared activity model scopes data transfers by source, target and workspace; lifecycle events affect only their owning node and cannot flow across `all` edges.
+- AI activity starts from actual runtime steps, tracks concurrent jobs independently and ends on terminal transitions. Removed speculative outgoing-edge animation and preactivation of all downstream AI nodes in live runs.
+- Short transfer pulses are distinct from extended work-state leases. New lifecycle state supersedes older leases; expiry refresh reschedules until all highlights are cleared.
+- Validation: 92 automated tests and app checks pass, including wildcard/status isolation, shared channels, workspace separation, concurrent AI jobs, terminal expiry and refresh scheduling. User approved the live animation fix.
+
 ### TASK-035: Question pipeline timing diagnostics
 
 Status: Closed at user request, 2026-09-22.

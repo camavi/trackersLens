@@ -927,7 +927,7 @@ const setTestRunActiveNodes = (graph = {}, nodeIds = []) => {
   state.testRun = {
     ...state.testRun,
     activeNodeIds: nodeIds.filter(Boolean),
-    activeEdgeIds: activeOutgoingDependencyIds(graph, nodeIds),
+    activeEdgeIds: [],
   };
   refreshLiveGraphState();
 };
@@ -1062,7 +1062,7 @@ const replayRuntimeEvent = async (event = {}) => {
     nodeIds: path.nodeIds,
     edgeIds: path.edgeIds,
     activeNodeIds: [sourceNode.id],
-    activeEdgeIds: activeOutgoingDependencyIds(graph, [sourceNode.id]),
+    activeEdgeIds: [],
     startedAt: new Date().toISOString(),
     completedAt: "",
     summary: "Replaying inspector event...",
@@ -5142,7 +5142,7 @@ const runFlowMapTest = async (starterNode = null) => {
     nodeIds: path.nodeIds,
     edgeIds: path.edgeIds,
     activeNodeIds: starters.map((node) => node.id),
-    activeEdgeIds: activeOutgoingDependencyIds(graph, starters.map((node) => node.id)),
+    activeEdgeIds: [],
     startedAt,
     completedAt: "",
     summary: `Running test: ${starters.length} starter${starters.length === 1 ? "" : "s"}`,
@@ -5282,7 +5282,7 @@ const runFlowMapLiveTest = async (starterNode = null) => {
     nodeIds: path.nodeIds,
     edgeIds: path.edgeIds,
     activeNodeIds: starters.map((node) => node.id),
-    activeEdgeIds: activeOutgoingDependencyIds(graph, starters.map((node) => node.id)),
+    activeEdgeIds: [],
     startedAt,
     completedAt: "",
     summary: `${keepOpen ? "Streaming live test" : "Running live test"}: ${starters.length} starter${starters.length === 1 ? "" : "s"}`,
@@ -5317,9 +5317,9 @@ const runFlowMapLiveTest = async (starterNode = null) => {
       (result.channels || []).forEach((channel) => emittedChannels.add(channel));
     }
 
-    const activeAiNodeIds = aiNodesInPath(graph, path).map((node) => node.id);
-    if (activeAiNodeIds.length) setTestRunActiveNodes(graph, activeAiNodeIds);
-    else clearTestRunActiveNodes();
+    // Downstream jobs start only when their runtime accepts an input. Their
+    // lifecycle events, not membership in this path, drive the animation.
+    clearTestRunActiveNodes();
     if (hasAiInPath) {
       await ensureAiPathExecution({ workspaceId, runId, graph, path, signal: abortController.signal });
     }

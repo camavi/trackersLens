@@ -28,6 +28,8 @@ Last updated: 2026-06-11.
 
 ## Helpers
 
+Activity rendering distinguishes actual data transfers from lifecycle signals. Data highlights require matching source/target/workspace and dependency channel; lifecycle signals affect only the executing owner, never downstream wildcard edges. Working AI nodes do not imply outgoing transfers, and live-run path membership does not imply execution. Terminal lifecycle updates supersede older visual leases; the renderer schedules refreshes at the next activity expiry.
+
 - `TrackerLensRuntimeGraphStore`
 - `TrackerLensChannelRegistry`
 - `TrackerLensRuntimeSnapshotStore`

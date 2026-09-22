@@ -259,7 +259,7 @@ const LIVE_TEST_TIMEOUT_MS = 10000;
 const AI_DIRECT_TEST_TIMEOUT_MS = 120000;
 const AI_PROCESSING_VISUAL_TIMEOUT_MS = 300000;
 const MIN_TEST_ANIMATION_MS = 3000;
-const EDGE_ACTIVITY_WINDOW_MS = 12000;
+const EDGE_ACTIVITY_WINDOW_MS = 1500;
 const [getUpdatedAtState, setUpdatedAtSignal] = flowReactive.signal(state.updatedAt);
 const [getLoadingState, setLoadingSignal] = flowReactive.signal(state.loading);
 const [getErrorState, setErrorSignal] = flowReactive.signal(state.error);
@@ -1515,38 +1515,21 @@ const previewPayloadForNodeEvent = (node = {}, event = {}) => {
 };
 
 const updateAiProcessingFromEvent = (event = {}) => {
-  const graph = state.runtime || { nodes: [], dependencies: [] };
-  const nodesById = new Map((graph.nodes || []).map((node) => [node.id, node]));
-  const runId = event.meta?.runId || event.payload?.runId || "";
-  const inputEventId = event.id || "";
-  const eventType = String(event.eventType || "").toLowerCase();
-
-  if (eventType.includes("ai_agent_response") || eventType.includes("ai_agent_error")) {
-    const nodeId = event.sourceNodeId || event.meta?.aiAgentRuntime || "";
-    if (nodeId && state.aiProcessing[nodeId]) {
-      state.aiProcessing = { ...state.aiProcessing };
-      delete state.aiProcessing[nodeId];
-    }
-    return;
-  }
-
-  const targets = (graph.dependencies || [])
-    .filter((dependency) => dependency.channel === event.channel)
-    .map((dependency) => nodesById.get(dependency.targetNodeId))
-    .filter((node) => runtimeKindForNode(node) === "ai");
-  if (!targets.length) return;
-  const now = new Date().toISOString();
-  state.aiProcessing = {
-    ...state.aiProcessing,
-    ...Object.fromEntries(targets.map((node) => [node.id, {
-      nodeId: node.id,
-      runId,
-      inputEventId,
-      inputChannel: event.channel || "",
-      startedAt: now,
-      expiresAt: new Date(Date.now() + AI_PROCESSING_VISUAL_TIMEOUT_MS).toISOString(),
-    }])),
-  };
+  const type = String(event.eventType || '').toLowerCase();
+  if (!['ai_agent_step', 'ai_agent_response', 'ai_agent_error'].includes(type)) return;
+  const nodeId = event.meta?.aiAgentRuntime || event.sourceNodeId || '';
+  const node = (state.runtime.nodes || []).find(item => item.id === nodeId);
+  if (!node || runtimeKindForNode(node) !== 'ai' || (event.workspaceId && node.workspaceId && event.workspaceId !== node.workspaceId)) return;
+  const status = String(event.payload?.status || event.status || '').toLowerCase();
+  const working = type === 'ai_agent_step' && ['working', 'planning', 'running_llm', 'waiting_for_tools'].includes(status);
+  const jobId = event.meta?.jobId || event.payload?.jobId || 'current';
+  const jobs = { ...(state.aiProcessing[nodeId]?.jobs || {}) };
+  if (working) jobs[jobId] = { expiresAt: new Date(Date.now() + AI_PROCESSING_VISUAL_TIMEOUT_MS).toISOString() };
+  else if (['ai_agent_response', 'ai_agent_error'].includes(type) || ['complete', 'completed', 'emitting', 'error', 'fallback', 'idle'].includes(status)) delete jobs[jobId];
+  else return;
+  state.aiProcessing = { ...state.aiProcessing };
+  if (Object.keys(jobs).length) state.aiProcessing[nodeId] = { nodeId, jobs, expiresAt: Object.values(jobs).map(item => item.expiresAt).sort().at(-1) };
+  else delete state.aiProcessing[nodeId];
 };
 
 const activeAiProcessingNodeIds = () => {
@@ -1559,8 +1542,8 @@ const activeAiProcessingNodeIds = () => {
   return entries.map(([nodeId]) => nodeId);
 };
 
-const activeProcessingEdgeIds = (graph = state.runtime) =>
-  activeOutgoingDependencyIds(graph, activeAiProcessingNodeIds());
+// Processing does not imply that an output has been emitted.
+const activeProcessingEdgeIds = () => [];
 
 const isPreviewPayloadEvent = (event = {}) => {
   const type = String(event.eventType || "").toLowerCase();
@@ -1622,11 +1605,6 @@ const scheduleLiveRender = () => {
       return;
     }
     refreshLiveGraphState();
-    window.clearTimeout(state.liveActivityClearTimer);
-    state.liveActivityClearTimer = window.setTimeout(() => {
-      state.liveActivityClearTimer = 0;
-      refreshLiveGraphState();
-    }, EDGE_ACTIVITY_WINDOW_MS + 120);
   });
 };
 
@@ -1708,6 +1686,13 @@ const refreshLiveGraphState = () => {
   refreshLiveBusDom();
   updateLiveClasses(graph, activity);
   renderFlowEdges();
+  window.clearTimeout(state.liveActivityClearTimer);
+  const expiries = [activity.nextExpiryAt, ...Object.values(state.aiProcessing || {}).map(item => Date.parse(item.expiresAt || ''))]
+    .filter(value => Number.isFinite(value) && value >= Date.now());
+  state.liveActivityClearTimer = expiries.length ? window.setTimeout(() => {
+    state.liveActivityClearTimer = 0;
+    refreshLiveGraphState();
+  }, Math.max(1, Math.min(...expiries) - Date.now() + 20)) : 0;
 };
 
 const connectLiveEventBus = () => {
