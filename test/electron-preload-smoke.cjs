@@ -4,9 +4,7 @@ const { app, BrowserWindow, ipcMain } = require("electron");
 
 const projectRoot = path.resolve(__dirname, "..");
 const preloadPath = path.join(projectRoot, "electron", "preload.cjs");
-const flowMapPage = path.join(projectRoot, "flowMap.html");
-const settingsPage = path.join(projectRoot, "settings.html");
-const databasePage = path.join(projectRoot, "database.html");
+const appPage = path.join(projectRoot, "app.html");
 
 ipcMain.handle("trackers-core:request", (_event, command) => {
   if (command === "desktop.persistence.getStatus") {
@@ -17,6 +15,20 @@ ipcMain.handle("trackers-core:request", (_event, command) => {
   }
   if (command === "desktop.persistence.readDevelopmentRecords") {
     return [{ id: "page-smoke", name: "Smoke workspace" }];
+  }
+  // Pages may complete an already-scheduled, read-only bootstrap request while
+  // the smoke window moves to the next page. These commands are deliberately
+  // represented by empty projections in this bridge-only test.
+  if (command === "desktop.customNodePackages.list") return [];
+  if (command === "desktop.persistence.readDevelopmentRecordSummaryPage") {
+    return { records: [], nextCursor: null };
+  }
+  if (command === "desktop.persistence.readDevelopmentRecordById") return null;
+  if (command === "desktop.persistence.readAiRuntimeCenterSummary") {
+    return { providers: [], agents: [], jobs: [], logs: [], memory: [], prompts: [] };
+  }
+  if (command === "desktop.persistence.readConnectionSummaryPage") {
+    return { records: [], nextCursor: null };
   }
   throw new Error(`Unexpected smoke-test command: ${command}`);
 });
@@ -33,9 +45,21 @@ app.whenReady().then(async () => {
     },
   });
   try {
-    await window.loadFile(flowMapPage);
-    await window.loadFile(settingsPage);
-    await window.loadFile(databasePage);
+    for (const route of ["flowMap.html", "settings.html", "database.html"]) {
+      await window.loadFile(appPage, { query: { "tl-route": route } });
+      const jsSwiftRuntime = await window.webContents.executeJavaScript(`
+        ({
+          present: Boolean(window.JSswift),
+          ready: typeof window.JSswift?.ready,
+          reactive: typeof window.JSswift?.reactive
+        })
+      `);
+      assert.deepEqual(jsSwiftRuntime, {
+        present: true,
+        ready: "function",
+        reactive: "object",
+      });
+    }
     const bridge = await window.webContents.executeJavaScript(`
       Promise.all([
         window.trackers?.desktop?.persistence?.getStatus?.(),

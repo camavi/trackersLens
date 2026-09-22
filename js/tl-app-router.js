@@ -3,6 +3,8 @@ window.TrackerLensAppRouter = (() => {
   let active = null;
   let outlet = null;
   let started = false;
+  const shellEntry = "app.html";
+  const routeParameter = "tl-route";
   const normalizePath = (value = window.location.pathname) => {
     const path = String(value || "/").replace(/\\/g, "/");
     // Electron file:// URLs expose an absolute filesystem pathname, while
@@ -13,11 +15,27 @@ window.TrackerLensAppRouter = (() => {
     return path.startsWith("/") ? path : `/${path}`;
   };
 
-  const currentLocation = () => ({
-    path: normalizePath(),
-    query: new URLSearchParams(window.location.search),
-    hash: window.location.hash || "",
-  });
+  const currentLocation = () => {
+    const query = new URLSearchParams(window.location.search);
+    const compatibilityRoute = query.get(routeParameter);
+    const path = normalizePath();
+    const routePath = path === `/${shellEntry}` && compatibilityRoute && /^[a-zA-Z0-9_-]+\.html$/u.test(compatibilityRoute)
+      ? normalizePath(compatibilityRoute)
+      : path;
+    query.delete(routeParameter);
+    return { path: routePath, query, hash: window.location.hash || "" };
+  };
+
+  const shellUrlFor = (url) => {
+    const target = new URL(url, window.location.href);
+    const route = normalizePath(target.pathname);
+    const query = new URLSearchParams(target.search);
+    query.set(routeParameter, route.slice(1));
+    const shellUrl = new URL(shellEntry, target);
+    shellUrl.search = query.toString();
+    shellUrl.hash = target.hash;
+    return `${shellUrl.pathname}${shellUrl.search}${shellUrl.hash}`;
+  };
 
   const resolve = (path = normalizePath()) => routes.get(normalizePath(path)) || null;
 
@@ -55,7 +73,7 @@ window.TrackerLensAppRouter = (() => {
       window.location.assign(url.toString());
       return;
     }
-    window.history[replace ? "replaceState" : "pushState"]({}, "", `${url.pathname}${url.search}${url.hash}`);
+    window.history[replace ? "replaceState" : "pushState"]({}, "", shellUrlFor(url));
     await render();
   };
 
@@ -74,10 +92,10 @@ window.TrackerLensAppRouter = (() => {
     renderer: "shell",
     started,
     activePath: active?.location?.path || "",
-    currentPath: normalizePath(),
+    currentPath: currentLocation().path,
     registeredRoutes: Array.from(routes.keys()),
   });
 
-  const api = { register, navigate, start, render, resolve, currentLocation, status };
+  const api = { register, navigate, start, render, resolve, currentLocation, status, canonicalize: shellUrlFor };
   return api;
 })();

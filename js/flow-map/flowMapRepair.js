@@ -217,7 +217,7 @@
   workspaceLabel.textContent = workspaceId;
   modeLabel.textContent = mode;
   warning.style.display = isGlobalFlowMapMode() || isWipeDbMode() ? "block" : "none";
-  openFlow.href = `flowMap.html?workspaceId=${encodeURIComponent(workspaceId)}`;
+  openFlow.href = `app.html?tl-route=flowMap.html&workspaceId=${encodeURIComponent(workspaceId)}`;
   scanButton.addEventListener("click", () => scan().catch((error) => write(`Scan failed: ${error.message || error}`)));
   button.addEventListener("click", () => repair().catch((error) => write(`Repair failed: ${error.message || error}`)));
   if (params.get("auto") === "1") scan().catch((error) => write(`Scan failed: ${error.message || error}`));

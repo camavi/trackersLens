@@ -187,7 +187,13 @@ const openChromePage = (url) => {
     window.TrackerLensSidebar.navigate(url);
     return;
   }
-  window.location.assign(url);
+  const target = new URL(url, window.location.href);
+  if (/\.html$/i.test(target.pathname)) {
+    const route = target.pathname.split("/").pop();
+    target.pathname = target.pathname.replace(/[^/]+$/u, "app.html");
+    target.searchParams.set("tl-route", route);
+  }
+  window.location.assign(target.toString());
 };
 
 const openEditor = () => {

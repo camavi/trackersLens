@@ -6,7 +6,8 @@ const runtimeParams = new URLSearchParams(window.location.search);
 
 if (runtimeParams.get("view") === "graph") {
   runtimeParams.delete("view");
-  window.location.replace(`flowMap.html${runtimeParams.toString() ? `?${runtimeParams.toString()}` : ""}`);
+  runtimeParams.set("tl-route", "flowMap.html");
+  window.location.replace(`app.html?${runtimeParams.toString()}`);
 }
 
 const connectionTypes = [

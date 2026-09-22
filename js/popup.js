@@ -1,12 +1,17 @@
 const popupData = window.TrackerLensPopupData;
 
 const openChromePage = (url) => {
+  const target = new URL(url, window.location.href);
+  if (/\.html$/i.test(target.pathname) && !/\/(?:options|popup|info)\.html$/i.test(target.pathname)) {
+    target.pathname = target.pathname.replace(/[^/]+$/u, "app.html");
+    target.searchParams.set("tl-route", new URL(url, window.location.href).pathname.split("/").pop());
+  }
   if (window.chrome?.tabs?.create) {
-    chrome.tabs.create({ url });
+    chrome.tabs.create({ url: target.toString() });
     return;
   }
 
-  window.open(url, "_blank", "noopener");
+  window.open(target.toString(), "_blank", "noopener");
 };
 
 const icon = (name, size = "md") => _.Icon({ name, size });
