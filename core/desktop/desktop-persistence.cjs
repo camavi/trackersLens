@@ -591,6 +591,38 @@ class DesktopPersistence {
     }
   }
 
+  readLatestRuntimeOutputs({ workspaceId = "" } = {}) {
+    const scope = String(workspaceId || "");
+    if (!scope) throw new Error("A workspaceId is required for runtime outputs.");
+    const database = new DatabaseSync(this.databasePath, { readOnly: true });
+    try {
+      // Latest data per route, not an arbitrary history page. Keep full payloads
+      // and exclude visual activity/pulses before ranking so they cannot erase OUT.
+      return database.prepare(`
+        WITH ranked AS (
+          SELECT record_json, ROW_NUMBER() OVER (
+            PARTITION BY workspace_id,
+              COALESCE(json_extract(record_json, '$.sourceNodeId'), ''),
+              COALESCE(json_extract(record_json, '$.channel'), ''),
+              COALESCE(json_extract(record_json, '$.targetNodeId'), '')
+            ORDER BY COALESCE(json_extract(record_json, '$.createdAt'), created_at) DESC, id DESC
+          ) AS position
+          FROM tl_records
+          WHERE store_name = 'tl_events' AND (? = 'all' OR workspace_id = ?)
+            AND LOWER(COALESCE(json_extract(record_json, '$.eventType'), '')) NOT LIKE '%pulse%'
+            AND LOWER(COALESCE(json_extract(record_json, '$.eventType'), '')) NOT LIKE '%_activity'
+            AND LOWER(COALESCE(json_extract(record_json, '$.eventType'), '')) NOT LIKE '%_runtime_activity%'
+            AND NOT COALESCE(json_extract(record_json, '$.meta.runtimeActivityVisual'), 0)
+            AND NOT (COALESCE(json_extract(record_json, '$.payload.route'), '') != ''
+              AND COALESCE(json_extract(record_json, '$.payload.channel'), '') != ''
+              AND (COALESCE(json_extract(record_json, '$.payload.live'), 0) OR COALESCE(json_extract(record_json, '$.payload.__test'), 0)))
+        ) SELECT record_json FROM ranked WHERE position = 1
+      `).all(scope, scope).map(row => JSON.parse(row.record_json));
+    } finally {
+      database.close();
+    }
+  }
+
   readLatestDevelopmentRecord({ storeName = "", nodeId = "", runId = "" } = {}) {
     const name = String(storeName || "");
     const targetNodeId = String(nodeId || "");

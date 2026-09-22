@@ -25,6 +25,10 @@ The hierarchical capability map QA is closed: the compact `tl.catalog.*` discove
 
 ## Current Work
 
+- Flow Map OUT/Preview refresh regression: closed after user verification and Electron restart. Graph-only SQLite snapshots intentionally omit history, but the renderer replaced live events with that empty list and cleared Preview. Refresh now merges scoped live observations (including in-flight arrivals); Core provides complete latest data events per source/channel/target for reopening, excluding activity/pulses before ranking. History pages also merge instead of erasing current outputs. All 73 tests and Electron smoke pass.
+
+- Preview JSON readability: Mapped expands valid JSON object/array strings recursively in a presentation copy, including LLM answer/response.text fields. A visible note explains the expansion. Copy follows the displayed Mapped value; Raw and persisted runtime payloads keep original string types. Focused tests and app checks pass; visual QA pending.
+
 - Account email follow-up closed for implementation: Codex now reads official app-server `account/read` with `refreshToken: false` when CLI login status omits the email. Only account type/email are projected; no raw responses or credentials are logged. Chat/AI Center use the existing SQLite display identity. Check and 69 tests pass; the updated Core requires an app restart.
 
 - Provider account identity: Core persists only the official status email as display metadata in SQLite settings. Chat Settings and AI Center show the current reported email; when absent, a remembered email is explicitly labeled as the last observed account, never proof of current identity or authentication. A successful logout or unauthenticated status removes it. Account changes replace it. SQLite regression coverage passes.

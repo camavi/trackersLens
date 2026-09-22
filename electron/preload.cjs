@@ -29,6 +29,7 @@ const trackers = Object.freeze({
       verifyDevelopmentFirstCohort: (bundle = {}) => request("desktop.persistence.verifyDevelopmentFirstCohort", { bundle }),
       listDevelopmentStores: () => request("desktop.persistence.listDevelopmentStores"),
       readDevelopmentRecords: ({ storeName, workspaceId = "" } = {}) => request("desktop.persistence.readDevelopmentRecords", { storeName: String(storeName || ""), workspaceId: String(workspaceId || "") }),
+      readLatestRuntimeOutputs: ({ workspaceId = "" } = {}) => request("desktop.persistence.readLatestRuntimeOutputs", { workspaceId: String(workspaceId || "") }),
       readConnectionRecordsForWorkspace: ({ workspaceId, includeGlobal = true } = {}) => request("desktop.persistence.readConnectionRecordsForWorkspace", { workspaceId: String(workspaceId || ""), includeGlobal: Boolean(includeGlobal) }),
       readDevelopmentRecordPage: ({ storeName, workspaceId = "", offset = 0, limit = 25 } = {}) => request("desktop.persistence.readDevelopmentRecordPage", { storeName: String(storeName || ""), workspaceId: String(workspaceId || ""), offset: Number(offset) || 0, limit: Number(limit) || 25 }),
       readDevelopmentRecordSummaryPage: ({ storeName, workspaceId = "", offset = 0, limit = 25 } = {}) => request("desktop.persistence.readDevelopmentRecordSummaryPage", { storeName: String(storeName || ""), workspaceId: String(workspaceId || ""), offset: Number(offset) || 0, limit: Number(limit) || 25 }),

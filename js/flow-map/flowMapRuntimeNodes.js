@@ -2453,6 +2453,19 @@ const parsePreviewJsonString = (value = "") => {
   }
 };
 
+// Presentation copy only; runtime payloads and Raw retain their original types.
+const expandPreviewJsonStrings = (value) => {
+  if (typeof value === "string") {
+    const parsed = parsePreviewJsonString(value);
+    return parsed === null ? value : expandPreviewJsonStrings(parsed);
+  }
+  if (Array.isArray(value)) return value.map(expandPreviewJsonStrings);
+  if (value && typeof value === "object") {
+    return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, expandPreviewJsonStrings(item)]));
+  }
+  return value;
+};
+
 const previewValueText = (value, mode = "auto") => {
   if (mode === "raw") return typeof value === "string" ? value : prettyRuntimeValue(value);
   if (typeof value === "string") {
@@ -3551,7 +3564,7 @@ const openPreviewPayloadDialog = (node = {}, options = {}) => {
   const mode = String(config.previewMode || config.mode || "auto").toLowerCase();
   const previewKey = options.previewKey || node.id || `preview_${Date.now()}`;
   const tabs = [
-    { id: "mapped", label: "Mapped", value: record.payload },
+    { id: "mapped", label: "Mapped", value: mode === "raw" ? record.payload : expandPreviewJsonStrings(record.payload) },
     { id: "graph", label: "Graph", value: record.payload, view: "graph" },
     record.originalPayload !== undefined && record.originalPayload !== null
       ? { id: "original", label: "Original", value: record.originalPayload }
@@ -3595,6 +3608,9 @@ const openPreviewPayloadDialog = (node = {}, options = {}) => {
           },
         }, tabItem.label))
       ),
+      activeTab === "mapped" && mode !== "raw"
+        ? _.small("JSON nelle stringhe espanso per la lettura. Raw conserva il payload originale.")
+        : null,
       _.div(
         { class: "tl-flow-preview-searchbar" },
         _.label(

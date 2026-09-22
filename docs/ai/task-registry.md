@@ -7,6 +7,10 @@ Last updated: 2026-09-22.
 
 ## Active
 
+- Flow Map OUT/Preview retention regression: closed after user verification and Electron restart. Implemented same-workspace observation preservation across topology/history refresh and scoped SQLite latest-output restoration on reopen. No full-history transfer or payload truncation. Regression coverage checks in-flight events, workspace isolation, pulse/activity exclusion and persisted output recovery. All 73 tests and Electron smoke pass.
+
+- Preview JSON readability follow-up: implemented recursive presentation-only expansion of JSON strings in Mapped, with explicit notice and original Raw inspection. Plain text, malformed JSON and scalar strings remain unchanged. Focused regression tests and app checks pass; visual QA pending.
+
 ### TASK-034: Per-node LLM API and Login Providers
 
 - Account email retrieval follow-up: implemented and closed at user request. Official Codex app-server `account/read` supplies the email missing from CLI login status; protocol projection and unavailable-metadata tests pass alongside SQLite identity lifecycle tests (69 tests total). No raw credential diagnostics are emitted. Live-provider email display has not been independently verified.

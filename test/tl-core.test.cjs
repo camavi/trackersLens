@@ -227,6 +227,30 @@ test("external account display identity persists, updates and clears without aut
   assert.equal((await get()).rememberedAccountEmail, "");
 });
 
+test("runtime output projection restores complete latest route payloads without pulses or other workspaces", async (context) => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "tl-latest-outputs-"));
+  context.after(() => fs.rmSync(directory, { recursive: true, force: true }));
+  const persistence = new DesktopPersistence({ databasePath: path.join(directory, "fixture.sqlite"), profileId: "test" });
+  persistence.initialize();
+  const record = (id, second, extra = {}) => ({ id, workspaceId: 'flow-a', sourceNodeId: 'debugger', channel: 'diagnostic',
+    createdAt: `2026-09-22T10:00:${second}Z`, eventType: 'ai_agent_response', payload: { answer: 'complete response' }, ...extra });
+  persistence.writeDevelopmentRecords({ storeName: 'tl_events', records: [
+    record('old', '01'), record('latest', '02'),
+    record('pulse', '03', { eventType: 'test_pulse' }),
+    record('activity', '04', { eventType: 'ai_runtime_activity', meta: { runtimeActivityVisual: true } }),
+    record('routing', '05', { payload: { route: 'a', channel: 'diagnostic', live: true } }),
+    record('other-channel', '01', { channel: 'result' }),
+    record('other-node', '01', { sourceNodeId: 'agent-2' }),
+    record('other-workspace', '06', { workspaceId: 'flow-b' }),
+  ] });
+  const core = createTlCore({ adapters: { persistence } });
+  const outputs = await core.request('desktop.persistence.readLatestRuntimeOutputs', { workspaceId: 'flow-a' });
+  assert.deepEqual(outputs.map(r => r.id).sort(), ['latest', 'other-channel', 'other-node']);
+  assert.equal(outputs.find(r => r.id === 'latest').payload.answer, 'complete response');
+  assert.equal(persistence.readDevelopmentRecords({ storeName: 'tl_events' }).length, 8);
+  await assert.rejects(core.request('desktop.persistence.readLatestRuntimeOutputs'), /workspaceId/);
+});
+
 test("desktop persistence exposes only status and an allow-listed import plan", async (context) => {
   const fixtureDirectory = fs.mkdtempSync(path.join(os.tmpdir(), "trackers-lens-persistence-"));
   context.after(() => fs.rmSync(fixtureDirectory, { recursive: true, force: true }));

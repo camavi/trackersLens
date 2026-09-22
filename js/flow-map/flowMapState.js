@@ -1194,7 +1194,6 @@ const loadRuntime = async (options = {}) => {
   const purpose = options.purpose || "graph";
   const historyOffset = Math.max(0, Math.floor(Number(options.historyOffset) || 0));
   const historyLimit = Math.max(1, Math.floor(Number(options.historyLimit) || 10));
-  const appendHistory = Boolean(options.appendHistory);
   const previousGraphSignature = runtimeGraphSignature();
   if (state.runtimeLoadInFlight && !force) {
     state.pendingRuntimeRefresh = true;
@@ -1267,8 +1266,13 @@ const loadRuntime = async (options = {}) => {
       connections
     );
     const repairedConnections = await repairMissingDependencyConnections(nodes, mergedDependencies, connections);
-    const priorEvents = appendHistory ? state.runtime.events || [] : [];
-    const priorFlowLogs = appendHistory ? state.runtime.flowLogs || [] : [];
+    const latestOutputs = purpose === "graph"
+      ? await window.trackers.desktop.persistence.readLatestRuntimeOutputs({ workspaceId })
+      : [];
+    // A topology refresh contains no event history. Preserve live observations,
+    // including events received while the SQLite request was in flight.
+    const priorEvents = (state.runtime.events || []).filter(record => workspaceId === "all" || record.workspaceId === workspaceId);
+    const priorFlowLogs = (state.runtime.flowLogs || []).filter(record => workspaceId === "all" || record.workspaceId === workspaceId);
     const mergeById = (existing = [], incoming = []) => {
       const records = new Map(existing.map((record) => [String(record.id || ""), record]));
       incoming.forEach((record) => records.set(String(record.id || ""), record));
@@ -1277,7 +1281,7 @@ const loadRuntime = async (options = {}) => {
     setRuntimeState({
       channels,
       flows,
-      events: recentRuntimeRecords(mergeById(priorEvents, events)).map(sanitizeRuntimeEventForUi),
+      events: recentRuntimeRecords(mergeById(mergeById(latestOutputs, events), priorEvents)).map(sanitizeRuntimeEventForUi),
       flowLogs: recentRuntimeRecords(mergeById(priorFlowLogs, flowLogs)).map(sanitizeFlowLogForUi),
       nodes,
       dependencies: mergedDependencies,
@@ -1362,8 +1366,8 @@ const loadRuntimeHistory = async ({ append = false, offset = 0, limit = 10 } = {
       incoming.forEach((record) => records.set(String(record.id || ""), record));
       return [...records.values()];
     };
-    const events = append ? mergeById(state.runtime.events || [], snapshot.events || []) : snapshot.events || [];
-    const flowLogs = append ? mergeById(state.runtime.flowLogs || [], snapshot.flowLogs || []) : snapshot.flowLogs || [];
+    const events = mergeById(snapshot.events || [], state.runtime.events || []);
+    const flowLogs = mergeById(snapshot.flowLogs || [], state.runtime.flowLogs || []);
     setRuntimeState({
       ...state.runtime,
       events: recentRuntimeRecords(events).map(sanitizeRuntimeEventForUi),

@@ -22,6 +22,7 @@ ipcMain.handle("trackers-core:request", (_event, command) => {
   // the smoke window moves to the next page. These commands are deliberately
   // represented by empty projections in this bridge-only test.
   if (command === "desktop.customNodePackages.list") return [];
+  if (command === "desktop.persistence.readLatestRuntimeOutputs") return [];
   if (command === "desktop.persistence.readDevelopmentRecordSummaryPage") {
     return { records: [], nextCursor: null };
   }
