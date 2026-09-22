@@ -2270,6 +2270,7 @@ body.is-flow-link-dragging .tl-flow-node:not(.is-link-source) .tl-flow-node-port
 
 .tl-flow-node-metrics {
   display: flex;
+  align-items: center;
   gap: 5px;
   min-width: 0;
   overflow: hidden;
@@ -2286,6 +2287,35 @@ body.is-flow-link-dragging .tl-flow-node:not(.is-link-source) .tl-flow-node-port
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.tl-flow-node-timing {
+  display: inline-flex;
+  align-items: center;
+  flex-shrink: 0;
+}
+
+.tl-flow-node-metrics .tl-flow-node-timing-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  width: 18px;
+  height: 18px;
+  min-width: 18px;
+  min-height: 18px;
+  margin: 0;
+  padding: 0;
+  line-height: 1;
+  color: rgba(var(--node-rgb, 214, 226, 235), 0.9);
+  border: 1px solid rgba(var(--node-rgb, 214, 226, 235), 0.2);
+  border-radius: 5px;
+  background: rgba(var(--node-rgb, 214, 226, 235), 0.07);
+}
+
+.tl-flow-node-timing-btn .material-symbols-rounded {
+  font-size: 12px;
+  line-height: 1;
 }
 
 .tl-flow-node-token-metrics {

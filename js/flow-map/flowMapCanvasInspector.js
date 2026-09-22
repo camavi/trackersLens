@@ -1149,7 +1149,8 @@ const renderNodeMetrics = (node = {}, ...labels) => {
   const metrics = labels.flat().filter((label) => label !== null && label !== undefined && label !== "");
   return _.span(
     { class: "tl-flow-node-metrics" },
-    ...metrics.map((label) => _.em(String(label)))
+    ...metrics.map((label) => _.em(String(label))),
+    renderNodeTiming(node)
   );
 };
 
@@ -1201,6 +1202,7 @@ const openNodeTimingDialog = async (node, event) => {
               span.preparationPhases ? _.details(_.summary('Dettaglio preparazione (tempi inclusi)'), ...Object.entries(span.preparationPhases).map(([key, ms]) => _.div(`${preparationLabels[key] || key}: ${timingDuration(ms)}`))) : null,
               span.toolPlannerMs != null ? _.div(`Planner strumenti (incluso nella preparazione): ${timingDuration(span.toolPlannerMs)}`) : null,
               span.providerMs != null ? _.div(`Fase LLM: ${timingDuration(span.providerMs)} · chiamate risposta: ${span.responseCalls ?? 'n/d'} · planner strumenti: ${span.toolPlannerUsed ? 'sì' : 'no'}`) : null,
+              ...(span.responseAttempts || []).map(attempt => _.div(`${attempt.phase === 'direct' ? 'Tentativo diretto' : 'Risposta dopo approfondimento'}: ${timingDuration(attempt.durationMs)}`)),
               ...(span.providerTimings || []).filter(Boolean).map((item, index) => _.div(`Chiamata ${index + 1}: account ${timingDuration(item.accountCheckMs)} · default ${timingDuration(item.defaultsReadMs)} · provider ${timingDuration(item.providerTransportMs)}`)),
               ...Object.entries(span.phases || {}).map(([key, value]) => _.div(`${phaseLabels[key] || key}: ${timingDuration(value)}`)),
               ...(span.tools || []).map(tool => _.div(`${tool.tool}: ${timingDuration(tool.durationMs)}${tool.ok === false ? ' · errore' : ''}`))
@@ -1217,15 +1219,14 @@ const openNodeTimingDialog = async (node, event) => {
 
 const renderNodeTiming = (node) => {
   const event = latestNodeTiming(node);
-  if (!event) return _.div({ 'data-node-timing': node.id });
-  const span = event.meta.timing.spans.findLast(item => item.nodeId === node.id);
-  return _.div({ 'data-node-timing': node.id }, flowMapBtn({ title: 'Tempi per nodo, totale e chiamate ripetute', onPointerDown: stopNodeControlEvent, onclick: (eventClick) => { eventClick.stopPropagation(); void openNodeTimingDialog(node, event); } },
-    flowMapIcon('timer', 'sm'), `${timingDuration(span.durationMs)} · Totale ${timingDuration(event.meta.timing.totalMs)}`));
+  if (!event) return _.span({ 'data-node-timing': node.id, hidden: true });
+  const label = 'Tempi di esecuzione';
+  const button = flowMapBtn({ class: 'tl-flow-node-timing-btn', title: label, 'aria-label': label, onPointerDown: stopNodeControlEvent, onclick: (eventClick) => { eventClick.stopPropagation(); void openNodeTimingDialog(node, event); } }, flowMapIcon('timer', 'sm'));
+  return _.span({ 'data-node-timing': node.id, class: 'tl-flow-node-timing' }, _.Tooltip ? _.Tooltip(button, label) : button);
 };
 
 const renderNodeMetricRows = (node = {}, ...labels) => [
   renderNodeMetrics(node, ...labels),
-  renderNodeTiming(node),
   renderNodeTokenMetrics(node),
 ].filter(Boolean);
 

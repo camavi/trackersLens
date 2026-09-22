@@ -37,6 +37,10 @@ An Agent node that receives a user question or task should run this loop:
 
 For answer tasks, source text is the highest-authority evidence. Graph, dictionary and event tools help locate, explain and verify source text; they do not replace it.
 
+The AI Agent first attempts an answer with the received RAG/graph/input/memory context, without planning or calling tools. If the LLM needs more evidence it returns exactly `{"tlNeedsEvidence":{"reason":"missing evidence","query":"question to investigate"}}`. Only this complete JSON control object (optionally fenced) triggers discovery/planning; prose, ordinary answer statuses and embedded JSON do not. The planner receives the explicit request and existing normalized RAG/graph evidence, including with a single connected node. A valid empty plan is honored without heuristic calls; malformed plans retain fallback. Explicit valid tool calls remain honored.
+
+After evidence follow-up, the LLM makes a final answer attempt in the node's requested format and is instructed to state unresolved evidence gaps. There is no automatic planner restart; if the model still returns a control object, it remains inspectable unchanged. Both full attempt prompts/text/usage are persisted, including the first request, and timing separates answer calls from tools/planning. Token-limit continuations retain the node's configured policy for each attempt. Disabled tools skip discovery/planning/execution and the prompt asks for a direct answer with explicit limitations. The RAG node's `searchChunks` tool currently uses local lexical Document-tool retrieval, not the Python embedding/hybrid/reranking pipeline.
+
 ## Tool Declaration
 
 Every runtime node can expose an optional `agentTools` declaration in node config, manifest metadata or a runtime capability adapter.
