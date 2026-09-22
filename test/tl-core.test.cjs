@@ -247,7 +247,14 @@ test("runtime output projection restores complete latest route payloads without 
   const outputs = await core.request('desktop.persistence.readLatestRuntimeOutputs', { workspaceId: 'flow-a' });
   assert.deepEqual(outputs.map(r => r.id).sort(), ['latest', 'other-channel', 'other-node']);
   assert.equal(outputs.find(r => r.id === 'latest').payload.answer, 'complete response');
-  assert.equal(persistence.readDevelopmentRecords({ storeName: 'tl_events' }).length, 8);
+  const timing = { traceId: 'question', totalMs: 1200, spans: [{ id: 'rag', durationMs: 1200 }] };
+  persistence.writeDevelopmentRecords({ storeName: 'tl_events', records: [
+    record('trace-a', '10', { meta: { timing } }),
+    record('trace-b', '10', { workspaceId: 'flow-b', meta: { timing } }),
+  ] });
+  assert.deepEqual(await core.request('desktop.persistence.readRuntimeTimingTrace', { workspaceId: 'flow-a', traceId: 'question' }), [timing]);
+  await assert.rejects(core.request('desktop.persistence.readRuntimeTimingTrace', { workspaceId: 'flow-a' }), /trace ID/);
+  assert.equal(persistence.readDevelopmentRecords({ storeName: 'tl_events' }).length, 10);
   await assert.rejects(core.request('desktop.persistence.readLatestRuntimeOutputs'), /workspaceId/);
 });
 
@@ -284,6 +291,37 @@ test("desktop persistence exposes only status and an allow-listed import plan", 
   assert.equal(backupManifest.backupCreated, false);
   await assert.rejects(core.request("desktop.persistence.planImport", { bundle: { stores: { arbitrary_sql: [] } } }), /Unsupported persistence store/);
   await assert.rejects(core.request("desktop.persistence.executeSql", { sql: "SELECT 1" }), /Unsupported TL Core command/);
+});
+
+test("persistence readiness avoids full integrity scans while explicit diagnostics still verify", async (context) => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "tl-readiness-"));
+  context.after(() => fs.rmSync(directory, { recursive: true, force: true }));
+  const persistence = new DesktopPersistence({ databasePath: path.join(directory, "fixture.sqlite") });
+  persistence.initialize();
+  const core = createTlCore({ adapters: { persistence } });
+  const checkIntegrity = persistence.checkIntegrity.bind(persistence);
+  let scans = 0;
+  persistence.checkIntegrity = () => { scans += 1; return checkIntegrity(); };
+  for (let index = 0; index < 3; index += 1) {
+    const status = await core.request("desktop.persistence.getStatus");
+    assert.equal(status.mode, "desktop-sqlite");
+    assert.equal(status.sqlite.exists, true);
+    assert.equal(status.sqlite.integrity, "not-checked");
+    persistence.writeDevelopmentRecords({ storeName: "tl_settings", records: [{ id: "test", value: index }] });
+    assert.equal(persistence.readDevelopmentRecordById({ storeName: "tl_settings", id: "test" }).value, index);
+  }
+  await core.request("runtime.getStatus");
+  await core.request("desktop.persistence.getStatus", { verifyIntegrity: "true" });
+  assert.equal(scans, 0);
+  const verified = await core.request("desktop.persistence.getStatus", { verifyIntegrity: true });
+  assert.equal(verified.sqlite.integrity, "ok");
+  assert.equal(scans, 1);
+  // A later readiness check must not present an earlier verification as fresh.
+  assert.equal((await core.request("desktop.persistence.getStatus")).sqlite.integrity, "not-checked");
+  assert.equal(scans, 1);
+  persistence.checkIntegrity = () => { scans += 1; return "failed"; };
+  assert.equal((await core.request("desktop.persistence.getStatus", { verifyIntegrity: true })).sqlite.integrity, "failed");
+  assert.throws(() => persistence.setDevelopmentRuntimeActive({ active: true }), /integrity check failed/);
 });
 
 test("desktop persistence imports only disposable fixtures atomically and idempotently", (context) => {

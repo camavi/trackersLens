@@ -136,8 +136,7 @@ window.TrackerLensAiAgentRuntime = (() => {
     const sourceId = node.metadata?.aliasSourceAgentId || config.aliasSourceAgentId || "";
     if (!sourceId) return config;
     try {
-      const data = await window.TrackerLensAiRuntimeStore?.list?.();
-      const agent = (data?.agents || []).find((item) => item.id === sourceId);
+      const agent = await window.TrackerLensAiRuntimeStore?.getAgent?.(sourceId);
       return agent
         ? {
           ...config,
@@ -698,7 +697,7 @@ window.TrackerLensAiAgentRuntime = (() => {
     pushTool(["defineTerm"], { term: query, query });
     pushTool(["findRelations", "findEntities"], { query });
     pushTool(["getGraphEvidence"], { query });
-    if (!calls.some((call) => call.tool === "searchChunks")) pushTool(["searchChunks"], { query });
+    if (!ragContext && !graphContext && !calls.some((call) => call.tool === "searchChunks")) pushTool(["searchChunks"], { query });
     return calls.slice(0, limit);
   };
 
@@ -782,7 +781,7 @@ window.TrackerLensAiAgentRuntime = (() => {
       const ai = await callProviderText({ provider, config, model, prompt, maxTokens: Math.max(1, Math.floor(Number(config.plannerMaxTokens || config.maxTokens || 420))) });
       const plan = parseAiText(ai.text || "");
       const calls = validatePlannedToolCalls({ plan, manifests, query, config });
-      return { calls, plan, usage: ai.usage || {}, error: calls.length ? "" : "empty-plan" };
+      return { calls, plan, usage: ai.usage || {}, providerTimings: ai.timings || null, error: calls.length ? "" : "empty-plan" };
     } catch (error) {
       return { calls: [], plan: null, error: error?.message || String(error) };
     }
@@ -795,9 +794,11 @@ window.TrackerLensAiAgentRuntime = (() => {
     const provider = await pickProvider(config);
     const model = String(config.model || provider?.model || "local-model");
     const readableManifests = toolManifestSummary(manifest?.manifests || []);
+    const plannerStarted = performance.now();
     const planned = readableManifests.length <= 1
       ? { calls: [], plan: null, error: "single-connected-node" }
       : await planConnectedToolCalls({ manifests: manifest?.manifests || [], query, payload, event, provider, model, config });
+    const plannerMs = Math.round(performance.now() - plannerStarted);
     const calls = planned.calls.length
       ? planned.calls
       : chooseAgentToolCalls({ manifests: manifest?.manifests || [], query, ragContext, graphContext, config });
@@ -870,7 +871,7 @@ window.TrackerLensAiAgentRuntime = (() => {
         });
       }
     }
-    return { manifest, plan: planned.plan, plannerError: planned.error || "", calls, observations, error: "" };
+    return { manifest, plan: planned.plan, plannerMs, plannerProviderTimings: planned.providerTimings || null, plannerError: planned.error || "", calls, observations, error: "" };
   };
 
   const renderToolObservationBlock = (toolContext = null) => {
@@ -1403,9 +1404,7 @@ window.TrackerLensAiAgentRuntime = (() => {
         : [...steps, nextStep];
       const currentStep = nextSteps[nextSteps.length - 1] || null;
       try {
-        const existingData = await window.TrackerLensAiRuntimeStore?.list?.().catch(() => null);
-        const existingJob = (existingData?.jobs || []).find((job) => job.id === jobId || job.raw?.id === jobId);
-        const existingRaw = existingJob?.raw && typeof existingJob.raw === "object" ? existingJob.raw : {};
+        const existingRaw = await window.TrackerLensAiRuntimeStore.getJobRecord(jobId) || {};
         await window.TrackerLensAiRuntimeStore?.upsertJob?.({
           ...existingRaw,
           id: jobId,
@@ -1564,7 +1563,11 @@ window.TrackerLensAiAgentRuntime = (() => {
     }
 
     async performExecution({ node, payload, event }) {
+      const preparationPhases = {};
+      let phaseStart = performance.now();
+      const markPreparation = (name) => { const now = performance.now(); preparationPhases[name] = Math.round(now - phaseStart); phaseStart = now; };
       let config = await resolveNodeConfig(node);
+      markPreparation('configMs');
       if (config.freshRun || event?.meta?.freshRun || payload?.__tlFreshRun) {
         config = {
           ...config,
@@ -1594,7 +1597,9 @@ window.TrackerLensAiAgentRuntime = (() => {
           payload: { inputChannel: event?.channel || "", inputEventId: event?.id || "", sourceNodeId: event?.sourceNodeId || "", trigger: triggerTrace },
         },
       });
+      markPreparation('receivedStepMs');
       const inputDataContext = await collectInputDataContext({ node, event, workspaceId: this.workspaceId, config, runtime: this.runtime });
+      markPreparation('inputContextMs');
       steps = await this.recordStep({
         node,
         jobId,
@@ -1609,6 +1614,7 @@ window.TrackerLensAiAgentRuntime = (() => {
         },
       });
       const ragContext = normalizeRagContext({ payload, event });
+      markPreparation('inputStepMs');
       const graphContext = normalizeGraphContext({ payload, event });
       const toolContext = await collectConnectedToolObservations({
         node,
@@ -1620,6 +1626,7 @@ window.TrackerLensAiAgentRuntime = (() => {
         ragContext,
         graphContext,
       });
+      markPreparation('connectedToolsMs');
       steps = await this.recordStep({
         node,
         jobId,
@@ -1667,7 +1674,9 @@ window.TrackerLensAiAgentRuntime = (() => {
         ...(graphContext ? { graphContext } : {}),
         ...(toolContext?.observations?.length ? { toolContext } : {}),
       };
+      markPreparation('toolsStepAndEmissionMs');
       const provider = await pickProvider(config);
+      markPreparation('providerSelectionMs');
       const model = String(config.model || provider?.model || "local-model");
       const memoryReadEnabled = shouldReadMemory(config);
       const memory = !memoryReadEnabled ? "" : await window.TrackerLensAiRuntimeStore?.buildMemoryContext?.({
@@ -1676,6 +1685,7 @@ window.TrackerLensAiAgentRuntime = (() => {
         query: event.channel || nodeSubtype(node),
         limit: 6,
       }).catch(() => "");
+      markPreparation('memoryReadMs');
       steps = await this.recordStep({
         node,
         jobId,
@@ -1695,6 +1705,7 @@ window.TrackerLensAiAgentRuntime = (() => {
           },
         },
       });
+      markPreparation('memoryStepMs');
       const prompt = buildPrompt({ node, payload, event, memory, config: promptConfig });
       const inputTrace = buildRuntimeInputTrace({
         node,
@@ -1713,6 +1724,7 @@ window.TrackerLensAiAgentRuntime = (() => {
       const providerMaxTokens = Number(provider?.maxTokens || 0);
       const maxTokens = Math.max(1, Math.floor(Number(configMaxTokens || providerMaxTokens || 800)));
       const maxContinuationCalls = Math.max(0, Number(config.maxContinuationCalls ?? config.continuationCalls ?? 10));
+      markPreparation('promptAssemblyMs');
       steps = await this.recordStep({
         node,
         jobId,
@@ -1759,6 +1771,7 @@ window.TrackerLensAiAgentRuntime = (() => {
       });
 
       const startedAt = performance.now();
+      markPreparation('promptStepAndJobSaveMs');
       try {
         let ai = null;
         steps = await this.recordStep({
@@ -1775,6 +1788,7 @@ window.TrackerLensAiAgentRuntime = (() => {
           },
         });
         ai = await callAiProvider({ provider, config, model, prompt, maxTokens });
+        const providerTimings = [ai.timings || null];
         let text = ai.text || "";
         let finishReason = ai.finishReason || "";
         let usage = normalizeTokenUsage(ai.usage || {});
@@ -1795,6 +1809,7 @@ window.TrackerLensAiAgentRuntime = (() => {
             },
           });
           const continuation = await callAiProvider({ provider, config, model, prompt: continuationPrompt, maxTokens });
+          providerTimings.push(continuation.timings || null);
           const continuationText = continuation.text || "";
           text = mergeContinuationText(text, continuationText);
           finishReason = continuation.finishReason || "";
@@ -1837,6 +1852,8 @@ window.TrackerLensAiAgentRuntime = (() => {
           usage,
           finishReason,
           continuations,
+          providerTimings,
+          preparationPhases,
           cost: estimateCost({ usage, provider, config }),
           latencyMs,
           inputChannel: event.channel || "",
@@ -1952,7 +1969,12 @@ window.TrackerLensAiAgentRuntime = (() => {
     }
 
     async execute({ node, payload, event }) {
-      const runner = () => this.performExecution({ node, payload, event });
+      const queuedAt = performance.now();
+      const runner = async () => {
+        const queueWaitMs = Math.round(performance.now() - queuedAt);
+        const result = await this.performExecution({ node, payload, event });
+        return { ...result, queueWaitMs };
+      };
       if (!this.execution?.enqueue) return runner();
       return this.execution.enqueue({
         node,
@@ -1992,6 +2014,7 @@ window.TrackerLensAiAgentRuntime = (() => {
       if (this.executionKeys.has(executionKey)) return;
       this.executionKeys.add(executionKey);
       if (this.executionKeys.size > 300) this.executionKeys = new Set([...this.executionKeys].slice(-180));
+      const timing = window.TrackerLensEventBus.startNodeTiming(node, event);
       const startedAt = performance.now();
       try {
         const mapped = await this.applyIncomingMapping({ node, payload, event });
@@ -2009,6 +2032,19 @@ window.TrackerLensAiAgentRuntime = (() => {
           latencyMs,
           meta: {
             aiAgentRuntime: node.id,
+            timing: window.TrackerLensEventBus.finishNodeTiming(timing, {
+              phase: 'Risposta LLM pronta', providerMs: result.latencyMs ?? null,
+              preparationMs: result.latencyMs == null ? null : Math.max(0, latencyMs - result.latencyMs),
+              preparationPhases: result.preparationPhases || null,
+              queueWaitMs: result.queueWaitMs ?? null,
+              responseCalls: result.continuations ? 1 + result.continuations.length : null,
+              toolPlannerUsed: Boolean(result.toolContext?.plan),
+              toolPlannerMs: result.toolContext?.plannerMs ?? null,
+              toolPlannerProviderTimings: result.toolContext?.plannerProviderTimings || null,
+              tools: (result.toolContext?.observations || []).map(item => ({ tool: item.tool, nodeId: item.nodeId, durationMs: item.latencyMs, ok: item.ok })),
+              promptTokens: result.usage?.promptTokens ?? null,
+              providerTimings: result.providerTimings || [],
+            }),
             inputEventId: event.id || "",
             inputChannel: event.channel || "",
             runId,
@@ -2080,7 +2116,8 @@ window.TrackerLensAiAgentRuntime = (() => {
           eventType: "ai_agent_error",
           sourceNodeId: node.id,
           status: "error",
-          meta: { aiAgentRuntime: node.id, inputEventId: event.id || "" },
+          meta: { aiAgentRuntime: node.id, inputEventId: event.id || "", runId,
+            timing: window.TrackerLensEventBus.finishNodeTiming(timing, { status: 'error' }) },
         });
         await this.log({
           node,

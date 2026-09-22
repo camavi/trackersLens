@@ -106,7 +106,7 @@ const createTlCore = ({ appVersion = "0.0.0", platform = "unknown", mode = "prod
       }
       case "desktop.persistence.getStatus":
         if (!persistence?.getStatus) throw errorWithCode("Desktop persistence is unavailable", "PERSISTENCE_UNAVAILABLE");
-        return persistence.getStatus();
+        return persistence.getStatus({ verifyIntegrity: payload?.verifyIntegrity === true });
       case "desktop.persistence.planImport":
         if (!persistence?.planImport) throw errorWithCode("Desktop persistence is unavailable", "PERSISTENCE_UNAVAILABLE");
         return persistence.planImport(payload?.bundle || {});
@@ -140,6 +140,9 @@ const createTlCore = ({ appVersion = "0.0.0", platform = "unknown", mode = "prod
       case "desktop.persistence.readLatestRuntimeOutputs":
         if (!persistence?.readLatestRuntimeOutputs) throw errorWithCode("Desktop persistence is unavailable", "PERSISTENCE_UNAVAILABLE");
         return persistence.readLatestRuntimeOutputs({ workspaceId: String(payload?.workspaceId || "") });
+      case "desktop.persistence.readRuntimeTimingTrace":
+        if (!persistence?.readRuntimeTimingTrace) throw errorWithCode("Desktop persistence is unavailable", "PERSISTENCE_UNAVAILABLE");
+        return persistence.readRuntimeTimingTrace({ workspaceId: String(payload?.workspaceId || ""), traceId: String(payload?.traceId || "") });
       case "desktop.persistence.readAiAgentJobPage":
         if (!persistence?.readAiAgentJobPage) throw errorWithCode("Desktop persistence is unavailable", "PERSISTENCE_UNAVAILABLE");
         return persistence.readAiAgentJobPage(payload);

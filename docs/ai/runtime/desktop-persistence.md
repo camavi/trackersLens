@@ -66,6 +66,7 @@ This repository is development-only. SQLite is the sole persistence authority: d
 Implemented foundation:
 
 - `core/desktop/desktop-persistence.cjs` owns SQLite schema/integrity and allow-listed record operations through Node's built-in `node:sqlite`.
+- Readiness `getStatus()` is lightweight and reports integrity as `not-checked` for an existing database. Explicit `getStatus({ verifyIntegrity: true })` runs the full integrity check; Settings diagnostics requests this mode. Repository preflights must not scan the whole database. Activation retains its mandatory integrity check.
 - Electron Main supplies only the private app-data path. Preload exposes named commands and never a database path, handle or raw SQL.
 - `database.html` is the read-only SQLite Explorer in Electron. It requests the allow-listed collection catalog and records through TL Core, so developers can inspect logical collections and JSON payloads without opening the database file or executing SQL from the renderer. It requires that bridge and has no demo-data fallback. Its actions are limited to selection, copy and local JSON export—never editing, deleting, duplicating or importing records.
 - `database.html` loads only its UI framework, configuration, sidebar and Explorer script. It does not load graph, cache, package, editor or other persistence runtime modules.

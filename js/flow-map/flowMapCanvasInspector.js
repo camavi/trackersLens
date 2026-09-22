@@ -1153,8 +1153,79 @@ const renderNodeMetrics = (node = {}, ...labels) => {
   );
 };
 
+const timingDuration = (ms) => Number.isFinite(Number(ms)) ? `${(Number(ms) / 1000).toFixed(2)} s` : 'n/d';
+const latestNodeTiming = (node) => {
+  const events = (state.runtime.events || [])
+    .filter(event => event.meta?.timing?.spans?.some(span => span.nodeId === node.id));
+  const executions = events.filter(event => event.meta.timing.spans.some(span => span.nodeId === node.id && span.phase !== 'Emissione sorgente'));
+  // Later bookkeeping emissions must not replace a measured execution with a
+  // synthetic zero-duration source span.
+  return (executions.length ? executions : events).sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt))[0];
+};
+
+const openNodeTimingDialog = async (node, event) => {
+  const timing = event.meta.timing;
+  let traces = [timing];
+  let error = '';
+  try {
+    traces.push(...await window.trackers.desktop.persistence.readRuntimeTimingTrace({ workspaceId: event.workspaceId, traceId: timing.traceId }));
+  } catch (failure) { error = failure.message || String(failure); }
+  traces.push(...(state.runtime.events || []).filter(item => item.workspaceId === event.workspaceId && item.meta?.timing?.traceId === timing.traceId).map(item => item.meta.timing));
+  const byId = new Map();
+  traces.flatMap(item => item.spans || []).forEach(span => {
+    if (!byId.has(span.id) || Date.parse(span.completedAt) >= Date.parse(byId.get(span.id).completedAt)) byId.set(span.id, span);
+  });
+  const spans = [...byId.values()].sort((a, b) => Date.parse(a.startedAt) - Date.parse(b.startedAt));
+  const total = Math.max(...traces.map(item => Number(item.totalMs) || 0));
+  const preparationLabels = { configMs: 'Configurazione', receivedStepMs: 'Salvataggio step ingresso', inputContextMs: 'Lettura contesto input', inputStepMs: 'Salvataggio step contesto', connectedToolsMs: 'Strumenti e planner', toolsStepAndEmissionMs: 'Salvataggio e pubblicazione strumenti', providerSelectionMs: 'Selezione provider', memoryReadMs: 'Lettura memoria', memoryStepMs: 'Salvataggio step memoria', promptAssemblyMs: 'Composizione prompt', promptStepAndJobSaveMs: 'Salvataggio prompt e job' };
+  const phaseLabels = { sqliteReadMs: 'SQLite', queryEmbeddingMs: 'Embedding domanda', candidatePreparationMs: 'Preparazione candidati', hybridRankingMs: 'Ricerca ibrida', candidateFilteringMs: 'Filtro candidati', rerankingMs: 'Reranking', contextAssemblyMs: 'Contesto', querySaveMs: 'Salvataggio ricerca' };
+  const dialog = _.Dialog({
+    title: 'Tempi della domanda', subtitle: `Totale fino all’ultimo output: ${timingDuration(total)}`, icon: 'timer', size: 'lg', closeButton: true,
+    content: () => _.div(
+      _.p('Tempi dall’emissione della domanda all’output pronto. Includono attese e preparazione; il salvataggio memoria successivo all’output è escluso. Le durate parallele non vanno sommate.'),
+      error ? _.p(`Storico non disponibile: ${error}. Mostrati i dati ricevuti nella sessione.`) : null,
+      _.table({ style: 'width:100%;text-align:left;border-spacing:12px;vertical-align:top' },
+        _.thead(_.tr(...['Nodo', 'Durata', 'Dall’inizio', 'Esecuzioni', 'Dettagli'].map(label => _.th(label)))),
+        _.tbody(...spans.map(span => {
+          const executions = spans.filter(item => item.nodeId === span.nodeId).length;
+          const duplicate = span.inputEventId && spans.filter(item => item.nodeId === span.nodeId && item.inputEventId === span.inputEventId).length > 1;
+          const name = state.runtime.nodes.find(item => item.id === span.nodeId)?.label || span.label;
+          return _.tr(
+            _.td(name), _.td({ style: 'white-space:nowrap' }, timingDuration(span.durationMs)),
+            _.td(timingDuration(Date.parse(span.completedAt) - Date.parse(timing.startedAt))),
+            _.td(`${executions}${duplicate ? ' · input ripetuto' : ''}`),
+            _.td(
+              _.div(span.phase || span.status || ''),
+              span.preparationMs != null ? _.div(`Preparazione, coda e strumenti: ${timingDuration(span.preparationMs)}`) : null,
+              span.queueWaitMs != null ? _.div(`Attesa in coda: ${timingDuration(span.queueWaitMs)}`) : null,
+              span.preparationPhases ? _.details(_.summary('Dettaglio preparazione (tempi inclusi)'), ...Object.entries(span.preparationPhases).map(([key, ms]) => _.div(`${preparationLabels[key] || key}: ${timingDuration(ms)}`))) : null,
+              span.toolPlannerMs != null ? _.div(`Planner strumenti (incluso nella preparazione): ${timingDuration(span.toolPlannerMs)}`) : null,
+              span.providerMs != null ? _.div(`Fase LLM: ${timingDuration(span.providerMs)} · chiamate risposta: ${span.responseCalls ?? 'n/d'} · planner strumenti: ${span.toolPlannerUsed ? 'sì' : 'no'}`) : null,
+              ...(span.providerTimings || []).filter(Boolean).map((item, index) => _.div(`Chiamata ${index + 1}: account ${timingDuration(item.accountCheckMs)} · default ${timingDuration(item.defaultsReadMs)} · provider ${timingDuration(item.providerTransportMs)}`)),
+              ...Object.entries(span.phases || {}).map(([key, value]) => _.div(`${phaseLabels[key] || key}: ${timingDuration(value)}`)),
+              ...(span.tools || []).map(tool => _.div(`${tool.tool}: ${timingDuration(tool.durationMs)}${tool.ok === false ? ' · errore' : ''}`))
+            )
+          );
+        }))
+      ),
+      _.details(_.summary('Dati completi della misurazione'), _.pre(JSON.stringify({ traceId: timing.traceId, totalMs: total, spans }, null, 2)))
+    ),
+    actions: ({ close }) => _.Toolbar({ align: 'end' }, flowMapBtn({ onclick: close }, 'Chiudi')),
+  });
+  dialog.open();
+};
+
+const renderNodeTiming = (node) => {
+  const event = latestNodeTiming(node);
+  if (!event) return _.div({ 'data-node-timing': node.id });
+  const span = event.meta.timing.spans.findLast(item => item.nodeId === node.id);
+  return _.div({ 'data-node-timing': node.id }, flowMapBtn({ title: 'Tempi per nodo, totale e chiamate ripetute', onPointerDown: stopNodeControlEvent, onclick: (eventClick) => { eventClick.stopPropagation(); void openNodeTimingDialog(node, event); } },
+    flowMapIcon('timer', 'sm'), `${timingDuration(span.durationMs)} · Totale ${timingDuration(event.meta.timing.totalMs)}`));
+};
+
 const renderNodeMetricRows = (node = {}, ...labels) => [
   renderNodeMetrics(node, ...labels),
+  renderNodeTiming(node),
   renderNodeTokenMetrics(node),
 ].filter(Boolean);
 
@@ -1264,6 +1335,7 @@ const refreshNodeRuntimeDom = (graph, activity) => {
   const processingNodeIds = new Set(activeAiProcessingNodeIds());
   const ruleGraph = runtimeRuleGraph();
   (graph.nodes || []).forEach((node) => {
+    replaceRenderedNode(`[data-node-timing="${escapeSelectorValue(node.id)}"]`, renderNodeTiming(node));
     const live = activity.nodeActivity?.get(node.id);
     const badges = document.querySelector(`[data-flow-node-badges="${escapeSelectorValue(node.id)}"]`);
     if (badges) {

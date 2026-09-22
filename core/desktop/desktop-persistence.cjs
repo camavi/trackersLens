@@ -256,7 +256,7 @@ class DesktopPersistence {
     this.lastDevelopmentShadowMatch = false;
   }
 
-  getStatus() {
+  getStatus({ verifyIntegrity = false } = {}) {
     const exists = Boolean(this.databasePath && fs.existsSync(this.databasePath));
     if (exists) this.mode = this.readActiveMode();
     return {
@@ -267,7 +267,9 @@ class DesktopPersistence {
         configured: Boolean(this.databasePath),
         exists,
         schemaVersion: SQLITE_SCHEMA_VERSION,
-        integrity: exists ? this.checkIntegrity() : "not-created"
+        // Repository readiness is a hot path. A full database scan belongs to
+        // explicit diagnostics, not every read/write preflight.
+        integrity: exists ? (verifyIntegrity === true ? this.checkIntegrity() : "not-checked") : "not-created"
       },
       migration: { enabled: false, userDataImport: false }
     };
@@ -621,6 +623,17 @@ class DesktopPersistence {
     } finally {
       database.close();
     }
+  }
+
+  readRuntimeTimingTrace({ workspaceId = "", traceId = "" } = {}) {
+    if (!workspaceId || !traceId) throw new Error('Workspace and trace ID are required.');
+    const database = new DatabaseSync(this.databasePath, { readOnly: true });
+    try {
+      return database.prepare(`SELECT json_extract(record_json, '$.meta.timing') AS timing
+        FROM tl_records WHERE store_name = 'tl_events' AND workspace_id = ?
+        AND json_extract(record_json, '$.meta.timing.traceId') = ? ORDER BY created_at, id`)
+        .all(String(workspaceId), String(traceId)).map(row => JSON.parse(row.timing));
+    } finally { database.close(); }
   }
 
   readLatestDevelopmentRecord({ storeName = "", nodeId = "", runId = "" } = {}) {

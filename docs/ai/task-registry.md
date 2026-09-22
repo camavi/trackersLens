@@ -7,6 +7,24 @@ Last updated: 2026-09-22.
 
 ## Active
 
+### TASK-035: Question pipeline timing diagnostics
+
+- User verification after restart: 29.428 s total (previous 51.454 s), with memory read 12 ms and response defaults 3 ms. Timing/persistence fix verified; investigate the remaining 7.380 s connected-tool planner next. Provider/embedding variance also contributes to total improvement. 79 tests, app checks and Electron smoke pass.
+
+- Third trace follow-up: 51.454 s total exposed slow step bookkeeping. Removed full database integrity scans from every readiness call; explicit Settings/Core diagnostics still verify, with no cached success presented as current. Activation checks remain mandatory. Regression covers repeated readiness/read/write calls, explicit success/failure verification and activation rejection. 79 tests and app checks pass; restart Electron and measure real latency before claiming a speedup.
+
+- Second trace follow-up: preparation 27.097 s vs planner 7.372 s exposed ~19.72 s still unassigned. Replaced repeated full AI store lists in recordStep with exact job reads and alias full-list lookup with getAgent. Added queue/preparation phase diagnostics and a regression test preserving job prompt/result fields. 78 tests pass; runtime improvement not yet measured.
+
+- First user trace: 58.008 s total; 16.921 s RAG; 38.876 s AI, including 28.157 s preparation and an active tool planner. Added separate planner timing and fixed the zero-duration card regression caused by later bookkeeping emissions. The trace shows one execution per node, not proof that all internal work is single-call; explicit planner-selected searchChunks remains visible (4 ms in this sample).
+
+Status: Implemented; interactive QA pending on a fresh Text Input → RAG → LLM run.
+
+- Correlated source emission and Knowledge/AI execution spans persist in event metadata. Full trace metadata is read by exact workspace/trace ID, without loading historical payloads.
+- Node timer buttons show per-node duration and elapsed total. The dialog deduplicates multiple output events from one execution, counts distinct executions and flags repeated input IDs. Includes RAG SQLite/embedding/hybrid/rerank phases, Login account/default/transport phases, response continuations and tool observations.
+- Output readiness is the measured endpoint; subsequent memory/job cleanup is explicitly excluded. No inference about historical timings is fabricated. Parallel durations are not summed into the wall-clock total.
+- Found and fixed automatic searchChunks fallback repeating a search when RAG/graph context already exists. Explicit provider-planned tool calls remain observable.
+- Validation: 76 tests plus Electron dialog smoke pass. Real-provider latency diagnosis still needs a newly measured run.
+
 - Flow Map OUT/Preview retention regression: closed after user verification and Electron restart. Implemented same-workspace observation preservation across topology/history refresh and scoped SQLite latest-output restoration on reopen. No full-history transfer or payload truncation. Regression coverage checks in-flight events, workspace isolation, pulse/activity exclusion and persisted output recovery. All 73 tests and Electron smoke pass.
 
 - Preview JSON readability follow-up: implemented recursive presentation-only expansion of JSON strings in Mapped, with explicit notice and original Raw inspection. Plain text, malformed JSON and scalar strings remain unchanged. Focused regression tests and app checks pass; visual QA pending.

@@ -9935,12 +9935,16 @@ window.TrackerLensKnowledgeRuntime = (() => {
   };
 
   const search = async ({ workspaceId, query = "", config = {}, allowedEmbeddingNodeIds = [] } = {}) => {
+    const timings = {};
+    let phaseStarted = performance.now();
+    const phaseDone = (name) => { const now = performance.now(); timings[name] = Math.round(now - phaseStarted); phaseStarted = now; };
     const cleanQuery = String(query || config.query || "").trim();
     if (!cleanQuery) throw new Error("Query Knowledge vuota");
     const [embeddings, chunks] = await Promise.all([
       listStore(STORES.embeddings),
       listStore(STORES.chunks),
     ]);
+    phaseDone('sqliteReadMs');
     const topK = Number.isFinite(Number(config.topK)) && Number(config.topK) > 0
       ? Math.floor(Number(config.topK))
       : chunks.length;
@@ -9966,6 +9970,7 @@ window.TrackerLensKnowledgeRuntime = (() => {
         dimensions: firstCandidate?.dimensions || config.dimensions || 96,
       },
     });
+    phaseDone('queryEmbeddingMs');
     const chunkById = new Map(byWorkspace(chunks, workspaceId).map((chunk) => [chunk.id, chunk]));
     const eligibleCandidates = workspaceEmbeddings
       .filter((embedding) => embedding.provider === queryEmbedding.provider && embedding.model === queryEmbedding.model)
@@ -9989,12 +9994,14 @@ window.TrackerLensKnowledgeRuntime = (() => {
         };
       })
       .filter(Boolean);
+    phaseDone('candidatePreparationMs');
     const pythonRanking = await rankRagCandidatesWithPython({
       query: cleanQuery,
       queryVector: queryEmbedding.vector || [],
       candidates: eligibleCandidates.map((candidate, index) => ({ id: String(index), text: candidate.text, vector: candidate._vector })),
       config,
     });
+    phaseDone('hybridRankingMs');
     const candidatesById = new Map(eligibleCandidates.map((candidate, index) => [String(index), candidate]));
     const hybridRanked = pythonRanking.ranked
       .map((item) => {
@@ -10016,11 +10023,13 @@ window.TrackerLensKnowledgeRuntime = (() => {
       })
       .filter(Boolean)
       .filter((result) => result.score >= threshold);
+    phaseDone('candidateFilteringMs');
     const pythonReranking = await rerankRagCandidatesWithPython({
       query: cleanQuery,
       candidates: hybridRanked.map((candidate, index) => ({ id: String(index), text: candidate.text })),
       config,
     });
+    phaseDone('rerankingMs');
     const hybridCandidateById = new Map(hybridRanked.map((candidate, index) => [String(index), candidate]));
     const ranked = pythonReranking.ranked
       .map((item) => {
@@ -10042,6 +10051,7 @@ window.TrackerLensKnowledgeRuntime = (() => {
       .filter(Boolean);
     const retrievalDiagnostics = {
       runtime: "python-hybrid-rerank",
+      timings,
       algorithm: `${pythonRanking.algorithm} -> ${pythonReranking.algorithm}`,
       weights: pythonRanking.weights,
       candidateCount: pythonRanking.candidateCount,
@@ -10085,7 +10095,9 @@ window.TrackerLensKnowledgeRuntime = (() => {
       status: "ready",
       createdAt: nowIso(),
     };
+    phaseDone('contextAssemblyMs');
     await putRecord(STORES.queries, record);
+    phaseDone('querySaveMs');
     return record;
   };
 
@@ -11940,6 +11952,7 @@ window.TrackerLensKnowledgeRuntime = (() => {
       if (this.executionKeys.has(executionKey)) return;
       this.executionKeys.add(executionKey);
       if (this.executionKeys.size > 500) this.executionKeys = new Set([...this.executionKeys].slice(-250));
+      const timing = window.TrackerLensEventBus.startNodeTiming(node, event);
       const jobId = `knowledge_job_${safeId(node.id)}_${safeId(runId || event?.id || Date.now())}`;
       const debugContext = beginKnowledgeRuntimeDebug({
         workspaceId: this.workspaceId,
@@ -12499,6 +12512,7 @@ window.TrackerLensKnowledgeRuntime = (() => {
             sourceNodeId: node.id,
             meta: {
               knowledgeRuntime: node.id,
+              timing: window.TrackerLensEventBus.finishNodeTiming(timing, { phase: 'Ricerca RAG pronta', phases: result.retrieval?.timings || null }),
               inputEventId: event?.id || "",
               inputChannel: event?.channel || "",
               runId,
@@ -12524,6 +12538,7 @@ window.TrackerLensKnowledgeRuntime = (() => {
               runId,
               subtype,
               visualUntil: runtimeVisualUntil(),
+              timing: window.TrackerLensEventBus.finishNodeTiming(timing, { phase: 'Output pronto', phases: result?.retrieval?.timings || null }),
             },
           });
           await this.deliverToConnectedKnowledgeNodes(outputEvent);
@@ -12652,7 +12667,8 @@ window.TrackerLensKnowledgeRuntime = (() => {
           eventType: "knowledge_error",
           sourceNodeId: node.id,
           status: "error",
-          meta: { knowledgeRuntime: node.id, inputEventId: event?.id || "", runId },
+          meta: { knowledgeRuntime: node.id, inputEventId: event?.id || "", runId,
+            timing: window.TrackerLensEventBus.finishNodeTiming(timing, { status: 'error' }) },
         });
         window.dispatchEvent(new CustomEvent("trackers:runtime-error", {
           detail: {

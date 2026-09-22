@@ -15,7 +15,7 @@ const setup = (records = [], externalAi = {}) => {
     },
     deleteDevelopmentRecords: async () => {},
   } } } };
-  vm.runInNewContext(fs.readFileSync(require.resolve('../js/tl-ai-runtime-store.js'), 'utf8'), { window, Response });
+  vm.runInNewContext(fs.readFileSync(require.resolve('../js/tl-ai-runtime-store.js'), 'utf8'), { window, Response, performance });
   return window.TrackerLensAiRuntimeStore;
 };
 

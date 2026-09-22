@@ -693,15 +693,18 @@ window.TrackerLensAiRuntimeStore = (() => {
 
   const isLoginProvider = (provider) => providerConnection(provider).connectionType === 'login';
   const completeNodeLogin = async ({ provider, config = {}, prompt = '' } = {}) => {
+    const started = performance.now();
     const connection = providerConnection(provider);
     if (!connection.bridgeProvider) throw new Error('Unsupported Login provider.');
     const bridge = window.trackers?.desktop?.externalAi;
     if (!bridge?.getStatus || !bridge?.sendMessage) throw new Error('Login AI requires the desktop provider bridge.');
     const status = await bridge.getStatus({ provider: connection.bridgeProvider });
+    const statusDone = performance.now();
     const label = providerDisplayLabel(provider);
     if (!status.installed) throw new Error(`${label}: client not installed. Open AI Center.`);
     if (!status.authenticated) throw new Error(`${label}: login required. Connect the account in AI Center.`);
     const defaults = await getExternalProviderDefaults(connection.bridgeProvider);
+    const defaultsDone = performance.now();
     const cleanModel = (value) => ['local-model', 'modello non configurato'].includes(normalizeText(value)) ? '' : normalizeText(value);
     const effective = {
       provider: connection.bridgeProvider,
@@ -711,12 +714,14 @@ window.TrackerLensAiRuntimeStore = (() => {
     };
     if (connection.bridgeProvider === 'claude' && (effective.reasoningEffort || effective.speed)) throw new Error('Claude Login: reasoning and speed are not supported by this bridge.');
     const result = await bridge.sendMessage({ ...effective, prompt });
+    const transportDone = performance.now();
     const rawUsage = result.raw?.usage || result.raw?.events?.findLast?.((event) => event.type === 'turn.completed')?.usage || {};
     const promptTokens = Number(rawUsage.input_tokens ?? rawUsage.prompt_tokens ?? 0);
     const completionTokens = Number(rawUsage.output_tokens ?? rawUsage.completion_tokens ?? 0);
     const usage = { ...rawUsage, promptTokens, completionTokens, totalTokens: promptTokens + completionTokens,
       prompt_tokens: promptTokens, completion_tokens: completionTokens, total_tokens: promptTokens + completionTokens };
     return { text: String(result.text || ''), model: effective.model || status.configuredModel || '', usage,
+      timings: { accountCheckMs: Math.round(statusDone - started), defaultsReadMs: Math.round(defaultsDone - statusDone), providerTransportMs: Math.round(transportDone - defaultsDone) },
       finishReason: '', raw: result.raw, effectiveConfig: effective };
   };
 
@@ -891,6 +896,7 @@ window.TrackerLensAiRuntimeStore = (() => {
     upsertRuntimeAgent: (record) => write(STORES.runtime, record),
     deleteAgent: (id) => deleteRecord(STORES.agents, id),
     deleteRuntimeAgent: (id) => deleteRecord(STORES.runtime, id),
+    getJobRecord: async (id) => (await ensureStores()).readDevelopmentRecordById({ storeName: STORES.jobs, id: String(id || '') }),
     upsertJob: (record) => write(STORES.jobs, record),
     upsertLog: (record) => write(STORES.logs, record),
     upsertMemory: remember,

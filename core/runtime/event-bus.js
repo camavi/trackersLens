@@ -4,6 +4,26 @@ window.TrackerLensEventBus = (() => {
 
   const nowIso = () => new Date().toISOString();
 
+  const startNodeTiming = (node, event = {}) => ({
+    id: eventId(), nodeId: node.id, label: node.label || node.id,
+    inputEventId: event.id || '', startedAt: nowIso(), clock: performance.now(),
+    parent: event.meta?.timing || { traceId: event.id, startedAt: event.createdAt, spans: [] },
+  });
+  const finishNodeTiming = (timer, details = {}) => {
+    const completedAt = nowIso();
+    const durationMs = Math.max(0, Math.round(performance.now() - timer.clock));
+    return {
+      traceId: timer.parent.traceId || timer.id,
+      startedAt: timer.parent.startedAt || timer.startedAt,
+      completedAt,
+      totalMs: Math.max(0, Date.parse(completedAt) - Date.parse(timer.parent.startedAt || timer.startedAt)),
+      spans: [...(timer.parent.spans || []), {
+        id: timer.id, nodeId: timer.nodeId, label: timer.label, inputEventId: timer.inputEventId,
+        startedAt: timer.startedAt, completedAt, durationMs, ...details,
+      }],
+    };
+  };
+
   const eventId = () => {
     if (window.crypto?.randomUUID) return `tlevent_${crypto.randomUUID()}`;
     return `tlevent_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
@@ -123,6 +143,8 @@ window.TrackerLensEventBus = (() => {
           payloadText,
           status: event.status,
           latencyMs: event.latencyMs,
+          createdAt: event.createdAt,
+          meta: event.meta,
         });
       } catch (error) {
         console.warn("Event Bus: evento non persistito", error);
@@ -213,6 +235,11 @@ window.TrackerLensEventBus = (() => {
         createdAt: nowIso(),
         meta: { ...(meta.meta || {}) },
       };
+      if (!event.meta.timing && !event.meta.inputEventId && event.sourceNodeId && !event.meta.runtimeActivityVisual) {
+        event.meta.timing = { traceId: event.id, startedAt: event.createdAt, completedAt: event.createdAt, totalMs: 0,
+          spans: [{ id: event.id, nodeId: event.sourceNodeId, label: event.sourceNodeId,
+            startedAt: event.createdAt, completedAt: event.createdAt, durationMs: 0, phase: 'Emissione sorgente' }] };
+      }
 
       this.remember(event);
 
@@ -236,6 +263,8 @@ window.TrackerLensEventBus = (() => {
   };
 
   return {
+    startNodeTiming,
+    finishNodeTiming,
     create,
     get,
   };

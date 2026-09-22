@@ -6,11 +6,11 @@ const projectRoot = path.resolve(__dirname, "..");
 const preloadPath = path.join(projectRoot, "electron", "preload.cjs");
 const appPage = path.join(projectRoot, "app.html");
 
-ipcMain.handle("trackers-core:request", (_event, command) => {
+ipcMain.handle("trackers-core:request", (_event, command, payload) => {
   if (command === "desktop.externalAi.listModels") return { models: [{ id: "fixture-model" }, { id: "center-model", reasoningEfforts: ["low", "medium", "high", "xhigh", "max", "ultra"] }], source: "fixture" };
   if (command === "desktop.externalAi.getStatus") return { installed: true, authenticated: true, message: "Fixture account" };
   if (command === "desktop.persistence.getStatus") {
-    return { owner: "tl-core", mode: "desktop-sqlite", sqlite: { exists: true } };
+    return { owner: "tl-core", mode: "desktop-sqlite", sqlite: { exists: true, integrity: payload?.verifyIntegrity === true ? "ok" : "not-checked" } };
   }
   if (command === "desktop.persistence.listDevelopmentStores") {
     return [{ name: "tl_pages", recordCount: 1 }];
@@ -23,6 +23,7 @@ ipcMain.handle("trackers-core:request", (_event, command) => {
   // represented by empty projections in this bridge-only test.
   if (command === "desktop.customNodePackages.list") return [];
   if (command === "desktop.persistence.readLatestRuntimeOutputs") return [];
+  if (command === "desktop.persistence.readRuntimeTimingTrace") return [];
   if (command === "desktop.persistence.readDevelopmentRecordSummaryPage") {
     return { records: [], nextCursor: null };
   }
@@ -91,6 +92,15 @@ app.whenReady().then(async () => {
         assert.equal(ui.modelInput, 'hidden');
         assert.equal(ui.catalog, true);
         assert.equal(ui.iconTabs, true, JSON.stringify(ui));
+        const timingDialog = await window.webContents.executeJavaScript(`(async () => {
+          await openNodeTimingDialog({ id: 'timing-fixture' }, { workspaceId: 'fixture', meta: { timing: {
+            traceId: 'question', startedAt: '2026-09-22T10:00:00Z', totalMs: 1500,
+            spans: [{ id: 'span', nodeId: 'timing-fixture', label: 'RAG fixture', durationMs: 1500,
+              startedAt: '2026-09-22T10:00:00Z', completedAt: '2026-09-22T10:00:01.500Z', phases: { rerankingMs: 800 } }]
+          } } });
+          return document.body.textContent.includes('Tempi della domanda') && document.body.textContent.includes('Reranking: 0.80 s');
+        })()`);
+        assert.equal(timingDialog, true);
       }
       if (route === "ai.html") {
         const ui = await window.webContents.executeJavaScript(`(async () => {
@@ -120,10 +130,13 @@ app.whenReady().then(async () => {
         window.trackers?.desktop?.persistence?.getStatus?.(),
         window.trackersDesktop?.getPersistenceStatus?.(),
         window.trackers?.desktop?.persistence?.listDevelopmentStores?.(),
-        window.trackers?.desktop?.persistence?.readDevelopmentRecords?.({ storeName: "tl_pages" })
+        window.trackers?.desktop?.persistence?.readDevelopmentRecords?.({ storeName: "tl_pages" }),
+        window.trackers?.desktop?.persistence?.getStatus?.({ verifyIntegrity: true })
       ])
     `);
     assert.equal(bridge[0]?.mode, "desktop-sqlite");
+    assert.equal(bridge[0]?.sqlite?.integrity, "not-checked");
+    assert.equal(bridge[4]?.sqlite?.integrity, "ok");
     assert.equal(bridge[1]?.owner, "tl-core");
     assert.deepEqual(bridge[2], [{ name: "tl_pages", recordCount: 1 }]);
     assert.deepEqual(bridge[3], [{ id: "page-smoke", name: "Smoke workspace" }]);

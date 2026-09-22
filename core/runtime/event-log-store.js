@@ -169,8 +169,9 @@ window.TrackerLensEventLogStore = (() => {
     payloadText = "",
     status = "ok",
     latencyMs = 0,
+    meta = {},
+    createdAt = new Date().toISOString(),
   } = {}) => {
-    const createdAt = new Date().toISOString();
     const event = {
       id: id || `event_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
       workspaceId,
@@ -183,6 +184,7 @@ window.TrackerLensEventLogStore = (() => {
       payload,
       status,
       latencyMs: Number(latencyMs) || 0,
+      meta,
       sizeBytes: payloadSize(payload, payloadText),
       createdAt,
     };

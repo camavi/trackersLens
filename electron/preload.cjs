@@ -22,7 +22,7 @@ const trackers = Object.freeze({
       logout: ({ provider, confirmed = false } = {}) => request("desktop.externalAi.logout", { provider: String(provider || ""), confirmed: Boolean(confirmed) })
     }),
     persistence: Object.freeze({
-      getStatus: () => request("desktop.persistence.getStatus"),
+      getStatus: ({ verifyIntegrity = false } = {}) => request("desktop.persistence.getStatus", { verifyIntegrity: verifyIntegrity === true }),
       planImport: (bundle = {}) => request("desktop.persistence.planImport", { bundle }),
       planBackupManifest: (catalog = {}) => request("desktop.persistence.planBackupManifest", { catalog }),
       importDevelopmentFirstCohort: (bundle = {}) => request("desktop.persistence.importDevelopmentFirstCohort", { bundle }),
@@ -30,6 +30,7 @@ const trackers = Object.freeze({
       listDevelopmentStores: () => request("desktop.persistence.listDevelopmentStores"),
       readDevelopmentRecords: ({ storeName, workspaceId = "" } = {}) => request("desktop.persistence.readDevelopmentRecords", { storeName: String(storeName || ""), workspaceId: String(workspaceId || "") }),
       readLatestRuntimeOutputs: ({ workspaceId = "" } = {}) => request("desktop.persistence.readLatestRuntimeOutputs", { workspaceId: String(workspaceId || "") }),
+      readRuntimeTimingTrace: ({ workspaceId = "", traceId = "" } = {}) => request("desktop.persistence.readRuntimeTimingTrace", { workspaceId: String(workspaceId || ""), traceId: String(traceId || "") }),
       readConnectionRecordsForWorkspace: ({ workspaceId, includeGlobal = true } = {}) => request("desktop.persistence.readConnectionRecordsForWorkspace", { workspaceId: String(workspaceId || ""), includeGlobal: Boolean(includeGlobal) }),
       readDevelopmentRecordPage: ({ storeName, workspaceId = "", offset = 0, limit = 25 } = {}) => request("desktop.persistence.readDevelopmentRecordPage", { storeName: String(storeName || ""), workspaceId: String(workspaceId || ""), offset: Number(offset) || 0, limit: Number(limit) || 25 }),
       readDevelopmentRecordSummaryPage: ({ storeName, workspaceId = "", offset = 0, limit = 25 } = {}) => request("desktop.persistence.readDevelopmentRecordSummaryPage", { storeName: String(storeName || ""), workspaceId: String(workspaceId || ""), offset: Number(offset) || 0, limit: Number(limit) || 25 }),

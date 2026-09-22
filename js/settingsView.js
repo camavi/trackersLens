@@ -824,7 +824,7 @@ const loadDesktopPersistenceStatus = async () => {
     return;
   }
   try {
-    const status = await persistence.getStatus();
+    const status = await persistence.getStatus({ verifyIntegrity: true });
     settingsState.desktopPersistence = { ...settingsState.desktopPersistence, status: { available: true, status, diagnostic }, error: "" };
   } catch (error) {
     settingsState.desktopPersistence = { ...settingsState.desktopPersistence, status: { available: false, diagnostic, error: error?.message || "Errore IPC" }, error: error?.message || "Errore SQLite" };
