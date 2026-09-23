@@ -474,7 +474,7 @@ const renderTopbar = () =>
     }),
     _.Toolbar(
       { class: "tl-library-actions", align: "center", gap: 16 },
-      btn({ class: "tl-library-menu", onclick: importFlowMapFile }, icon("upload_file", "sm"), "Import"),
+      btn({ class: "tl-library-menu tl-library-import", onclick: importFlowMapFile }, icon("upload_file", "sm"), "Import"),
       btn({ class: "st-btn-primary", onclick: openCreateFlowMapDialog }, icon("add", "sm"), "Nuovo Flow Map")
     )
   );

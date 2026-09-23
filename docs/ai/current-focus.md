@@ -25,6 +25,22 @@ The hierarchical capability map QA is closed: the compact `tl.catalog.*` discove
 
 ## Current Work
 
+- SQLite collection selection (2026-09-23): incremental refresh retains the shell and collection aside, updates selection in place and replaces data/Inspector/footer sections. Catalog refresh alone rebuilds the aside while restoring its scroll. Electron smoke verifies aside identity, scroll and focused button survive loading and completion.
+
+- SQLite empty states (2026-09-23): centered multiline placeholder text and added inner spacing, including the right Inspector's record-selection prompt.
+
+- SQLite results card (2026-09-23): constrained the grid column/results height, restored table/grid/JSON scrolling, and made header/filters respond to card width. Removed the toolbar's unused action column. Electron regression with 25 records verifies both scroll axes, contained controls and load-more availability.
+
+- SQLite Explorer aside (2026-09-23): collection button grids now target JSswift's `.cms-btn-content`, restoring name/icon/count/chevron layout. Electron geometry regression verifies visible names and contained children.
+
+- Connections list (2026-09-23): removed the ID column at user request; identifiers remain available in connection details.
+
+- Connections results card (2026-09-23): bounded the card's grid column and results wrapper so table/card content scrolls within available space and the load-more action remains reachable. Header/search/filter layout adapts to card width. Electron smoke with 25 fixture records verifies both scroll axes, toolbar containment and load-more presence.
+
+- Connections aside (2026-09-23): type/filter button grids now target JSswift's inner `.cms-btn-content`; the label selector no longer clips the wrapper. Electron smoke confirms labels have visible width and icons/labels/counts remain inside button bounds.
+
+- Library Import button (2026-09-23): Flow Map and Asset toolbars use a content-width Import style instead of the 42px icon-only menu width; icon/text spacing and horizontal padding preserve the full label. Visual confirmation pending.
+
 - Desktop Library navigation follow-up (2026-09-23): sidebar fallback now targets `app.html?tl-route=…` for retired local routes when the router is unavailable/unregistered, preserving query/hash. Regression coverage checks both fallback states and real Electron navigation to Library. The reported startup failure itself was not reproduced with an initialized router.
 
 - TASK-036 animation synchronization closed after user approval (2026-09-22). Shared graph activity routes data by source/target/workspace and treats lifecycle events as owner-only, including wildcard links. AI processing follows its own step/job lifecycle rather than channel subscribers; processing no longer animates outgoing links. Live-run controls no longer mark all downstream AI nodes active in advance. Transfer highlights last 1.5 s, terminal lifecycle supersedes old activity leases, and refresh is scheduled at actual activity expiry to prevent stuck animations. 92 tests and app checks pass; user approved the live animation fix.

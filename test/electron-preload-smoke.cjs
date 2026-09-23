@@ -25,13 +25,16 @@ ipcMain.handle("trackers-core:request", (_event, command, payload) => {
   if (command === "desktop.persistence.readLatestRuntimeOutputs") return [];
   if (command === "desktop.persistence.readRuntimeTimingTrace") return [];
   if (command === "desktop.persistence.readDevelopmentRecordSummaryPage") {
-    return { records: [], nextCursor: null };
+    return { records: Array.from({ length: 25 }, (_, index) => ({ id: `page-${index}`, name: `Workspace ${index}` })), offset: 0, limit: 25, total: 35, hasMore: true };
   }
   if (command === "desktop.persistence.readDevelopmentRecordById") return null;
   if (command === "desktop.persistence.readAiRuntimeCenterSummary") {
     return { providers: [], agents: [], jobs: [], logs: [], memory: [], prompts: [] };
   }
-  if (command === "desktop.persistence.readConnectionSummaryPage" || command === "desktop.persistence.readLibrarySummaryPage") {
+  if (command === "desktop.persistence.readConnectionSummaryPage") {
+    return { records: Array.from({ length: 25 }, (_, index) => ({ id: `connection-${index}`, name: `Fixture connection ${index}`, type: "Widget -> Widget", status: "active", from: "Source", to: "Target" })), offset: 0, limit: 25, total: 35, hasMore: true };
+  }
+  if (command === "desktop.persistence.readLibrarySummaryPage") {
     return { records: [], nextCursor: null };
   }
   throw new Error(`Unexpected smoke-test command: ${command}`);
@@ -40,6 +43,7 @@ ipcMain.handle("trackers-core:request", (_event, command, payload) => {
 app.whenReady().then(async () => {
   const window = new BrowserWindow({
     show: false,
+    width: 1280, height: 900,
     webPreferences: {
       preload: preloadPath,
       contextIsolation: true,
@@ -49,7 +53,7 @@ app.whenReady().then(async () => {
     },
   });
   try {
-    for (const route of ["flowMap.html", "settings.html", "database.html", "ai.html"]) {
+    for (const route of ["flowMap.html", "settings.html", "database.html", "ai.html", "connections.html"]) {
       await window.loadFile(appPage, { query: { "tl-route": route } });
       const jsSwiftRuntime = await window.webContents.executeJavaScript(`
         ({
@@ -63,6 +67,81 @@ app.whenReady().then(async () => {
         ready: "function",
         reactive: "object",
       });
+      if (route === "database.html") {
+        const stores = await window.webContents.executeJavaScript(`(() => {
+          return [...document.querySelectorAll('.tl-db-store')].map(button => {
+            const bounds = button.getBoundingClientRect();
+            const label = button.querySelector('.tl-db-store-name');
+            return { name: label.textContent, visible: label.getBoundingClientRect().width > 50,
+              contained: [...button.querySelector('.cms-btn-content').children].every(child => {
+                const rect = child.getBoundingClientRect();
+                return rect.left >= bounds.left && rect.right <= bounds.right;
+              }) };
+          });
+        })()`);
+        assert.ok(stores.length > 0);
+        assert.ok(stores.every(store => store.name && store.visible && store.contained), JSON.stringify(stores));
+        const selection = await window.webContents.executeJavaScript(`(async () => {
+          const panel = document.querySelector('.tl-db-panel');
+          panel.style.height = '240px';
+          panel.scrollTop = 80;
+          const before = panel.scrollTop;
+          const button = panel.querySelector('.tl-db-store');
+          button.focus({ preventScroll: true });
+          button.click();
+          const immediate = document.querySelector('.tl-db-panel') === panel && panel.scrollTop === before;
+          await new Promise(resolve => setTimeout(resolve, 150));
+          const result = { scrolled: before > 0, immediate,
+            settled: document.querySelector('.tl-db-panel') === panel && panel.scrollTop === before,
+            focus: document.activeElement === button };
+          panel.style.height = '';
+          return result;
+        })()`);
+        assert.deepEqual(selection, { scrolled: true, immediate: true, settled: true, focus: true });
+        const layout = await window.webContents.executeJavaScript(`(() => {
+          const card = document.querySelector('.tl-db-data-view');
+          const scroll = card.querySelector('.tl-db-table-wrap');
+          scroll.scrollTop = 100;
+          scroll.scrollLeft = 100;
+          const bounds = card.getBoundingClientRect();
+          return { vertical: scroll.scrollTop > 0, horizontal: scroll.scrollLeft > 0,
+            contained: [...card.querySelectorAll('.tl-db-section-head > *, .tl-db-filter-row > *, .tl-db-results')].every(child => {
+              const rect = child.getBoundingClientRect();
+              return rect.left >= bounds.left && rect.right <= bounds.right && rect.bottom <= bounds.bottom;
+            }), loadMore: Boolean(card.querySelector('.tl-db-load-more')) };
+        })()`);
+        assert.deepEqual(layout, { vertical: true, horizontal: true, contained: true, loadMore: true });
+      }
+      if (route === "connections.html") {
+        const filters = await window.webContents.executeJavaScript(`(() => {
+          const buttons = [...document.querySelectorAll('.tl-link-type, .tl-link-filter-btn')];
+          return buttons.map(button => {
+            const content = button.querySelector('.cms-btn-content');
+            const label = content.children[1];
+            const bounds = button.getBoundingClientRect();
+            return { text: label.textContent, visible: label.getBoundingClientRect().width > 50,
+              contained: [...content.children].every(child => {
+                const rect = child.getBoundingClientRect();
+                return rect.left >= bounds.left && rect.right <= bounds.right;
+              }) };
+          });
+        })()`);
+        assert.ok(filters.length > 0);
+        assert.ok(filters.every(filter => filter.text && filter.visible && filter.contained), JSON.stringify(filters));
+        const layout = await window.webContents.executeJavaScript(`(() => {
+          const card = document.querySelector('.tl-link-data-view');
+          const scroll = card.querySelector('.tl-link-table-wrap');
+          scroll.scrollTop = 100;
+          scroll.scrollLeft = 100;
+          const bounds = card.getBoundingClientRect();
+          return { vertical: scroll.scrollTop > 0, horizontal: scroll.scrollLeft > 0,
+            contained: [...card.querySelectorAll('.tl-link-section-head > *, .tl-link-filter-row > *, .tl-link-results')].every(child => {
+              const rect = child.getBoundingClientRect();
+              return rect.left >= bounds.left && rect.right <= bounds.right && rect.bottom <= bounds.bottom;
+            }), loadMore: Boolean(card.querySelector('.tl-link-load-more')) };
+        })()`);
+        assert.deepEqual(layout, { vertical: true, horizontal: true, contained: true, loadMore: true });
+      }
       if (route === "flowMap.html") {
         const ui = await window.webContents.executeJavaScript(`(async () => {
           const dialog = window.TrackerLensAiAgentEditor.open({

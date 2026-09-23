@@ -845,7 +845,6 @@ const renderConnectionRow = (item) =>
       class: selectedConnection()?.id === item.id ? "is-selected" : "",
       onclick: () => setSelected(item.id),
     },
-    _.td(_.span({ class: "tl-link-id" }, item.id)),
     _.td(_.strong(item.name), renderMiniSpark(item)),
     _.td(renderTypeBadge(item.type)),
     _.td(_.strong(item.from), _.span(item.fromKind)),
@@ -887,6 +886,7 @@ const renderTableView = () => {
 
   if (connectionState.view === "grid") {
     return _.div(
+      { class: "tl-link-results" },
       _.Grid(
         { class: "tl-link-card-grid", cols: "repeat(auto-fill, minmax(220px, 1fr))", gap: 12 },
         ...items.map((item) =>
@@ -904,11 +904,12 @@ const renderTableView = () => {
   }
 
   return _.div(
+    { class: "tl-link-results" },
     _.div(
       { class: "tl-link-table-wrap" },
       _.table(
         { class: "tl-link-table" },
-        _.thead(_.tr(_.th("ID"), _.th("Nome"), _.th("Tipo"), _.th("Da"), _.th("A"), _.th("Stato"), _.th("Ultimo Test"), _.th("Azioni"))),
+        _.thead(_.tr(_.th("Nome"), _.th("Tipo"), _.th("Da"), _.th("A"), _.th("Stato"), _.th("Ultimo Test"), _.th("Azioni"))),
         _.tbody(...items.map(renderConnectionRow))
       )
     ),

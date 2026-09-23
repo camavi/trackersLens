@@ -160,8 +160,7 @@ body {
   width: 100%;
   height: 36px;
   margin-bottom: 6px;
-  display: grid;
-  grid-template-columns: 26px minmax(0, 1fr) auto;
+  display: flex;
   align-items: center;
   gap: 9px;
   justify-content: stretch;
@@ -171,6 +170,20 @@ body {
   background: rgba(255, 255, 255, 0.025);
   padding: 0 9px;
   font-size: 12px;
+}
+
+.tl-link-type.cms-btn > .cms-btn-content,
+.tl-link-filter-btn.cms-btn > .cms-btn-content {
+  display: grid;
+  grid-template-columns: 26px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 9px;
+  width: 100%;
+  min-width: 0;
+}
+
+.tl-link-filter-btn.cms-btn > .cms-btn-content {
+  grid-template-columns: 20px minmax(0, 1fr) 14px;
 }
 
 .tl-link-type.is-active.cms-btn {
@@ -296,8 +309,7 @@ body {
   width: 100%;
   height: 34px;
   margin-bottom: 6px;
-  display: grid;
-  grid-template-columns: 20px minmax(0, 1fr) 14px;
+  display: flex;
   justify-content: stretch;
   color: var(--tl-text-muted);
   border-color: rgba(214, 226, 235, 0.08);
@@ -307,7 +319,7 @@ body {
   font-size: 12px;
 }
 
-.tl-link-filter-btn span:nth-child(2) {
+.tl-link-filter-btn > .cms-btn-content > span:nth-child(2) {
   min-width: 0;
   overflow: hidden;
   text-align: left;
@@ -348,6 +360,30 @@ body {
   display: grid;
   grid-template-rows: auto auto minmax(0, 1fr);
   overflow: hidden;
+}
+
+/* Keep intrinsic table width inside the scrollport, not the card tracks. */
+.tl-link-data-view {
+  grid-template-columns: minmax(0, 1fr);
+  container-type: inline-size;
+}
+
+.tl-link-results {
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.tl-link-results > .tl-link-table-wrap,
+.tl-link-results > .tl-link-card-grid {
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+.tl-link-results > .tl-link-load-more {
+  flex: 0 0 auto;
 }
 
 .tl-link-section-head {
@@ -1506,5 +1542,25 @@ body {
 
   .tl-link-filter-row.cms-row {
     grid-template-columns: repeat(2, minmax(0, 1fr)) auto;
+  }
+}
+
+@container (max-width: 650px) {
+  .tl-link-section-head {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+
+  .tl-link-section-head .tl-link-table-search-input {
+    grid-column: 1 / -1;
+    grid-row: 2;
+    min-width: 0;
+  }
+
+  .tl-link-filter-row.cms-row {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .tl-link-view-switch {
+    justify-self: start;
   }
 }

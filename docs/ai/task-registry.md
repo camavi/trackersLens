@@ -7,6 +7,22 @@ Last updated: 2026-09-22.
 
 ## Active
 
+- SQLite collection selection (2026-09-23): removed full-shell replacement during state refresh; collection aside and focus remain stable through selection/loading. Electron scroll/identity/focus regression passes.
+
+- SQLite Inspector empty state (2026-09-23): centered the selection prompt horizontally and added padding to shared SQLite empty states.
+
+- SQLite results card (2026-09-23): fixed clipped header/body with a constrained results wrapper and card-responsive controls. Electron fixture regression passes for scrolling and layout containment.
+
+- SQLite Explorer aside (2026-09-23): fixed hidden collection names by adapting the button grid to JSswift's content wrapper; Electron regression passes.
+
+- Connections list (2026-09-23): removed the redundant ID column; detail inspection retains the identifier.
+
+- Connections results card (2026-09-23): corrected intrinsic-width overflow and unconstrained results height; responsive header/filters and bounded table/grid scroll area implemented. Electron fixture regression passes for horizontal/vertical scrolling and contained controls.
+
+- Connections aside (2026-09-23): fixed missing type/filter labels and clipped icons by adapting the layout to JSswift's button content wrapper. Electron geometry regression passes.
+
+- Library Import button (2026-09-23): fixed clipped label in Flow Map and Asset toolbars with a dedicated content-width style. Visual confirmation pending.
+
 - Desktop Library navigation follow-up (2026-09-23): implemented shell-based fallback for retired sidebar routes, with missing/unregistered-router regression coverage and Electron Library navigation verification. Exact startup trigger remains unconfirmed; user restart verification pending.
 
 ### TASK-036: Synchronize node and link activity with runtime events

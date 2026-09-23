@@ -237,6 +237,7 @@ const renderStoreItem = (store) =>
   btn(
     {
       class: `tl-db-store${store.name === explorerState.selectedStore ? " is-active" : ""}`,
+      "data-store-name": store.name,
       onclick: () => setStore(store.name),
     },
     _.span({ class: `tl-db-store-icon is-${store.color}` }, icon(store.icon, "sm")),
@@ -431,6 +432,7 @@ const renderDataView = () => {
         ? _.div({ class: "tl-db-empty" }, explorerState.error)
         : records.length
           ? _.div(
+            { class: "tl-db-results" },
             renderTableView(),
             explorerState.page.hasMore
               ? btn({ class: "tl-db-load-more", onclick: loadMoreRecords }, `Carica altri ${explorerState.page.limit} record`)
@@ -562,10 +564,29 @@ const renderShell = () =>
     )
   );
 
+let renderedStoreCatalog = null;
 const mountExplorer = () => {
   const root = sqliteRoot || document.getElementById("tl-sqlite-root");
   if (!root) return;
-  root.replaceChildren(renderShell());
+  const panel = root.querySelector(".tl-db-panel");
+  if (!panel) {
+    root.replaceChildren(renderShell());
+  } else {
+    if (renderedStoreCatalog !== explorerState.stores) {
+      const scrollTop = panel.scrollTop;
+      const nextPanel = renderDatabasePanel();
+      panel.replaceWith(nextPanel);
+      nextPanel.scrollTop = scrollTop;
+    } else {
+      panel.querySelectorAll(".tl-db-store").forEach((button) => {
+        button.classList.toggle("is-active", button.dataset.storeName === explorerState.selectedStore);
+      });
+    }
+    root.querySelector(".tl-db-data-view")?.replaceWith(renderDataView());
+    root.querySelector(".tl-db-inspector")?.replaceWith(renderInspector());
+    root.querySelector(".tl-db-footer")?.replaceWith(renderFooter());
+  }
+  renderedStoreCatalog = explorerState.stores;
 };
 
 window.TrackerLensViews = window.TrackerLensViews || {};
@@ -581,6 +602,7 @@ window.TrackerLensViews.database = {
     sqliteRoot?.replaceChildren();
     sqliteRoot = null;
     sqliteEmbedded = false;
+    renderedStoreCatalog = null;
   },
 };
 

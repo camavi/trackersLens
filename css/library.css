@@ -137,6 +137,15 @@ body {
   padding: 0;
 }
 
+.tl-library-import.cms-btn {
+  width: auto;
+  min-width: max-content;
+  flex-shrink: 0;
+  gap: 7px;
+  padding: 0 12px;
+  white-space: nowrap;
+}
+
 .tl-library-verify.cms-btn {
   width: auto;
   min-width: 86px;
