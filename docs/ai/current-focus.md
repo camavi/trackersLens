@@ -25,6 +25,8 @@ The hierarchical capability map QA is closed: the compact `tl.catalog.*` discove
 
 ## Current Work
 
+- Desktop Library navigation follow-up (2026-09-23): sidebar fallback now targets `app.html?tl-route=…` for retired local routes when the router is unavailable/unregistered, preserving query/hash. Regression coverage checks both fallback states and real Electron navigation to Library. The reported startup failure itself was not reproduced with an initialized router.
+
 - TASK-036 animation synchronization closed after user approval (2026-09-22). Shared graph activity routes data by source/target/workspace and treats lifecycle events as owner-only, including wildcard links. AI processing follows its own step/job lifecycle rather than channel subscribers; processing no longer animates outgoing links. Live-run controls no longer mark all downstream AI nodes active in advance. Transfer highlights last 1.5 s, terminal lifecycle supersedes old activity leases, and refresh is scheduled at actual activity expiry to prevent stuck animations. 92 tests and app checks pass; user approved the live animation fix.
 
 - TASK-035 closed at user request (2026-09-22). AI Agent attempts a direct response first; only an explicit LLM evidence request activates connected tools/planning and a final answer attempt. Full attempt data and timing remain inspectable. Node cards expose a compact 18px timer icon beside listeners; the separate timing row is removed. User verified direct-first and compact UI. Latest warm trace: 18.238 s total, RAG 2.226 s, one answer call and no planner; initial traces were ~58 s. RAG cold-load investigation is closed. 87 tests and app checks pass; evidence-follow-up is covered automatically but has not been exercised with the live provider.

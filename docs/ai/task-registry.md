@@ -7,6 +7,8 @@ Last updated: 2026-09-22.
 
 ## Active
 
+- Desktop Library navigation follow-up (2026-09-23): implemented shell-based fallback for retired sidebar routes, with missing/unregistered-router regression coverage and Electron Library navigation verification. Exact startup trigger remains unconfirmed; user restart verification pending.
+
 ### TASK-036: Synchronize node and link activity with runtime events
 
 Status: Closed after user approval, 2026-09-22.

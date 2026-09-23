@@ -31,7 +31,7 @@ ipcMain.handle("trackers-core:request", (_event, command, payload) => {
   if (command === "desktop.persistence.readAiRuntimeCenterSummary") {
     return { providers: [], agents: [], jobs: [], logs: [], memory: [], prompts: [] };
   }
-  if (command === "desktop.persistence.readConnectionSummaryPage") {
+  if (command === "desktop.persistence.readConnectionSummaryPage" || command === "desktop.persistence.readLibrarySummaryPage") {
     return { records: [], nextCursor: null };
   }
   throw new Error(`Unexpected smoke-test command: ${command}`);
@@ -125,6 +125,12 @@ app.whenReady().then(async () => {
       }
 
     }
+    const navigation = await window.webContents.executeJavaScript(`(async () => {
+      await window.TrackerLensAppRouter.navigate('library.html');
+      return { pathname: window.location.pathname, route: window.TrackerLensAppRouter.status().activePath };
+    })()`);
+    assert.equal(navigation.pathname, appPage);
+    assert.equal(navigation.route, '/library.html');
     const bridge = await window.webContents.executeJavaScript(`
       Promise.all([
         window.trackers?.desktop?.persistence?.getStatus?.(),

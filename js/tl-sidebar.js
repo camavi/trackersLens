@@ -22,6 +22,16 @@ window.TrackerLensSidebar = (() => {
         return true;
       }
     }
+    const internalRoute = [...defaultItems.map((item) => item.url), "profile.html", "editorWorkspace.html", "flowMap.html"]
+      .includes(target.pathname.split("/").pop());
+    if (target.protocol === "file:" && internalRoute) {
+      const shellUrl = new URL("app.html", target);
+      shellUrl.search = target.search;
+      shellUrl.searchParams.set("tl-route", target.pathname.split("/").pop());
+      shellUrl.hash = target.hash;
+      window.location.assign(shellUrl.toString());
+      return true;
+    }
     window.location.assign(url);
     return true;
   };

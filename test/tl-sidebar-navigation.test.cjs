@@ -40,6 +40,20 @@ test("internal sidebar navigation consumes the request without legacy document n
   assert.deepEqual(assigned, []);
 });
 
+test("sidebar fallback loads the shell when the router is unavailable or not registered yet", () => {
+  for (const router of [undefined, { resolve: () => null }]) {
+    const assigned = [];
+    const window = {
+      location: { href: "file:///Users/example/trackerLens/app.html", assign: (url) => assigned.push(url) },
+      TrackerLensAppRouter: router,
+    };
+    const context = vm.createContext({ window, URL });
+    vm.runInContext(fs.readFileSync(path.join(__dirname, "..", "js", "tl-sidebar.js"), "utf8"), context);
+    assert.equal(window.TrackerLensSidebar.navigate("library.html?workspaceId=demo#assets"), true);
+    assert.deepEqual(assigned, ["file:///Users/example/trackerLens/app.html?workspaceId=demo&tl-route=library.html#assets"]);
+  }
+});
+
 test("the desktop router keeps every internal view under the app shell URL", () => {
   const window = {
     location: {
