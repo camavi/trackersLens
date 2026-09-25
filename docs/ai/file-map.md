@@ -59,6 +59,9 @@ Last updated: 2026-08-25.
 - `js/TlConfig.js`: store constants and app config.
 - SQLite status diagnostics are read directly from the restricted TL Core preload bridge by `js/settingsView.js`.
 
+- `js/customNodesView.js`, `css/customNodesView.css`: Custom Nodes management shell route (`customNodes.html`), local creation/import, permissions and lifecycle.
+- `core/desktop/custom-node-package-manager.cjs`, `custom-node-archive.cjs`: Core-owned installed packages and portable ZIP creation.
+
 ## Electron Desktop Shell
 
 - `package.json`: Electron scripts and development dependency.

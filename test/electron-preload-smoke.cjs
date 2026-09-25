@@ -7,6 +7,13 @@ const preloadPath = path.join(projectRoot, "electron", "preload.cjs");
 const appPage = path.join(projectRoot, "app.html");
 
 ipcMain.handle("trackers-core:request", (_event, command, payload) => {
+  if (command === "desktop.customNodePackages.migrationHistory") return [];
+  if (command === "desktop.customNodePackages.prepareCreate") return { manifest: payload.manifest, archiveSha256: "fixture", importId: "fixture-review", files: [], staticAnalysis: { status: "reviewed", findings: [] } };
+  if (command === "runtime.customNodeSandbox.run") {
+    assert.equal(payload.context.mode, "package-test");
+    assert.equal(payload.context.workspaceId, undefined);
+    return { status: "success", executionId: "fixture-run", events: [{ kind: "emit", port: "diagnostic", data: payload.inputs }], diagnostics: [] };
+  }
   if (command === "desktop.externalAi.listModels") return { models: [{ id: "fixture-model" }, { id: "center-model", reasoningEfforts: ["low", "medium", "high", "xhigh", "max", "ultra"] }], source: "fixture" };
   if (command === "desktop.externalAi.getStatus") return { installed: true, authenticated: true, message: "Fixture account" };
   if (command === "desktop.persistence.getStatus") {
@@ -21,7 +28,7 @@ ipcMain.handle("trackers-core:request", (_event, command, payload) => {
   // Pages may complete an already-scheduled, read-only bootstrap request while
   // the smoke window moves to the next page. These commands are deliberately
   // represented by empty projections in this bridge-only test.
-  if (command === "desktop.customNodePackages.list") return [];
+  if (command === "desktop.customNodePackages.list") return [{ packageId: 'custom.sample', name: 'Sample Text Inspector', version: '1.0.0', publisher: 'trackers-lens-samples', origin: 'local-upload', trustLevel: 'local-dev', installState: 'sandbox-ready', runtimeExecution: 'sandboxed', archive: { sha256: 'fixture' }, permissionConsent: { status: 'granted' }, manifest: { settingsSchema: { prefix: { type: 'string', label: 'Prefisso', defaultValue: 'Hi' } }, icon: 'text_snippet', inputs: ['text'], outputs: ['diagnostic'] } }];
   if (command === "desktop.persistence.readLatestRuntimeOutputs") return [];
   if (command === "desktop.persistence.readRuntimeTimingTrace") return [];
   if (command === "desktop.persistence.readDevelopmentRecordSummaryPage") {
@@ -53,7 +60,7 @@ app.whenReady().then(async () => {
     },
   });
   try {
-    for (const route of ["flowMap.html", "settings.html", "database.html", "ai.html", "connections.html"]) {
+    for (const route of ["flowMap.html", "settings.html", "database.html", "ai.html", "customNodes.html", "connections.html"]) {
       await window.loadFile(appPage, { query: { "tl-route": route } });
       const jsSwiftRuntime = await window.webContents.executeJavaScript(`
         ({
@@ -142,7 +149,76 @@ app.whenReady().then(async () => {
         })()`);
         assert.deepEqual(layout, { vertical: true, horizontal: true, contained: true, loadMore: true });
       }
+      if (route === "customNodes.html") {
+        const ui = await window.webContents.executeJavaScript(`(async () => {
+          await new Promise(resolve => setTimeout(resolve, 100));
+          const page = document.querySelector('.tl-custom-page');
+          const create = Array.from(page.querySelectorAll('button')).find(button => button.getAttribute('aria-label') === 'Crea Custom Node');
+          create.click();
+          const manifest = document.querySelector('textarea[aria-label="node.json"]');
+          const source = document.querySelector('textarea[aria-label="runtime.js"]');
+          document.querySelector('[aria-label="Aggiungi parametro"]').click();
+          const key = document.querySelector('[aria-label="Chiave parametro"]');
+          key.value = 'prefix'; key.dispatchEvent(new Event('input', { bubbles: true }));
+          const defaultInput = document.querySelector('[aria-label="Valore predefinito"]');
+          defaultInput.value = 'Hello'; defaultInput.dispatchEvent(new Event('input', { bubbles: true }));
+          if (JSON.parse(manifest.value).settingsSchema.prefix.defaultValue !== 'Hello') throw new Error('Settings schema did not reach manifest');
+          const name = document.querySelector('input[name="name"]');
+          name.value = 'Guided fixture'; name.dispatchEvent(new Event('input', { bubbles: true }));
+          if (JSON.parse(manifest.value).name !== 'Guided fixture') throw new Error('Guided name did not reach manifest');
+          const ports = document.querySelector('input[name="outputs"]');
+          ports.value = 'first, second, first'; ports.dispatchEvent(new Event('input', { bubbles: true }));
+          if (JSON.parse(manifest.value).outputs.join(',') !== 'first,second') throw new Error('Port normalization failed');
+          return { page: Boolean(page), manifest: JSON.parse(manifest.value).id, source: source.value, route: window.TrackerLensAppRouter.status().activePath };
+        })()`);
+        assert.equal(ui.page, true);
+        assert.equal(ui.manifest, "custom.my-node");
+        assert.match(ui.source, /export async function run/);
+        assert.equal(ui.route, "/customNodes.html");
+        await new Promise(resolve => setTimeout(resolve, 400));
+        require('node:fs').writeFileSync('/tmp/tl-custom-guided-smoke.png', (await window.webContents.capturePage()).toPNG());
+        const controls = await window.webContents.executeJavaScript(`(() => {
+          Array.from(document.querySelectorAll('button')).find(button => button.textContent.trim() === 'Annulla')?.click();
+          const search = document.querySelector('.tl-custom-topbar input');
+          search.value = 'does-not-exist'; search.dispatchEvent(new Event('input', { bubbles: true }));
+          const empty = document.querySelectorAll('.tl-custom-card').length === 0;
+          search.value = ''; search.dispatchEvent(new Event('input', { bubbles: true }));
+          const restored = document.querySelectorAll('.tl-custom-card').length === 1;
+          document.querySelector('[aria-label="Vista lista"]').click();
+          const list = Boolean(document.querySelector('.tl-custom-cards.is-list'));
+          document.querySelector('[aria-label="Vista griglia"]').click();
+          return { empty, restored, list };
+        })()`);
+        assert.deepEqual(controls, { empty: true, restored: true, list: true });
+        const packageUi = await window.webContents.executeJavaScript(`(async () => {
+          document.querySelector('.tl-custom-card [aria-label="Dettagli"]').click();
+          const details = document.querySelectorAll('.tl-custom-detail-section').length;
+          Array.from(document.querySelectorAll('button')).find(button => button.textContent.trim() === 'Chiudi')?.click();
+          document.querySelector('.tl-custom-card [aria-label="Test"]').click();
+          document.querySelector('[aria-label="Esegui test"]').click();
+          await new Promise(resolve => setTimeout(resolve, 100));
+          const tested = document.querySelector('.tl-custom-test-output').textContent.includes('fixture-run');
+          Array.from(document.querySelectorAll('button')).find(button => button.textContent.trim() === 'Chiudi')?.click();
+          document.querySelector('.tl-custom-card [aria-label="Versioni"]').click();
+          await new Promise(resolve => setTimeout(resolve, 100));
+          const versions = document.body.textContent.includes('Migrazioni salvate');
+          Array.from(document.querySelectorAll('button')).find(button => button.textContent.trim() === 'Chiudi')?.click();
+          return { details, tested, versions };
+        })()`);
+        assert.deepEqual(packageUi, { details: 8, tested: true, versions: true });
+        await new Promise(resolve => setTimeout(resolve, 400));
+        require('node:fs').writeFileSync('/tmp/tl-custom-nodes-smoke.png', (await window.webContents.capturePage()).toPNG());
+      }
       if (route === "flowMap.html") {
+        const settings = await window.webContents.executeJavaScript(`(async () => {
+          await window.TrackerLensCustomNodePackages.refreshInstalled();
+          const item = window.TrackerLensCustomNodePackages.paletteGroups()[0][1][0];
+          const fields = configFieldDefinitions({ type: 'custom', metadata: { customPackage: item.customPackage, settingsSchema: item.settingsSchema } });
+          return { schema: item.settingsSchema.prefix, field: fields.find(field => field.key === 'prefix') };
+        })()`);
+        assert.equal(settings.schema.defaultValue, 'Hi');
+        assert.equal(settings.field.label, 'Prefisso');
+        assert.equal(settings.field.defaultValue, 'Hi');
         const ui = await window.webContents.executeJavaScript(`(async () => {
           const dialog = window.TrackerLensAiAgentEditor.open({
             agent: { name: 'Catalog fixture', provider: { profileId: 'fixture-codex', providerType: 'lm-studio', model: '' } },

@@ -41,3 +41,7 @@ Compound planning uses simulated context:
 - config/channel updates modify planned node fields.
 
 Executor still validates against real runtime before every write.
+
+## Core-owned Custom Node migration
+
+`core/desktop/custom-node-migration.cjs` implements the registered ready tool `migrateCustomNodeVersion` for the management page. It uses an opaque reviewed plan, explicit confirmation, fresh archive/catalog/config/port validation and an atomic SQLite snapshot/node-write operation. It does not expose a new mutation to the Flow Chat provider or sandbox graph dispatcher. Restore is scoped and refuses subsequent edits; generic Time Travel restore must not apply these partial snapshots. See `../runtime/custom-node-packages.md` for the lifecycle.

@@ -317,3 +317,219 @@ test("Custom Node sandbox activation requires prior permission consent and exact
   assert.equal(activated.runtimeExecution, "sandboxed");
   assert.equal(activated.installState, "sandbox-ready");
 });
+
+test("Custom Node lifecycle preserves disabled archives, checks references and binds review hash", async (t) => {
+  const directory = await fs.promises.mkdtemp(path.join(os.tmpdir(), "tl-custom-lifecycle-"));
+  t.after(() => fs.promises.rm(directory, { recursive: true, force: true }));
+  const stores = { tl_packages: [], tl_runtime_nodes: [] };
+  const persistence = {
+    readDevelopmentRecords: async ({ storeName }) => stores[storeName],
+    writeDevelopmentRecords: async ({ storeName, records }) => { for (const r of records) { const i = stores[storeName].findIndex((x) => x.id === r.id); if (i < 0) stores[storeName].push(r); else stores[storeName][i] = r; } },
+    deleteDevelopmentRecords: async ({ storeName, ids }) => { stores[storeName] = stores[storeName].filter((r) => !ids.includes(r.id)); }
+  };
+  const legacy = path.join(directory, "legacy");
+  const manager = new CustomNodePackageManager({ packagesDirectory: legacy, persistence });
+  const source = path.join(directory, "example.tl-node.zip");
+  const bytes = zipStored({ "node.json": JSON.stringify(manifest), "runtime.js": "export async function run() {}", "ui.json": "{}" });
+  await fs.promises.writeFile(source, bytes);
+  const review = await manager.inspectFile(source);
+  await assert.rejects(manager.installFile(source, { expectedHash: "different" }), { code: "CUSTOM_NODE_REVIEW_CHANGED" });
+  let record = await manager.installFile(source, { expectedHash: review.archiveSha256, origin: "created" });
+  assert.equal(record.origin, "created");
+  const reference = { packageId: record.packageId, version: record.version, archiveSha256: record.archive.sha256, confirmed: true };
+  await manager.grantPermissions({ ...reference, permissions: {} });
+  await manager.activateSandboxRuntime(reference);
+  await assert.rejects(manager.remove(reference), { code: "CUSTOM_NODE_DISABLE_REQUIRED" });
+  await assert.rejects(manager.deactivate({ ...reference, confirmed: false }), { code: "CUSTOM_NODE_CONFIRMATION_REQUIRED" });
+  await manager.deactivate(reference);
+  await assert.rejects(manager.loadSandboxRuntime(reference), { code: "CUSTOM_NODE_RUNTIME_BLOCKED" });
+  record = await manager.installFile(source);
+  assert.equal(record.installState, "disabled", "reimport must preserve activation and consent state");
+  const current = new CustomNodePackageManager({ packagesDirectory: path.join(directory, "customNode"), persistence });
+  await current.migrateLegacyDirectory(legacy);
+  await current.migrateLegacyDirectory(legacy);
+  await current.activateSandboxRuntime(reference);
+  assert.match((await current.loadSandboxRuntime(reference)).source, /export async/);
+  await current.deactivate(reference);
+  stores.tl_runtime_nodes.push({ id: "node", workspaceId: "flow", metadata: { customPackage: { packageId: record.packageId, version: record.version, archive: record.archive } } });
+  assert.equal((await current.dependencies(reference))[0].workspaceId, "flow");
+  await assert.rejects(current.remove(reference), { code: "CUSTOM_NODE_IN_USE" });
+  stores.tl_runtime_nodes = [];
+  await current.remove(reference);
+  assert.deepEqual(await current.listInstalled(), []);
+  assert.equal(fs.existsSync(path.join(directory, "customNode", record.packageId, record.version, `${record.archive.id}.tl-node.zip`)), false);
+});
+
+test("Core-created archive retains complete source and passes normal package inspection", () => {
+  const { zipStored: writeArchive } = require("../core/desktop/custom-node-archive.cjs");
+  const archive = writeArchive({ "node.json": JSON.stringify(manifest), "runtime.js": "export async function run() {}", "ui.json": "{}" });
+  assert.equal(inspectArchive(archive).manifest.id, manifest.id);
+});
+
+test("Custom Node settings survive archive inspection and preserve typed defaults", () => {
+  const { resolveSettings } = require("../core/desktop/custom-node-settings.cjs");
+  const settingsSchema = {
+    prefix: { type: "string", label: "Prefisso", defaultValue: "" },
+    count: { type: "number", defaultValue: 0 },
+    enabled: { type: "boolean", defaultValue: false },
+    optional: { type: "string" }
+  };
+  const archive = zipStored({ "node.json": JSON.stringify({ ...manifest, settingsSchema }), "runtime.js": "export async function run() {}", "ui.json": "{}" });
+  const inspected = inspectArchive(archive);
+  assert.equal(inspected.manifest.settingsSchema.prefix.label, "Prefisso");
+  assert.deepEqual(resolveSettings(inspected.manifest.settingsSchema, {}), { prefix: "", count: 0, enabled: false });
+  assert.deepEqual(resolveSettings(settingsSchema, { count: "12", enabled: "false", extra: { retained: true } }), { count: 12, enabled: false, prefix: "", extra: { retained: true } });
+  assert.throws(() => resolveSettings(settingsSchema, { count: "" }), { code: "CUSTOM_NODE_SETTINGS_INVALID" });
+  assert.throws(() => resolveSettings(settingsSchema, { enabled: "yes" }), { code: "CUSTOM_NODE_SETTINGS_INVALID" });
+  assert.throws(() => resolveSettings({ required: { type: "string", required: true } }), { code: "CUSTOM_NODE_SETTINGS_INVALID" });
+});
+
+test("Custom Node settings reject dangerous keys, unsupported types and invalid defaults", () => {
+  const { normalizeSettings } = require("../core/desktop/custom-node-settings.cjs");
+  for (const schema of [JSON.parse('{"__proto__":{"type":"string"}}'), { constructor: "string" }, { config: "string" }, { amount: { type: "number", defaultValue: "0" } }, { handler: { type: "code" } }]) {
+    assert.throws(() => normalizeSettings(schema), { code: "CUSTOM_NODE_SETTINGS_INVALID" });
+  }
+});
+
+test("Version comparison identifies port and permission changes and incompatible configs without writes", async () => {
+  const source = { packageKind: "custom-node", packageId: "custom.compare", version: "1.0.0", archive: { sha256: "old" }, manifest: { inputs: ["text"], outputs: ["output"], settingsSchema: { count: { type: "string" } } }, permissions: { memory: false }, runtimeExecution: "sandboxed" };
+  const target = { ...source, version: "2.0.0", archive: { sha256: "new" }, manifest: { inputs: ["input"], outputs: ["output", "diagnostic"], settingsSchema: { count: { type: "number" } } }, permissions: { memory: true }, runtimeExecution: "blocked" };
+  const nodes = [{ id: "a", name: "First", workspaceId: "flow", metadata: { customPackage: source, config: { count: "bad" } } }, { id: "b", name: "Second", workspaceId: "flow", metadata: { customPackage: source, config: { count: "12" } } }];
+  const manager = new CustomNodePackageManager({ packagesDirectory: os.tmpdir(), persistence: { readDevelopmentRecords: async ({ storeName }) => storeName === "tl_packages" ? [source, target] : nodes, writeDevelopmentRecords: () => assert.fail("comparison must not write") } });
+  const ref = (r) => ({ packageId: r.packageId, version: r.version, archiveSha256: r.archive.sha256 });
+  const report = await manager.compareVersions({ source: ref(source), target: ref(target) });
+  assert.deepEqual(report.inputs, { added: ["input"], removed: ["text"] });
+  assert.deepEqual(report.outputs.added, ["diagnostic"]);
+  assert.equal(report.permissions[0].after, true);
+  assert.equal(report.instances[0].configurationValid, false);
+  assert.equal(report.instances[1].configurationValid, true);
+  assert.equal(report.targetRuntimeExecution, "blocked");
+  assert.equal(report.executable, false);
+  await assert.rejects(manager.compareVersions({ source: ref(source), target: { ...ref(target), archiveSha256: "stale" } }), { code: "CUSTOM_NODE_PACKAGE_REFERENCE_INVALID" });
+});
+
+test("Custom Node migration commits snapshot and nodes atomically, rejects stale plans and restores only unchanged nodes", async (t) => {
+  const { DesktopPersistence } = require("../core/desktop/desktop-persistence.cjs");
+  const { CustomNodeMigration } = require("../core/desktop/custom-node-migration.cjs");
+  const directory = await fs.promises.mkdtemp(path.join(os.tmpdir(), "tl-migration-"));
+  t.after(() => fs.promises.rm(directory, { recursive: true, force: true }));
+  const persistence = new DesktopPersistence({ databasePath: path.join(directory, "db.sqlite") }); persistence.initialize();
+  const manager = new CustomNodePackageManager({ packagesDirectory: path.join(directory, "packages"), persistence });
+  const refs = [];
+  for (const version of ["1.0.0", "2.0.0", "3.0.0"]) {
+    const archive = path.join(directory, `${version}.tl-node.zip`);
+    await fs.promises.writeFile(archive, zipStored({ "node.json": JSON.stringify({ ...manifest, version, outputs: version === "3.0.0" ? [] : ["output"], settingsSchema: { prefix: { type: "string", defaultValue: "hello" } } }), "runtime.js": "export async function run() {}", "ui.json": "{}" }));
+    const record = await manager.installFile(archive);
+    const ref = { packageId: record.packageId, version, archiveSha256: record.archive.sha256 };
+    await manager.grantPermissions({ ...ref, confirmed: true, permissions: {} });
+    await manager.activateSandboxRuntime({ ...ref, confirmed: true });
+    refs.push(ref);
+  }
+  const original = { id: "node-a", workspaceId: "flow-a", inputs: ["input"], outputs: ["output"], label: "My node", metadata: { customPackage: { ...refs[0], archive: { sha256: refs[0].archiveSha256 }, installState: "sandbox-ready", runtimeExecution: "sandboxed" }, runtimeBlocked: false, config: { retained: "yes" } } };
+  persistence.writeDevelopmentRecords({ storeName: "tl_runtime_nodes", records: [original, { id: "unrelated", workspaceId: "another", label: "Keep" }] });
+  const migration = new CustomNodeMigration({ manager, persistence });
+  await assert.rejects(migration.preview({ source: refs[0], target: refs[2] }), /rimuove porte/);
+  let plan = await migration.preview({ source: refs[0], target: refs[1] });
+  assert.equal(plan.nodes[0].afterConfig.prefix, "hello");
+  await assert.rejects(migration.apply({ planId: plan.planId, confirmed: false }), /Conferma/);
+  persistence.writeDevelopmentRecords({ storeName: "tl_channels", records: [{ id: "channel", name: "Changed" }] });
+  await assert.rejects(migration.apply({ planId: plan.planId, confirmed: true }), /stato è cambiato/);
+  assert.equal(persistence.readDevelopmentRecords({ storeName: "tl_time_travel_snapshots" }).length, 0);
+  plan = await migration.preview({ source: refs[0], target: refs[1] });
+  const applied = await migration.apply({ planId: plan.planId, confirmed: true });
+  let node = persistence.readDevelopmentRecordById({ storeName: "tl_runtime_nodes", id: "node-a" });
+  assert.equal(node.metadata.customPackage.version, "2.0.0");
+  assert.equal(node.metadata.config.retained, "yes");
+  assert.equal((await migration.history({ packageId: refs[0].packageId })).length, 1);
+  persistence.writeDevelopmentRecords({ storeName: "tl_runtime_nodes", records: [{ ...node, label: "User edited" }] });
+  await assert.rejects(migration.restore({ snapshotId: applied.snapshotId, confirmed: true }), /modificato/);
+  persistence.writeDevelopmentRecords({ storeName: "tl_runtime_nodes", records: [node] });
+  await migration.restore({ snapshotId: applied.snapshotId, confirmed: true });
+  node = persistence.readDevelopmentRecordById({ storeName: "tl_runtime_nodes", id: "node-a" });
+  assert.equal(node.metadata.customPackage.version, "1.0.0");
+  assert.deepEqual(node.metadata.config, { retained: "yes" });
+  assert.equal(persistence.readDevelopmentRecordById({ storeName: "tl_runtime_nodes", id: "unrelated" }).label, "Keep");
+  await assert.rejects(migration.restore({ snapshotId: applied.snapshotId, confirmed: true }), /non disponibile/);
+});
+
+test("AI package review requires explicit consent and exact local provider; never dispatches tools", async () => {
+  const { CustomNodeReviewer } = require("../core/desktop/custom-node-review.cjs");
+  let calls = 0;
+  const reviewer = new CustomNodeReviewer({ persistence: { readDevelopmentRecords: async () => [
+    { id: "local", provider: "lm-studio", endpoint: "http://127.0.0.1:1234/v1", model: "test-model" },
+    { id: "remote", provider: "lm-studio", endpoint: "https://remote.example/v1", model: "remote" }
+  ] }, fetchImpl: async (url, options) => {
+    calls++;
+    assert.equal(url, "http://127.0.0.1:1234/v1/chat/completions");
+    assert.equal(options.redirect, "error");
+    const body = JSON.parse(options.body);
+    assert.equal(body.tools, undefined);
+    assert.equal(body.max_tokens, undefined);
+    assert.equal(JSON.parse(body.messages[1].content).runtimeSource, "full source");
+    return { ok: true, json: async () => ({ choices: [{ message: { content: "Rapporto completo" }, finish_reason: "stop" }], model: "test-model", usage: { total_tokens: 123 } }) };
+  } });
+  const providers = await reviewer.providers();
+  assert.equal(providers.length, 2);
+  assert.equal(providers[1].local, false);
+  const payload = { provider: providers[0], inspection: { archiveSha256: "exact-hash", manifest: {}, staticAnalysis: {} }, source: "full source" };
+  await assert.rejects(reviewer.review(payload), /Conferma/);
+  await assert.rejects(reviewer.review({ ...payload, confirmed: true, provider: { ...providers[0], model: "changed" } }), /cambiato/);
+  assert.equal(calls, 0);
+  const report = await reviewer.review({ ...payload, confirmed: true });
+  assert.equal(report.text, "Rapporto completo");
+  assert.equal(report.archiveSha256, "exact-hash");
+  assert.equal(report.advisoryOnly, true);
+  assert.equal(calls, 1);
+});
+
+test("External API review keeps configured base, protects credentials and rejects insecure remote transport", async () => {
+  const { CustomNodeReviewer } = require("../core/desktop/custom-node-review.cjs");
+  const secret = "test-private-credential";
+  const reviewer = new CustomNodeReviewer({ persistence: { readDevelopmentRecords: async () => [
+    { id: "cloud", content: { provider: "openai-compatible", endpoint: "https://api.example/service/v2", model: "configured-model", apiKey: secret } },
+    { id: "insecure", provider: "openai", endpoint: "http://api.example/v1", model: "model" },
+    { id: "login", connectionType: "login", provider: "openai", endpoint: "https://api.example/v1", model: "model" }
+  ] }, fetchImpl: async (url, options) => {
+    assert.equal(url, "https://api.example/service/v2/chat/completions");
+    assert.equal(options.headers.Authorization, `Bearer ${secret}`);
+    assert.equal(options.redirect, "error");
+    assert.equal(options.body.includes(secret), false);
+    return { ok: false, status: 401, text: async () => `Rejected ${secret}` };
+  } });
+  const providers = await reviewer.providers();
+  assert.equal(providers.length, 1);
+  assert.equal(providers[0].local, false);
+  assert.equal(JSON.stringify(providers).includes(secret), false);
+  await assert.rejects(reviewer.review({ provider: providers[0], confirmed: true, inspection: {}, source: "source" }), (error) => !error.message.includes(secret) && error.message.includes("401"));
+});
+
+test("Anthropic native review uses explicit token budget, native headers and preserves partial multi-block reports", async () => {
+  const { CustomNodeReviewer } = require("../core/desktop/custom-node-review.cjs");
+  let calls = 0;
+  const reviewer = new CustomNodeReviewer({ persistence: { readDevelopmentRecords: async () => [{ id: "anthropic", provider: "anthropic", endpoint: "https://api.anthropic.com", model: "configured-model", apiKey: "private-key", maxTokens: 12345 }] }, fetchImpl: async (url, options) => {
+    calls++;
+    assert.equal(url, "https://api.anthropic.com/v1/messages");
+    assert.equal(options.headers["x-api-key"], "private-key");
+    assert.equal(options.headers["anthropic-version"], "2023-06-01");
+    assert.equal(options.headers.Authorization, undefined);
+    const body = JSON.parse(options.body);
+    assert.equal(body.max_tokens, 98765);
+    assert.equal(typeof body.system, "string");
+    assert.equal(body.messages[0].role, "user");
+    assert.equal(body.tools, undefined);
+    return { ok: true, json: async () => ({ model: "configured-model", content: [{ type: "text", text: "Prima parte" }, { type: "text", text: "Seconda parte" }], stop_reason: "max_tokens", usage: { input_tokens: 20, output_tokens: 30 } }) };
+  } });
+  const provider = (await reviewer.providers())[0];
+  assert.equal(provider.protocol, "anthropic-messages");
+  assert.equal(provider.maxTokens, 12345);
+  const payload = { provider, confirmed: true, inspection: { archiveSha256: "hash" }, source: "source" };
+  await assert.rejects(reviewer.review(payload), /limite token positivo/);
+  await assert.rejects(reviewer.review({ ...payload, provider: { ...provider, protocol: "chat-completions" }, maxTokens: 98765 }), /profilo è cambiato/);
+  assert.equal(calls, 0);
+  const report = await reviewer.review({ ...payload, maxTokens: 98765 });
+  assert.equal(report.text, "Prima parte\nSeconda parte");
+  assert.equal(report.incomplete, true);
+  assert.equal(report.responseContent.length, 2);
+  assert.equal(report.maxTokens, 98765);
+  assert.equal(JSON.stringify(report).includes("private-key"), false);
+});

@@ -40,11 +40,11 @@ window.TrackerLensCustomNodePackages = (() => {
   const notifyPaletteChanged = () => window.dispatchEvent(new CustomEvent("trackers-custom-node-packages-updated", { detail: { packages: installed } }));
   const refreshInstalled = async () => {
     if (!isAvailable()) { installed = []; return installed; }
-    installed = await bridge().list().catch(() => []);
+    installed = await bridge().list();
     notifyPaletteChanged();
     return installed;
   };
-  const paletteGroups = () => installed.length ? [["Custom Packages", installed.map(paletteItem)]] : [];
+  const paletteGroups = () => { const available = installed.filter((pkg) => pkg.installState !== "disabled"); return available.length ? [["Custom Packages", available.map(paletteItem)]] : []; };
   const permissionText = (permissions = {}) => [
     permissions.network ? "network" : null,
     permissions.filesystem ? "filesystem" : null,
@@ -81,6 +81,7 @@ window.TrackerLensCustomNodePackages = (() => {
     );
   };
   const openDialog = async () => {
+    if (window.TrackerLensAppRouter?.resolve("/customNodes.html")) return window.TrackerLensAppRouter.navigate("customNodes.html");
     if (!isAvailable()) return JSswift.notify?.error?.("L'import Custom Node è disponibile solo nell'app desktop.");
     let packages = await refreshInstalled();
     let review = null;
@@ -147,6 +148,6 @@ window.TrackerLensCustomNodePackages = (() => {
     });
     dialog.open();
   };
-  if (isAvailable()) refreshInstalled();
+  if (isAvailable()) refreshInstalled().catch(console.error);
   return Object.freeze({ isAvailable, openDialog, paletteGroups, refreshInstalled });
 })();

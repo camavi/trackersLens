@@ -22,6 +22,9 @@ The core product direction is:
 
 ## Main Pages
 
+These page names are routes within `app.html`; legacy standalone entry files are retired.
+
+- `customNodes.html`: Custom Node creation/import, permissions, activation, deactivation, export and dependency-aware removal. Marketplace and agent supervision remain pending integrations.
 - `library.html`: local asset/workspace library.
 - `editorWorkspace.html`: workspace/grid editor.
 - `workspace.html`: runtime viewer.

@@ -3,13 +3,14 @@
 Purpose: Laravel API/backend integration contract for Trackers Lens.
 Read when: working on `trackersLens-api` or frontend/backend integration.
 Do not read when: unrelated Flow Map/runtime UI work.
-Last updated: 2026-06-15.
+Last updated: 2026-09-25.
 
 ## Repository
 
-- Local path: `/Users/cmalleux/Sites/trackersLens-api`
+- Canonical local path: `/Users/cmalleux/Sites/trackerslens-site`
+- Website `/`, dashboard `/app` and API `/api` share one Laravel app and origin. The original `trackersLens-api` and `trackersLens-dashboard` repositories are preserved recovery copies.
 - Stack: Laravel 13, Sanctum SPA cookie auth, PHPUnit feature tests.
-- Current writable workspace may be `trackerLens`; confirm write access before editing the sibling API repo.
+- Deployment document root: `trackerslens-site/public/`; see its README for unified build/start commands.
 
 ## Implemented API Surface
 
@@ -22,7 +23,7 @@ Last updated: 2026-06-15.
 - Landing:
   - `POST /api/launch-subscriptions`
   - `POST /api/contact-messages`
-- Dashboard:
+- Dashboard (demonstration data, restored after account-scope correction):
   - `GET /api/dashboard/summary`
   - `GET /api/dashboard/activity`
   - `GET /api/dashboard/system-status`
@@ -34,8 +35,8 @@ Last updated: 2026-06-15.
 ## Current Baseline
 
 - Existing backend tests pass with `php artisan test`.
-- Current baseline on 2026-06-15: 9 tests, 49 assertions.
-- The API repo currently has pre-existing uncommitted edits in `.env.example` and `docs/landing-integration.md`; do not overwrite them without review.
+- Unified baseline on 2026-09-25: 13 tests, 252 assertions.
+- Original sibling repositories were clean at consolidation and remain unchanged.
 
 ## Step Plan
 

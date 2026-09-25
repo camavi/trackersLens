@@ -1,4 +1,5 @@
 const crypto = require("node:crypto");
+const { normalizeSettings } = require("./custom-node-settings.cjs");
 const fs = require("node:fs");
 const path = require("node:path");
 const zlib = require("node:zlib");
@@ -10,7 +11,7 @@ const STORE_NAME = "tl_packages";
 const ZIP_EOCD_SIGNATURE = 0x06054b50;
 const ZIP_CENTRAL_SIGNATURE = 0x02014b50;
 const ZIP_LOCAL_SIGNATURE = 0x04034b50;
-const MAX_RUNTIME_SOURCE_BYTES = 2 * 1024 * 1024;
+
 
 const errorWithCode = (message, code) => Object.assign(new Error(message), { code });
 const clone = (value) => JSON.parse(JSON.stringify(value));
@@ -140,6 +141,7 @@ const normalizeManifest = (rawManifest = {}, entries = []) => {
     inputs: normalizePorts(rawManifest.inputs || [], "inputs"),
     outputs: normalizePorts(rawManifest.outputs || [], "outputs"),
     permissions: normalizePermissions(rawManifest.permissions || {}),
+    settingsSchema: normalizeSettings(rawManifest.settingsSchema || {}),
     runtime: Object.freeze({ entry: runtimeEntry, mode: text(runtime.mode, "blocked") }),
     ui: Object.freeze({ schema: uiSchema })
   });
@@ -203,6 +205,15 @@ class CustomNodePackageManager {
     this.persistence = persistence;
   }
 
+  async reviewMaterial(archivePath, expectedHash) {
+    const archive = await fs.promises.readFile(archivePath);
+    const inspection = inspectArchive(archive);
+    if (inspection.archiveSha256 !== expectedHash) throw errorWithCode("Il pacchetto è cambiato dopo la revisione.", "CUSTOM_NODE_REVIEW_CHANGED");
+    const entry = listZipEntries(archive).find((item) => item.name === inspection.manifest.runtime.entry);
+    if (!entry) throw errorWithCode("Entrypoint runtime assente.", "CUSTOM_NODE_RUNTIME_ENTRY_MISSING");
+    return { inspection, source: readZipEntry(archive, entry).toString("utf8") };
+  }
+
   async inspectFile(archivePath = "") {
     const source = path.resolve(String(archivePath || ""));
     if (!source.toLowerCase().endsWith(ZIP_EXTENSION)) throw errorWithCode("Seleziona un archivio .tl-node.zip.", "CUSTOM_NODE_ARCHIVE_EXTENSION_INVALID");
@@ -210,14 +221,26 @@ class CustomNodePackageManager {
     return inspectArchive(archive);
   }
 
-  async installFile(archivePath = "") {
+  async installFile(archivePath = "", { expectedHash = "", origin = "local-upload", aiReviews = [] } = {}) {
     const source = path.resolve(String(archivePath || ""));
-    const inspection = await this.inspectFile(source);
+    if (!source.toLowerCase().endsWith(ZIP_EXTENSION)) throw errorWithCode("Seleziona un archivio .tl-node.zip.", "CUSTOM_NODE_ARCHIVE_EXTENSION_INVALID");
+    const archiveBytes = await fs.promises.readFile(source);
+    const inspection = inspectArchive(archiveBytes);
+    if (expectedHash && inspection.archiveSha256 !== expectedHash) throw errorWithCode("Il file è cambiato dopo la revisione. Ripeti la verifica.", "CUSTOM_NODE_REVIEW_CHANGED");
+    const existing = (await this.listInstalled()).find((item) => item.packageId === inspection.manifest.id && item.version === inspection.manifest.version && item.archive.sha256 === inspection.archiveSha256);
+    if (existing) {
+      const reports = aiReviews.filter((report) => report.archiveSha256 === inspection.archiveSha256);
+      if (!reports.length) return existing;
+      const record = await this.resolvePackage({ packageId: existing.packageId, version: existing.version, archiveSha256: existing.archive.sha256 });
+      const merged = { ...record, aiReviews: [...(record.aiReviews || []), ...clone(reports)], updatedAt: now() };
+      await this.persistence.writeDevelopmentRecords({ storeName: STORE_NAME, records: [merged] });
+      return this.publicRecord(merged);
+    }
     const packageDirectory = path.join(this.packagesDirectory, safePackageSegment(inspection.manifest.id), safePackageSegment(inspection.manifest.version));
     const artifactId = `archive_${inspection.archiveSha256}`;
     const destination = path.join(packageDirectory, `${artifactId}${ZIP_EXTENSION}`);
     await fs.promises.mkdir(packageDirectory, { recursive: true });
-    if (!fs.existsSync(destination)) await fs.promises.copyFile(source, destination, fs.constants.COPYFILE_EXCL);
+    if (!fs.existsSync(destination)) await fs.promises.writeFile(destination, archiveBytes, { flag: "wx" });
     const copiedHash = sha256(await fs.promises.readFile(destination));
     if (copiedHash !== inspection.archiveSha256) throw errorWithCode("Hash dell'archivio importato non coerente.", "CUSTOM_NODE_ARCHIVE_HASH_MISMATCH");
 
@@ -235,6 +258,9 @@ class CustomNodePackageManager {
       archive: { id: artifactId, format: ZIP_EXTENSION, sha256: inspection.archiveSha256, fileCount: inspection.files.length },
       files: inspection.files.map(clone),
       staticAnalysis: clone(inspection.staticAnalysis),
+      origin,
+      aiReviews: clone(aiReviews.filter((report) => report.archiveSha256 === inspection.archiveSha256)),
+      lifecycle: [{ action: "installed", at: now(), archiveSha256: inspection.archiveSha256 }],
       trustLevel: "local-dev",
       permissions: clone(inspection.manifest.permissions),
       grantedPermissions: normalizeSandboxPermissions(),
@@ -255,6 +281,91 @@ class CustomNodePackageManager {
     return records.filter((record) => record?.packageKind === "custom-node").map((record) => this.publicRecord(record));
   }
 
+  async resolvePackage({ packageId, version, archiveSha256 } = {}) {
+    const records = await this.persistence.readDevelopmentRecords({ storeName: STORE_NAME });
+    const matches = records.filter((r) => r.packageKind === "custom-node" && r.packageId === packageId && r.version === version && r.archive?.sha256 === archiveSha256);
+    if (matches.length !== 1) throw errorWithCode("Riferimento pacchetto non valido.", "CUSTOM_NODE_PACKAGE_REFERENCE_INVALID");
+    return matches[0];
+  }
+
+  async dependencies(reference) {
+    const record = await this.resolvePackage(reference);
+    const nodes = await this.persistence.readDevelopmentRecords({ storeName: "tl_runtime_nodes" });
+    return nodes.filter((node) => {
+      const ref = node.metadata?.customPackage;
+      return ref?.packageId === record.packageId && ref.version === record.version && (!ref.archive?.sha256 || ref.archive.sha256 === record.archive.sha256);
+    }).map((node) => ({ id: node.id, name: node.name || node.label || node.id, workspaceId: node.workspaceId || "" }));
+  }
+
+  async compareVersions({ source, target } = {}) {
+    const previous = await this.resolvePackage(source);
+    const next = await this.resolvePackage(target);
+    if (previous.packageId !== next.packageId) throw errorWithCode("Seleziona due versioni dello stesso pacchetto.", "CUSTOM_NODE_VERSION_ID_MISMATCH");
+    const diffPorts = (key) => {
+      const before = previous.manifest?.[key] || [], after = next.manifest?.[key] || [];
+      return { added: after.filter((port) => !before.includes(port)), removed: before.filter((port) => !after.includes(port)) };
+    };
+    const before = previous.manifest?.settingsSchema || {}, after = next.manifest?.settingsSchema || {};
+    const settings = [...new Set([...Object.keys(before), ...Object.keys(after)])].filter((key) => JSON.stringify(before[key]) !== JSON.stringify(after[key])).map((key) => ({ key, before: before[key] ?? null, after: after[key] ?? null }));
+    const permissions = [...new Set([...Object.keys(previous.permissions || {}), ...Object.keys(next.permissions || {})])].filter((key) => previous.permissions?.[key] !== next.permissions?.[key]).map((key) => ({ key, before: previous.permissions?.[key], after: next.permissions?.[key] }));
+    const nodes = await this.persistence.readDevelopmentRecords({ storeName: "tl_runtime_nodes" });
+    const affected = await this.dependencies(source);
+    const { resolveSettings } = require("./custom-node-settings.cjs");
+    const instances = affected.map((dependency) => {
+      const node = nodes.find((item) => item.id === dependency.id && String(item.workspaceId || "") === dependency.workspaceId);
+      try {
+        resolveSettings(after, node?.metadata?.config || {});
+        return { ...dependency, configurationValid: true, configurationError: "" };
+      } catch (error) { return { ...dependency, configurationValid: false, configurationError: error.message }; }
+    });
+    return {
+      source: { packageId: previous.packageId, version: previous.version, archiveSha256: previous.archive.sha256 },
+      target: { packageId: next.packageId, version: next.version, archiveSha256: next.archive.sha256 },
+      inputs: diffPorts("inputs"), outputs: diffPorts("outputs"), settings, permissions, instances,
+      sameArchive: previous.archive.sha256 === next.archive.sha256,
+      targetRuntimeExecution: next.runtimeExecution,
+      executable: false,
+      limitations: ["Confronto dichiarativo: non dimostra equivalenza del comportamento runtime.", "Nessun nodo, configurazione o collegamento è stato modificato.", "Usa Prepara migrazione per ottenere un piano verificato; l’applicazione richiede conferma e salva uno snapshot atomico."]
+    };
+  }
+
+  async deactivate(reference = {}) {
+    if (reference.confirmed !== true) throw errorWithCode("Conferma la disattivazione.", "CUSTOM_NODE_CONFIRMATION_REQUIRED");
+    const record = await this.resolvePackage(reference);
+    const next = { ...record, installState: "disabled", runtimeExecution: "blocked", updatedAt: now(), lifecycle: [...(record.lifecycle || []), { action: "disabled", at: now() }] };
+    await this.persistence.writeDevelopmentRecords({ storeName: STORE_NAME, records: [next] });
+    return this.publicRecord(next);
+  }
+
+  async remove(reference = {}) {
+    if (reference.confirmed !== true) throw errorWithCode("Conferma la cancellazione.", "CUSTOM_NODE_CONFIRMATION_REQUIRED");
+    const record = await this.resolvePackage(reference);
+    const dependencies = await this.dependencies(reference);
+    if (dependencies.length) throw errorWithCode(`Pacchetto usato da ${dependencies.length} nodi: rimuovi prima i riferimenti dai Flow.`, "CUSTOM_NODE_IN_USE");
+    if (record.runtimeExecution === "sandboxed") throw errorWithCode("Disattiva prima il pacchetto.", "CUSTOM_NODE_DISABLE_REQUIRED");
+    const artifact = path.join(this.packagesDirectory, safePackageSegment(record.packageId), safePackageSegment(record.version), `archive_${record.archive.sha256}${ZIP_EXTENSION}`);
+    // Retain the catalog on filesystem failure so removal can be retried.
+    await fs.promises.rm(artifact, { force: true });
+    await this.persistence.deleteDevelopmentRecords({ storeName: STORE_NAME, ids: [record.id] });
+    return { removed: true };
+  }
+
+  async migrateLegacyDirectory(legacyDirectory) {
+    const records = await this.listInstalled();
+    for (const record of records) {
+      const relative = path.join(safePackageSegment(record.packageId), safePackageSegment(record.version), `archive_${record.archive.sha256}${ZIP_EXTENSION}`);
+      const destination = path.join(this.packagesDirectory, relative);
+      if (fs.existsSync(destination)) continue;
+      const source = path.join(legacyDirectory, relative);
+      if (!fs.existsSync(source)) continue;
+      const bytes = await fs.promises.readFile(source);
+      if (sha256(bytes) !== record.archive.sha256) throw errorWithCode("Migrazione: hash non valido.", "CUSTOM_NODE_ARCHIVE_HASH_MISMATCH");
+      await fs.promises.mkdir(path.dirname(destination), { recursive: true });
+      await fs.promises.writeFile(destination, bytes, { flag: "wx" });
+      // Keep the legacy copy as a recovery backup; only customNode is used now.
+    }
+  }
+
   async grantPermissions({ packageId = "", version = "", archiveSha256 = "", permissions = {}, confirmed = false } = {}) {
     if (!confirmed) throw errorWithCode("La concessione dei permessi richiede una conferma esplicita.", "CUSTOM_NODE_PERMISSION_CONFIRMATION_REQUIRED");
     if (!this.persistence?.readDevelopmentRecords || !this.persistence?.writeDevelopmentRecords) {
@@ -271,6 +382,7 @@ class CustomNodePackageManager {
       ...record,
       grantedPermissions: intersectPermissions(record.permissions || record.manifest?.permissions, permissions),
       permissionConsent: { status: "granted", grantedAt: now() },
+      lifecycle: [...(record.lifecycle || []), { action: "permissions-granted", at: now() }],
       updatedAt: now()
     };
     await this.persistence.writeDevelopmentRecords({ storeName: STORE_NAME, records: [nextRecord] });
@@ -289,7 +401,7 @@ class CustomNodePackageManager {
     const record = matches[0];
     if (record.permissionConsent?.status !== "granted") throw errorWithCode("Registra prima il consenso ai permessi dichiarati.", "CUSTOM_NODE_PERMISSION_CONSENT_REQUIRED");
     if (text(record.manifest?.runtime?.mode) !== "sandboxed") throw errorWithCode("Il manifest non dichiara un runtime sandboxed.", "CUSTOM_NODE_RUNTIME_MODE_UNSUPPORTED");
-    const nextRecord = { ...record, installState: "sandbox-ready", runtimeExecution: "sandboxed", activatedAt: now(), updatedAt: now() };
+    const nextRecord = { ...record, installState: "sandbox-ready", runtimeExecution: "sandboxed", activatedAt: now(), updatedAt: now(), lifecycle: [...(record.lifecycle || []), { action: "activated", at: now() }] };
     await this.persistence.writeDevelopmentRecords({ storeName: STORE_NAME, records: [nextRecord] });
     return Object.freeze(this.publicRecord(nextRecord));
   }
@@ -337,9 +449,7 @@ class CustomNodePackageManager {
     }
     const entry = listZipEntries(archive).find((item) => item.name === inspected.manifest.runtime.entry);
     if (!entry) throw errorWithCode("Entry runtime non disponibile.", "CUSTOM_NODE_RUNTIME_ENTRY_MISSING");
-    if (entry.uncompressedSize > MAX_RUNTIME_SOURCE_BYTES) throw errorWithCode("runtime.js supera la dimensione massima consentita.", "CUSTOM_NODE_RUNTIME_SOURCE_TOO_LARGE");
     const source = readZipEntry(archive, entry);
-    if (source.length > MAX_RUNTIME_SOURCE_BYTES) throw errorWithCode("runtime.js supera la dimensione massima consentita.", "CUSTOM_NODE_RUNTIME_SOURCE_TOO_LARGE");
     return Object.freeze({
       packageRecord: {
         ...record,
@@ -373,10 +483,13 @@ class CustomNodePackageManager {
       permissionConsent: clone(record.permissionConsent || { status: "not-granted", grantedAt: "" }),
       installState: text(record.installState, "manifest-only"),
       runtimeExecution: text(record.runtimeExecution, "blocked") === "sandboxed" ? "sandboxed" : "blocked",
+      aiReviews: clone(record.aiReviews || []),
+      origin: record.origin || "local-upload",
+      lifecycle: clone(record.lifecycle || []),
       installedAt: text(record.installedAt),
       updatedAt: text(record.updatedAt)
     };
   }
 }
 
-module.exports = { PACKAGE_FORMAT, ZIP_EXTENSION, STORE_NAME, MAX_RUNTIME_SOURCE_BYTES, CustomNodePackageManager, analyzeRuntimeSource, inspectArchive, listZipEntries, normalizeManifest };
+module.exports = { PACKAGE_FORMAT, ZIP_EXTENSION, STORE_NAME, CustomNodePackageManager, analyzeRuntimeSource, inspectArchive, listZipEntries, normalizeManifest };

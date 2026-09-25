@@ -156,6 +156,7 @@ const createDraftNodeAtFlowPosition = async ({ item, flowPosition }) => {
       runtimeBlocked: Boolean(item.runtimeBlocked || item.customPackage?.runtimeExecution === "blocked"),
       runtimeStatus: item.runtimeBlocked || item.customPackage?.runtimeExecution === "blocked" ? "disabled" : "",
       configured: Boolean(item.customPackage),
+      ...(item.customPackage ? { config: Object.fromEntries(Object.entries(item.settingsSchema || {}).filter(([, field]) => field && typeof field === "object" && Object.hasOwn(field, "defaultValue")).map(([key, field]) => [key, field.defaultValue])) } : {}),
     },
   });
 
@@ -181,22 +182,21 @@ const createDraftNodeAtFlowPosition = async ({ item, flowPosition }) => {
 // permanently disabled after the exact package is explicitly activated.
 const onFlowMapCustomPackageReconcile = async (event) => {
   const packages = Array.isArray(event.detail?.packages) ? event.detail.packages : [];
-  if (!packages.length || !state?.runtime?.nodes?.length) return;
+  if (!state?.runtime?.nodes?.length) return;
   const byReference = new Map(packages.map((pkg) => [`${pkg.packageId}|${pkg.version}|${pkg.archive?.sha256 || ""}`, pkg]));
   const updates = state.runtime.nodes
     .filter((node) => node.metadata?.customPackage?.packageId)
     .map((node) => {
       const current = node.metadata.customPackage;
       const pkg = byReference.get(`${current.packageId}|${current.version}|${current.archive?.sha256 || ""}`);
-      if (!pkg) return null;
-      const sandboxed = pkg.runtimeExecution === "sandboxed";
+      const sandboxed = pkg?.runtimeExecution === "sandboxed";
       if ((current.runtimeExecution === "sandboxed") === sandboxed && Boolean(node.metadata.runtimeBlocked) === !sandboxed) return null;
       return {
         ...node,
         runtime: { ...(node.runtime || {}), ...(sandboxed ? { status: node.runtime?.status === "disabled" ? "idle" : node.runtime?.status || "idle" } : { status: "disabled" }) },
         metadata: {
           ...(node.metadata || {}),
-          customPackage: { ...current, installState: pkg.installState || current.installState, runtimeExecution: sandboxed ? "sandboxed" : "blocked" },
+          customPackage: { ...current, installState: pkg?.installState || "missing", runtimeExecution: sandboxed ? "sandboxed" : "blocked" },
           runtimeBlocked: !sandboxed,
           runtimeStatus: sandboxed ? "" : "disabled"
         }

@@ -7,6 +7,27 @@ Last updated: 2026-09-22.
 
 ## Active
 
+### User profile scope correction (2026-09-25)
+
+Status: mistaken website account work reverted; desktop profile implementation pending.
+
+- Scope correction (2026-09-25): user clarified that the user/profile work targets TL desktop in `trackerLens`, not the website account area. Reverted only the mistaken website account implementation to its prior state, preserving site consolidation, desktop-positioned public pages and the startup config fix. Archived the pre-rollback site patch and added files locally. Website build and 13 tests / 252 assertions pass. Desktop profile code has not yet changed; its automatic legacy API call and mock account/runtime panels are the next work area.
+
+### Public website desktop positioning (2026-09-25)
+
+Status: implemented and locally verified; dashboard refresh is next.
+
+- Public website desktop positioning (2026-09-25): reviewed the TL App implementation and updated the unified site’s Italian/English/Spanish public pages around the desktop local AI environment, Flow Map, managed Python, Node.js/JavaScript, AI providers and SQLite. Replaced browser-extension/IndexedDB/future-desktop copy, unsupported usage/progress figures and the old dashboard hero with an explicitly illustrative Knowledge → Python RAG → AI Agent → Preview flow. Updated SEO/social artwork, release-status pages and documentation. Dashboard changes remain the next user-directed phase. Validation: landing build, 13 Laravel tests / 252 assertions, 305 translation keys per language, Chrome desktop/mobile checks with no overflow, missing anchors or JS errors.
+
+### Website consolidation (2026-09-25)
+
+- Website login follow-up (2026-09-25): fixed HTTP 500 `Session store not set on request` on port 8001. Sanctum now includes its current-request-host placeholder alongside configured frontend hosts, so same-host/port browser requests receive session/CSRF middleware on alternate server ports. Regression coverage includes login/current user/logout on 8001 and rejection of unconfigured foreign origins/ports.
+
+Status: local integration implemented and verified; production deployment not performed.
+
+- Website consolidation (2026-09-25): landing, existing CMSwift dashboard and Laravel/Sanctum API now live in `/Users/cmalleux/Sites/trackerslens-site`. One origin serves `/it|en|es`, `/app/*`, `/api/*` and API docs; one npm build emits public assets. Original sibling repositories remain untouched as recovery copies. Local private configuration, storage and a consistent SQLite snapshot are copied and ignored by Git. Existing dashboard mock data/placeholders remain; this is consolidation, not a JSswift upgrade or cloud-feature implementation. Production hosting/DNS cutover remains outside this local change.
+- Validation: unified frontend build; 11 Laravel tests / 241 assertions; HTTP landing, dashboard deep links, built assets, docs, CSRF cookie and unauthenticated API checks; Chrome headless dashboard rendering.
+
 - SQLite collection selection (2026-09-23): removed full-shell replacement during state refresh; collection aside and focus remain stable through selection/loading. Electron scroll/identity/focus regression passes.
 
 - SQLite Inspector empty state (2026-09-23): centered the selection prompt horizontally and added padding to shared SQLite empty states.
@@ -202,11 +223,30 @@ Current sub-steps:
 
 ### TASK-029: Custom Node Packages
 
-Status: Started. Phase 1 defines `.tl-node.zip` as the portable artifact and implements the Core-owned manifest-only import contract; package runtime execution remains blocked.
+- TASK-029 Anthropic-native review (2026-09-24): API profiles typed anthropic/claude now use Messages API with top-level system prompt, x-api-key and anthropic-version headers; Login profiles remain excluded. The review confirmation exposes an explicit user-editable positive max_tokens value, seeded only from configured profile settings, with no internal cap. All text response blocks are combined; complete content blocks, usage and stop reason remain inspectable. Token/context-limited reports are marked incomplete rather than discarded. Consent also binds the protocol, preventing a changed profile type from rerouting the approved request. 101 tests and app checks pass; real Anthropic API QA pending, no external API call performed.
+
+- TASK-029 external API review (2026-09-24): configured LM Studio/OpenAI-compatible Chat Completions API profiles can supervise package import after explicit endpoint/model/data-transfer consent. Remote endpoints require HTTPS; redirects remain rejected. Core reads profile and credentials from a single catalog snapshot, uses the configured remote API base without inventing a version prefix, sends bearer credentials only in the request header and removes the known secret from provider error/report text. Public provider metadata carries a local/external label and excludes credentials. No live external call was made; 100 tests and app checks pass. Login/Anthropic-native transports and Marketplace remain pending.
+
+- TASK-029 local AI supervision: import/create review exposes explicit model/destination consent for configured loopback LM Studio API profiles. Core reads the hash-bound runtime entry as text, sends full manifest/source/static audit without tools or execution, rejects redirects/provider changes and preserves the full advisory response with model, usage, timestamps and hashes. Report persists on installation (including identical reimport without resetting grants/state); trust/permissions/activation are unaffected. Scope excludes other archive files and reports this limitation. 99 tests and app checks pass; live LM Studio review is pending. Cloud/Login supervision remains pending.
+
+- TASK-029 safe version application: `CustomNodeMigration` registers the ready Core mutation tool `migrateCustomNodeVersion`. User-requested preview binds exact source/target identities, nodes, configs and graph/catalog state to an opaque token; explicit confirmation triggers fresh validation and a SQLite compare-and-swap transaction that writes a scoped Time Travel snapshot and all migrated nodes together. Destination must be activated/consented and archive-verified. Removed/custom ports, incompatible settings, active Custom Node runs and stale state block application. Existing IDs/config keys/links/output data remain preserved. Versions exposes persistent migration history and confirmed restore; restore only touches migrated nodes, refuses subsequent node/topology changes and reconciles the source activation state. Generic whole-store Time Travel restore rejects these scoped snapshots. 98 tests and app checks pass, including real SQLite migrate/stale-plan/restore coverage; desktop smoke covers the Versions/history UI. Real-user migration QA is pending.
+
+- TASK-029 version comparison: Core exposes read-only exact-reference comparison between installed versions of the same package. Reports added/removed ports, schema and permission changes, dependent nodes/workspaces and per-instance configuration compatibility using the destination scalar resolver. The Versions dialog selects an installed target, displays full findings and explicitly does not apply migration. No config payload is exposed in this report. 97 tests and app checks pass; comparison covers incompatible configs, stale references and zero writes. Migration application through Safe Executor/Time Travel remains pending.
+
+- TASK-029 configuration schema: guided creator supports named string/number/boolean settings with labels, typed defaults and required flags. Core preserves `node.json.settingsSchema`, validates declarations and resolves defaults/types before sandbox execution. Unknown config fields remain preserved. Palette/new Flow instances carry the schema/defaults; package Configure opens the existing runtime schema form rather than the legacy custom-layout editor, with booleans mapped to checkboxes. Details/review display declared settings and the local test starts with declared defaults. 96 tests and app checks pass; Electron smoke covers authoring plus catalog-to-palette/schema-field projection. Full interactive Flow save/run QA remains pending.
+
+Status: In progress. Sandboxed execution implemented and previously user-verified; dedicated local management lifecycle implemented 2026-09-23. Marketplace and AI supervision pending.
 Priority: High.
 Risk: High because external JavaScript cannot be fully controlled; TL must distinguish verified marketplace packages from unverified local/external installs.
 
 Current sub-steps:
+
+- TASK-029 guided creation and local testing: JSswift fields now generate the manifest (identity, version, author, category, icon, declared ports and permissions); runtime source remains editable and the complete generated manifest is inspectable. Review and Details expose identity, exact hash, declarations/grants, static findings, files, lifecycle and installed versions. A user-triggered package test accepts JSON input/configuration for an already installed, consented and activated package through the existing sandbox bridge; it has no workspace scope and does not deliver events to a Flow. Draft/pre-install execution is not introduced. 94 tests and app checks pass; Electron smoke verifies field-to-manifest updates, duplicate-port normalization, detail sections and the test invocation using a fixture bridge. Real custom-package execution from the new test dialog still needs user QA. Marketplace, agent supervision, configuration-schema authoring and version migration remain pending.
+
+
+- Visual follow-up: aligned Custom Nodes with the Library design (toolbar, search, filter panel, counted states, dotted background, package cards and grid/list modes). Uses JSswift controls and existing TL colors. Verified through app checks and Electron UI smoke; user visual review remains pending.
+
+- 2026-09-23 management lifecycle: dedicated JSswift route and aside entry; create → review → explicit install, local ZIP upload, hash-bound consent token, identical reimport preserving state, export, deactivate/reactivate and dependency-aware delete. Canonical storage is `userData/customNode`; legacy cataloged artifacts migrate with recovery copies retained. 94 tests, app checks and real Electron management/creator smoke pass; layout visually inspected. Interactive lifecycle QA pending. Marketplace (including free/paid publication) and optional agent supervisor require real service contracts and are visibly unavailable. The following older sub-steps are implementation history; `runtime/custom-node-packages.md` is authoritative for current behavior.
 
 - Package contract: in progress. `.tl-node.zip` contains `node.json`, optional `runtime.js`, `ui.json`, `assets/`, `schemas/`, `examples/` and `README.md`; Core records archive hash/provenance in `tl_packages`, while Flow Maps retain only package references/configuration.
 - Manifest-only import: in progress. Core validates and copies the archive into app data, catalogs metadata/assets/UI schema and registers a disabled palette entry without executing package JS or revealing filesystem paths to the renderer.

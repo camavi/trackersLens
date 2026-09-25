@@ -114,6 +114,10 @@ const runtimeOverviewStats = () => {
 };
 
 const configureNode = (node) => {
+  if (node.metadata?.customPackage) {
+    requestRuntimeNodeConfig(node);
+    return;
+  }
   if (isFlowBoundaryNode(node) && !node.metadata?.library) {
     requestFlowPortDialog(node);
     return;
@@ -1624,6 +1628,7 @@ const configFieldDefinitions = (node = {}) => {
     ...fields,
     ...schemaFields.filter((field) => !fields.some((item) => item.key === field.key)),
   ];
+  if (node.metadata?.customPackage) return schemaFields.map((field) => ({ ...field, type: field.type === "boolean" ? "checkbox" : field.type }));
   if (subtype === "condition") {
     return mergeSchemaFields([
       { key: "conditionField", label: "Field / Path", placeholder: "payload.price" },

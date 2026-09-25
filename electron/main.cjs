@@ -408,11 +408,11 @@ ipcMain.handle("trackers-custom-node-sandbox:tool", (event, message) => {
   return customNodeSandboxRunner.callTool({ senderId: event.sender.id, message: message && typeof message === "object" ? message : {} });
 });
 
-app.whenReady().then(() => {
+app.whenReady().then(async () => {
   persistence = new DesktopPersistence({ databasePath: path.join(app.getPath("userData"), "trackers-lens.sqlite") });
   externalAiProviderBridge = new ExternalAiProviderBridge({ loginLauncher: launchExternalAiLogin, chatRunner: runExternalAiChat });
   customNodePackageManager = new CustomNodePackageManager({
-    packagesDirectory: path.join(app.getPath("userData"), "custom-node-packages"),
+    packagesDirectory: path.join(app.getPath("userData"), "customNode"),
     persistence
   });
   if (customNodeSandboxEnabled) {
@@ -436,7 +436,7 @@ app.whenReady().then(() => {
       nodeId,
       packageRecord: runtime.packageRecord,
       inputs,
-      config,
+      config: require("../core/desktop/custom-node-settings.cjs").resolveSettings(runtime.packageRecord.manifest.settingsSchema || {}, config),
       context,
       grantedPermissions: runtime.packageRecord.grantedPermissions
     });
@@ -483,20 +483,66 @@ app.whenReady().then(() => {
     const archivePath = result.canceled ? "" : String(result.filePaths?.[0] || "");
     return archivePath;
   };
+  const migration = new (require("../core/desktop/custom-node-migration.cjs").CustomNodeMigration)({ manager: customNodePackageManager, persistence, isRunning: () => Boolean(customNodeSandboxRunner?.windows?.size) });
+  const reviewer = new (require("../core/desktop/custom-node-review.cjs").CustomNodeReviewer)({ persistence });
   const customNodePackages = {
+    reviewProviders: () => reviewer.providers(),
+    reviewImport: async ({ importId, provider, maxTokens, confirmed }) => {
+      const pending = pendingCustomNodeImports.get(importId);
+      if (!pending) throw new Error("Revisione import scaduta. Seleziona di nuovo il pacchetto.");
+      const material = await customNodePackageManager.reviewMaterial(pending.archivePath, pending.hash);
+      const report = await reviewer.review({ ...material, provider, maxTokens, confirmed });
+      await customNodePackageManager.reviewMaterial(pending.archivePath, pending.hash);
+      pending.aiReviews = [...(pending.aiReviews || []), report];
+      return report;
+    },
+    migrationHistory: (payload) => migration.history(payload),
+    previewMigration: (payload) => migration.preview(payload),
+    applyMigration: (payload) => migration.apply(payload),
+    restoreMigration: (payload) => migration.restore(payload),
     inspect: async () => {
       const archivePath = await selectCustomNodeArchive();
       if (!archivePath) return { cancelled: true };
       const inspection = await customNodePackageManager.inspectFile(archivePath);
       const importId = crypto.randomUUID();
-      pendingCustomNodeImports.set(importId, archivePath);
+      pendingCustomNodeImports.set(importId, { archivePath, hash: inspection.archiveSha256 });
       return { ...inspection, importId };
     },
     install: async ({ importId = "" } = {}) => {
-      const archivePath = pendingCustomNodeImports.get(String(importId || ""));
+      const review = pendingCustomNodeImports.get(String(importId || ""));
+      const archivePath = review?.archivePath;
       if (!archivePath) throw Object.assign(new Error("La revisione del pacchetto è scaduta. Seleziona di nuovo l'archivio."), { code: "CUSTOM_NODE_IMPORT_REVIEW_EXPIRED" });
       pendingCustomNodeImports.delete(String(importId));
-      return customNodePackageManager.installFile(archivePath);
+      const installed = await customNodePackageManager.installFile(archivePath, { expectedHash: review.hash, origin: review.origin || "local-upload", aiReviews: review.aiReviews || [] });
+      if (review.origin === "created") await fs.promises.rm(archivePath, { force: true });
+      return installed;
+    },
+    prepareCreate: async ({ manifest, source }) => {
+      const { zipStored } = require("../core/desktop/custom-node-archive.cjs");
+      const { inspectArchive } = require("../core/desktop/custom-node-package-manager.cjs");
+      const bytes = zipStored({ "node.json": JSON.stringify(manifest), "runtime.js": String(source || "") });
+      const inspection = inspectArchive(bytes);
+      const importId = crypto.randomUUID();
+      const directory = path.join(app.getPath("userData"), "customNode", ".drafts");
+      await fs.promises.mkdir(directory, { recursive: true });
+      const archivePath = path.join(directory, `${importId}.tl-node.zip`);
+      await fs.promises.writeFile(archivePath, bytes, { flag: "wx" });
+      pendingCustomNodeImports.set(importId, { archivePath, hash: inspection.archiveSha256, origin: "created" });
+      return { ...inspection, importId };
+    },
+    compareVersions: (payload) => customNodePackageManager.compareVersions(payload),
+    dependencies: (payload) => customNodePackageManager.dependencies(payload),
+    deactivate: (payload) => customNodePackageManager.deactivate(payload),
+    remove: (payload) => customNodePackageManager.remove(payload),
+    export: async (payload) => {
+      const record = await customNodePackageManager.resolvePackage(payload);
+      const archivePath = path.join(customNodePackageManager.packagesDirectory, record.packageId.replace(/[^a-zA-Z0-9._-]+/g, "_"), record.version.replace(/[^a-zA-Z0-9._-]+/g, "_"), `archive_${record.archive.sha256}.tl-node.zip`);
+      const bytes = await fs.promises.readFile(archivePath);
+      if (crypto.createHash("sha256").update(bytes).digest("hex") !== record.archive.sha256) throw new Error("Hash archivio non valido.");
+      const target = await dialog.showSaveDialog({ defaultPath: `${record.packageId}-${record.version}.tl-node.zip` });
+      if (target.canceled) return { cancelled: true };
+      await fs.promises.writeFile(target.filePath, bytes);
+      return { exported: true };
     },
     list: () => customNodePackageManager.listInstalled(),
     grantPermissions: (payload = {}) => customNodePackageManager.grantPermissions(payload),
@@ -523,6 +569,7 @@ app.whenReady().then(() => {
     }
   });
   persistence.initialize();
+  if (fs.existsSync(path.join(app.getPath("userData"), "custom-node-packages"))) await customNodePackageManager.migrateLegacyDirectory(path.join(app.getPath("userData"), "custom-node-packages"));
   configureSessionSecurity();
   createWindow();
   app.on("activate", () => {

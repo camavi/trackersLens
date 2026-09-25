@@ -52,6 +52,18 @@ const trackers = Object.freeze({
       setDevelopmentRuntimeActive: (active) => request("desktop.persistence.setDevelopmentRuntimeActive", { active: Boolean(active) })
     }),
     customNodePackages: Object.freeze({
+      reviewProviders: () => request("desktop.customNodePackages.reviewProviders"),
+      reviewImport: ({ importId, provider, maxTokens, confirmed = false } = {}) => request("desktop.customNodePackages.reviewImport", { importId: String(importId || ""), provider, maxTokens, confirmed: confirmed === true }),
+      prepareCreate: ({ manifest, source } = {}) => request("desktop.customNodePackages.prepareCreate", { manifest, source: String(source || "") }),
+      migrationHistory: ({ packageId } = {}) => request("desktop.customNodePackages.migrationHistory", { packageId: String(packageId || "") }),
+      previewMigration: ({ source, target } = {}) => request("desktop.customNodePackages.previewMigration", { source, target }),
+      applyMigration: ({ planId, confirmed = false } = {}) => request("desktop.customNodePackages.applyMigration", { planId: String(planId || ""), confirmed: confirmed === true }),
+      restoreMigration: ({ snapshotId, confirmed = false } = {}) => request("desktop.customNodePackages.restoreMigration", { snapshotId: String(snapshotId || ""), confirmed: confirmed === true }),
+      compareVersions: ({ source, target } = {}) => request("desktop.customNodePackages.compareVersions", { source, target }),
+      dependencies: ({ packageId, version, archiveSha256, confirmed = false } = {}) => request("desktop.customNodePackages.dependencies", { packageId: String(packageId || ""), version: String(version || ""), archiveSha256: String(archiveSha256 || ""), confirmed: confirmed === true }),
+      deactivate: ({ packageId, version, archiveSha256, confirmed = false } = {}) => request("desktop.customNodePackages.deactivate", { packageId: String(packageId || ""), version: String(version || ""), archiveSha256: String(archiveSha256 || ""), confirmed: confirmed === true }),
+      remove: ({ packageId, version, archiveSha256, confirmed = false } = {}) => request("desktop.customNodePackages.remove", { packageId: String(packageId || ""), version: String(version || ""), archiveSha256: String(archiveSha256 || ""), confirmed: confirmed === true }),
+      export: ({ packageId, version, archiveSha256, confirmed = false } = {}) => request("desktop.customNodePackages.export", { packageId: String(packageId || ""), version: String(version || ""), archiveSha256: String(archiveSha256 || ""), confirmed: confirmed === true }),
       inspect: () => request("desktop.customNodePackages.inspect"),
       install: ({ importId } = {}) => request("desktop.customNodePackages.install", { importId: String(importId || "") }),
       list: () => request("desktop.customNodePackages.list"),

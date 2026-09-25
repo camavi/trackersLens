@@ -188,6 +188,38 @@ const createTlCore = ({ appVersion = "0.0.0", platform = "unknown", mode = "prod
       case "desktop.persistence.setDevelopmentRuntimeActive":
         if (!persistence?.setDevelopmentRuntimeActive) throw errorWithCode("Desktop persistence is unavailable", "PERSISTENCE_UNAVAILABLE");
         return persistence.setDevelopmentRuntimeActive({ active: Boolean(payload?.active) });
+      case "desktop.customNodePackages.reviewProviders":
+        if (!customNodePackages?.reviewProviders) throw errorWithCode("Review unavailable", "CUSTOM_NODE_PACKAGES_UNAVAILABLE");
+        return customNodePackages.reviewProviders();
+      case "desktop.customNodePackages.reviewImport":
+        if (!customNodePackages?.reviewImport) throw errorWithCode("Review unavailable", "CUSTOM_NODE_PACKAGES_UNAVAILABLE");
+        return customNodePackages.reviewImport({ importId: String(payload?.importId || ""), maxTokens: payload?.maxTokens, provider: { protocol: String(payload?.provider?.protocol || ""), id: String(payload?.provider?.id || ""), endpoint: String(payload?.provider?.endpoint || ""), model: String(payload?.provider?.model || "") }, confirmed: payload?.confirmed === true });
+      case "desktop.customNodePackages.prepareCreate":
+        if (!customNodePackages?.prepareCreate) throw errorWithCode("Custom Node creation unavailable", "CUSTOM_NODE_PACKAGES_UNAVAILABLE");
+        return customNodePackages.prepareCreate({ manifest: payload?.manifest, source: String(payload?.source || "") });
+      case "desktop.customNodePackages.applyMigration":
+      case "desktop.customNodePackages.restoreMigration": {
+        const action = command.split(".").pop();
+        if (!customNodePackages?.[action]) throw errorWithCode("Migration unavailable", "CUSTOM_NODE_PACKAGES_UNAVAILABLE");
+        return customNodePackages[action]({ planId: String(payload?.planId || ""), snapshotId: String(payload?.snapshotId || ""), confirmed: payload?.confirmed === true });
+      }
+      case "desktop.customNodePackages.previewMigration":
+      case "desktop.customNodePackages.compareVersions": {
+        if (!customNodePackages?.compareVersions) throw errorWithCode("Version comparison unavailable", "CUSTOM_NODE_PACKAGES_UNAVAILABLE");
+        const reference = (value = {}) => ({ packageId: String(value?.packageId || ""), version: String(value?.version || ""), archiveSha256: String(value?.archiveSha256 || "") });
+        const action = command.split(".").pop();
+        if (!customNodePackages?.[action]) throw errorWithCode("Migration unavailable", "CUSTOM_NODE_PACKAGES_UNAVAILABLE");
+        return customNodePackages[action]({ source: reference(payload?.source), target: reference(payload?.target) });
+      }
+      case "desktop.customNodePackages.migrationHistory":
+      case "desktop.customNodePackages.dependencies":
+      case "desktop.customNodePackages.deactivate":
+      case "desktop.customNodePackages.remove":
+      case "desktop.customNodePackages.export": {
+        const action = command.split(".").pop();
+        if (!customNodePackages?.[action]) throw errorWithCode("Custom Node operation unavailable", "CUSTOM_NODE_PACKAGES_UNAVAILABLE");
+        return customNodePackages[action]({ packageId: String(payload?.packageId || ""), version: String(payload?.version || ""), archiveSha256: String(payload?.archiveSha256 || ""), confirmed: payload?.confirmed === true });
+      }
       case "desktop.customNodePackages.inspect":
         if (!customNodePackages?.inspect) throw errorWithCode("Custom Node package import is unavailable", "CUSTOM_NODE_PACKAGES_UNAVAILABLE");
         return customNodePackages.inspect();

@@ -38,6 +38,7 @@
   router.register("/settings.html", settingsView);
   router.register("/ai.html", aiView);
   router.register("/pythonRuntime.html", pythonRuntimeView);
+  router.register("/customNodes.html", window.TrackerLensViews.customNodes);
   router.register("/analytics.html", analyticsView);
   router.register("/connections.html", connectionsView);
   router.register("/devtools.html", devtoolsView);

@@ -1065,6 +1065,28 @@ class DesktopPersistence {
     }
   }
 
+  // Core-only atomic safe-executor boundary. Never exposed as generic IPC.
+  commitCustomNodeMigration({ expected, records, snapshot }) {
+    const stores = ["tl_packages", "tl_runtime_nodes", "tl_runtime_dependencies", "tl_connections", "tl_channels"];
+    if (!snapshot?.id || snapshot.restoreMode !== "custom-node-migration") throw new Error("Invalid migration snapshot");
+    const database = new DatabaseSync(this.databasePath);
+    try {
+      database.exec("BEGIN IMMEDIATE");
+      for (const name of stores) {
+        const current = database.prepare("SELECT record_json FROM tl_records WHERE store_name = ? ORDER BY id").all(name).map((row) => parseStoredJson(row.record_json));
+        if (canonicalJson(current) !== canonicalJson(expected[name])) throw new Error("Stato cambiato: ripeti l’anteprima della migrazione.");
+      }
+      const insert = database.prepare("INSERT OR REPLACE INTO tl_records (store_name, id, workspace_id, record_json, created_at, updated_at) VALUES (?, ?, ?, ?, COALESCE((SELECT created_at FROM tl_records WHERE store_name = ? AND id = ?), ?), ?)");
+      for (const [name, values] of [["tl_time_travel_snapshots", [snapshot]], ["tl_runtime_nodes", records]]) {
+        for (const record of normalizeRecords(values)) insert.run(name, record.id, record.workspaceId, record.recordJson, name, record.id, now(), now());
+      }
+      database.exec("COMMIT");
+    } catch (error) {
+      try { database.exec("ROLLBACK"); } catch (_) {}
+      throw error;
+    } finally { database.close(); }
+  }
+
   writeDevelopmentRecords({ storeName = "", records = [] } = {}) {
     const name = String(storeName || "");
     if (!isAllowedRepositoryStore(name)) throw new Error(`Unsupported persistence store: ${name}`);
