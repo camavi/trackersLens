@@ -25,6 +25,10 @@ The hierarchical capability map QA is closed: the compact `tl.catalog.*` discove
 
 ## Current Work
 
+- Desktop profile cleanup (TASK-026, 2026-09-25): deleted the unused browser API client and its shell script import, removed unreferenced legacy API URL/key configuration, removed obsolete profile-only class hooks and consolidated profile CSS declarations. The previous mock profile rendering/styles had already been replaced. Shared sidebar styles remain in use. The desktop account bridge is the sole profile transport.
+
+- Desktop user profile (TASK-026, 2026-09-25): replaced the demonstration profile with real account/session information, Core-owned local store counts and app metadata. Login/register/logout/session restoration, name/email editing with current password, password change and JSON profile export are implemented. The user explicitly configures the account origin; an unconfigured page performs no account network request. Main owns isolated per-origin Electron cookies/CSRF via the narrow account bridge; the renderer never receives cookies or tokens. Added authenticated PATCH `/api/user` and PUT `/api/user/password` to the canonical Laravel backend without changing website UI. Removed the hardcoded Pro entitlement. Verified 106 JS tests, 16 Laravel tests / 277 assertions, real Electron/Laravel end-to-end with disposable database, responsive layout and dialog disposal. Production deployment remains separate; no runtime synchronization, billing, 2FA or device-session features are claimed.
+
 - Scope correction (2026-09-25): user clarified that the user/profile work targets TL desktop in `trackerLens`, not the website account area. Reverted only the mistaken website account implementation to its prior state, preserving site consolidation, desktop-positioned public pages and the startup config fix. Archived the pre-rollback site patch and added files locally. Website build and 13 tests / 252 assertions pass. Desktop profile code has not yet changed; its automatic legacy API call and mock account/runtime panels are the next work area.
 
 - Website startup follow-up (2026-09-25): the reported missing `@tailwindcss/vite` came from launching Laravel’s internal exception-renderer Vite config. Website build now selects its root config explicitly and resolves paths relative to that config. Local editor npm discovery excludes vendor/node_modules; README documents root `npm --prefix ... run dev`. Root build verified without adding framework-renderer dependencies.
@@ -537,42 +541,7 @@ rinomina REST API in Weather API e collega Weather API a Preview
 duplica REST API come REST 2 e collega REST 2 a Preview
 ```
 
-API/backend Step 3 auth integration is complete and locally verified:
-
-- `profile.html` now loads `js/tl-api-client.js`;
-- Profile view reads current user from `TrackerLensApi.client.user()` on load;
-- Profile view login calls `TrackerLensApi.client.login()` and then refreshes current user;
-- Profile view registration calls `TrackerLensApi.client.register()` and uses the returned authenticated user payload;
-- Profile view logout calls `TrackerLensApi.client.logout()` and clears the local session state;
-- login/logout requests continue to use the existing API client CSRF/cookie flow;
-- `TrackerLensApi` now refreshes CSRF after login/register and retries mutating requests once after a `419`;
-- backend `.env` is configured for local SQLite and local Sanctum stateful domains;
-- dashboard mock data was intentionally left unchanged.
-
-Verification notes:
-
-- Backend `GET /sanctum/csrf-cookie` returns `204` with CSRF/session cookies on `127.0.0.1:8000`.
-- Local auth HTTP flow verified: CSRF `204`, register `201`, current user `200`, logout `204`, current user after logout `401`.
-- Backend `php artisan test` passes: 9 tests, 49 assertions.
-- `node --check js/profileView.js` passes.
-- `node --check js/popup.js` passes.
-- `node --check js/tl-api-client.js` passes.
-- `profile.html` and `js/tl-api-client.js` are served successfully from `http://127.0.0.1:5173`.
-- In-app Browser `iab` was unavailable in this session, so visual verification could not be completed there.
-
-API/backend Step 4 dashboard integration is complete on the local Profile view:
-
-- `profile.html` remains the account/API dashboard surface for this step;
-- legacy `dashboard.js`/`options.html` dashboard-builder code was intentionally left untouched;
-- Profile stats now use `TrackerLensApi.client.dashboard.summary()` after authenticated current-user load;
-- Profile recent activity now uses `TrackerLensApi.client.dashboard.activity()`;
-- Profile system status now uses `TrackerLensApi.client.dashboard.systemStatus()`;
-- profile fallback data remains visible when the user is not authenticated or the backend is unavailable.
-
-Verification notes:
-
-- `node --check js/profileView.js` passes.
-- Local authenticated dashboard HTTP flow verified against `127.0.0.1:8000`: register `201`, summary `200`, activity `200`, system-status `200`, logout `204`.
+API/backend historical Steps 3–4 were superseded by the desktop account implementation on 2026-09-25. The old browser API client, profile mock fallbacks and demonstration dashboard consumers have been removed. Current behavior and verification are documented under TASK-026 and `docs/ai/api-backend.md`.
 
 Knowledge Runtime document upload/import UX, Knowledge Graph quality/analytics and AI Agent RAG verification are complete and user-verified:
 

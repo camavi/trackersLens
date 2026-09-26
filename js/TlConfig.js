@@ -1,9 +1,5 @@
 const tlConfig = {
   WEB_URL: 'https://trackerslens.com',
-  SERVER_URL: 'https://api.trackerslens.com/v1/',
-  API_BASE_URL: 'https://api.trackerslens.com',
-  API_LOCAL_URL: 'http://127.0.0.1:8000',
-  API_KEY: 'YOUR_API_KEY',
   VERSION: '0.0.1',
   DB_NAME: 'TrackersLens',
   TABLES: {

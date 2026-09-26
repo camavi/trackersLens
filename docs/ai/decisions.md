@@ -5,6 +5,10 @@ Read when: a change might conflict with architecture or product direction.
 Do not read when: making narrow UI/code fixes.
 Last updated: 2026-08-25.
 
+## Desktop account
+
+- 2026-09-25: desktop account cookies and CSRF belong to Electron Main in a dedicated per-origin session. Renderer access uses fixed TL Core account operations, never arbitrary URLs or cookie access. Users configure the server explicitly; opening an unconfigured profile stays local. Website Sanctum cookie authentication is retained, and the canonical backend implements authenticated account edits. Desktop profile metrics come from Core metadata, never demonstration dashboard data or assumed subscription/security state.
+
 ## Website hosting
 
 - 2026-09-25: consolidate website, dashboard and API into `trackerslens-site`, with Laravel owning HTTP routes, `public/` as document root, the dashboard at `/app` and Sanctum API at `/api` on the same origin. Preserve existing UI functionality and original repositories; production deployment is separate.

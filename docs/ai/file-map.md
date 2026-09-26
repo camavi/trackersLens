@@ -62,6 +62,10 @@ Last updated: 2026-08-25.
 - `js/customNodesView.js`, `css/customNodesView.css`: Custom Nodes management shell route (`customNodes.html`), local creation/import, permissions and lifecycle.
 - `core/desktop/custom-node-package-manager.cjs`, `custom-node-archive.cjs`: Core-owned installed packages and portable ZIP creation.
 
+- `js/profileView.js`, `css/profileView.css`: desktop account, profile/password forms and real local/app metadata.
+- `core/desktop/account-client.cjs`: fixed account operations and per-origin Main-owned session transport.
+- `test/account-client.test.cjs`, `test/account-electron.cjs`: unit and isolated real Laravel/Electron account checks.
+
 ## Electron Desktop Shell
 
 - `package.json`: Electron scripts and development dependency.

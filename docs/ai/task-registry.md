@@ -493,28 +493,30 @@ Main files:
 
 ### TASK-026: API Backend Integration
 
-Status: Step 4 profile dashboard integration complete and user-verified against authenticated backend dashboard endpoints.
+Status: Desktop account/profile management implemented and automatically verified (2026-09-25); production deployment and user acceptance pending.
 Priority: High.
 Risk: Medium because it crosses the frontend extension/runtime and Laravel API boundary.
 
 Current sub-steps:
 
 - Step 1 baseline API contract and health check: complete.
-- Step 2 frontend API client contract: complete.
+- Step 2 transport: desktop account bridge replaces the removed browser API client; unused shell import and legacy API constants removed.
 - Step 3 auth integration: complete, local CSRF/register/current-user/logout flow verified.
-- Step 4 dashboard integration: complete on Profile view; summary/activity/system-status use backend after auth with local fallback.
-- Step 5 persistent runtime/workspace API design: next unless Knowledge Run is prioritized first.
+- Step 4 legacy demonstration dashboard: removed from the desktop Profile; real local store counts and app metadata now use Core projections.
+- Desktop account phase: explicit server configuration; Main-owned per-origin cookie/CSRF session; login/register/logout/restoration, profile editing, password changes and JSON export. Backend changes are in the canonical `trackerslens-site` repository. No runtime sync or account entitlement is inferred.
+- Validation: 106 JavaScript tests; 16 backend tests / 277 assertions; real Electron/Laravel account test with temporary SQLite and responsive/dialog-lifecycle assertions; desktop smoke suite.
+- Step 5 persistent runtime/workspace API design: remains separately scoped.
 
 Main files:
 
-- `/Users/cmalleux/Sites/trackersLens-api/routes/api.php`
+- `/Users/cmalleux/Sites/trackerslens-site/routes/api.php`
 - `/Users/cmalleux/Sites/trackersLens-api/docs/api-contract.md`
 - `/Users/cmalleux/Sites/trackersLens-api/docs/laravel-backend-plan.md`
 - `/Users/cmalleux/Sites/trackersLens-api/tests/Feature/AuthApiTest.php`
 - `/Users/cmalleux/Sites/trackersLens-api/tests/Feature/DashboardApiTest.php`
-- `js/tl-api-client.js`
 - `js/TlConfig.js`
-- `profile.html`
+- `core/desktop/account-client.cjs`
+- `test/account-electron.cjs`
 - `js/profileView.js`
 - `js/popup.js`
 - `docs/ai/api-backend.md`

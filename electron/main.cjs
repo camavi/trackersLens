@@ -389,9 +389,14 @@ const createWindow = () => {
   return window;
 };
 
-ipcMain.handle("trackers-core:request", (_event, command, payload) =>
-  tlCore.request(String(command || ""), payload && typeof payload === "object" ? payload : {})
-);
+ipcMain.handle("trackers-core:request", (event, command, payload) => {
+  if (String(command || "").startsWith("desktop.account.")) {
+    if (event.senderFrame !== event.sender.mainFrame || !isAllowedLocalNavigation(event.senderFrame.url) || event.sender.session !== session.defaultSession) {
+      throw new Error("Account requests require the trusted desktop shell.");
+    }
+  }
+  return tlCore.request(String(command || ""), payload && typeof payload === "object" ? payload : {});
+});
 
 ipcMain.handle("trackers-custom-node-sandbox:message", (event, message) => {
   if (!customNodeSandboxRunner) {
@@ -565,6 +570,10 @@ app.whenReady().then(async () => {
       customNodePackages,
       customNodeSandbox: customNodePackages,
       externalAi: externalAiProviderBridge,
+      account: require("../core/desktop/account-client.cjs").createAccountClient({
+        persistence,
+        sessionForOrigin: (origin) => session.fromPartition(`persist:tl-account-${crypto.createHash("sha256").update(origin).digest("hex")}`)
+      }),
       persistence
     }
   });

@@ -7,6 +7,9 @@ const pythonNlpEnabled = process.argv.includes("--tl-python-nlp=1");
 const trackers = Object.freeze({
   desktop: Object.freeze({
     getStatus: () => request("desktop.getStatus"),
+    account: Object.freeze(Object.fromEntries([
+      "configuration", "configure", "user", "login", "register", "logout", "updateProfile", "updatePassword"
+    ].map(action => [action, (payload = {}) => request(`desktop.account.${action}`, payload)]))),
     openExternal: (url) => request("desktop.openExternal", { url: String(url || "") }),
     externalAi: Object.freeze({
       listModels: ({ provider } = {}) => request("desktop.externalAi.listModels", { provider: String(provider || "") }),

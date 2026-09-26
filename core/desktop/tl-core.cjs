@@ -73,6 +73,16 @@ const createTlCore = ({ appVersion = "0.0.0", platform = "unknown", mode = "prod
 
   const request = async (command, payload = {}) => {
     switch (command) {
+      case "desktop.account.configuration":
+      case "desktop.account.configure":
+      case "desktop.account.user":
+      case "desktop.account.login":
+      case "desktop.account.register":
+      case "desktop.account.logout":
+      case "desktop.account.updateProfile":
+      case "desktop.account.updatePassword":
+        if (!adapters.account) throw new Error("Account desktop non disponibile.");
+        return adapters.account.dispatch(command.split(".").pop(), payload);
       case "desktop.getStatus":
         return getDesktopStatus();
       case "runtime.getStatus":
