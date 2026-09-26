@@ -32,7 +32,9 @@ const trackers = Object.freeze({
       verifyDevelopmentFirstCohort: (bundle = {}) => request("desktop.persistence.verifyDevelopmentFirstCohort", { bundle }),
       listDevelopmentStores: () => request("desktop.persistence.listDevelopmentStores"),
       readDevelopmentRecords: ({ storeName, workspaceId = "" } = {}) => request("desktop.persistence.readDevelopmentRecords", { storeName: String(storeName || ""), workspaceId: String(workspaceId || "") }),
-      readLatestRuntimeOutputs: ({ workspaceId = "" } = {}) => request("desktop.persistence.readLatestRuntimeOutputs", { workspaceId: String(workspaceId || "") }),
+      clearFlowMemory: ({ workspaceId, includeDocuments = false, confirmed = false } = {}) => request("desktop.persistence.clearFlowMemory", { workspaceId: String(workspaceId || ""), includeDocuments: includeDocuments === true, confirmed: confirmed === true }),
+      readKnowledgeDocumentSummary: ({ workspaceId, nodeId, collectionId = "" } = {}) => request("desktop.persistence.readKnowledgeDocumentSummary", { workspaceId: String(workspaceId || ""), nodeId: String(nodeId || ""), collectionId: String(collectionId || "") }),
+      readLatestRuntimeOutputs: ({ workspaceId = "", includePayload = true } = {}) => request("desktop.persistence.readLatestRuntimeOutputs", { workspaceId: String(workspaceId || ""), includePayload: includePayload !== false }),
       readRuntimeTimingTrace: ({ workspaceId = "", traceId = "" } = {}) => request("desktop.persistence.readRuntimeTimingTrace", { workspaceId: String(workspaceId || ""), traceId: String(traceId || "") }),
       readConnectionRecordsForWorkspace: ({ workspaceId, includeGlobal = true } = {}) => request("desktop.persistence.readConnectionRecordsForWorkspace", { workspaceId: String(workspaceId || ""), includeGlobal: Boolean(includeGlobal) }),
       readDevelopmentRecordPage: ({ storeName, workspaceId = "", offset = 0, limit = 25 } = {}) => request("desktop.persistence.readDevelopmentRecordPage", { storeName: String(storeName || ""), workspaceId: String(workspaceId || ""), offset: Number(offset) || 0, limit: Number(limit) || 25 }),
@@ -89,7 +91,7 @@ const trackers = Object.freeze({
         inputs: inputs && typeof inputs === "object" ? inputs : {},
         config: config && typeof config === "object" ? config : {},
         context: context && typeof context === "object" ? context : {},
-        timeoutMs: Number(timeoutMs || 0)
+        ...(timeoutMs == null ? {} : { timeoutMs: Number(timeoutMs) })
       })
     }),
     pythonRuntime: Object.freeze({

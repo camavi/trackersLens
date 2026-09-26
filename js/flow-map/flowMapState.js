@@ -234,7 +234,15 @@ const sanitizeRuntimeEventForUi = (event = {}) => {
     ...event,
     payload,
     originalPayload: event.originalPayload,
-    payloadPreview: event.payloadPreview || stringifyRuntimeValue(event.payload),
+    // Keep the full payload for explicit inspection; do not duplicate it into
+    // a multi-megabyte table cell during graph hydration.
+    payloadPreview: event.payloadPreview || (Array.isArray(payload)
+      ? `Array · ${payload.length} elementi · apri il payload per i dettagli`
+      : payload && typeof payload === "object"
+        ? "Oggetto · apri il payload per i dettagli"
+        : typeof payload === "string"
+          ? `Testo · ${payload.length} caratteri · apri il payload per i dettagli`
+          : String(payload ?? "")),
   };
 };
 
@@ -1267,7 +1275,7 @@ const loadRuntime = async (options = {}) => {
     );
     const repairedConnections = await repairMissingDependencyConnections(nodes, mergedDependencies, connections);
     const latestOutputs = purpose === "graph"
-      ? await window.trackers.desktop.persistence.readLatestRuntimeOutputs({ workspaceId })
+      ? await window.trackers.desktop.persistence.readLatestRuntimeOutputs({ workspaceId, includePayload: false })
       : [];
     // A topology refresh contains no event history. Preserve live observations,
     // including events received while the SQLite request was in flight.
@@ -1433,6 +1441,11 @@ const filteredRuntimeEvents = () =>
     .filter((event) => recordMatchesRunFilter(event));
 
 const mergeRuntimeEvent = (event = {}) => {
+  if (String(event.channel || "").startsWith("knowledge.document")) {
+    for (const node of state.runtime.nodes || []) {
+      if (node.id === event.sourceNodeId || node.id === event.targetNodeId) delete state.knowledgeInspectorDocuments[node.id];
+    }
+  }
   if (!event.id) return false;
   if (state.runtime.events.some((item) => item.id === event.id)) {
     return false;
@@ -1562,9 +1575,11 @@ const updatePreviewPayloads = (event = {}) => {
     const eventAt = Date.parse(event.createdAt || "");
     const visibleAfter = Math.max(clearedAt || 0, nodeCreatedAt || 0);
     if (visibleAfter && eventAt && eventAt <= visibleAfter) return;
-    const mapped = previewPayloadForNodeEvent(node, { ...event, payload: sourcePayload });
+    const mapped = event.payloadDeferred ? {} : previewPayloadForNodeEvent(node, { ...event, payload: sourcePayload });
     state.previewPayloads[node.id] = {
       eventId: event.id,
+      payloadDeferred: Boolean(event.payloadDeferred),
+      workspaceId: event.workspaceId,
       channel: event.channel || "default",
       eventType: event.eventType || "event",
       sourceNodeId: event.sourceNodeId || "",

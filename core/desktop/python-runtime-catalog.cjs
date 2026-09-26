@@ -71,7 +71,8 @@ class PythonRuntimeCatalog {
     const packs = this.packs.map((pack) => {
       const environment = environmentsById.get(String(pack.environment || ""));
       const packModels = models.filter((model) => model.packIds.includes(pack.id));
-      const state = !environment?.interpreterInstalled || packModels.some((model) => model.state !== "installed")
+      const managed = this.environments.find((item) => item.id === pack.environment);
+      const state = !environment?.interpreterInstalled || (managed?.isPackReady && !managed.isPackReady(pack)) || packModels.some((model) => model.state !== "installed")
         ? "unavailable"
         : environment.enabled ? "active" : "installed";
       return {

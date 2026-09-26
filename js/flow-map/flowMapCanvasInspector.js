@@ -1279,6 +1279,9 @@ const latestOutputPreviewRecordForNode = (node = {}, outputPorts = []) => {
       const sourcePayload = event.originalPayload !== undefined && event.originalPayload !== null ? event.originalPayload : event.payload;
       return {
         eventId: event.id || "",
+        payloadDeferred: Boolean(event.payloadDeferred),
+        workspaceId: event.workspaceId,
+        outputPreview: true,
         channel: event.channel || "runtime",
         eventType: event.eventType || "event",
         sourceNodeId: event.sourceNodeId || node.id,
@@ -4317,7 +4320,10 @@ const openKnowledgeDocumentFullTextDialog = (document = {}) => {
 const loadKnowledgeInspectorDocument = async (node = {}, { force = false } = {}) => {
   if (!node?.id || !isKnowledgeDocumentStoreNode(node)) return;
   const cached = state.knowledgeInspectorDocuments[node.id];
-  if (!force && cached && (cached.loading || Date.now() - Number(cached.loadedAt || 0) < 2500)) return;
+  const workspaceId = node.workspaceId || state.filters.workspaceId || "workspace_global";
+  const collectionId = String(nodeRuntimeConfig(node).collectionId || "").trim();
+  const scopeKey = JSON.stringify([workspaceId, collectionId]);
+  if (cached?.loading || (!force && cached?.scopeKey === scopeKey)) return;
   state.knowledgeInspectorDocuments = {
     ...state.knowledgeInspectorDocuments,
     [node.id]: {
@@ -4327,17 +4333,15 @@ const loadKnowledgeInspectorDocument = async (node = {}, { force = false } = {})
     },
   };
   try {
-    const { documents: records, chunksByDocument } = await knowledgeDocumentRecordsForNode(node);
-    const latest = records[0] || null;
-    const chunkCount = latest ? (chunksByDocument.get(latest.id) || []).length : 0;
+    const summary = await window.trackers.desktop.persistence.readKnowledgeDocumentSummary({ workspaceId, nodeId: node.id, collectionId });
     state.knowledgeInspectorDocuments = {
       ...state.knowledgeInspectorDocuments,
       [node.id]: {
         loading: false,
-        document: latest,
-        documents: records,
-        count: records.length,
-        chunkCount,
+        document: summary.document,
+        count: summary.count,
+        chunkCount: summary.chunkCount,
+        scopeKey,
         loadedAt: Date.now(),
         error: "",
       },
@@ -4348,7 +4352,7 @@ const loadKnowledgeInspectorDocument = async (node = {}, { force = false } = {})
       [node.id]: {
         loading: false,
         document: null,
-        documents: [],
+        scopeKey,
         count: 0,
         chunkCount: 0,
         loadedAt: Date.now(),
@@ -4623,19 +4627,6 @@ const openKnowledgeDocumentsDialog = async (node = {}) => {
     console.warn("Knowledge documents unavailable", error);
     return { documents: [], chunksByDocument: new Map() };
   });
-  state.knowledgeInspectorDocuments = {
-    ...state.knowledgeInspectorDocuments,
-    [node.id]: {
-      ...(state.knowledgeInspectorDocuments[node.id] || {}),
-      loading: false,
-      document: data.documents[0] || null,
-      documents: data.documents,
-      count: data.documents.length,
-      chunkCount: data.documents[0] ? (data.chunksByDocument.get(data.documents[0].id) || []).length : 0,
-      loadedAt: Date.now(),
-      error: "",
-    },
-  };
   const model = {
     search: "",
     selectedId: data.documents[0]?.id || "",
@@ -5098,7 +5089,7 @@ const renderInspectorKnowledgeDocument = (node = {}) => {
           title: "Clear derived Knowledge memory",
           onclick: () => requestKnowledgeDocumentMemoryClear(node),
         }, flowMapIcon("delete_sweep", "sm"), "Clear Memory"),
-        documentRecord ? copyRuntimeButton(documentRecord, "Copy document record") : null,
+        documentRecord && !documentRecord.summaryOnly ? copyRuntimeButton(documentRecord, "Copy document record") : null,
         flowMapBtn({
           class: "is-ghost is-compact",
           title: "Refresh document",
@@ -8045,7 +8036,9 @@ const renderInspectorLogs = (events = [], flowLogs = []) =>
                 title: "Replay this payload through downstream routes",
                 onclick: () => replayRuntimeEvent(event),
               }, flowMapIcon("replay", "sm"), "Replay"),
-              copyRuntimeButton(event.originalPayload ?? event.payload ?? {}, "Copy payload")
+              event.payloadDeferred
+                ? flowMapBtn({ onclick: () => copyPreviewRecord(node, { eventId: event.id, workspaceId: event.workspaceId, payloadDeferred: true, outputPreview: true }) }, "Copy payload")
+                : copyRuntimeButton(event.originalPayload ?? event.payload ?? {}, "Copy payload")
             )
           ),
           _.div(
@@ -8060,7 +8053,7 @@ const renderInspectorLogs = (events = [], flowLogs = []) =>
             _.span("Raw preview"),
             _.code(runtimeEventRawPreview(event))
           ),
-          renderRuntimePayloadDetails({
+          event.payloadDeferred ? flowMapBtn({ onclick: () => openPreviewPayloadDialog(node, { record: { eventId: event.id, workspaceId: event.workspaceId, payloadDeferred: true, outputPreview: true, channel: event.channel, eventType: event.eventType, createdAt: event.createdAt } }) }, "Apri payload salvato") : renderRuntimePayloadDetails({
             title: "Payload",
             value: event.payload || {},
             meta: {

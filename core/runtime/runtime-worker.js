@@ -34,7 +34,7 @@ const loadRuntimeScripts = () => {
     "runtime-graph-store.js",
     "runtime-snapshot-store.js",
     "node-execution-controller.js",
-    "processor-runtime.js?v=agent-tool-links-1",
+    "processor-runtime.js?v=custom-error-boundary-1",
     "action-runtime.js?v=agent-tool-links-1",
     "storage-runtime.js?v=agent-tool-links-1",
     "knowledge-runtime.js?v=knowledge-context-retries-3",

@@ -2,7 +2,23 @@
 
 Purpose: package lifecycle, local management, runtime authority and marketplace direction.
 Read when: implementing Custom Node creation, import, activation, removal or publication.
-Last updated: 2026-09-24.
+Last updated: 2026-09-26.
+
+## Python packages (2026-09-26)
+
+Import preserves and validates `execution` using the shared node execution contract. Python requires matching `runtime.entry` / `execution.entry` pointing to `.py`, `execution.runtime: "python"`, and `execution.dependencies.python` with an explicit trusted `packId`, `environment`, exact `==x.y.z` requirements and managed install policy. A `.py` entry without this declaration is rejected instead of being misinterpreted as JavaScript. Legacy JavaScript manifests remain unchanged.
+
+Core resolves requirements against the existing Python pack catalog. Import/review and package details show Python requirements and current readiness; installation never downloads arbitrary manifest-provided dependencies. The new model-free `trackerslens.data.tabular` pack pins pandas 2.2.3 / numpy 2.2.6 and transitive dependencies in `runtimes/python/packs/data/requirements.lock`. Its installation uses the existing explicit Runtime Python e Modelli plan/consent flow. An incomplete environment remains installable until verification finishes. Package activation also checks pack readiness. Custom Nodes, Flow Map and Runtime Python invoke the global `TrackerLensPythonPackInstaller.open({ packId, onComplete })` from `js/tl-python-pack-installer.js`: the install button immediately opens the shared plan/consent/progress dialog without navigating away. Successful installation refreshes the caller; it never grants package permissions or activates a Custom Node.
+
+Both package tests and Flow runs use the existing exact-reference custom sandbox bridge. Main reloads the hash-verified archive and selects the Python runner from its manifest, never from renderer-supplied source or interpreter paths. Runtime Manager delegates custom packages to that coordinator, independently of built-in Python worker registration. Version comparison includes execution changes; migration retains the full manifest and considers active Python runs.
+
+`core/desktop/custom-node-python-runner.cjs` launches one process per invocation with a minimal environment, Python isolated mode and an OS deny-by-default policy. The initial adapter uses macOS Seatbelt (`sandbox-exec`); Linux/Windows and hosts without it explicitly fail, without unsandboxed fallback. This macOS facility is deprecated by Apple, so a maintained cross-platform isolation adapter remains future work. Python `-I` is import/environment isolation, not the security boundary (see https://docs.python.org/3.11/using/cmdline.html). The policy permits read-only installed interpreter/library paths, but no user-data reads, file writes, network, process spawning or unrestricted Mach access. Standard-library and managed environment files are readable; this is not a Python module-name allowlist. The worker does not receive app credentials or a database handle.
+
+`runtimes/python/tl_custom_node_worker.py` verifies actual module versions before evaluating the entry. Packages implement `def run(*, input, config, emit, log)` (also async); emit/log callbacks are synchronous and broker-validated. Full logs, errors, tracebacks and emitted data remain inspectable. Only the declared entry is evaluated: importing helper modules/assets from the archive and Python graph/AI/memory tool calls are not yet supported. The built-in creator still authors JavaScript; Python packages use ZIP import.
+
+No implicit execution timeout or output/source cap is added. Explicit `timeoutMs` is honored; zero means no deadline. Stopping a Python run kills its disposable process; installers await process shutdown. Pack/module provenance accompanies results and a pre-execution log records verified versions.
+
+Validation: unit import/routing/readiness/consent tests, real macOS isolation tests (private read/write/network/subprocess denial), import→install→grant→activate→pandas/numpy execution→deactivate in a disposable catalog, full output for 1,200 records, and Electron UI smoke with a Python manifest. `SamplesTL/sample-dataset-profiler.tl-node.zip` is the runnable example; its nine native-sandbox scenarios include CSV, Unicode, invalid inputs, duplicate/missing/IQR annotations and 1,500 unchanged records. User-driven installation and full Flow QA remain pending. Tests install dependencies only in a disposable test environment, not the user's managed `data` environment.
 
 ## Product contract
 

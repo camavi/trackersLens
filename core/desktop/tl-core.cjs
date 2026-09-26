@@ -147,9 +147,15 @@ const createTlCore = ({ appVersion = "0.0.0", platform = "unknown", mode = "prod
       case "desktop.persistence.readLatestDevelopmentRecord":
         if (!persistence?.readLatestDevelopmentRecord) throw errorWithCode("Desktop persistence is unavailable", "PERSISTENCE_UNAVAILABLE");
         return persistence.readLatestDevelopmentRecord(payload);
+      case "desktop.persistence.clearFlowMemory":
+        if (!persistence?.clearFlowMemory) throw errorWithCode("Desktop persistence is unavailable", "PERSISTENCE_UNAVAILABLE");
+        return persistence.clearFlowMemory({ workspaceId: String(payload?.workspaceId || ""), includeDocuments: payload?.includeDocuments === true, confirmed: payload?.confirmed === true });
+      case "desktop.persistence.readKnowledgeDocumentSummary":
+        if (!persistence?.readKnowledgeDocumentSummary) throw errorWithCode("Desktop persistence is unavailable", "PERSISTENCE_UNAVAILABLE");
+        return persistence.readKnowledgeDocumentSummary({ workspaceId: String(payload?.workspaceId || ""), nodeId: String(payload?.nodeId || ""), collectionId: String(payload?.collectionId || "") });
       case "desktop.persistence.readLatestRuntimeOutputs":
         if (!persistence?.readLatestRuntimeOutputs) throw errorWithCode("Desktop persistence is unavailable", "PERSISTENCE_UNAVAILABLE");
-        return persistence.readLatestRuntimeOutputs({ workspaceId: String(payload?.workspaceId || "") });
+        return persistence.readLatestRuntimeOutputs({ workspaceId: String(payload?.workspaceId || ""), includePayload: payload?.includePayload !== false });
       case "desktop.persistence.readRuntimeTimingTrace":
         if (!persistence?.readRuntimeTimingTrace) throw errorWithCode("Desktop persistence is unavailable", "PERSISTENCE_UNAVAILABLE");
         return persistence.readRuntimeTimingTrace({ workspaceId: String(payload?.workspaceId || ""), traceId: String(payload?.traceId || "") });
@@ -254,7 +260,8 @@ const createTlCore = ({ appVersion = "0.0.0", platform = "unknown", mode = "prod
         if (!payload?.confirmed) throw errorWithCode("Custom Node sandbox activation requires confirmation", "CUSTOM_NODE_SANDBOX_ACTIVATION_CONFIRMATION_REQUIRED");
         return customNodePackages.activateSandboxRuntime({ packageId: String(payload?.packageId || ""), version: String(payload?.version || ""), archiveSha256: String(payload?.archiveSha256 || ""), confirmed: true });
       case "runtime.customNodeSandbox.run":
-        if (!flags.customNodeSandbox || !customNodeSandbox?.run) throw errorWithCode("Custom Node sandbox is disabled", "CUSTOM_NODE_SANDBOX_DISABLED");
+        if (!flags.customNodeSandbox) throw errorWithCode("Custom Node sandbox is disabled", "CUSTOM_NODE_SANDBOX_DISABLED");
+        if (typeof customNodeSandbox?.run !== "function") throw errorWithCode("Custom Node sandbox runner is unavailable: desktop adapter is not configured", "CUSTOM_NODE_SANDBOX_UNAVAILABLE");
         return customNodeSandbox.run(payload && typeof payload === "object" ? payload : {});
       case "runtime.pythonPoc.status":
         if (!flags.pythonRuntime || !pythonPoc?.status) throw errorWithCode("Python POC is disabled", "PYTHON_POC_DISABLED");

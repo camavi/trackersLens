@@ -301,18 +301,20 @@ window.TrackerLensProcessorRuntime = (() => {
     async handleEvent({ node, payload, event }) {
       if (!node?.id || event?.sourceNodeId === node.id || event?.meta?.processorRuntime === node.id) return;
       const runner = () => this.performEvent({ node, payload, event });
-      if (!this.execution?.enqueue) return runner();
-      return this.execution.enqueue({
-        node,
-        bus: this.bus,
-        task: runner,
-        context: {
-          runtime: "processor",
-          inputEventId: event?.id || "",
-          inputChannel: event?.channel || "",
-          runId: event?.meta?.runId || payload?.runId || "",
-        },
-      });
+      try {
+        if (!this.execution?.enqueue) return await runner();
+        return await this.execution.enqueue({
+          node,
+          bus: this.bus,
+          task: runner,
+          context: {
+            runtime: "processor",
+            inputEventId: event?.id || "",
+            inputChannel: event?.channel || "",
+            runId: event?.meta?.runId || payload?.runId || "",
+          },
+        });
+      } catch (error) { await this.reportError({ node, payload, event, error }); }
     }
 
     async performEvent({ node, payload, event }) {
@@ -322,10 +324,10 @@ window.TrackerLensProcessorRuntime = (() => {
         payload = mapped.payload;
         event = mapped.event;
         if (nodeSubtype(node) === "python-test") {
-          return this.performPythonTest({ node, payload, event, startedAt });
+          return await this.performPythonTest({ node, payload, event, startedAt });
         }
         if (node.metadata?.customPackage?.runtimeExecution === "sandboxed") {
-          return this.performCustomPackageSandbox({ node, payload, event, startedAt });
+          return await this.performCustomPackageSandbox({ node, payload, event, startedAt });
         }
         const result = processPayload({ node, payload, event });
         const latencyMs = Math.round(performance.now() - startedAt);
@@ -355,28 +357,36 @@ window.TrackerLensProcessorRuntime = (() => {
           context: { inputChannel: event.channel, outputChannel: result.channel, inputEventId: event.id, result: result.meta, latencyMs },
         });
       } catch (error) {
-        const pythonNode = nodeSubtype(node) === "python-test";
-        const errorChannel = pythonNode ? node.outputs?.[1] || "error" : event.channel || "processor.error";
-        if (pythonNode) await this.emitPythonStatus({ node, status: error.code === "EXECUTION_CANCELLED" ? "cancelled" : "error", event, error });
-        await this.bus.emit(errorChannel, {
-          error: error.message || String(error),
-          code: error.code || "NODE_EXCEPTION",
-          nodeId: node.id,
-          payload,
-        }, {
-          workspaceId: this.workspaceId,
-          eventType: "processor_error",
-          sourceNodeId: node.id,
-          status: "error",
-          meta: { processorRuntime: node.id, inputEventId: event.id || "" },
-        });
-        await this.log({
-          node,
-          level: "error",
-          message: `Processor error: ${error.message || error}`,
-          context: { inputChannel: event.channel, inputEventId: event.id, error: error.message || String(error) },
-        });
+        await this.reportError({ node, payload, event, error });
       }
+    }
+
+    async reportError({ node, payload, event = {}, error }) {
+      const originalMessage = String(error?.message || error);
+      const cleanMessage = originalMessage.replace(/^Error invoking remote method '[^']+':\s*(?:Error:\s*)?/, "");
+      const sandboxDisabled = error?.code === "CUSTOM_NODE_SANDBOX_DISABLED" || /Custom Node sandbox is disabled/i.test(cleanMessage);
+      const code = sandboxDisabled ? "CUSTOM_NODE_SANDBOX_DISABLED" : error?.code || "NODE_EXCEPTION";
+      const message = sandboxDisabled
+        ? "Sandbox dei Custom Node disabilitata in questa sessione. Riavvia TL con npm run dev (TL_ENABLE_CUSTOM_NODE_SANDBOX=1), poi riprova."
+        : cleanMessage;
+      const runId = event?.meta?.runId || payload?.runId || "";
+      window.dispatchEvent(new CustomEvent("trackers:runtime-error", { detail: {
+        workspaceId: this.workspaceId, nodeId: node.id, nodeLabel: node.label || node.id,
+        subtype: nodeSubtype(node), runId, code, message,
+      } }));
+      const pythonNode = nodeSubtype(node) === "python-test";
+      const errorChannel = pythonNode ? node.outputs?.[1] || "error" : node.metadata?.customPackage ? "processor.error" : event?.channel || "processor.error";
+      try {
+        if (pythonNode) await this.emitPythonStatus({ node, status: error.code === "EXECUTION_CANCELLED" ? "cancelled" : "error", event, error });
+        await this.bus?.emit(errorChannel, { error: message, code, nodeId: node.id, payload }, {
+          workspaceId: this.workspaceId, eventType: "processor_error", sourceNodeId: node.id, status: "error",
+          meta: { processorRuntime: node.id, inputEventId: event?.id || "", runId },
+        });
+      } catch (reportingError) {
+        await this.log({ node, level: "error", message: `Processor error event delivery failed: ${reportingError.message || reportingError}`, context: { originalError: originalMessage } });
+      }
+      await this.log({ node, level: "error", message: `Processor error: ${message}`,
+        context: { inputChannel: event?.channel || "", inputEventId: event?.id || "", runId, code, error: originalMessage, diagnostics: error?.diagnostics || [] } });
     }
 
     async emitPythonStatus({ node, status = "running", event = {}, result = null, error = null } = {}) {
@@ -477,11 +487,12 @@ window.TrackerLensProcessorRuntime = (() => {
           sourceNodeId: event?.sourceNodeId || "",
           runId: event?.meta?.runId || payload?.runId || ""
         },
-        timeoutMs: Number(nodeConfig(node).timeoutMs || 30000)
+        timeoutMs: nodeConfig(node).timeoutMs ?? node.metadata?.manifest?.execution?.timeoutMs ?? 0
       });
       if (result.status !== "success") {
         const error = new Error(result.diagnostics?.[0]?.message || "Custom Node sandbox failed.");
         error.code = result.diagnostics?.[0]?.code || "CUSTOM_NODE_SANDBOX_FAILED";
+        error.diagnostics = result.diagnostics || [];
         throw error;
       }
       const latencyMs = Math.round(performance.now() - startedAt);

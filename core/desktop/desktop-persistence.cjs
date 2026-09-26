@@ -593,7 +593,60 @@ class DesktopPersistence {
     }
   }
 
-  readLatestRuntimeOutputs({ workspaceId = "" } = {}) {
+  clearFlowMemory({ workspaceId = "", includeDocuments = false, confirmed = false } = {}) {
+    const scope = String(workspaceId || "");
+    if (!scope || scope === "all") throw new Error("Seleziona un singolo workspace.");
+    const stores = ["tl_events", "tl_flow_logs", "tl_box_performance", "tl_offline_queue", "tl_offline_cache",
+      "tl_ai_runtime", "tl_ai_jobs", "tl_ai_logs", "tl_ai_memory", "tl_ai_metrics", "tl_flow_prompt_chats",
+      "tl_knowledge_chunks", "tl_knowledge_embeddings", "tl_knowledge_entities", "tl_knowledge_relations",
+      "tl_knowledge_dictionary", "tl_knowledge_events", "tl_structured_knowledge", "tl_knowledge_queries",
+      "tl_knowledge_sources", "tl_knowledge_metrics", "tl_time_travel_snapshots"];
+    if (includeDocuments) stores.push("tl_knowledge_documents");
+    const database = new DatabaseSync(this.databasePath);
+    try {
+      database.exec("BEGIN IMMEDIATE");
+      const storage = database.prepare("SELECT DISTINCT store_name FROM tl_records WHERE workspace_id = ? AND store_name GLOB 'tl_storage_*'").all(scope);
+      stores.push(...storage.map(row => row.store_name).filter(name => /^tl_storage_[A-Za-z0-9_-]+$/.test(name)));
+      const counts = stores.map(storeName => ({ storeName,
+        count: database.prepare("SELECT COUNT(*) AS count FROM tl_records WHERE store_name = ? AND workspace_id = ?").get(storeName, scope).count }));
+      if (confirmed) {
+        const busy = database.prepare(`SELECT COUNT(*) AS count FROM tl_records WHERE workspace_id = ?
+          AND store_name = 'tl_ai_jobs' AND LOWER(COALESCE(json_extract(record_json, '$.status'), '')) IN ('running', 'queued', 'pending', 'working')`).get(scope).count;
+        if (busy) throw new Error("Ferma i job AI attivi prima di cancellare la memoria.");
+        for (const store of stores) database.prepare("DELETE FROM tl_records WHERE store_name = ? AND workspace_id = ?").run(store, scope);
+        // Channel topology survives; cached runtime values must not resurrect OUT.
+        database.prepare(`UPDATE tl_records SET record_json = json_remove(record_json,
+          '$.lastValue', '$.lastPayload', '$.lastEmittedAt', '$.lastEventId')
+          WHERE store_name = 'tl_channels' AND workspace_id = ?`).run(scope);
+      }
+      database.exec("COMMIT");
+      return { workspaceId: scope, includeDocuments, cleared: confirmed, counts, total: counts.reduce((sum, row) => sum + Number(row.count), 0) };
+    } catch (error) { try { database.exec("ROLLBACK"); } catch (_) {} throw error; }
+    finally { database.close(); }
+  }
+
+  readKnowledgeDocumentSummary({ workspaceId = "", nodeId = "", collectionId = "" } = {}) {
+    if (!workspaceId || !nodeId) throw new Error("Workspace and node are required.");
+    const database = new DatabaseSync(this.databasePath, { readOnly: true });
+    try {
+      const filter = `store_name = 'tl_knowledge_documents' AND workspace_id = ?
+        AND (json_extract(record_json, '$.metadata.nodeId') = ? OR json_extract(record_json, '$.sourceId') IN (?, ?, ?))
+        AND (? = '' OR json_extract(record_json, '$.metadata.collectionId') = ?)`;
+      const args = [workspaceId, nodeId, nodeId, `upload_${nodeId}`, `live_${nodeId}`, collectionId, collectionId];
+      const count = database.prepare(`SELECT COUNT(*) AS count FROM tl_records WHERE ${filter}`).get(...args).count;
+      const latest = database.prepare(`SELECT id,
+        json_extract(record_json, '$.title') AS title,
+        json_extract(record_json, '$.createdAt') AS createdAt,
+        json_extract(record_json, '$.mimeType') AS mimeType
+        FROM tl_records WHERE ${filter}
+        ORDER BY COALESCE(json_extract(record_json, '$.updatedAt'), json_extract(record_json, '$.createdAt')) DESC LIMIT 1`).get(...args);
+      const chunkCount = latest ? database.prepare(`SELECT COUNT(*) AS count FROM tl_records
+        WHERE store_name = 'tl_knowledge_chunks' AND workspace_id = ? AND json_extract(record_json, '$.documentId') = ?`).get(workspaceId, latest.id).count : 0;
+      return { count, document: latest ? { ...latest, summaryOnly: true } : null, chunkCount };
+    } finally { database.close(); }
+  }
+
+  readLatestRuntimeOutputs({ workspaceId = "", includePayload = true } = {}) {
     const scope = String(workspaceId || "");
     if (!scope) throw new Error("A workspaceId is required for runtime outputs.");
     const database = new DatabaseSync(this.databasePath, { readOnly: true });
@@ -602,7 +655,7 @@ class DesktopPersistence {
       // and exclude visual activity/pulses before ranking so they cannot erase OUT.
       return database.prepare(`
         WITH ranked AS (
-          SELECT record_json, ROW_NUMBER() OVER (
+          SELECT record_json, workspace_id, ROW_NUMBER() OVER (
             PARTITION BY workspace_id,
               COALESCE(json_extract(record_json, '$.sourceNodeId'), ''),
               COALESCE(json_extract(record_json, '$.channel'), ''),
@@ -618,7 +671,19 @@ class DesktopPersistence {
             AND NOT (COALESCE(json_extract(record_json, '$.payload.route'), '') != ''
               AND COALESCE(json_extract(record_json, '$.payload.channel'), '') != ''
               AND (COALESCE(json_extract(record_json, '$.payload.live'), 0) OR COALESCE(json_extract(record_json, '$.payload.__test'), 0)))
-        ) SELECT record_json FROM ranked WHERE position = 1
+         ) SELECT ${includePayload ? "record_json" : `json_object(
+          'id', json_extract(record_json, '$.id'),
+          'workspaceId', workspace_id,
+          'sourceNodeId', json_extract(record_json, '$.sourceNodeId'),
+          'targetNodeId', json_extract(record_json, '$.targetNodeId'),
+          'channel', json_extract(record_json, '$.channel'),
+          'eventType', json_extract(record_json, '$.eventType'),
+          'createdAt', json_extract(record_json, '$.createdAt'),
+          'status', json_extract(record_json, '$.status'),
+          'sizeBytes', json_extract(record_json, '$.sizeBytes'),
+          'payloadDeferred', json('true'),
+          'payloadPreview', 'Output salvato · apri per caricare il contenuto'
+        )`} AS record_json FROM ranked WHERE position = 1
       `).all(scope, scope).map(row => JSON.parse(row.record_json));
     } finally {
       database.close();

@@ -22,7 +22,6 @@ const state = {
   requestedPackId: new URLSearchParams(window.location.search).get("pack") || "",
   openInstallOnLoad: new URLSearchParams(window.location.search).get("install") === "1",
 };
-let activeInstallDialog = null;
 let pythonRuntimeRoot = null;
 let pythonRuntimeEmbedded = false;
 let unsubscribeInstallProgress = null;
@@ -40,20 +39,6 @@ const installProgressText = (progress = {}) => {
 const visibleInstallProgress = (progress = {}) => progress.phase === "downloading-model" && Number.isFinite(Number(progress.modelProgress))
   ? Number(progress.modelProgress)
   : Number(progress.progress || 0);
-const syncInstallDialogProgress = (progress = {}) => {
-  if (!activeInstallDialog || activeInstallDialog.packId !== progress.packId) return;
-  const root = document.getElementById(activeInstallDialog.progressId);
-  if (!root) return;
-  root.hidden = false;
-  root.classList.toggle("is-error", progress.phase === "error");
-  const message = root.querySelector("[data-install-message]");
-  const fill = root.querySelector("[data-install-fill]");
-  const detail = root.querySelector("[data-install-detail]");
-  if (message) message.textContent = progress.message || "Operazione in corso";
-  if (fill) fill.style.width = `${Math.max(0, Math.min(100, visibleInstallProgress(progress)))}%`;
-  if (detail) detail.textContent = installProgressText(progress);
-};
-
 const renderLoading = () => _.section(
   { class: "tl-python-runtime-empty" },
   icon("progress_activity", "lg"),
@@ -239,62 +224,13 @@ const requestModelRemoval = (model) => {
 
 const requestPackInstallation = async (pack) => {
   try {
-    const plan = await window.trackers?.runtime?.pythonRuntime?.getInstallPlan?.({ packId: pack.id });
-    if (!plan) throw new Error("Piano di installazione Python non disponibile");
-    const progressId = `tl-python-install-progress-${String(pack.id).replace(/[^a-z0-9_-]/gi, "-")}`;
-    const dialog = _.Dialog({
-      class: "tl-python-runtime-install-dialog",
-      panelClass: "tl-python-runtime-install-panel",
-      size: "lg",
-      title: "Installare il pack Python?",
-      subtitle: `${plan.pack.id} · v${plan.pack.version}`,
-      icon: "download",
-      closeButton: true,
-      content: () => _.div(
-        { class: "tl-python-runtime-install-copy" },
-        _.p("TL installerà esclusivamente il lockfile dichiarato dal pack. Il Nodo non riceve accesso a pip, shell o filesystem."),
-        _.div(_.span("Ambiente"), _.strong(`${plan.environment.id} · ${plan.environment.action === "create" ? "verrà creato" : "verrà riutilizzato"}`)),
-        _.div(_.span("Lockfile"), _.code(plan.integrity.lockfile)),
-        _.div(_.span("Dipendenze"), _.code(plan.requirements.map((item) => `${item.name} ${item.version}`).join(", "))),
-        _.div(_.span("Modelli"), _.code(plan.models.map((model) => `${model.id}@${model.revision}`).join(", ") || "nessuno")),
-        _.div(_.span("Rete"), _.strong(plan.network.required ? "Richiesta: pacchetti/modelli saranno scaricati" : "Non richiesta")),
-        _.p({ class: "tl-python-runtime-install-warning" }, plan.integrity.hashesPresent ? "Il lockfile contiene hash di integrità." : "Le versioni sono bloccate; questo lockfile non contiene hash di integrità."),
-        _.section({ id: progressId, class: "tl-python-runtime-install-progress", hidden: true },
-          _.div(_.strong("Installazione in corso"), _.span({ "data-install-message": "" })),
-          _.div({ class: "tl-python-runtime-progress-bar", role: "progressbar", "aria-valuemin": 0, "aria-valuemax": 100 }, _.i({ "data-install-fill": "", style: "width:0%" })),
-          _.small({ "data-install-detail": "" })
-        )
-      ),
-      actions: ({ close }) => _.Toolbar(
-        { align: "end", gap: 8 },
-        btn({ id: `${progressId}-close`, onclick: close }, "Annulla"),
-        btn({ id: `${progressId}-start`, class: "st-btn-primary", onclick: async (event) => {
-          try {
-            event.currentTarget.disabled = true;
-            const closeButton = document.getElementById(`${progressId}-close`);
-            if (closeButton) closeButton.disabled = true;
-            activeInstallDialog = { packId: pack.id, progressId };
-            state.installProgress = { packId: pack.id, phase: "preparing", progress: 0, message: "Preparazione installazione" };
-            syncInstallDialogProgress(state.installProgress);
-            mount();
-            await window.trackers.runtime.pythonRuntime.installPack({ packId: pack.id, confirmed: true });
-            await loadCatalog();
-            state.notice = `${pack.id} installato e verificato`;
-            syncInstallDialogProgress({ packId: pack.id, phase: "complete", progress: 100, message: "Installazione completata e verificata" });
-            if (closeButton) { closeButton.disabled = false; closeButton.textContent = "Chiudi"; }
-          } catch (error) {
-            state.error = error?.message || "Installazione Python non riuscita";
-            syncInstallDialogProgress({ packId: pack.id, phase: "error", progress: 0, message: state.error });
-            const closeButton = document.getElementById(`${progressId}-close`);
-            if (closeButton) { closeButton.disabled = false; closeButton.textContent = "Chiudi"; }
-          } finally {
-            state.installProgress = null;
-          }
-          mount();
-        } }, icon("download", "sm"), "Installa pack")
-      )
-    });
-    dialog.open();
+    await window.TrackerLensPythonPackInstaller.open({ packId: pack.id, onComplete: async () => {
+      await loadCatalog();
+      state.installProgress = null;
+      state.error = "";
+      state.notice = `${pack.id} installato e verificato`;
+      mount();
+    } });
   } catch (error) {
     state.error = error?.message || "Piano di installazione Python non disponibile";
     mount();
@@ -306,7 +242,6 @@ const boot = async () => {
   unsubscribeInstallProgress = window.trackers?.runtime?.pythonRuntime?.onInstallProgress?.((progress) => {
     state.installProgress = progress;
     if (progress.phase === "error") state.error = progress.message || "Installazione Python non riuscita";
-    syncInstallDialogProgress(progress);
     mount();
   });
   mount();

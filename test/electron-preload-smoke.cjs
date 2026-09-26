@@ -5,8 +5,25 @@ const { app, BrowserWindow, ipcMain } = require("electron");
 const projectRoot = path.resolve(__dirname, "..");
 const preloadPath = path.join(projectRoot, "electron", "preload.cjs");
 const appPage = path.join(projectRoot, "app.html");
+const pythonPackageSmoke = process.env.TL_SMOKE_CUSTOM_PYTHON === "1";
+let includePendingPython = false;
+let activationRequests = 0;
+let installRequests = 0;
+let fixturePythonInstalled = false;
+const pythonExecutionFixture = { runtime: "python", entry: "runtime.py", dependencies: { python: { packId: "trackerslens.data.tabular", environment: "data", requirements: [{ name: "pandas", version: "==2.2.3" }] } } };
 
 ipcMain.handle("trackers-core:request", (_event, command, payload) => {
+  if (command === "runtime.pythonRuntime.getInstallPlan") return { pack: { id: payload.packId, version: "0.1.0" }, environment: { id: "data", action: "create" }, requirements: [{ name: "pandas", version: "2.2.3" }], models: [], network: { required: true }, integrity: { lockfile: "runtimes/python/packs/data/requirements.lock" } };
+  if (command === "runtime.pythonRuntime.installPack") {
+    assert.equal(payload.confirmed, true);
+    assert.equal(payload.packId, "trackerslens.data.tabular");
+    installRequests += 1;
+    _event.sender.send("trackers-core:python-install-progress", { packId: payload.packId, phase: "installing-requirements", progress: 35, message: "Installing fixture modules" });
+    return new Promise(resolve => setTimeout(() => { fixturePythonInstalled = true; resolve({ status: "installed" }); }, 200));
+  }
+  if (command === "desktop.customNodePackages.activateSandboxRuntime") { activationRequests += 1; throw new Error("Missing pack should not be activated"); }
+  if (command === "desktop.customNodePackages.inspect") return { importId: "review-dialog-fixture", archiveSha256: "fixture", manifest: { id: "custom.review", name: "Review fixture", version: "1.0.0", inputs: ["input"], outputs: ["output"], permissions: {}, execution: pythonExecutionFixture }, files: [], staticAnalysis: { status: "reviewed", findings: [] } };
+  if (command === "desktop.customNodePackages.reviewProviders") return [];
   if (command === "desktop.customNodePackages.migrationHistory") return [];
   if (command === "desktop.customNodePackages.prepareCreate") return { manifest: payload.manifest, archiveSha256: "fixture", importId: "fixture-review", files: [], staticAnalysis: { status: "reviewed", findings: [] } };
   if (command === "runtime.customNodeSandbox.run") {
@@ -28,7 +45,11 @@ ipcMain.handle("trackers-core:request", (_event, command, payload) => {
   // Pages may complete an already-scheduled, read-only bootstrap request while
   // the smoke window moves to the next page. These commands are deliberately
   // represented by empty projections in this bridge-only test.
-  if (command === "desktop.customNodePackages.list") return [{ packageId: 'custom.sample', name: 'Sample Text Inspector', version: '1.0.0', publisher: 'trackers-lens-samples', origin: 'local-upload', trustLevel: 'local-dev', installState: 'sandbox-ready', runtimeExecution: 'sandboxed', archive: { sha256: 'fixture' }, permissionConsent: { status: 'granted' }, manifest: { settingsSchema: { prefix: { type: 'string', label: 'Prefisso', defaultValue: 'Hi' } }, icon: 'text_snippet', inputs: ['text'], outputs: ['diagnostic'] } }];
+  if (command === "desktop.customNodePackages.list") return [{ packageId: 'custom.sample', name: 'Sample Text Inspector', version: '1.0.0', publisher: 'trackers-lens-samples', origin: 'local-upload', trustLevel: 'local-dev', installState: 'sandbox-ready', runtimeExecution: 'sandboxed', pythonRuntime: { status: 'ready' }, archive: { sha256: 'fixture' }, permissionConsent: { status: 'granted' }, manifest: { ...(pythonPackageSmoke ? { execution: pythonExecutionFixture } : {}), settingsSchema: { prefix: { type: 'string', label: 'Prefisso', defaultValue: 'Hi' } }, icon: 'text_snippet', inputs: ['text'], outputs: ['diagnostic'] } }, ...(includePendingPython ? [{ packageId: 'custom.dataset', name: 'Dataset Profiler', version: '1.0.0', publisher: 'SamplesTL', trustLevel: 'local-dev', runtimeExecution: 'blocked', installState: 'manifest-only', archive: { sha256: 'pending' }, permissionConsent: { status: 'granted' }, manifest: { inputs: ['input'], outputs: ['report', 'records'], execution: pythonExecutionFixture }, pythonRuntime: { status: fixturePythonInstalled ? 'ready' : 'unavailable', message: 'Installa il pack richiesto da Runtime Python e Modelli prima di attivare il nodo.', dependencies: { installPlan: { supported: true } } } }] : [])];
+  if (command === "desktop.persistence.clearFlowMemory") {
+    assert.equal(payload.confirmed, false, "dialog smoke must not delete data");
+    return { total: 3, counts: [{ storeName: 'tl_events', count: 3 }] };
+  }
   if (command === "desktop.persistence.readLatestRuntimeOutputs") return [];
   if (command === "desktop.persistence.readRuntimeTimingTrace") return [];
   if (command === "desktop.persistence.readDevelopmentRecordSummaryPage") {
@@ -194,31 +215,107 @@ app.whenReady().then(async () => {
           document.querySelector('.tl-custom-card [aria-label="Dettagli"]').click();
           const details = document.querySelectorAll('.tl-custom-detail-section').length;
           Array.from(document.querySelectorAll('button')).find(button => button.textContent.trim() === 'Chiudi')?.click();
+          await new Promise(resolve => setTimeout(resolve, 300));
           document.querySelector('.tl-custom-card [aria-label="Test"]').click();
           document.querySelector('[aria-label="Esegui test"]').click();
           await new Promise(resolve => setTimeout(resolve, 100));
           const tested = document.querySelector('.tl-custom-test-output').textContent.includes('fixture-run');
           Array.from(document.querySelectorAll('button')).find(button => button.textContent.trim() === 'Chiudi')?.click();
+          await new Promise(resolve => setTimeout(resolve, 300));
           document.querySelector('.tl-custom-card [aria-label="Versioni"]').click();
           await new Promise(resolve => setTimeout(resolve, 100));
           const versions = document.body.textContent.includes('Migrazioni salvate');
           Array.from(document.querySelectorAll('button')).find(button => button.textContent.trim() === 'Chiudi')?.click();
+          await new Promise(resolve => setTimeout(resolve, 300));
           return { details, tested, versions };
         })()`);
-        assert.deepEqual(packageUi, { details: 8, tested: true, versions: true });
+        assert.deepEqual(packageUi, { details: pythonPackageSmoke ? 9 : 8, tested: true, versions: true });
         await new Promise(resolve => setTimeout(resolve, 400));
         require('node:fs').writeFileSync('/tmp/tl-custom-nodes-smoke.png', (await window.webContents.capturePage()).toPNG());
+        const reviewModal = await window.webContents.executeJavaScript(`(async () => {
+          Array.from(document.querySelectorAll('.tl-custom-topbar button')).find(button => button.textContent.includes('Importa')).click();
+          await new Promise(resolve => setTimeout(resolve, 150));
+          const modal = document.querySelector('.tl-custom-review-dialog');
+          if (!modal || document.querySelector('.tl-custom-page .tl-custom-review')) throw new Error('Review must open in a dialog only');
+          if (!modal.textContent.includes('pandas==2.2.3')) throw new Error('Python requirements missing in review');
+          modal.querySelector('[aria-label="Revisione AI"]').click();
+          await new Promise(resolve => setTimeout(resolve, 100));
+          const cancels = Array.from(document.querySelectorAll('[aria-label="Annulla"]'));
+          cancels[cancels.length - 1].click();
+          await new Promise(resolve => setTimeout(resolve, 300));
+          return Boolean(document.querySelector('.tl-custom-review-dialog [aria-label="Installa"]'));
+        })()`);
+        assert.equal(reviewModal, true);
+        require('node:fs').writeFileSync('/tmp/tl-custom-review-dialog.png', (await window.webContents.capturePage()).toPNG());
+        await window.webContents.executeJavaScript(`document.querySelector('.tl-custom-review-dialog [aria-label="Annulla"]').click()`);
+        await new Promise(resolve => setTimeout(resolve, 300));
+        assert.equal(await window.webContents.executeJavaScript(`Boolean(document.querySelector('.tl-custom-review-dialog'))`), false);
+        includePendingPython = true;
+        const pendingUi = await window.webContents.executeJavaScript(`(async () => {
+          document.querySelector('[aria-label="Aggiorna"]').click();
+          await new Promise(resolve => setTimeout(resolve, 150));
+          const cards = Array.from(document.querySelectorAll('.tl-custom-card'));
+          const heights = cards.map(card => card.getBoundingClientRect().height);
+          const pending = cards.find(card => card.textContent.includes('Dataset Profiler'));
+          if (pending.querySelector('[aria-label="Attiva"]') || pending.querySelector('[aria-label="Disattiva"]')) throw new Error('Unavailable package shows inappropriate lifecycle actions');
+          pending.querySelector('[aria-label="Installa pack Python"]').click();
+          await new Promise(resolve => setTimeout(resolve, 150));
+          const guided = document.body.textContent.includes('Installare il pack Python?') && Boolean(document.querySelector('.tl-managed-python-pack-dialog'));
+          return { heights, guided };
+        })()`);
+        assert.equal(pendingUi.heights.length, 2);
+        assert.ok(Math.abs(pendingUi.heights[0] - pendingUi.heights[1]) < 1, JSON.stringify(pendingUi));
+        assert.equal(pendingUi.guided, true);
+        assert.equal(activationRequests, 0);
+        assert.equal(installRequests, 0);
+        require("node:fs").writeFileSync("/tmp/tl-global-python-installer.png", (await window.webContents.capturePage()).toPNG());
+        const installedUi = await window.webContents.executeJavaScript(`(async () => {
+          const dialog = document.querySelector('.tl-managed-python-pack-dialog');
+          dialog.querySelector('[id$="-start"]').click();
+          await new Promise(resolve => setTimeout(resolve, 75));
+          const progress = dialog.textContent.includes('Installing fixture modules');
+          const locked = dialog.querySelector('[id$="-close"]').disabled;
+          await new Promise(resolve => setTimeout(resolve, 250));
+          const refreshed = Array.from(document.querySelectorAll('.tl-custom-card')).find(card => card.textContent.includes('Dataset Profiler')).querySelector('[aria-label="Attiva"]');
+          return { progress, locked, refreshed: Boolean(refreshed), completed: dialog.textContent.includes('Installazione completata e verificata') };
+        })()`);
+        assert.deepEqual(installedUi, { progress: true, locked: true, refreshed: true, completed: true });
+        assert.equal(installRequests, 1);
+
+        await window.webContents.executeJavaScript(`Array.from(document.querySelectorAll('button')).find(button => button.textContent.trim() === 'Chiudi')?.click()`);
+        await new Promise(resolve => setTimeout(resolve, 300));
+        require('node:fs').writeFileSync('/tmp/tl-custom-equal-cards.png', (await window.webContents.capturePage()).toPNG());
+        includePendingPython = false;
+
+
       }
       if (route === "flowMap.html") {
+        const runtimeErrorVisible = await window.webContents.executeJavaScript(`(() => {
+          window.dispatchEvent(new CustomEvent('trackers:runtime-error', { detail: { nodeId: 'custom-error', nodeLabel: 'Dataset Profiler', code: 'CUSTOM_NODE_SANDBOX_DISABLED', message: 'Sandbox dei Custom Node disabilitata. Riavvia TL con npm run dev.' } }));
+          return document.body.textContent.includes('Dataset Profiler: Sandbox dei Custom Node disabilitata. Riavvia TL con npm run dev.');
+        })()`);
+        assert.equal(runtimeErrorVisible, true);
+        const clearMemoryDialog = await window.webContents.executeJavaScript(`(async () => {
+          await requestClearFlowMemory();
+          const dialog = [...document.querySelectorAll('[role="dialog"]')].at(-1);
+          const text = dialog?.textContent || '';
+          const cancel = [...(dialog?.querySelectorAll('button') || [])].find(button => button.textContent.includes('Annulla'));
+          cancel?.click();
+          return { visible: text.includes('Clear memory'), preview: text.includes('tl_events: 3'), preserved: text.includes('documenti caricati vengono conservati'), cancelled: Boolean(cancel) };
+        })()`);
+        assert.deepEqual(clearMemoryDialog, { visible: true, preview: true, preserved: true, cancelled: true });
+        await new Promise(resolve => setTimeout(resolve, 300));
+
         const settings = await window.webContents.executeJavaScript(`(async () => {
           await window.TrackerLensCustomNodePackages.refreshInstalled();
           const item = window.TrackerLensCustomNodePackages.paletteGroups()[0][1][0];
           const fields = configFieldDefinitions({ type: 'custom', metadata: { customPackage: item.customPackage, settingsSchema: item.settingsSchema } });
-          return { schema: item.settingsSchema.prefix, field: fields.find(field => field.key === 'prefix') };
+          return { schema: item.settingsSchema.prefix, field: fields.find(field => field.key === 'prefix'), execution: item.manifest.execution };
         })()`);
         assert.equal(settings.schema.defaultValue, 'Hi');
         assert.equal(settings.field.label, 'Prefisso');
         assert.equal(settings.field.defaultValue, 'Hi');
+        if (pythonPackageSmoke) assert.deepEqual(settings.execution, pythonExecutionFixture);
         const ui = await window.webContents.executeJavaScript(`(async () => {
           const dialog = window.TrackerLensAiAgentEditor.open({
             agent: { name: 'Catalog fixture', provider: { profileId: 'fixture-codex', providerType: 'lm-studio', model: '' } },

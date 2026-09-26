@@ -1,0 +1,17 @@
+{
+  "id": "trackerslens.data.tabular",
+  "version": "0.1.0",
+  "environment": "data",
+  "trustLevel": "built-in",
+  "installPolicy": "managed-required",
+  "python": ">=3.10,<3.13",
+  "developmentInterpreter": "python3.11",
+  "lockfile": "runtimes/python/packs/data/requirements.lock",
+  "requirements": [
+    { "name": "numpy", "version": "==2.2.6" },
+    { "name": "pandas", "version": "==2.2.3" }
+  ],
+  "models": [],
+  "capabilities": ["data.tabular"],
+  "dataAccess": "Custom Node inputs only; OS-isolated Python process"
+}

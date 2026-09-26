@@ -15,6 +15,8 @@ const { CustomNodeToolDispatcher } = require("../core/desktop/custom-node-tool-d
 const { DesktopPersistence } = require("../core/desktop/desktop-persistence.cjs");
 const { ExternalAiProviderBridge } = require("../core/desktop/external-ai-provider-bridge.cjs");
 const { PythonPackResolver } = require("../core/runtime/python-pack-resolver.cjs");
+const dataPackManifest = require("../runtimes/python/packs/data/pack.json");
+const { CustomNodePythonRunner } = require("../core/desktop/custom-node-python-runner.cjs");
 const nlpPackManifest = require("../runtimes/python/packs/nlp/pack.json");
 const ragPackManifest = require("../runtimes/python/packs/rag/pack.json");
 const annotationsPackManifest = require("../runtimes/python/packs/annotations/pack.json");
@@ -54,7 +56,16 @@ const annotationWorkerModels = () => pythonAnnotationsEnabled() ? annotationsPac
   revision: model.revision,
   directory: path.join(pythonAnnotationModelPaths.get(model.id), "content")
 })) : [];
+const dataEnvironmentPath = path.join(projectRoot, "runtimes/python/envs/data");
+const dataPythonPath = path.join(dataEnvironmentPath, "bin/python");
+const dataReady = () => {
+  try {
+    const verified = JSON.parse(fs.readFileSync(path.join(dataEnvironmentPath, ".tl-verified.json"), "utf8"));
+    return verified.packId === dataPackManifest.id && verified.version === dataPackManifest.version && fs.existsSync(dataPythonPath);
+  } catch (_) { return false; }
+};
 const pythonPackStatus = (manifest) => {
+  if (manifest.id === dataPackManifest.id) return dataReady() ? "ready" : "unavailable";
   if (manifest.id === ragPackManifest.id) return pythonRagEnabled() ? "ready" : "unavailable";
   if (manifest.id === annotationsPackManifest.id) return pythonAnnotationsEnabled() ? "ready" : "unavailable";
   if (manifest.id === graphRelationsPackManifest.id) return pythonGraphRelationsEnabled() ? "ready" : "unavailable";
@@ -67,6 +78,7 @@ let pythonGraphRelations = null;
 let persistence = null;
 let customNodePackageManager = null;
 let customNodeSandboxRunner = null;
+let customNodePythonRunner = null;
 let externalAiProviderBridge = null;
 const externalAiLoginRuns = new Map();
 const launchExternalAiLogin = async (provider) => {
@@ -195,7 +207,7 @@ const pythonNlpAdapter = {
   restart: () => createPythonNlpRuntime()?.restart() || Promise.reject(Object.assign(new Error("Python NLP pack is not installed"), { code: "PYTHON_NLP_DISABLED" }))
 };
 const pythonPacks = new PythonPackResolver({
-  packs: [nlpPackManifest, ragPackManifest, annotationsPackManifest, graphRelationsPackManifest].map((manifest) => ({
+  packs: [nlpPackManifest, ragPackManifest, annotationsPackManifest, graphRelationsPackManifest, dataPackManifest].map((manifest) => ({
     ...manifest,
     packages: manifest.requirements.map((requirement) => ({ ...requirement, version: String(requirement.version || "").replace(/^==/, "") })),
     status: pythonPackStatus(manifest)
@@ -211,7 +223,7 @@ const nlpEnvironment = {
   requested: () => true,
   enabled: pythonNlpEnabled,
   runtimeStatus: () => pythonNlpAdapter.status(),
-  stopRuntime: () => pythonNlp?.stop?.(),
+  stopRuntime: async () => { await customNodePythonRunner?.stop(); await pythonNlp?.stop?.(); },
   onInstalled: async () => {
     pythonPacks.setStatus(nlpPackManifest.id, pythonNlpEnabled() ? "ready" : "unavailable");
     pythonPacks.setStatus(ragPackManifest.id, pythonRagEnabled() ? "ready" : "unavailable");
@@ -244,7 +256,7 @@ const graphEnvironment = {
   requested: () => true,
   enabled: pythonGraphRelationsEnabled,
   runtimeStatus: () => createPythonGraphRelationsRuntime()?.status() || { status: "stopped" },
-  stopRuntime: () => pythonGraphRelations?.stop?.(),
+  stopRuntime: async () => { await customNodePythonRunner?.stop(); await pythonGraphRelations?.stop?.(); },
   onInstalled: async () => {
     pythonPacks.setStatus(graphRelationsPackManifest.id, pythonGraphRelationsEnabled() ? "ready" : "unavailable");
     await createPythonGraphRelationsRuntime()?.restart();
@@ -258,13 +270,25 @@ const graphEnvironment = {
     { ...graphRelationsPackManifest.models[1], directory: pythonGraphNliModelPath }
   ]
 };
+const dataEnvironment = {
+  id: "data", interpreter: "Python 3.11", interpreterPath: dataPythonPath,
+  pythonPath: dataPythonPath, directory: dataEnvironmentPath, bootstrapPython: pythonNlpBootstrap,
+  requested: () => true, enabled: dataReady, runtimeStatus: () => ({ status: customNodePythonRunner?.processes.size ? "running" : "stopped" }),
+  isPackReady: dataReady,
+  stopRuntime: async () => customNodePythonRunner?.stop(),
+  onInstalled: async () => {
+    await fs.promises.writeFile(path.join(dataEnvironmentPath, ".tl-verified.json"), JSON.stringify({ packId: dataPackManifest.id, version: dataPackManifest.version }));
+    pythonPacks.setStatus(dataPackManifest.id, "ready");
+  },
+  models: []
+};
 const pythonRuntimeCatalog = new PythonRuntimeCatalog({
-  packs: [nlpPackManifest, ragPackManifest, annotationsPackManifest, graphRelationsPackManifest],
-  environments: [nlpEnvironment, graphEnvironment]
+  packs: [nlpPackManifest, ragPackManifest, annotationsPackManifest, graphRelationsPackManifest, dataPackManifest],
+  environments: [nlpEnvironment, graphEnvironment, dataEnvironment]
 });
 const pythonPackInstaller = new ManagedPythonPackInstaller({
-  packs: [nlpPackManifest, ragPackManifest, annotationsPackManifest, graphRelationsPackManifest].map((pack) => ({ ...pack, lockfilePath: path.join(projectRoot, pack.lockfile) })),
-  environments: [nlpEnvironment, graphEnvironment]
+  packs: [nlpPackManifest, ragPackManifest, annotationsPackManifest, graphRelationsPackManifest, dataPackManifest].map((pack) => ({ ...pack, lockfilePath: path.join(projectRoot, pack.lockfile) })),
+  environments: [nlpEnvironment, graphEnvironment, dataEnvironment]
 });
 pythonPackInstaller.subscribe((progress) => {
   BrowserWindow.getAllWindows().forEach((window) => window.webContents.send("trackers-core:python-install-progress", progress));
@@ -423,6 +447,7 @@ app.whenReady().then(async () => {
   if (customNodeSandboxEnabled) {
     const toolDispatcher = new CustomNodeToolDispatcher({ persistence });
     const broker = new CustomNodeSandboxBroker({ onToolCall: (call) => toolDispatcher.dispatch(call) });
+    customNodePythonRunner = new CustomNodePythonRunner({ broker, resolver: pythonPacks, environments: [dataEnvironment, nlpEnvironment, graphEnvironment] });
     customNodeSandboxRunner = new CustomNodeElectronRunner({
       BrowserWindow,
       broker,
@@ -431,12 +456,17 @@ app.whenReady().then(async () => {
       configureSession: configureCustomNodeSandboxSession
     });
   }
-  // Deliberately Main-only for now. Flow Map/Runtime Manager wiring will call
-  // this coordinator only after it can provide an authorized node execution.
-  // No renderer command returns archive source or starts arbitrary packages.
-  const launchCustomNodeSandbox = async ({ packageId = "", version = "", archiveSha256 = "", nodeId = "", inputs = {}, config = {}, context = {}, timeoutMs: requestedTimeoutMs = 30000 } = {}) => {
+  // Both Flow and package tests use this exact-reference coordinator. Core
+  // reloads verified source and chooses the runner; renderer data cannot select
+  // an interpreter, source file, environment path or shell command.
+  const launchCustomNodeSandbox = async ({ packageId = "", version = "", archiveSha256 = "", nodeId = "", inputs = {}, config = {}, context = {}, timeoutMs: requestedTimeoutMs } = {}) => {
     if (!customNodeSandboxRunner) throw Object.assign(new Error("Il runner sandbox dei Custom Node non è abilitato."), { code: "CUSTOM_NODE_SANDBOX_DISABLED" });
     const runtime = await customNodePackageManager.loadSandboxRuntime({ packageId, version, archiveSha256 });
+    const execution = runtime.packageRecord.manifest.execution;
+    const runner = execution?.runtime === "python" ? customNodePythonRunner : customNodeSandboxRunner;
+    const requested = requestedTimeoutMs ?? execution?.timeoutMs;
+    const timeoutMs = requested == null ? 0 : Number(requested);
+    if (!Number.isFinite(timeoutMs) || timeoutMs < 0 || timeoutMs > 2147483647) throw Object.assign(new Error("timeoutMs deve essere 0 (nessun limite) o una durata rappresentabile in millisecondi."), { code: "CUSTOM_NODE_TIMEOUT_INVALID" });
     const request = customNodeSandboxRunner.broker.open({
       nodeId,
       packageRecord: runtime.packageRecord,
@@ -446,21 +476,21 @@ app.whenReady().then(async () => {
       grantedPermissions: runtime.packageRecord.grantedPermissions
     });
     try {
-      const launched = await customNodeSandboxRunner.launch({ request, source: runtime.source });
-      const timeoutMs = Math.max(1000, Math.min(600000, Number(requestedTimeoutMs || 30000)));
-      const timeout = setTimeout(() => {
+      const launched = await runner.launch({ request, source: runtime.source, execution });
+      const timeout = timeoutMs > 0 ? setTimeout(() => {
         customNodeSandboxRunner.broker.fail({
           executionId: request.executionId,
           code: "CUSTOM_NODE_SANDBOX_TIMEOUT",
           message: `Custom Node sandbox timeout dopo ${timeoutMs}ms.`
         });
-        customNodeSandboxRunner.close(request.executionId);
-      }, timeoutMs);
+        runner.close(request.executionId);
+      }, timeoutMs) : null;
       try {
         const terminal = await customNodeSandboxRunner.broker.wait(request.executionId);
         const trace = customNodeSandboxRunner.broker.get(request.executionId);
         return {
           executionId: launched.executionId,
+          ...(launched.provenance ? { provenance: launched.provenance } : {}),
           status: terminal.status,
           outputs: terminal.outputs && typeof terminal.outputs === "object" ? terminal.outputs : {},
           diagnostics: Array.isArray(terminal.diagnostics) ? terminal.diagnostics : [],
@@ -468,7 +498,7 @@ app.whenReady().then(async () => {
         };
       } finally {
         clearTimeout(timeout);
-        customNodeSandboxRunner.close(request.executionId);
+        runner.close(request.executionId);
       }
     } catch (error) {
       customNodeSandboxRunner.broker.fail({
@@ -488,8 +518,11 @@ app.whenReady().then(async () => {
     const archivePath = result.canceled ? "" : String(result.filePaths?.[0] || "");
     return archivePath;
   };
-  const migration = new (require("../core/desktop/custom-node-migration.cjs").CustomNodeMigration)({ manager: customNodePackageManager, persistence, isRunning: () => Boolean(customNodeSandboxRunner?.windows?.size) });
+  const migration = new (require("../core/desktop/custom-node-migration.cjs").CustomNodeMigration)({ manager: customNodePackageManager, persistence, isRunning: () => Boolean(customNodeSandboxRunner?.windows?.size || customNodePythonRunner?.processes.size) });
   const reviewer = new (require("../core/desktop/custom-node-review.cjs").CustomNodeReviewer)({ persistence });
+  const withPythonStatus = async (record) => record?.manifest?.execution?.runtime === "python"
+    ? { ...record, pythonRuntime: customNodePythonRunner ? await customNodePythonRunner.readiness(record.manifest.execution) : { status: "disabled", message: "Avvia TL con il supporto sandbox abilitato (npm run dev)." } }
+    : record;
   const customNodePackages = {
     reviewProviders: () => reviewer.providers(),
     reviewImport: async ({ importId, provider, maxTokens, confirmed }) => {
@@ -511,7 +544,7 @@ app.whenReady().then(async () => {
       const inspection = await customNodePackageManager.inspectFile(archivePath);
       const importId = crypto.randomUUID();
       pendingCustomNodeImports.set(importId, { archivePath, hash: inspection.archiveSha256 });
-      return { ...inspection, importId };
+      return withPythonStatus({ ...inspection, importId });
     },
     install: async ({ importId = "" } = {}) => {
       const review = pendingCustomNodeImports.get(String(importId || ""));
@@ -533,7 +566,7 @@ app.whenReady().then(async () => {
       const archivePath = path.join(directory, `${importId}.tl-node.zip`);
       await fs.promises.writeFile(archivePath, bytes, { flag: "wx" });
       pendingCustomNodeImports.set(importId, { archivePath, hash: inspection.archiveSha256, origin: "created" });
-      return { ...inspection, importId };
+      return withPythonStatus({ ...inspection, importId });
     },
     compareVersions: (payload) => customNodePackageManager.compareVersions(payload),
     dependencies: (payload) => customNodePackageManager.dependencies(payload),
@@ -549,10 +582,16 @@ app.whenReady().then(async () => {
       await fs.promises.writeFile(target.filePath, bytes);
       return { exported: true };
     },
-    list: () => customNodePackageManager.listInstalled(),
+    list: async () => Promise.all((await customNodePackageManager.listInstalled()).map(withPythonStatus)),
     grantPermissions: (payload = {}) => customNodePackageManager.grantPermissions(payload),
-    activateSandboxRuntime: (payload = {}) => customNodePackageManager.activateSandboxRuntime(payload),
-    runSandbox: (payload = {}) => launchCustomNodeSandbox(payload)
+    activateSandboxRuntime: async (payload = {}) => {
+      const record = await customNodePackageManager.resolvePackage(payload);
+      if (record.manifest?.execution?.runtime === "python") {
+        const status = await customNodePythonRunner?.readiness(record.manifest.execution);
+        if (status?.status !== "ready") throw Object.assign(new Error(status?.message || "Python sandbox non disponibile."), { code: "CUSTOM_NODE_PYTHON_NOT_READY" });
+      }
+      return customNodePackageManager.activateSandboxRuntime(payload);
+    }
   };
   if (process.platform === "darwin") app.dock.setIcon(nativeImage.createFromPath(websiteLogoIconPath));
   tlCore = createTlCore({
@@ -568,7 +607,7 @@ app.whenReady().then(async () => {
       pythonRuntimeCatalog,
       pythonPackInstaller,
       customNodePackages,
-      customNodeSandbox: customNodePackages,
+      customNodeSandbox: { run: launchCustomNodeSandbox },
       externalAi: externalAiProviderBridge,
       account: require("../core/desktop/account-client.cjs").createAccountClient({
         persistence,
@@ -590,4 +629,4 @@ app.on("window-all-closed", () => {
   if (process.platform !== "darwin") app.quit();
 });
 
-app.on("before-quit", () => { void pythonPoc?.stop?.(); void pythonNlp?.stop?.(); void pythonGraphRelations?.stop?.(); });
+app.on("before-quit", () => { customNodePythonRunner?.stop(); void pythonPoc?.stop?.(); void pythonNlp?.stop?.(); void pythonGraphRelations?.stop?.(); });

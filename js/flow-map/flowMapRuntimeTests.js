@@ -1041,6 +1041,13 @@ const emitLiveDependencyPulse = async ({ workspaceId, runId, graph, dependency }
 };
 
 const replayRuntimeEvent = async (event = {}) => {
+  if (event.payloadDeferred) {
+    try {
+      const stored = await window.trackers.desktop.persistence.readDevelopmentRecordById({ storeName: runtimeStoreName("TL_EVENTS", "tl_events"), id: event.id });
+      if (!stored || stored.workspaceId !== event.workspaceId) throw new Error("Output salvato non più disponibile.");
+      event = stored;
+    } catch (error) { setFlowMapError(error.message || String(error), { remount: true }); return; }
+  }
   const graph = graphModel();
   const selected = selectedNode();
   const sourceNodeId = event.sourceNodeId || selected?.id || "";
@@ -5865,6 +5872,68 @@ const renderRunMenu = () =>
     ],
   });
 
+const requestClearFlowMemory = async ({ includeDocuments = false } = {}) => {
+  const workspaceId = currentWorkspaceId();
+  const api = window.trackers?.desktop?.persistence;
+  if (!workspaceId || workspaceId === "all") { setFlowMapError("Seleziona un singolo workspace."); return; }
+  try {
+    const plan = await api.clearFlowMemory({ workspaceId, includeDocuments });
+    let busy = false;
+    const message = _.p("");
+    const dialog = _.Dialog({
+      title: "Clear memory", icon: "delete_sweep", closeButton: false,
+      closeOnOutside: false, closeOnEscape: false,
+      content: () => _.div(
+        _.p(`Workspace: ${workspaceId}. Verranno eliminati ${plan.total} record.`),
+        _.p("Elimina risultati, log, memorie AI/Knowledge, cache, dati Storage, chat del Flow e snapshot Time Travel. Nodi, collegamenti, configurazioni e provider restano disponibili. La cancellazione non è annullabile."),
+        _.p(includeDocuments ? "Saranno eliminati anche i documenti caricati." : "I documenti caricati vengono conservati."),
+        _.Toggle({ checked: includeDocuments, label: "Elimina anche i documenti caricati", onChange: (checked) => {
+          if (busy) return;
+          dialog.close();
+          requestClearFlowMemory({ includeDocuments: Boolean(checked) });
+        } }),
+        ...plan.counts.filter(row => row.count).map(row => _.p(`${row.storeName}: ${row.count}`)),
+        message
+      ),
+      actions: ({ close }) => _.Toolbar({ align: "end", gap: 8 },
+        flowMapBtn({ onclick: () => { if (!busy) close(); } }, "Annulla"),
+        flowMapBtn({ class: "is-danger", onclick: async () => {
+          if (busy) return;
+          if (currentWorkspaceId() !== workspaceId) { message.textContent = "Workspace cambiato: chiudi e riapri Clear memory."; return; }
+          const controller = window.TrackerLensNodeExecutionController?.get?.(workspaceId);
+          const active = (state.runtime.nodes || []).some(node => {
+            const status = controller?.snapshot?.(node.id);
+            return status?.active || status?.queued;
+          });
+          if (state.testRun.running || active || state.runtimeLoadInFlight) {
+            message.textContent = "Attendi la fine delle esecuzioni e del caricamento prima di cancellare.";
+            return;
+          }
+          busy = true;
+          state.runtimeLoadInFlight = true;
+          stopBackgroundRuntime(workspaceId);
+          stopPageRuntimes(workspaceId);
+          try {
+            const result = await api.clearFlowMemory({ workspaceId, includeDocuments, confirmed: true });
+            state.runtime.events = [];
+            state.runtime.flowLogs = [];
+            for (const key of ["previewPayloads", "previewClearedAt", "knowledgeInspectorGraph", "knowledgeInspectorDocuments", "knowledgeInspectorDictionaries", "knowledgeInspectorEvents", "knowledgeInspectorStructured", "aiProcessing"]) state[key] = {};
+            state.runtime.channels = (state.runtime.channels || []).map(({ lastValue, lastPayload, lastEmittedAt, lastEventId, ...channel }) => channel);
+            message.textContent = `Pulizia completata: ${result.total} record eliminati.`;
+            close();
+          } catch (error) { message.textContent = error.message || String(error); }
+          finally {
+            state.runtimeLoadInFlight = false;
+            busy = false;
+            await loadRuntime({ force: true });
+          }
+        } }, "Cancella memoria")
+      ),
+    });
+    dialog.open();
+  } catch (error) { setFlowMapError(error.message || String(error), { remount: true }); }
+};
+
 const renderToolsMenu = () =>
   renderTopbarMenu({
     iconName: "build",
@@ -5876,6 +5945,12 @@ const renderToolsMenu = () =>
         label: "Refresh runtime",
         meta: "Reload the workspace runtime state",
         onclick: () => loadRuntime(),
+      },
+      {
+        iconName: "delete_sweep",
+        label: "Clear memory",
+        meta: "Delete this Flow Map’s generated data, logs and memory",
+        onclick: () => requestClearFlowMemory(),
       },
       {
         iconName: "developer_board",

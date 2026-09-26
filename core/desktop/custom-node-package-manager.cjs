@@ -126,6 +126,7 @@ const normalizeManifest = (rawManifest = {}, entries = []) => {
   const runtime = rawManifest.runtime && typeof rawManifest.runtime === "object" ? rawManifest.runtime : {};
   const runtimeEntry = text(runtime.entry);
   if (runtimeEntry && !names.has(runtimeEntry)) throw errorWithCode(`runtime.entry non presente nell'archivio: ${runtimeEntry}`, "CUSTOM_NODE_MANIFEST_INVALID");
+  const execution = require("./custom-node-execution.cjs").normalizeCustomExecution(rawManifest.execution, runtimeEntry);
   const ui = rawManifest.ui && typeof rawManifest.ui === "object" ? rawManifest.ui : {};
   const uiSchema = text(ui.schema);
   if (uiSchema && !names.has(uiSchema)) throw errorWithCode(`ui.schema non presente nell'archivio: ${uiSchema}`, "CUSTOM_NODE_MANIFEST_INVALID");
@@ -143,6 +144,7 @@ const normalizeManifest = (rawManifest = {}, entries = []) => {
     permissions: normalizePermissions(rawManifest.permissions || {}),
     settingsSchema: normalizeSettings(rawManifest.settingsSchema || {}),
     runtime: Object.freeze({ entry: runtimeEntry, mode: text(runtime.mode, "blocked") }),
+    ...(execution ? { execution } : {}),
     ui: Object.freeze({ schema: uiSchema })
   });
 };
@@ -158,6 +160,11 @@ const analyzeRuntimeSource = ({ archive, entries, manifest }) => {
   const source = readZipEntry(archive, entry).toString("utf8");
   const declared = manifest.permissions || {};
   const rules = [
+    ...(manifest.execution?.runtime === "python" ? [
+      { code: "PYTHON_DYNAMIC_CODE", severity: "high", pattern: /\b(?:exec|eval|compile)\s*\(/, message: "Codice Python dinamico rilevato." },
+      { code: "PYTHON_SYSTEM_ACCESS", severity: "high", pattern: /\b(?:subprocess|ctypes|socket|urllib|requests)\b|\bos\s*\./, message: "Accesso Python a servizi di sistema rilevato; resta soggetto all’isolamento OS." },
+      { code: "PYTHON_FILESYSTEM", severity: "medium", pattern: /\bopen\s*\(|\bpathlib\b/, permission: "filesystem", message: "Accesso Python al filesystem rilevato; i dati utente restano esclusi dalla sandbox." }
+    ] : []),
     { code: "DYNAMIC_CODE", severity: "high", pattern: /\beval\s*\(|\bnew\s+Function\s*\(/, message: "Codice dinamico (eval/Function) rilevato." },
     { code: "NODE_PROCESS", severity: "high", pattern: /\bprocess\b|\bchild_process\b|\bnode:child_process\b/, message: "Accesso al processo o a child_process rilevato." },
     { code: "NODE_MODULE_LOAD", severity: "high", pattern: /\brequire\s*\(|\bimport\s*\(/, message: "Caricamento di moduli dinamico rilevato." },
@@ -322,6 +329,7 @@ class CustomNodePackageManager {
       source: { packageId: previous.packageId, version: previous.version, archiveSha256: previous.archive.sha256 },
       target: { packageId: next.packageId, version: next.version, archiveSha256: next.archive.sha256 },
       inputs: diffPorts("inputs"), outputs: diffPorts("outputs"), settings, permissions, instances,
+      execution: { before: previous.manifest?.execution || null, after: next.manifest?.execution || null },
       sameArchive: previous.archive.sha256 === next.archive.sha256,
       targetRuntimeExecution: next.runtimeExecution,
       executable: false,

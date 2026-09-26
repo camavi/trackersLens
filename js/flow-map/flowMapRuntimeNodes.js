@@ -2491,24 +2491,46 @@ const escapePreviewHtml = (value = "") =>
   }[char]));
 
 const highlightedJsonLineHtml = (line = "") => {
-  const tokenRegex = /("(?:\\u[\da-fA-F]{4}|\\[^u]|[^\\"])*"(\s*:)?|\btrue\b|\bfalse\b|\bnull\b|-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?)/g;
-  let html = "";
+  // Scan quoted strings iteratively: a repeated-alternation RegExp exhausts
+  // V8's regexp stack on large embedded CSV/JSON strings.
+  const scalar = /\b(?:true|false|null)\b|-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?/y;
+  const parts = [];
   let cursor = 0;
-  let match = tokenRegex.exec(line);
-  while (match) {
-    const token = match[0];
-    if (match.index > cursor) html += escapePreviewHtml(line.slice(cursor, match.index));
-    let className = "tl-json-number is-int";
-    if (/^"/.test(token)) className = /:\s*$/.test(token) ? "tl-json-key" : "tl-json-string";
-    else if (/true|false/.test(token)) className = "tl-json-boolean";
-    else if (/null/.test(token)) className = "tl-json-null";
-    else if (/[.eE]/.test(token)) className = "tl-json-number is-float";
-    html += `<span class="${className}">${escapePreviewHtml(token)}</span>`;
-    cursor = match.index + token.length;
-    match = tokenRegex.exec(line);
+  let plainStart = 0;
+  while (cursor < line.length) {
+    const start = cursor;
+    let end = cursor;
+    let className = "";
+    if (line[cursor] === '"') {
+      end = cursor + 1;
+      while (end < line.length && line[end] !== '"') {
+        end += line[end] === "\\" ? 2 : 1;
+      }
+      if (end >= line.length) break;
+      end += 1;
+      let colon = end;
+      while (colon < line.length && /\s/.test(line[colon])) colon += 1;
+      className = line[colon] === ":" ? "tl-json-key" : "tl-json-string";
+      if (line[colon] === ":") end = colon + 1;
+    } else {
+      scalar.lastIndex = cursor;
+      const match = scalar.exec(line);
+      if (match) {
+        const token = match[0];
+        end = cursor + token.length;
+        className = token === "null" ? "tl-json-null"
+          : token === "true" || token === "false" ? "tl-json-boolean"
+          : /[.eE]/.test(token) ? "tl-json-number is-float" : "tl-json-number is-int";
+      }
+    }
+    if (!className) { cursor += 1; continue; }
+    if (start > plainStart) parts.push(escapePreviewHtml(line.slice(plainStart, start)));
+    parts.push(`<span class="${className}">${escapePreviewHtml(line.slice(start, end))}</span>`);
+    cursor = end;
+    plainStart = end;
   }
-  if (cursor < line.length) html += escapePreviewHtml(line.slice(cursor));
-  return html;
+  if (plainStart < line.length) parts.push(escapePreviewHtml(line.slice(plainStart)));
+  return parts.join("");
 };
 
 const highlightedJsonHtml = (text = "") =>
@@ -2562,16 +2584,58 @@ const applyPreviewSearchMarks = (root, query = "", activeIndex = 0) => {
   return matchIndex;
 };
 
+// Pagination bounds DOM work, never the payload: every character remains
+// accessible through navigation, global search and the dialog's full Copy.
+const previewTextPage = (text, page, pageSize = 32768) => {
+  const pages = Math.max(1, Math.ceil(text.length / pageSize));
+  const current = Math.max(0, Math.min(page, pages - 1));
+  const start = current * pageSize;
+  return { text: text.slice(start, start + pageSize), start, page: current, pages };
+};
+
 const previewCodeBlock = ({ text = "", mode = "auto", query = "", activeMatch = 0 } = {}) => {
+  const host = document.createElement("div");
   const pre = document.createElement("pre");
   const jsonLike = mode === "json" || (mode === "auto" && /^[\s]*[{\[]/.test(text));
   pre.className = `tl-flow-preview-full-code is-${mode}${jsonLike ? " is-json" : ""}`;
-  pre.innerHTML = jsonLike ? highlightedJsonHtml(text) : escapePreviewHtml(text);
-  applyPreviewSearchMarks(pre, query, activeMatch);
-  window.setTimeout(() => {
-    pre.querySelector(".tl-preview-search-hit.is-active")?.scrollIntoView?.({ block: "center", inline: "nearest" });
-  }, 0);
-  return pre;
+  const pageSize = 32768;
+  let page = 0;
+  let matchOffset = -1;
+  const needle = String(query || "").trim().toLowerCase();
+  if (needle) {
+    const lower = text.toLowerCase();
+    let cursor = 0;
+    for (let index = 0; index <= activeMatch; index += 1) {
+      matchOffset = lower.indexOf(needle, cursor);
+      if (matchOffset < 0) break;
+      cursor = matchOffset + needle.length;
+    }
+    if (matchOffset >= 0) page = Math.floor(matchOffset / pageSize);
+  }
+  const navigation = document.createElement("div");
+  const render = () => {
+    const slice = previewTextPage(text, page, pageSize);
+    page = slice.page;
+    // Extend the visible boundary only when the selected search hit crosses it.
+    const end = Math.max(slice.start + slice.text.length,
+      matchOffset >= slice.start && matchOffset < slice.start + pageSize ? matchOffset + needle.length : 0);
+    const visible = text.slice(slice.start, end);
+    pre.innerHTML = jsonLike ? highlightedJsonHtml(visible) : escapePreviewHtml(visible);
+    if (needle) {
+      const localIndex = matchOffset >= slice.start && matchOffset < end
+        ? countPreviewMatches(text.slice(slice.start, matchOffset), needle) : -1;
+      applyPreviewSearchMarks(pre, query, localIndex);
+    }
+    navigation.replaceChildren(_.Toolbar({ align: "start", gap: 8 },
+      flowMapBtn({ disabled: page === 0, onclick: () => { page -= 1; render(); } }, "Precedente"),
+      _.span(`Pagina ${page + 1} / ${slice.pages} · ${text.length.toLocaleString()} caratteri · Copy copia tutto`),
+      flowMapBtn({ disabled: page + 1 === slice.pages, onclick: () => { page += 1; render(); } }, "Successiva")
+    ));
+    pre.scrollTop = 0;
+  };
+  host.append(navigation, pre);
+  render();
+  return host;
 };
 
 const previewGraphSourceValue = (value) => {
@@ -3503,7 +3567,7 @@ const renderWorldGraphViewPanel = (node = {}) => {
       ),
       _.span(
         { class: "tl-flow-node-preview-actions" },
-        record ? copyRuntimeButton(record.payload, "Copy world payload") : null,
+        record ? flowMapBtn({ title: "Copy world payload", onclick: () => copyPreviewRecord(node, record) }, flowMapIcon("content_copy", "sm")) : null,
         record ? flowMapBtn({
           class: "tl-flow-copy-btn",
           title: "View world graph",
@@ -3538,8 +3602,43 @@ const renderWorldGraphViewPanel = (node = {}) => {
   );
 };
 
+// Generate only the user-configured card excerpt. Full inspection and Copy
+// continue to use the untouched payload, without this display budget.
+const previewCardValueText = (value, budget) => {
+  let text = "";
+  const seen = new WeakSet();
+  const append = (part) => { text += part.slice(0, Math.max(0, budget - text.length)); };
+  const visit = (entry, depth = 0) => {
+    if (text.length >= budget) return;
+    if (typeof entry === "string") {
+      append(JSON.stringify(entry.slice(0, budget - text.length)));
+    } else if (entry && typeof entry === "object") {
+      if (seen.has(entry)) { append('"[Circular]"'); return; }
+      seen.add(entry);
+      const array = Array.isArray(entry);
+      append(array ? "[" : "{");
+      let first = true;
+      for (const key in entry) {
+        if (text.length >= budget) break;
+        if (!Object.prototype.hasOwnProperty.call(entry, key)) continue;
+        if (!first) append(",");
+        first = false;
+        append("\n" + "  ".repeat(Math.min(depth + 1, budget)));
+        if (!array) append(JSON.stringify(key.slice(0, budget - text.length)) + ": ");
+        if (text.length < budget) visit(entry[key], depth + 1);
+      }
+      append(array ? "]" : "}");
+      seen.delete(entry);
+    } else append(JSON.stringify(entry) ?? String(entry));
+  };
+  if (typeof value === "string") append(value);
+  else visit(value);
+  return text;
+};
+
 const previewTextForRecord = (record = null, mode = "auto", maxChars = 2000) => {
   if (!record) return "Nessun payload dati ricevuto.\nI pulse di routing/test sono ignorati dal Preview.";
+  if (record.payloadDeferred) return "Output salvato. Apri Preview per caricare il contenuto.";
   const payload = record.payload;
   const originalPayload = record.originalPayload;
   const hasOriginalPayload = originalPayload !== undefined && originalPayload !== null;
@@ -3554,16 +3653,34 @@ const previewTextForRecord = (record = null, mode = "auto", maxChars = 2000) => 
   const mappingText = record.mapping
     ? `Mapping: ${record.mapping.mode || "pass-through"} · ${mappingStatus}${record.mappingDependencyId ? ` · ${record.mappingDependencyId}` : ""}\n\n`
     : "";
-  const text = previewValueText(payload, mode);
-  const originalText = hasOriginalPayload
-    ? `\n\nOriginal payload:\n${previewValueText(originalPayload, mode)}`
+  const text = previewCardValueText(payload, maxChars + 1);
+  const originalText = hasOriginalPayload && text.length < maxChars
+    ? `\n\nOriginal payload:\n${previewCardValueText(originalPayload, maxChars - text.length + 1)}`
     : "";
   const fullText = `${warningText}${mappingText}Mapped payload:\n${text}${originalText}`;
   return fullText.length > maxChars ? `${fullText.slice(0, maxChars)}\n...` : fullText;
 };
 
-const openPreviewPayloadDialog = (node = {}, options = {}) => {
-  const record = options.record || previewRecordForNode(node);
+const hydratePreviewRecord = async (node, record) => {
+  if (!record?.payloadDeferred) return record;
+  const event = await window.trackers.desktop.persistence.readDevelopmentRecordById({ storeName: runtimeStoreName("TL_EVENTS", "tl_events"), id: record.eventId });
+  if (!event || (record.workspaceId && event.workspaceId !== record.workspaceId)) throw new Error("Output salvato non più disponibile.");
+  const sourcePayload = event.originalPayload ?? event.payload;
+  const mapped = record.outputPreview ? { payload: sourcePayload } : previewPayloadForNodeEvent(node, { ...event, payload: sourcePayload });
+  return { ...record, payloadDeferred: false, payload: mapped.payload, rawPayload: event.payload,
+    originalPayload: record.outputPreview ? (event.originalPayload != null ? event.payload : null)
+      : mapped.mappingResult?.changed || event.originalPayload != null ? sourcePayload : null };
+};
+
+const copyPreviewRecord = async (node, record) => {
+  try { await copyRuntimeValue((await hydratePreviewRecord(node, record)).payload); }
+  catch (error) { setFlowMapError(error.message || String(error), { remount: true }); }
+};
+
+const openPreviewPayloadDialog = async (node = {}, options = {}) => {
+  let record = options.record || previewRecordForNode(node);
+  try { record = await hydratePreviewRecord(node, record); }
+  catch (error) { setFlowMapError(error.message || String(error), { remount: true }); return; }
   if (!record) return;
   const config = nodeRuntimeConfig(node);
   const mode = String(config.previewMode || config.mode || "auto").toLowerCase();
@@ -3579,11 +3696,13 @@ const openPreviewPayloadDialog = (node = {}, options = {}) => {
   let activeTab = tabs[0]?.id || "mapped";
   let searchQuery = "";
   let activeMatch = 0;
+  const textCache = new Map();
   const active = () => tabs.find((tab) => tab.id === activeTab) || tabs[0];
   const renderBody = () => {
     const tab = active();
     const isGraphView = tab.view === "graph";
-    const text = previewValueText(tab.value, isGraphView ? "json" : (tab.mode || mode));
+    if (!textCache.has(tab.id)) textCache.set(tab.id, previewValueText(tab.value, isGraphView ? "json" : (tab.mode || mode)));
+    const text = textCache.get(tab.id);
     const matchCount = countPreviewMatches(text, searchQuery);
     if (!matchCount) activeMatch = 0;
     else activeMatch = Math.max(0, Math.min(activeMatch, matchCount - 1));
@@ -3703,7 +3822,7 @@ const renderPreviewNodePanel = (node = {}) => {
       ),
       _.span(
         { class: "tl-flow-node-preview-actions" },
-        record ? copyRuntimeButton(record.payload, "Copy preview payload") : null,
+        record ? flowMapBtn({ title: "Copy preview payload", onclick: () => copyPreviewRecord(node, record) }, flowMapIcon("content_copy", "sm")) : null,
         record?.originalPayload !== undefined && record.originalPayload !== null ? copyRuntimeButton(record.originalPayload, "Copy original payload") : null,
         record ? flowMapBtn({
           class: "tl-flow-copy-btn",

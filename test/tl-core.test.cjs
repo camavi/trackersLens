@@ -247,7 +247,17 @@ test("runtime output projection restores complete latest route payloads without 
   const outputs = await core.request('desktop.persistence.readLatestRuntimeOutputs', { workspaceId: 'flow-a' });
   assert.deepEqual(outputs.map(r => r.id).sort(), ['latest', 'other-channel', 'other-node']);
   assert.equal(outputs.find(r => r.id === 'latest').payload.answer, 'complete response');
-  const timing = { traceId: 'question', totalMs: 1200, spans: [{ id: 'rag', durationMs: 1200 }] };
+  const summaries = await core.request('desktop.persistence.readLatestRuntimeOutputs', { workspaceId: 'flow-a', includePayload: false });
+  assert.deepEqual(summaries.map(r => r.id).sort(), ['latest', 'other-channel', 'other-node']);
+  for (const summary of summaries) {
+    assert.equal(summary.payloadDeferred, true);
+    assert.equal(Object.hasOwn(summary, 'payload'), false);
+    assert.equal(Object.hasOwn(summary, 'originalPayload'), false);
+    assert.equal(Object.hasOwn(summary, 'meta'), false);
+    assert.equal(summary.workspaceId, 'flow-a');
+  }
+  assert.equal(persistence.readDevelopmentRecordById({ storeName: 'tl_events', id: 'latest' }).payload.answer, 'complete response');
+  const timing = { traceId: 'question' , totalMs: 1200, spans: [{ id: 'rag', durationMs: 1200 }] };
   persistence.writeDevelopmentRecords({ storeName: 'tl_events', records: [
     record('trace-a', '10', { meta: { timing } }),
     record('trace-b', '10', { workspaceId: 'flow-b', meta: { timing } }),
@@ -986,4 +996,91 @@ test("Runtime Manager registers Python only when the restricted POC bridge exist
   } finally {
     delete globalThis.trackers;
   }
+});
+
+
+test("Electron Main wires the sandbox execution adapter to Core independently of package management", async () => {
+  const vm = require("node:vm");
+  const source = require("node:fs").readFileSync(require.resolve("../electron/main.cjs"), "utf8");
+  const start = source.indexOf("tlCore = createTlCore({");
+  const end = source.indexOf("  persistence.initialize();", start);
+  assert.ok(start >= 0 && end > start);
+  const calls = [];
+  const context = {
+    createTlCore, app: { getVersion: () => "test" }, process: { platform: "darwin" },
+    isDevelopment: true, pythonPocEnabled: false, pythonNlpEnabled: () => false,
+    customNodeSandboxEnabled: true, shell: {}, pythonNlpAdapter: null,
+    pythonPacks: null, pythonRuntimeCatalog: null, pythonPackInstaller: null,
+    customNodePackages: {}, externalAiProviderBridge: null, persistence: {},
+    require: () => ({ createAccountClient: () => null }),
+    launchCustomNodeSandbox: async (payload) => { calls.push(payload); return { status: "success" }; },
+  };
+  vm.runInNewContext(source.slice(start, end), context);
+  const payload = { packageId: "custom.profiler", nodeId: "profiler", inputs: { input: { text: "a,b" } } };
+  assert.equal((await context.tlCore.request("runtime.customNodeSandbox.run", payload)).status, "success");
+  assert.deepEqual(calls, [payload]);
+  context.customNodeSandboxEnabled = false;
+  vm.runInNewContext(source.slice(start, end), context);
+  await assert.rejects(context.tlCore.request("runtime.customNodeSandbox.run", payload), { code: "CUSTOM_NODE_SANDBOX_DISABLED" });
+  assert.equal(calls.length, 1);
+});
+
+test("Missing sandbox adapter is not mislabeled as a disabled feature flag", async () => {
+  const core = createTlCore({ featureFlags: { customNodeSandbox: true }, adapters: { customNodeSandbox: {} } });
+  await assert.rejects(core.request("runtime.customNodeSandbox.run", {}), { code: "CUSTOM_NODE_SANDBOX_UNAVAILABLE" });
+});
+
+
+test("Document Store summary excludes bodies and chunks and scopes by node, workspace and collection", async (context) => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "tl-doc-summary-"));
+  context.after(() => fs.rmSync(directory, { recursive: true, force: true }));
+  const persistence = new DesktopPersistence({ databasePath: path.join(directory, "fixture.sqlite"), profileId: "test" });
+  persistence.initialize();
+  persistence.writeDevelopmentRecords({ storeName: 'tl_knowledge_documents', records: [
+    { id: 'doc', workspaceId: 'w', sourceId: 'upload_n', title: 'CSV', text: 'sensitive'.repeat(100000), createdAt: '2026-09-26', metadata: { collectionId: 'c' } },
+    { id: 'other', workspaceId: 'w', sourceId: 'upload_other', text: 'other' },
+  ] });
+  persistence.writeDevelopmentRecords({ storeName: 'tl_knowledge_chunks', records: [{ id: 'chunk', workspaceId: 'w', documentId: 'doc', text: 'chunk body' }] });
+  const core = createTlCore({ adapters: { persistence } });
+  const summary = await core.request('desktop.persistence.readKnowledgeDocumentSummary', { workspaceId: 'w', nodeId: 'n', collectionId: 'c' });
+  assert.equal(summary.count, 1);
+  assert.equal(summary.chunkCount, 1);
+  assert.equal(summary.document.id, 'doc');
+  assert.equal(summary.document.text, undefined);
+  assert.equal(summary.documents, undefined);
+  assert.ok(JSON.stringify(summary).length < 500);
+  assert.equal((await core.request('desktop.persistence.readKnowledgeDocumentSummary', { workspaceId: 'w', nodeId: 'n', collectionId: 'wrong' })).count, 0);
+});
+
+
+test("Clear Flow memory previews then atomically deletes only scoped generated data, preserving topology and optional documents", async (context) => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "tl-clear-memory-"));
+  context.after(() => fs.rmSync(directory, { recursive: true, force: true }));
+  const persistence = new DesktopPersistence({ databasePath: path.join(directory, "fixture.sqlite"), profileId: "test" });
+  persistence.initialize();
+  for (const store of ['tl_events', 'tl_ai_memory', 'tl_knowledge_chunks', 'tl_knowledge_documents', 'tl_runtime_nodes', 'tl_runtime_dependencies', 'tl_time_travel_snapshots', 'tl_storage_results']) {
+    persistence.writeDevelopmentRecords({ storeName: store, records: [{ id: store, workspaceId: 'w', text: 'keep intact until confirmed' }, { id: store + '-other', workspaceId: 'other' }] });
+  }
+  persistence.writeDevelopmentRecords({ storeName: 'tl_channels', records: [{ id: 'channel', workspaceId: 'w', name: 'records', lastValue: { huge: 'payload' } }] });
+  const core = createTlCore({ adapters: { persistence } });
+  const run = options => core.request('desktop.persistence.clearFlowMemory', { workspaceId: 'w', ...options });
+  const plan = await run({});
+  assert.equal(plan.cleared, false);
+  assert.equal(persistence.readDevelopmentRecords({ storeName: 'tl_events' }).length, 2);
+  persistence.writeDevelopmentRecords({ storeName: 'tl_ai_jobs', records: [{ id: 'busy', workspaceId: 'w', status: 'running' }] });
+  await assert.rejects(run({ confirmed: true }), /job AI attivi/);
+  assert.equal(persistence.readDevelopmentRecords({ storeName: 'tl_events' }).length, 2);
+  persistence.deleteDevelopmentRecords({ storeName: 'tl_ai_jobs', ids: ['busy'] });
+  const cleared = await run({ confirmed: true });
+  assert.equal(cleared.cleared, true);
+  for (const store of ['tl_events', 'tl_ai_memory', 'tl_knowledge_chunks', 'tl_time_travel_snapshots', 'tl_storage_results']) {
+    assert.deepEqual(persistence.readDevelopmentRecords({ storeName: store }).map(row => row.workspaceId), ['other']);
+  }
+  for (const store of ['tl_runtime_nodes', 'tl_runtime_dependencies', 'tl_knowledge_documents']) assert.equal(persistence.readDevelopmentRecords({ storeName: store }).length, 2);
+  const channel = persistence.readDevelopmentRecordById({ storeName: 'tl_channels', id: 'channel' });
+  assert.equal(channel.name, 'records');
+  assert.equal(channel.lastValue, undefined);
+  await run({ confirmed: true, includeDocuments: true });
+  assert.equal(persistence.readDevelopmentRecords({ storeName: 'tl_knowledge_documents' }).length, 1);
+  await assert.rejects(run({ workspaceId: 'all', confirmed: true }), /singolo workspace/);
 });
