@@ -110,6 +110,7 @@ const directExecutionFixture = (replies, config = {}) => {
       seen.sequence.push('answer'); seen.prompts.push(args.prompt); clock += 100;
       const reply = replies.shift();
       if (!reply) throw new Error('Unexpected extra provider call');
+      if (reply.llmObserved) throw reply;
       return { usage: { promptTokens: 10, completionTokens: 5, totalTokens: 15 }, ...reply };
     },
     buildContinuationPrompt: ({ originalPrompt, generatedText }) => originalPrompt + generatedText,
@@ -134,6 +135,17 @@ test('direct answer is emitted unchanged without planner and is persisted as one
     assert.equal(result.responseCalls, 1);
     assert.equal(result.responseAttempts[0].text, text);
     assert.equal(seen.jobs.at(-1).result.text, text);
+  }
+});
+
+test('observed stream failures and cancellation reject instead of returning normal fallback output', async () => {
+  for (const name of ['Error', 'AbortError']) {
+    const error = Object.assign(new Error('interrupted'), { name, llmObserved: true });
+    const { run, seen } = directExecutionFixture([error]);
+    await assert.rejects(run(), /interrupted/);
+    assert.equal(seen.jobs.at(-1).status, name === 'AbortError' ? 'cancelled' : 'error');
+    assert.equal(seen.jobs.at(-1).result, undefined);
+    assert.deepEqual(seen.sequence, ['answer']);
   }
 });
 

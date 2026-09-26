@@ -39,7 +39,9 @@ const loadRuntimeScripts = () => {
     "storage-runtime.js?v=agent-tool-links-1",
     "knowledge-runtime.js?v=knowledge-context-retries-3",
     "agent-runtime.js?v=structured-world-store-1",
-    "ai-agent-runtime.js?v=agent-trigger-policy-1",
+    "lm-studio-native.js",
+    "llm-observation-runtime.js",
+    "ai-agent-runtime.js?v=llm-observation-1",
     "orchestrator-agent-runtime.js?v=structured-world-store-1"
   );
 };

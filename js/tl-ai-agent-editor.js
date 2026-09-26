@@ -235,6 +235,7 @@ window.TrackerLensAiAgentEditor = (() => {
         maxContinuationCalls: numberValue(form, "maxContinuationCalls", 10),
         topP: numberValue(form, "topP", 0.9),
         streaming: boolValue(form, "streaming", false),
+        lmStudioTransport: agentFormValue(form, 'lmStudioTransport') || 'auto',
         responseFormat: agentFormValue(form, "responseFormat") || "json",
       },
       channels: {
@@ -671,11 +672,13 @@ window.TrackerLensAiAgentEditor = (() => {
       const connection = window.TrackerLensAiRuntimeStore.providerConnection(providerConfig);
       const typeInput = form.querySelector('[name="providerType"]');
       if (typeInput) typeInput.value = providerConfig.providerType || providerConfig.provider || "local";
-      for (const name of ["reasoningEffort", "speed", "temperature", "maxTokens", "maxContinuationCalls", "topP", "streaming"]) {
+      for (const name of ["reasoningEffort", "speed", "temperature", "maxTokens", "maxContinuationCalls", "topP", "streaming", "lmStudioTransport"]) {
         const input = form.querySelector(`[name="${name}"]`);
         let root = input;
         while (root?.parentElement && !root.parentElement.classList.contains('tl-ai-agent-tab-grid')) root = root.parentElement;
-        const visible = ["reasoningEffort", "speed"].includes(name) ? connection.bridgeProvider === "codex" : connection.connectionType !== "login";
+        const visible = name === 'lmStudioTransport'
+          ? connection.connectionType !== 'login' && window.TrackerLensLmStudioNative?.isProvider(providerConfig) && agent.runtime?.agentType !== 'orchestrator'
+          : ["reasoningEffort", "speed"].includes(name) ? connection.bridgeProvider === "codex" : connection.connectionType !== "login";
         if (root && root !== form && root.parentElement?.classList.contains('tl-ai-agent-tab-grid')) {
           root.hidden = !visible;
           root.style.display = visible ? "" : "none";
@@ -846,6 +849,11 @@ window.TrackerLensAiAgentEditor = (() => {
           ),
           agentInput("Top P", "topP", provider.topP ?? 0.9, { type: "number", step: "0.05" }),
           agentBooleanSelect("Streaming", "streaming", Boolean(provider.streaming)),
+          agentSelect('LM Studio protocol', 'lmStudioTransport', provider.lmStudioTransport || 'auto', [
+            { value: 'auto', label: 'Automatic — native activity' },
+            { value: 'native', label: 'Native — model and prompt progress' },
+            { value: 'compatible', label: 'Compatible API — text streaming' },
+          ]),
           agentSelect("Response Format", "responseFormat", provider.responseFormat || "json", AI_RESPONSE_FORMATS)
         ),
       },

@@ -44,6 +44,7 @@ Last updated: 2026-08-31.
 - Python Hybrid RAG and CrossEncoder reranking: `docs/ai/current-focus.md` and `docs/ai/task-registry.md`
 - Managed spaCy linguistic annotations: `docs/ai/runtime/nlp-annotations.md`
 - Agent runtime: `docs/ai/runtime/agent-runtime.md`
+- LLM streaming and observation: `docs/ai/runtime/llm-streaming.md`
 - Connected node tools: `docs/ai/runtime/connected-node-tools.md`
 - AI memory runtime: `docs/ai/runtime/ai-memory.md`
 - Custom node packages: `docs/ai/runtime/custom-node-packages.md`

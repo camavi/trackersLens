@@ -602,6 +602,20 @@ test("desktop persistence reads only AI records for the requested live run", (co
   assert.deepEqual(records.events.map((record) => record.id), ["event_match"]);
 });
 
+test('live polling projects LLM segments while exact inspection preserves their full data', (context) => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'tl-llm-projection-'));
+  context.after(() => fs.rmSync(directory, { recursive: true, force: true }));
+  const persistence = new DesktopPersistence({ databasePath: path.join(directory, 'test.sqlite') });
+  persistence.initialize();
+  const record = { id: 'llm:job:1:segment:0', workspaceId: 'w', runId: 'r', kind: 'llm-stream-segment', events: [{ text: 'large body'.repeat(10000) }] };
+  persistence.writeDevelopmentRecords({ storeName: 'tl_ai_logs', records: [record] });
+  const page = persistence.readAiRunRecords({ workspaceId: 'w', runId: 'r' });
+  assert.equal(page.logs.length, 1);
+  assert.equal(page.logs[0].events, undefined);
+  assert.equal(page.logs[0].stored, true);
+  assert.deepEqual(persistence.readDevelopmentRecordById({ storeName: 'tl_ai_logs', id: record.id }).events, record.events);
+});
+
 test("desktop persistence ranks matching AI memory without returning the full store", (context) => {
   const fixtureDirectory = fs.mkdtempSync(path.join(os.tmpdir(), "trackers-lens-ai-memory-"));
   context.after(() => fs.rmSync(fixtureDirectory, { recursive: true, force: true }));

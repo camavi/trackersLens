@@ -7,6 +7,20 @@ Last updated: 2026-09-22.
 
 ## Active
 
+### TASK-037: Observable LLM Streaming Runtime
+
+Status: Shared observation, desktop AI Agent compatible streaming and LM Studio native activity verified automatically, in isolated Electron and against local LM Studio (2026-09-26); remaining adapters and full user Flow QA pending.
+Priority: High, user-selected next direction.
+Contract and coverage inventory: `runtime/llm-streaming.md`.
+Scope: all Flow Map LLM generation paths, including Agent planner/continuations/recovery, Orchestrator, nine Knowledge helper families, API/Login transports, effective prompt inspection, usage provenance, cancellation and live diagnostics. Reuse Core/runtime/SQLite boundaries; no managed model engine or GPU ecosystem. Global Chat is an adjacent later consumer.
+Implemented: scoped SSE invocation traces, exact requests, usage provenance, compatible recovery/continuation tracking, abort without normal fallback output, segmented SQLite persistence and paged JSswift LLM Live inspector with replay/export. Native LM Studio adds loading/prefill progress, reasoning/text, provider stats and per-node transport selection. Explicit Streaming=false is preserved; missing native finish reason and token-budget attention are visible. Native test suite and Electron progress-before-text/replay tests pass; real local Gemma probe returned prompt progress, text and provider usage without changing app data/settings.
+Next: Ollama adapter, remaining Knowledge/Orchestrator paths, then Login. Worker transport, restart reconciliation and large-output/provider QA remain open; see the runtime document for precise boundaries.
+
+UI follow-up (2026-09-26): terminal-style JSswift inspector with green monospace output, visible timeline, follow-tail pagination, LIVE/BUFFERED indicator and Node settings shortcut. Buffered requests explicitly instruct Provider → Streaming=true and a new run; no silent setting changes or request cancellation. Electron verifies both live and buffered states; 143 default tests pass (two optional skips).
+
+Auto-scroll follow-up (2026-09-26): output follows the bottom after layout, suppressing programmatic scroll feedback; reasoning renders before the answer so live answer deltas stay at the tail. Electron verifies multi-page tail updates, manual pause and resume. Scheduled scroll frames are disposed with the dialog.
+
+
 - Flow Map stabilization (2026-09-26): user reports stable behavior after the memory/loading fixes. Removed all temporary console diagnostics, preload/Main debug controls, renderer observers/timers and diagnostic-only tests. Retained lazy output loading, Document Store metadata summaries, bounded Preview DOM and confirmed workspace memory cleanup.
 
 - Flow Map Tools → Clear memory (2026-09-26): JSswift confirmation previews per-store counts for one workspace and defaults to retaining uploaded documents, with an explicit include-documents toggle. Core performs an atomic scoped purge of generated events/logs, AI/Knowledge memory, storage outputs, caches/queues, Flow chats and Time Travel snapshots; channel cached values are removed while nodes/connections/configuration/providers survive. UI rejects active local executions/loading, stops subscriptions during deletion, clears view caches and reloads; Core rechecks persisted active AI jobs and rolls back on failure. Destruction is user-confirmed, not executed during development. Tests cover preview, workspace isolation, topology/doc preservation, optional document removal, busy rejection and real Electron confirmation/cancel UI. Existing external producers can generate new data after runtimes resume.

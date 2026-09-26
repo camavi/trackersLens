@@ -1219,6 +1219,12 @@ const openNodeTimingDialog = async (node, event) => {
 
 const renderNodeTiming = (node) => {
   const event = latestNodeTiming(node);
+  if ((node.type === 'aiAgent' || node.nodeType === 'aiAgent') && nodeSubtype(node) !== 'orchestrator' && window.TrackerLensLlmInspector) {
+    const live = flowMapBtn({ class: 'tl-flow-node-timing-btn', title: 'LLM Live', 'aria-label': 'LLM Live', onPointerDown: stopNodeControlEvent,
+      onclick: click => { click.stopPropagation(); void window.TrackerLensLlmInspector.open({ nodeId: node.id, workspaceId: node.workspaceId || state.filters.workspaceId || 'workspace_global', onConfigureNode: () => configureNode(nodeById(node.id) || node) }); } }, flowMapIcon('monitoring', 'sm'));
+    const timing = event ? flowMapBtn({ class: 'tl-flow-node-timing-btn', title: 'Tempi di esecuzione', onPointerDown: stopNodeControlEvent, onclick: click => { click.stopPropagation(); void openNodeTimingDialog(node, event); } }, flowMapIcon('timer', 'sm')) : null;
+    return _.span({ 'data-node-timing': node.id, class: 'tl-flow-node-timing' }, live, timing);
+  }
   if (!event) return _.span({ 'data-node-timing': node.id, hidden: true });
   const label = 'Tempi di esecuzione';
   const button = flowMapBtn({ class: 'tl-flow-node-timing-btn', title: label, 'aria-label': label, onPointerDown: stopNodeControlEvent, onclick: (eventClick) => { eventClick.stopPropagation(); void openNodeTimingDialog(node, event); } }, flowMapIcon('timer', 'sm'));

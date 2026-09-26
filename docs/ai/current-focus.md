@@ -7,9 +7,13 @@ Last updated: 2026-09-23.
 
 ## Active Area
 
+LLM streaming observation (TASK-037, 2026-09-26): shared observer, desktop AI Agent compatible streaming and LM Studio native activity implemented. Native mode exposes provider loading/prompt progress, reasoning/text and final statistics; verified against local LM Studio and in isolated Electron with SQLite replay. Node Streaming=false remains respected; LM Studio transport can be Automatic/native or Compatible. Native API does not expose a finish reason, so length-triggered continuations require Compatible mode. Other provider/node migrations remain pending. `runtime/llm-streaming.md` owns coverage. No managed inference ecosystem.
+
 Managed Python graph relations: GLiNER2/NLI and the configured LLM are graph producers; TL persists their usable output with transparent evidence, provenance and quality labels instead of acting as a semantic rejection gate.
 
 ## Next Task
+
+New priority: TASK-037 Phase 3 Ollama, then Knowledge/Orchestrator and Login migration. First API slice exposes LLM Live, effective request, output/reasoning, usage provenance, timeline, cancellation and SQLite trace replay/export; automated and isolated Electron checks pass. Real-provider Flow QA remains pending. Cover every secondary call before declaring full node coverage. Earlier priorities below remain historical context.
 
 Immediate priority (TASK-034): connect LLM nodes to API and Login providers while preserving independent node settings. Phase 1 is implemented and automatically verified: separate connectionType/vendor/bridgeProvider identities and visible OpenAI · API / ChatGPT · Login (Codex) / Claude · API / Claude · Login labels. Login remains global; model, reasoning, speed and supported generation settings will be resolved per node. The shared Login adapter now serves AI Agent, Orchestrator and Knowledge (including JSON repair), reads current AI Center defaults per invocation, checks real installation/authentication and preserves explicit node model/reasoning/speed. Provider profile reads are scoped to the provider store. Unsupported Login embeddings fail explicitly; Codex-specific fields and API generation controls are separated in the main node forms. Automated inheritance/concurrency/authentication tests pass; real desktop end-to-end and UI QA remain pending. The earlier TASK-032 scope below remains context for the existing Chat transport.
 
@@ -24,6 +28,10 @@ The hierarchical capability map QA is closed: the compact `tl.catalog.*` discove
 - TASK-034 account model catalog follow-up: Flow Chat Settings and AI Center load the live Codex Login model catalog through the same restricted bridge rather than a renderer-maintained static list. Both retain a saved model ID if it is no longer advertised, and expose the default option separately. The Electron smoke opens the AI Center account dialog and verifies the dynamic catalog.
 
 ## Current Work
+
+- TASK-037 output auto-scroll fix (2026-09-26): Follow live scrolls after output visibility/layout updates and ignores programmatic scroll events, avoiding accidental follow disablement. Reasoning precedes the answer so the bottom contains current answer deltas. Real Electron regression verifies long multi-page streaming, successive tail updates, manual scroll-up pause and Follow live resume.
+
+- TASK-037 LLM Live terminal follow-up (2026-09-26): scoped dark/green monospace JSswift terminal skin, visible event timeline, LIVE/BUFFERED status, follow-tail output/event pagination and direct Node settings action. The reported final-only refresh was an explicit node Streaming=false setting; the dialog now states that no live activity can arrive, points to Provider → Streaming=true and requires a new run, without mutating or cancelling the current request. Electron regressions cover progress before output, buffered guidance, settings navigation and SQLite replay; default tests pass (143, two optional skips).
 
 - Flow Map stabilization (2026-09-26): user reports stable behavior after the memory/loading fixes. Removed all temporary console diagnostics, preload/Main debug controls, renderer observers/timers and diagnostic-only tests. Retained lazy output loading, Document Store metadata summaries, bounded Preview DOM and confirmed workspace memory cleanup.
 

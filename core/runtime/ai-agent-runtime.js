@@ -99,6 +99,7 @@ window.TrackerLensAiAgentRuntime = (() => {
     maxContinuationCalls: agent.provider?.maxContinuationCalls ?? 10,
     topP: agent.provider?.topP ?? 0.9,
     streaming: String(Boolean(agent.provider?.streaming)),
+    lmStudioTransport: agent.provider?.lmStudioTransport || 'auto',
     responseFormat: agent.provider?.responseFormat || "json",
     inputChannels: splitList(agent.channels?.inputs).join(", "),
     payloadMapping: agent.channels?.payloadMapping || "",
@@ -706,9 +707,9 @@ window.TrackerLensAiAgentRuntime = (() => {
     const type = String(provider?.provider || provider?.providerType || "").toLowerCase();
     if (type.includes("ollama")) return callOllama({ provider, model, prompt, maxTokens });
     if (type.includes("lm-studio") || type.includes("lmstudio") || type.includes("openai")) {
-      return callLmStudio({ provider, model, prompt, maxTokens });
+      return callLmStudio({ provider, model, prompt, maxTokens, config, purpose: 'tool-planner' });
     }
-    return callLmStudio({ provider: provider || {}, model, prompt, maxTokens });
+    return callLmStudio({ provider: provider || {}, model, prompt, maxTokens, config, purpose: 'tool-planner' });
   };
 
   const toolManifestSummary = (manifests = []) =>
@@ -788,6 +789,7 @@ window.TrackerLensAiAgentRuntime = (() => {
       const accepted = Array.isArray(steps) && (steps.length === 0 || calls.length > 0);
       return { calls, plan, accepted, usage: ai.usage || {}, providerTimings: ai.timings || null, error: accepted ? "" : "invalid-plan" };
     } catch (error) {
+      if (error?.llmObserved) throw error;
       return { calls: [], plan: null, error: error?.message || String(error) };
     }
   };
@@ -1035,13 +1037,14 @@ window.TrackerLensAiAgentRuntime = (() => {
     }
   };
 
-  const postAiJson = async ({ url = "", body = {}, headers = {} } = {}) => {
+  const postAiJson = async ({ url = "", body = {}, headers = {}, signal } = {}) => {
     if (isLocalAiEndpoint(url) && typeof window !== "undefined" && /^https?:/i.test(window.location?.protocol || "")) {
       const proxyResponse = await fetch("api/ai-chat-proxy.php", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ endpoint: url, body }),
-      }).catch(() => null);
+        signal,
+      }).catch((error) => { if (signal?.aborted) throw error; return null; });
       const contentType = proxyResponse?.headers?.get?.("content-type") || "";
       if (proxyResponse && proxyResponse.status !== 404 && contentType.includes("application/json")) {
         return proxyResponse;
@@ -1051,6 +1054,7 @@ window.TrackerLensAiAgentRuntime = (() => {
       method: "POST",
       headers,
       body: JSON.stringify(body),
+      signal,
     });
   };
 
@@ -1100,10 +1104,11 @@ window.TrackerLensAiAgentRuntime = (() => {
     }
   };
 
-  const callLmStudio = async ({ provider, model, prompt, maxTokens = 800 }) => {
+  const callLmStudio = async ({ provider, model, prompt, maxTokens = 800, config = {}, purpose = 'answer' }) => {
     const endpoint = withLmStudioApiBase(provider.endpoint);
     const resolvedModel = await resolveLmStudioModel({ provider, model });
-    const response = await postAiJson({
+    const observer = config.__llmContext && window.trackers?.desktop?.persistence && window.TrackerLensLlmObservation;
+    const request = {
       url: `${endpoint}/chat/completions`,
       headers: { "Content-Type": "application/json" },
       body: {
@@ -1112,12 +1117,34 @@ window.TrackerLensAiAgentRuntime = (() => {
         temperature: 0.2,
         max_tokens: maxTokens,
       },
-    });
-    if (!response.ok) {
-      const errorText = await response.text().catch(() => "");
-      throw new Error(`LM Studio HTTP ${response.status}${errorText ? `: ${errorText}` : ""}`);
-    }
-    const data = await response.json();
+    };
+    const send = async (request, requestPurpose, parentInvocationId = '') => {
+      if (observer) {
+        const proxy = isLocalAiEndpoint(request.url) && /^https?:/i.test(window.location?.protocol || '');
+        const native = window.TrackerLensLmStudioNative;
+        let useNative;
+        try { useNative = native?.selected(provider, config); }
+        catch (error) { error.llmObserved = true; throw error; }
+        if (useNative && proxy) throw Object.assign(new Error('LM Studio native activity requires the desktop direct transport. Select Compatible API for the HTTP proxy.'), { llmObserved: true });
+        let selectedRequest = request;
+        if (useNative) {
+          try { selectedRequest = { ...request, ...native.prepare(request) }; }
+          catch (error) { error.llmObserved = true; throw error; }
+        }
+        return observer.complete({ ...selectedRequest, context: { ...config.__llmContext, provider: provider.id || provider.provider || '' },
+          protocol: useNative ? 'lm-studio-native' : 'openai-compatible',
+          streaming: !proxy && ![false, 'false', 0, '0'].includes(config.streaming),
+          bufferedReason: proxy ? 'HTTP proxy transport is buffered.' : 'Streaming is disabled in the node settings.',
+          promptConfiguration: { systemPrompt: config.systemPrompt || '', promptTemplate: config.promptTemplate || '', outputInstructions: config.outputInstructions || '' },
+          purpose: requestPurpose, parentInvocationId, transport: postAiJson });
+      }
+      const response = await postAiJson(request);
+      if (!response.ok) throw new Error(`LM Studio HTTP ${response.status}: ${await response.text().catch(() => '')}`);
+      return { data: await response.json() };
+    };
+    const observed = await send(request, purpose);
+    const data = observed.data;
+    let repairObserved = null;
     const choice = data.choices?.[0] || {};
     const message = choice.message || {};
     let text = String(message.content || "").trim();
@@ -1132,7 +1159,7 @@ window.TrackerLensAiAgentRuntime = (() => {
         String(message.reasoning_content || ""),
       ].join("\n");
       const repairMaxTokens = Math.max(1, Math.floor(Number(maxTokens || 800)));
-      const repairResponse = await postAiJson({
+      repairObserved = await send({
         url: `${endpoint}/chat/completions`,
         headers: { "Content-Type": "application/json" },
         body: {
@@ -1141,18 +1168,24 @@ window.TrackerLensAiAgentRuntime = (() => {
           temperature: 0.1,
           max_tokens: repairMaxTokens,
         },
-      }).catch(() => null);
-      if (repairResponse?.ok) {
-        const repairData = await repairResponse.json().catch(() => null);
+      }, 'empty-content-recovery', observed.invocationId || '').catch((error) => { if (error?.llmObserved) throw error; return null; });
+      if (repairObserved) {
+        repairObserved.prompt = repairPrompt;
+        const repairData = repairObserved.data;
         text = String(repairData?.choices?.[0]?.message?.content || "").trim();
       }
     }
     return {
       text,
-      usage: usageFromAiResponse({ data, prompt, text }),
+      usage: repairObserved ? (() => {
+        const first = usageFromAiResponse({ data, prompt, text: message.content || '' });
+        const second = usageFromAiResponse({ data: repairObserved.data, prompt: repairObserved.prompt, text });
+        return { promptTokens: first.promptTokens + second.promptTokens, completionTokens: first.completionTokens + second.completionTokens, totalTokens: first.totalTokens + second.totalTokens, source: first.source === second.source ? first.source : 'mixed', invocations: [observed.usage, repairObserved.usage] };
+      })() : { ...usageFromAiResponse({ data, prompt, text }), observation: observed.usage || null },
       model: resolvedModel,
-      finishReason: choice.finish_reason || "",
-      raw: data,
+      finishReason: repairObserved?.data?.choices?.[0]?.finish_reason || choice.finish_reason || "",
+      raw: repairObserved ? { ...data, recovery: repairObserved.data } : data,
+      timings: observed.timings || null,
     };
   };
 
@@ -1160,7 +1193,7 @@ window.TrackerLensAiAgentRuntime = (() => {
     if (window.TrackerLensAiRuntimeStore.isLoginProvider(provider)) return window.TrackerLensAiRuntimeStore.completeNodeLogin({ provider, config, prompt });
     const providerName = String(provider?.provider || provider?.name || "").toLowerCase();
     if (providerName.includes("ollama")) return callOllama({ provider, model, prompt, maxTokens });
-    if (providerName.includes("lm") || providerName.includes("studio") || providerName === "openai") return callLmStudio({ provider, model, prompt, maxTokens });
+    if (providerName.includes("lm") || providerName.includes("studio") || providerName === "openai") return callLmStudio({ provider, model, prompt, maxTokens, config, purpose: config.__llmPurpose || 'answer' });
     throw new Error("Provider AI non configurato per chat runtime");
   };
 
@@ -1267,10 +1300,13 @@ window.TrackerLensAiAgentRuntime = (() => {
     Math.max(0, Math.ceil(String(value || "").length / 4));
 
   const usageFromAiResponse = ({ data = {}, prompt = "", text = "" } = {}) => {
-    const promptTokens = Number(data.usage?.prompt_tokens || data.prompt_eval_count || 0) || estimateAiTokens(prompt);
-    const completionTokens = Number(data.usage?.completion_tokens || data.eval_count || 0) || estimateAiTokens(text);
-    const totalTokens = Number(data.usage?.total_tokens || 0) || promptTokens + completionTokens;
-    return { promptTokens, completionTokens, totalTokens };
+    const reported = value => typeof value === 'number' && Number.isFinite(value) && value >= 0 ? value : null;
+    const input = reported(data.usage?.prompt_tokens ?? data.prompt_eval_count);
+    const output = reported(data.usage?.completion_tokens ?? data.eval_count);
+    const promptTokens = input ?? estimateAiTokens(prompt);
+    const completionTokens = output ?? estimateAiTokens(text);
+    const totalTokens = reported(data.usage?.total_tokens) ?? promptTokens + completionTokens;
+    return { promptTokens, completionTokens, totalTokens, source: input !== null && output !== null ? 'provider' : input === null && output === null ? 'estimated' : 'mixed' };
   };
 
   const estimateCost = ({ usage = {}, provider = {}, config = {} } = {}) => {
@@ -1295,6 +1331,7 @@ window.TrackerLensAiAgentRuntime = (() => {
       promptTokens: Number.isFinite(promptTokens) ? promptTokens : 0,
       completionTokens: Number.isFinite(completionTokens) ? completionTokens : 0,
       totalTokens: Number.isFinite(totalTokens) ? totalTokens : 0,
+      source: usage.source || 'unavailable',
     };
   };
 
@@ -1604,6 +1641,7 @@ window.TrackerLensAiAgentRuntime = (() => {
       }
       const jobId = `ai_job_${node.id}_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
       const runId = event.meta?.runId || payload?.runId || "";
+      config = { ...config, __llmContext: { workspaceId: this.workspaceId, nodeId: node.id, jobId, runId } };
       const triggerTrace = buildAgentTriggerTrace({
         node,
         event,
@@ -1831,12 +1869,13 @@ window.TrackerLensAiAgentRuntime = (() => {
           const attemptStarted = performance.now();
           const usageBefore = { ...usage };
           const callsBefore = providerTimings.length;
-          ai = await callAiProvider({ provider, config, model, prompt, maxTokens });
+          ai = await callAiProvider({ provider, config: { ...config, __llmPurpose: responseAttempts.length ? 'answer-after-tools' : 'direct-answer' }, model, prompt, maxTokens });
           providerTimings.push(ai.timings || null);
           text = ai.text || "";
           finishReason = ai.finishReason || "";
           const initialUsage = normalizeTokenUsage(ai.usage || {});
-          usage = normalizeTokenUsage({ promptTokens: usage.promptTokens + initialUsage.promptTokens, completionTokens: usage.completionTokens + initialUsage.completionTokens, totalTokens: usage.totalTokens + initialUsage.totalTokens });
+          usage = normalizeTokenUsage({ promptTokens: usage.promptTokens + initialUsage.promptTokens, completionTokens: usage.completionTokens + initialUsage.completionTokens, totalTokens: usage.totalTokens + initialUsage.totalTokens,
+            source: usage.source === 'unavailable' || usage.source === initialUsage.source ? initialUsage.source : 'mixed' });
           for (let attempt = 1; finishReason === "length" && (maxContinuationCalls === 0 || attempt <= maxContinuationCalls); attempt += 1) {
             const continuationPrompt = buildContinuationPrompt({ originalPrompt: prompt, generatedText: text, attempt });
             steps = await this.recordStep({
@@ -1852,7 +1891,7 @@ window.TrackerLensAiAgentRuntime = (() => {
                 payload: { attempt, maxTokens, currentChars: text.length },
               },
             });
-            const continuation = await callAiProvider({ provider, config, model, prompt: continuationPrompt, maxTokens });
+            const continuation = await callAiProvider({ provider, config: { ...config, __llmPurpose: 'continuation' }, model, prompt: continuationPrompt, maxTokens });
             providerTimings.push(continuation.timings || null);
             const continuationText = continuation.text || "";
             text = mergeContinuationText(text, continuationText);
@@ -1862,6 +1901,7 @@ window.TrackerLensAiAgentRuntime = (() => {
               promptTokens: usage.promptTokens + continuationUsage.promptTokens,
               completionTokens: usage.completionTokens + continuationUsage.completionTokens,
               totalTokens: usage.totalTokens + continuationUsage.totalTokens,
+              source: usage.source === continuationUsage.source ? usage.source : 'mixed',
             });
             continuations.push({
               phase: responseAttempts.length ? 'after_tools' : 'direct',
@@ -1988,6 +2028,14 @@ window.TrackerLensAiAgentRuntime = (() => {
         return result;
       } catch (error) {
         const latencyMs = Math.round(performance.now() - startedAt);
+        if (error?.llmObserved) {
+          await window.TrackerLensAiRuntimeStore?.upsertJob?.({
+            id: jobId, workspaceId: this.workspaceId, runId, agentId: node.id, agent: node.label || node.id,
+            status: error.name === 'AbortError' ? 'cancelled' : 'error', runtimeStatus: error.name === 'AbortError' ? 'cancelled' : 'error',
+            prompt, inputTrace, steps, error: error.message, durationMs: latencyMs, updatedAt: new Date().toISOString(),
+          });
+          throw error;
+        }
         const result = {
           ...fallbackResponse({ node, payload, event, reason: error?.message || String(error), ragContext, graphContext }),
           responseAttempts,
@@ -2039,6 +2087,8 @@ window.TrackerLensAiAgentRuntime = (() => {
           updatedAt: new Date().toISOString(),
         });
         return result;
+      } finally {
+        window.TrackerLensLlmObservation?.release(jobId);
       }
     }
 

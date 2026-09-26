@@ -5248,6 +5248,7 @@ const aiAgentFromRuntimeNode = (node = {}, aiDefaults = {}) => {
       maxContinuationCalls: config.maxContinuationCalls ?? aiDefaults.maxContinuationCalls ?? 10,
       topP: config.topP ?? 0.9,
       streaming: config.streaming === true || config.streaming === "true",
+      lmStudioTransport: config.lmStudioTransport || 'auto',
       responseFormat: config.responseFormat || "json",
     },
     channels: {
@@ -5339,6 +5340,7 @@ const aiAgentPayloadConfig = (payload = {}) => ({
   maxContinuationCalls: payload.provider?.maxContinuationCalls ?? 10,
   topP: payload.provider?.topP ?? 0.9,
   streaming: String(Boolean(payload.provider?.streaming)),
+  lmStudioTransport: payload.provider?.lmStudioTransport || 'auto',
   responseFormat: payload.provider?.responseFormat || "json",
   inputChannels: flowAiConfigValue(payload.channels?.inputs),
   payloadMapping: payload.channels?.payloadMapping || "",

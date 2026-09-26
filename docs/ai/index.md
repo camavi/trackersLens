@@ -25,6 +25,8 @@ Last updated: 2026-06-11.
 
 ## Runtime Files
 
+- `runtime/llm-streaming.md`: Flow Map LLM call inventory, streaming observation contract and TASK-037 implementation checkpoints.
+
 - `runtime/stores.md`: SQLite collections and ownership.
 - `runtime/channels.md`: channel registry and event bus.
 - `runtime/dependencies.md`: dependency safety model.

@@ -771,7 +771,12 @@ class DesktopPersistence {
           filters.push("(COALESCE(json_extract(record_json, '$.agentId'), json_extract(record_json, '$.content.agentId'), '') = ? OR COALESCE(json_extract(record_json, '$.runtimeNodeId'), json_extract(record_json, '$.content.runtimeNodeId'), '') = ?)");
           args.push(agent, agent);
         }
-        return database.prepare(`SELECT record_json FROM tl_records WHERE ${filters.join(" AND ")} ORDER BY updated_at DESC, id DESC`).all(...args).map((row) => parseStoredJson(row.record_json));
+        // Live Test polling must not hydrate complete LLM stream segments.
+        // Exact records remain readable through the explicit trace inspector/export.
+        const projection = storeName === 'tl_ai_logs'
+          ? `CASE WHEN COALESCE(json_extract(record_json, '$.kind'), json_extract(record_json, '$.content.kind')) = 'llm-stream-segment' THEN json_object('id', id, 'workspaceId', workspace_id, 'kind', 'llm-stream-segment', 'message', 'Open LLM trace for full stream data', 'stored', json('true')) ELSE record_json END`
+          : 'record_json';
+        return database.prepare(`SELECT ${projection} AS record_json FROM tl_records WHERE ${filters.join(" AND ")} ORDER BY updated_at DESC, id DESC`).all(...args).map((row) => parseStoredJson(row.record_json));
       };
       return {
         jobs: read("tl_ai_jobs", { filterAgent: true }),

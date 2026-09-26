@@ -205,6 +205,7 @@ window.TrackerLensViews.flowMap = {
     startFlowMapLifecycle({ root: outlet });
   },
   dispose() {
+    window.TrackerLensLlmInspector?.closeAll();
     stopFlowMapLifecycle({ clearRoot: true });
     flowMapEmbedded = false;
   },

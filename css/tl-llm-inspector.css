@@ -1,0 +1,55 @@
+/* Scoped terminal skin on the existing JSswift dialog and controls. */
+.cms-dialog.tl-llm-inspector {
+  --cms-dialog-width: min(1120px, 96vw);
+  --cms-panel: #050c09;
+  --cms-text: #b4d9c2;
+  --cms-muted: #87ab96;
+  --cms-dialog-border: #254b37;
+  --cms-dialog-accent: #77f6a4;
+  background: #050c09;
+  color: #b4d9c2;
+  border: 1px solid #254b37;
+  border-radius: 12px;
+  box-shadow: 0 28px 90px #000b, 0 0 35px #43d8790c;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+.tl-llm-inspector .cms-dialog-head { background: #0a1710; padding-bottom: 14px; }
+.tl-llm-inspector .cms-dialog-title { color: #b8ffd0; font: 600 17px/1.4 ui-monospace, monospace; }
+.tl-llm-inspector .cms-dialog-body { padding-top: 16px; }
+.tl-llm-terminal { font-size: 12px; line-height: 1.65; }
+.tl-llm-inspector .tl-llm-terminal, .tl-llm-inspector .tl-llm-terminal * { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+.tl-llm-session { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+.tl-llm-brand { color: #78f7a3; letter-spacing: .12em; font-size: 11px; }
+.tl-llm-connection { color: #b4d9c2; border: 1px solid #315440; border-radius: 4px; padding: 2px 8px; font-size: 10px; letter-spacing: .08em; overflow-wrap: anywhere; }
+.tl-llm-connection[data-state="live"] { color: #82ffad; background: #103720; }
+.tl-llm-connection[data-state="buffered"] { color: #ffce80; border-color: #826232; }
+.tl-llm-connection[data-state="failed"], .tl-llm-connection[data-state="cancelled"] { color: #ff9f9f; border-color: #794343; }
+.tl-llm-identity { display: block; margin: 8px 0; color: #87ab96; overflow-wrap: anywhere; font-size: 11px; }
+.tl-llm-status { color: #a0c5ae; overflow-wrap: anywhere; }
+.tl-llm-activity { color: #9bffbc; margin-top: 10px; font-size: 14px; }
+.tl-llm-inspector progress { accent-color: #72f59f; border: 0; border-radius: 2px; margin-top: 8px; }
+.tl-llm-inspector progress::-webkit-progress-bar { background: #183323; border-radius: 2px; }
+.tl-llm-inspector progress::-webkit-progress-value { background: #72f59f; border-radius: 2px; }
+.tl-llm-stats { color: #9dbca8; margin: 10px 0; overflow-wrap: anywhere; font-size: 11px; }
+.tl-llm-notice { color: #ffd99a; background: #261e0e; border-left: 2px solid #d9aa54; padding: 10px 12px; margin: 12px 0; overflow-wrap: anywhere; }
+.tl-llm-controls { display: flex; flex-wrap: wrap; gap: 6px; padding: 12px 0; border-bottom: 1px solid #1e3929; }
+.tl-llm-inspector button.cms-btn { font-family: inherit; font-size: 11px; min-height: 30px; height: auto; padding: 5px 10px; border: 1px solid #294635; border-radius: 4px; background: #0c1b12; color: #b4d9c2; box-shadow: none; }
+.tl-llm-inspector button.cms-btn:hover:not(:disabled) { background: #183a25; color: #c5ffda; border-color: #63b87e; }
+.tl-llm-inspector button.cms-btn[aria-pressed="true"] { color: #8affb0; border-color: #4d9c69; background: #122e1d; }
+.tl-llm-inspector button.cms-btn:disabled { opacity: .4 !important; cursor: default; }
+.tl-llm-inspector button.cms-btn:focus-visible, .tl-llm-inspector summary:focus-visible, .tl-llm-output:focus-visible { outline: 2px solid #8affb0; outline-offset: 3px; }
+.tl-llm-inspector button.cms-btn.tl-llm-stop { color: #ffb7b7; border-color: #6e4141; background: #291415; }
+.tl-llm-section-label { color: #83a990; font-size: 10px; letter-spacing: .14em; margin-top: 18px; }
+.tl-llm-inspector pre { color: #8efbb0; background: transparent; font: 12px/1.75 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; margin: 10px 0; tab-size: 2; scrollbar-color: #315440 #050c09; }
+.tl-llm-output { min-height: 100px; text-shadow: 0 0 9px #62ff9520; }
+.tl-llm-empty { min-height: 100px; padding-top: 18px; color: #8dac98; }
+.tl-llm-pager { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; font-size: 10px; color: #9bb9a6; padding-bottom: 8px; }
+.tl-llm-inspector details { border-top: 1px solid #1e3929; padding: 10px 0; }
+.tl-llm-inspector summary { cursor: pointer; color: #a5ceb4; font-size: 12px; }
+.tl-llm-timeline pre { color: #8dac98; font-size: 11px; }
+.tl-llm-inspector [hidden] { display: none !important; }
+@media (max-width: 600px) {
+  .tl-llm-terminal { font-size: 11px; }
+  .tl-llm-session { align-items: flex-start; }
+  .tl-llm-inspector pre { font-size: 11px; }
+}
