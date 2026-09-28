@@ -230,6 +230,8 @@ const renderTopbar = () =>
       { class: "tl-view-actions", align: "center", gap: 16 },
       btn({ class: "tl-view-monitor", onclick: openTrackerMonitorDialog }, icon("monitoring", "sm"), "Monitor"),
       btn({ class: "tl-view-edit", onclick: openEditor }, icon("edit", "sm"), "Edit"),
+      btn({ onclick: () => window.TrackerLensCatalogRuntime.openImportDialog({ kind: 'workspace' }) }, icon('travel_explore', 'sm'), 'Online'),
+      btn({ onclick: () => window.TrackerLensCatalogRuntime.openPublishDialog({ kind: 'workspace', workspaceId: workspaceViewState.workspace.id, title: workspaceViewState.workspace.name }) }, icon('cloud_upload', 'sm'), 'Pubblica'),
       btn({ class: "tl-view-menu", "aria-label": "Menu workspace" }, icon("more_vert"))
     )
   );

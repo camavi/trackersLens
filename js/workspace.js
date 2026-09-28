@@ -385,6 +385,20 @@ const exportCurrentWorkspace = async () => {
   mountWorkspace();
 };
 
+const importWorkspaceOnline = () => {
+  if (!window.TrackerLensCatalogRuntime?.openImportDialog) {
+    setNotice("Runtime catalogo non disponibile.");
+    mountWorkspace();
+    return;
+  }
+  window.TrackerLensCatalogRuntime.openImportDialog({
+    kind: "workspace",
+    onImported: (result) => {
+      if (result?.id) openChromePage('library.html');
+    },
+  });
+};
+
 let workspaceRoot = null;
 let workspaceEmbedded = false;
 let workspaceListenersAttached = false;
@@ -407,6 +421,7 @@ const renderHeader = () =>
       btn({ class: `tl-top-icon${workspaceState.workspace.showGrid ? " is-active" : ""}`, "aria-label": "Vista griglia", onclick: () => updateWorkspaceConfig("showGrid", !workspaceState.workspace.showGrid, "Vista griglia aggiornata") }, icon("dashboard")),
       btn({ class: "st-btn-primary", onclick: saveWorkspace }, icon("cloud_upload", "sm"), "Salva"),
       btn({ class: "tl-top-icon", "aria-label": "Export workspace", onclick: exportCurrentWorkspace }, icon("download")),
+      btn({ class: "tl-top-icon", "aria-label": "Importa workspace online", title: "Importa online", onclick: importWorkspaceOnline }, icon("travel_explore")),
       btn({ class: "st-btn-primary", onclick: publishWorkspace }, icon("language", "sm"), "Pubblica"),
       btn({ class: `tl-top-icon${workspaceState.actionMenuOpen ? " is-active" : ""}`, "aria-label": "Altre azioni", onclick: toggleActionMenu }, icon("more_vert")),
       btn({ class: "tl-top-icon", "aria-label": "Chiudi", onclick: () => openChromePage("popup.html") }, icon("close"))
@@ -1422,12 +1437,9 @@ const renderShortcuts = () =>
 const renderBottom = () => _.div({ class: "tl-bottom-bar" }, renderToolMenu(), renderToolbox(), renderShortcuts());
 
 const publishWorkspace = async () => {
-  workspaceState.workspace.published = true;
-  workspaceState.workspace.publishedAt = new Date().toISOString();
   await saveWorkspace();
-  workspaceState.savedLabel = "Pubblicazione locale pronta";
-  setNotice("Pubblicazione locale preparata. Il catalogo remoto arrivera nella fase sito.");
-  mountWorkspace();
+  if (workspaceState.savedLabel === 'Errore salvataggio') return;
+  window.TrackerLensCatalogRuntime.openPublishDialog({ workspaceId: workspaceState.workspace.id, kind: 'workspace', title: workspaceState.workspace.name });
 };
 
 const updateWorkspaceDraft = (key, value) => {

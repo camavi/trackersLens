@@ -31,6 +31,7 @@ const createTlCore = ({ appVersion = "0.0.0", platform = "unknown", mode = "prod
   const customNodeSandbox = adapters.customNodeSandbox || null;
   const persistence = adapters.persistence || null;
   const externalAi = adapters.externalAi || null;
+  const catalog = adapters.catalog || null;
   const flags = { ...DEFAULT_FEATURE_FLAGS, ...featureFlags };
 
   // Display metadata only: remembered identity never establishes authentication.
@@ -85,6 +86,20 @@ const createTlCore = ({ appVersion = "0.0.0", platform = "unknown", mode = "prod
         return adapters.account.dispatch(command.split(".").pop(), payload);
       case "desktop.getStatus":
         return getDesktopStatus();
+      case "desktop.catalog.search":
+        if (!catalog?.search) throw errorWithCode("Online catalog is not connected.", "CATALOG_UNAVAILABLE");
+        return catalog.search({ kind: String(payload?.kind || ""), query: String(payload?.query || ""), page: Number(payload?.page) || 1, mine: payload?.mine === true });
+      case "desktop.catalog.download":
+        if (!catalog?.download) throw errorWithCode("Online catalog is not connected.", "CATALOG_UNAVAILABLE");
+        return catalog.download({ kind: String(payload?.kind || ""), artifactId: String(payload?.artifactId || ""), version: String(payload?.version || ""), sha256: String(payload?.sha256 || '') });
+      case 'desktop.catalog.preparePublish':
+      case 'desktop.catalog.publish':
+      case 'desktop.catalog.install':
+      case 'desktop.catalog.discard': {
+        const action = command.split('.').pop();
+        if (!catalog?.[action]) throw errorWithCode('Catalog unavailable', 'CATALOG_UNAVAILABLE');
+        return catalog[action](payload);
+      }
       case "runtime.getStatus":
         return getRuntimeStatus();
       case "desktop.openExternal": {

@@ -31,6 +31,20 @@ test('account configuration is local and origin validation rejects credentials, 
   assert.equal((await f.client.dispatch('user')).ok, false);
   assert.equal(f.calls.length, 0);
 });
+test('account uses the supplied environment default until the user saves an override', async () => {
+  let saved = null;
+  const client = createAccountClient({
+    persistence: {
+      readDevelopmentRecordById: () => saved,
+      writeDevelopmentRecords: ({ records }) => { saved = records[0]; },
+    },
+    sessionForOrigin: () => ({ cookies: { get: async () => [] }, clearStorageData: async () => {}, fetch: async () => new Response(null, { status: 204 }) }),
+    defaultBaseUrl: 'https://trackerslens.com',
+  });
+  assert.deepEqual(await client.dispatch('configuration'), { ok: true, data: { configured: true, baseUrl: 'https://trackerslens.com' } });
+  await client.dispatch('configure', { baseUrl: 'https://account.example' });
+  assert.deepEqual(await client.dispatch('configuration'), { ok: true, data: { configured: true, baseUrl: 'https://account.example' } });
+});
 test('account login owns CSRF, uses exact configured origin and exposes only profile fields', async () => {
   const f = fixture([new Response(null, { status: 204 }), json({ ...user, password: 'hidden', token: 'hidden' })]);
   await f.client.dispatch('configure', { baseUrl: 'https://example.com' });

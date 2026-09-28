@@ -408,6 +408,7 @@ const renderTopbar = () =>
     _.Toolbar(
       { class: "tl-library-actions", align: "center", gap: 16 },
       btn({ class: "tl-library-menu tl-library-import", onclick: importPortableFile }, icon("upload_file", "sm"), "Import"),
+      btn({ class: 'tl-library-menu tl-library-import', onclick: () => window.TrackerLensCatalogRuntime.openImportDialog({ kind: 'workspace', onImported: () => loadLibrary() }) }, icon('travel_explore', 'sm'), 'Workspace online'),
       btn({ class: "tl-library-menu tl-library-verify", onclick: scanMarketplaceTrust }, icon("verified_user", "sm"), libraryState.verifying ? "Scan" : "Verify"),
       btn({ class: "st-btn-primary", onclick: openCreateBox }, icon("edit", "sm"), "Crea nuovo box"),
       btn({ class: "tl-library-menu", "aria-label": "Menu libreria" }, icon("more_vert"))

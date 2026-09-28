@@ -10,6 +10,14 @@ const trackers = Object.freeze({
     account: Object.freeze(Object.fromEntries([
       "configuration", "configure", "user", "login", "register", "logout", "updateProfile", "updatePassword"
     ].map(action => [action, (payload = {}) => request(`desktop.account.${action}`, payload)]))),
+    catalog: Object.freeze({
+      search: ({ kind, query = '', page = 1, mine = false } = {}) => request('desktop.catalog.search', { kind, query, page, mine }),
+      download: ({ kind, artifactId, version, sha256 } = {}) => request('desktop.catalog.download', { kind, artifactId, version, sha256 }),
+      preparePublish: ({ workspaceId, kind } = {}) => request('desktop.catalog.preparePublish', { workspaceId, kind }),
+      publish: ({ planId, confirmed, artifactId, version, title, description, license, visibility } = {}) => request('desktop.catalog.publish', { planId, confirmed, artifactId, version, title, description, license, visibility }),
+      install: ({ planId, confirmed } = {}) => request('desktop.catalog.install', { planId, confirmed }),
+      discard: ({ planId } = {}) => request('desktop.catalog.discard', { planId })
+    }),
     openExternal: (url) => request("desktop.openExternal", { url: String(url || "") }),
     externalAi: Object.freeze({
       listModels: ({ provider } = {}) => request("desktop.externalAi.listModels", { provider: String(provider || "") }),

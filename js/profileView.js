@@ -1,7 +1,7 @@
 (function () {
   const icon = (name) => _.Icon({ name, size: 'sm' });
   const btn = (label, name, onclick, props = {}) => _.Btn({ type: 'button', onclick, ...props }, icon(name), label);
-  const state = { user: null, connection: null, desktop: null, stores: null, status: 'local', busy: false, error: '', notice: '', localError: '' };
+  const state = { user: null, connection: null, connectionReady: false, desktop: null, stores: null, status: 'local', busy: false, error: '', notice: '', localError: '' };
   let root = null;
   let dialog = null;
   let generation = 0;
@@ -32,7 +32,7 @@
             _.span({ class: `tl-profile-status is-${state.status}`, role: 'status' }, statusLabel())),
           _.Toolbar({ gap: 8, class: 'tl-profile-hero-actions' }, user
             ? btn('Esci', 'logout', logout, { disabled: state.busy })
-            : btn('Accedi', 'person', () => state.connection?.configured ? openForm('login') : openForm('connection'), { class: 'st-btn-primary', disabled: state.busy || !api() }))),
+            : btn('Accedi', 'person', () => state.connection?.configured ? openForm('login') : openForm('connection'), { class: 'st-btn-primary', disabled: state.busy || !api() || !state.connectionReady }))),
         state.error ? _.p({ class: 'tl-profile-error', role: 'alert' }, state.error) : null,
         state.notice ? _.p({ class: 'tl-profile-notice', role: 'status' }, state.notice) : null,
         _.Grid({ cols: 2, gap: 20, class: 'tl-profile-columns' },
@@ -41,12 +41,12 @@
               : _.p({ class: 'tl-profile-muted' }, 'Collega il tuo account Trackers Lens oppure continua a lavorare in locale.'),
             _.Toolbar({ gap: 8, class: 'tl-profile-card-actions' }, user
               ? btn('Modifica profilo', 'edit', () => openForm('profile'), { disabled: state.busy })
-              : btn('Crea account', 'person_add', () => state.connection?.configured ? openForm('register') : openForm('connection'), { disabled: state.busy || !api() }),
+              : btn('Crea account', 'person_add', () => state.connection?.configured ? openForm('register') : openForm('connection'), { disabled: state.busy || !api() || !state.connectionReady }),
               user ? btn('Esporta profilo', 'download', exportProfile, { disabled: state.busy }) : null)),
           _.Card({ class: 'tl-profile-card' }, _.h3('Accesso e sicurezza'),
             rows([['Sessione', statusLabel()], ['Server account', state.connection?.baseUrl || 'Non configurato']]),
             _.Toolbar({ gap: 8, class: 'tl-profile-card-actions' },
-              btn('Configura server', 'settings', () => openForm('connection'), { disabled: state.busy || !api() }),
+              btn('Configura server', 'settings', () => openForm('connection'), { disabled: state.busy || !api() || !state.connectionReady }),
               user ? btn('Cambia password', 'key', () => openForm('password'), { disabled: state.busy }) : null))),
         _.Card({ class: 'tl-profile-card' }, _.Row({ justify: 'space-between', align: 'center' }, _.h3('Su questo dispositivo'), btn('Apri libreria', 'arrow_forward', () => navigate('library.html'))),
           state.localError ? _.p({ class: 'tl-profile-error', role: 'alert' }, state.localError) : null,
@@ -115,6 +115,9 @@
     const field = (name, label, type = 'text', value = '', autocomplete = '') => {
       const control = _.Input({ name, type, value, 'aria-label': label });
       const input = control.matches('input') ? control : control.querySelector('input');
+      // JSswift's wrapper does not reliably reflect `value` to the native
+      // control after a dialog mount, so make the configured default explicit.
+      input.value = value;
       input.required = true;
       if (autocomplete) input.autocomplete = autocomplete;
       if (name === 'password' && mode !== 'login') input.minLength = 8;
@@ -167,11 +170,12 @@
   window.TrackerLensViews.profile = {
     async mount({ outlet }) {
       root = outlet; generation += 1; const token = generation;
-      state.busy = false; state.user = null; state.status = 'local'; state.error = ''; state.notice = '';
+      state.busy = false; state.user = null; state.connection = null; state.connectionReady = false; state.status = 'local'; state.error = ''; state.notice = '';
       window.TrackerLensAppShell?.setActive?.('profile'); render();
       const local = loadLocal();
       try { const connection = await call('configuration'); if (token !== generation) return; state.connection = connection; }
       catch (error) { if (token === generation) state.error = error.message; }
+      finally { if (token === generation) { state.connectionReady = true; render(); } }
       if (token === generation && state.connection?.configured) await checkSession();
       await local; if (token === generation) render();
     },

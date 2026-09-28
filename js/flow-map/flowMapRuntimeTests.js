@@ -5644,6 +5644,25 @@ const importWorkspaceFile = () => {
   input.click();
 };
 
+const importWorkspaceOnline = () => {
+  if (!window.TrackerLensCatalogRuntime?.openImportDialog) {
+    state.error = "Runtime catalogo non disponibile.";
+    setErrorSignal(state.error);
+    mount({ preserveScroll: true });
+    return;
+  }
+  window.TrackerLensCatalogRuntime.openImportDialog({
+    kind: "flowmap",
+    onImported: async (result) => {
+      const workspaceId = result?.id || currentWorkspaceId();
+      setFiltersState({ ...state.filters, workspaceId, origin: "runtime" });
+      state.viewport = loadStoredViewport(workspaceId) || defaultViewport();
+      syncFilterQuery();
+      await loadRuntime({ force: true });
+    },
+  });
+};
+
 const saveWorkspaceSettings = async ({ close, nameInput, titleInput, descriptionInput, statusInput }) => {
   try {
     const workspaceId = currentWorkspaceId();
@@ -5734,6 +5753,8 @@ const renderFileMenu = () =>
       renderFileMenuItem({ iconName: "download", label: "Download", meta: ".tlflow con asset e runtime graph", onclick: downloadCurrentWorkspace }),
       renderFileMenuItem({ iconName: "image", label: "Export JPG", meta: "Immagine completa del Flow Map", onclick: exportCurrentFlowMapImage }),
       renderFileMenuItem({ iconName: "upload_file", label: "Import", meta: "Sostituisce il Flow Map importato", onclick: importWorkspaceFile }),
+      renderFileMenuItem({ iconName: "travel_explore", label: "Import online", meta: "Cerca nel catalogo Flow Map", onclick: importWorkspaceOnline }),
+      renderFileMenuItem({ iconName: 'cloud_upload', label: 'Pubblica', meta: 'Pubblica una versione del Flow Map', onclick: () => window.TrackerLensCatalogRuntime.openPublishDialog({ workspaceId: currentWorkspaceId(), kind: 'flowmap', title: currentWorkspaceName() }) }),
       window.TrackerLensCustomNodePackages?.isAvailable?.()
         ? renderFileMenuItem({
           iconName: "extension",

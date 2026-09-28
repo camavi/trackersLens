@@ -143,6 +143,22 @@ test("TL Core reports the renderer-owned runtime with SQLite desktop persistence
   assert.equal(runtime.runtimeManager, "javascript-registered");
 });
 
+test("online catalog boundary permits only typed search and bundle download", async () => {
+  const calls = [];
+  const catalog = {
+    search: async (request) => { calls.push(["search", request]); return { items: [] }; },
+    download: async (request) => { calls.push(["download", request]); return { bundle: { kind: "flowmap" } }; }
+  };
+  const core = createTlCore({ adapters: { catalog } });
+  assert.deepEqual(await core.request("desktop.catalog.search", { kind: "flowmap", query: "rag" }), { items: [] });
+  assert.deepEqual(await core.request("desktop.catalog.download", { kind: "workspace", artifactId: "acme.demo", version: "1.0.0" }), { bundle: { kind: "flowmap" } });
+  assert.deepEqual(calls, [
+    ["search", { kind: "flowmap", query: "rag", page: 1, mine: false }],
+    ["download", { kind: "workspace", artifactId: "acme.demo", version: "1.0.0", sha256: '' }]
+  ]);
+  await assert.rejects(createTlCore().request("desktop.catalog.search", { kind: "flowmap" }), (error) => error.code === "CATALOG_UNAVAILABLE");
+});
+
 test("TL Core permits only validated external URL requests", async () => {
   const opened = [];
   const core = createTlCore({ adapters: { openExternal: async (url) => opened.push(url) } });
@@ -1025,7 +1041,7 @@ test("Electron Main wires the sandbox execution adapter to Core independently of
     isDevelopment: true, pythonPocEnabled: false, pythonNlpEnabled: () => false,
     customNodeSandboxEnabled: true, shell: {}, pythonNlpAdapter: null,
     pythonPacks: null, pythonRuntimeCatalog: null, pythonPackInstaller: null,
-    customNodePackages: {}, externalAiProviderBridge: null, persistence: {},
+    customNodePackages: {}, externalAiProviderBridge: null, persistence: {}, account: null, catalog: null,
     require: () => ({ createAccountClient: () => null }),
     launchCustomNodeSandbox: async (payload) => { calls.push(payload); return { status: "success" }; },
   };

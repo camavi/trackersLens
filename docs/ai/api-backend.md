@@ -14,6 +14,8 @@ Last updated: 2026-09-25.
 
 ## Implemented API Surface
 
+- Artifact catalog (TASK-038): authenticated `GET /api/catalog`, `POST /api/catalog`, `GET /api/catalog/{artifactId}/versions/{version}`. Immutable versions, owner-only publication, public/private/unlisted read scopes, complete paginated metadata and exact bundle SHA-256. See `runtime/artifact-catalog.md`.
+
 - Auth:
   - `GET /sanctum/csrf-cookie`
   - `POST /api/register`
@@ -36,7 +38,7 @@ Last updated: 2026-09-25.
 
 ## Desktop account transport
 
-`core/desktop/account-client.cjs` provides allow-listed operations via TL Core/preload. Electron Main owns a dedicated persistent cookie partition per configured origin and sends CSRF/Origin/Referer headers to that exact origin. Redirects are rejected; configuration permits HTTPS or loopback HTTP only, with no paths/query/credentials. The origin is explicitly entered in Profile and saved as `tl_settings/desktop-account`; no endpoint is contacted before configuration. Changing origin clears the old local cookie session. Passwords are never persisted by TL; renderer IPC returns only projected user fields and structured validation errors.
+`core/desktop/account-client.cjs` provides allow-listed operations via TL Core/preload. Electron Main owns a dedicated persistent cookie partition per configured origin and sends CSRF/Origin/Referer headers to that exact origin. Redirects are rejected; configuration permits HTTPS or loopback HTTP only, with no paths/query/credentials. Main supplies the default origin: `http://127.0.0.1:8000` during development and `https://trackerslens.com` in a packaged/production app. A Profile override is saved as `tl_settings/desktop-account` and takes precedence; changing it clears the old local cookie session. Passwords are never persisted by TL; renderer IPC returns only projected user fields and structured validation errors.
 
 Profile uses this bridge exclusively. The unused browser API client, its shell import and legacy API URL/key constants have been deleted. It never calls demonstration dashboard endpoints or transfers local runtime data. The user payload includes id/name/email/created_at/email_verified_at; the former hardcoded Pro plan has been removed.
 

@@ -26,7 +26,8 @@ const projectRoot = path.resolve(__dirname, "..");
 const preloadPath = path.join(__dirname, "preload.cjs");
 const entryPoint = path.join(projectRoot, "app.html");
 const websiteLogoIconPath = path.join(projectRoot, "icons", "logo128.png");
-const isDevelopment = process.env.NODE_ENV !== "production";
+const isDevelopment = !app.isPackaged && process.env.NODE_ENV !== "production";
+const accountDefaultOrigin = isDevelopment ? "http://127.0.0.1:8000" : "https://trackerslens.com";
 const allowDevTools = process.env.TL_ELECTRON_DEVTOOLS === "1";
 const pythonPocEnabled = process.env.TL_ENABLE_PYTHON_POC === "1";
 const customNodeSandboxEnabled = process.env.TL_ENABLE_CUSTOM_NODE_SANDBOX === "1";
@@ -414,7 +415,7 @@ const createWindow = () => {
 };
 
 ipcMain.handle("trackers-core:request", (event, command, payload) => {
-  if (String(command || "").startsWith("desktop.account.")) {
+  if (/^desktop\.(account|catalog)\./.test(String(command || ""))) {
     if (event.senderFrame !== event.sender.mainFrame || !isAllowedLocalNavigation(event.senderFrame.url) || event.sender.session !== session.defaultSession) {
       throw new Error("Account requests require the trusted desktop shell.");
     }
@@ -594,6 +595,12 @@ app.whenReady().then(async () => {
     }
   };
   if (process.platform === "darwin") app.dock.setIcon(nativeImage.createFromPath(websiteLogoIconPath));
+  const account = require('../core/desktop/account-client.cjs').createAccountClient({
+    persistence,
+    sessionForOrigin: (origin) => session.fromPartition(`persist:tl-account-${crypto.createHash('sha256').update(origin).digest('hex')}`),
+    defaultBaseUrl: accountDefaultOrigin
+  });
+  const catalog = require('../core/desktop/catalog-client.cjs').createCatalogClient({ account, persistence, pythonPacks });
   tlCore = createTlCore({
     appVersion: app.getVersion(),
     platform: process.platform,
@@ -609,10 +616,7 @@ app.whenReady().then(async () => {
       customNodePackages,
       customNodeSandbox: { run: launchCustomNodeSandbox },
       externalAi: externalAiProviderBridge,
-      account: require("../core/desktop/account-client.cjs").createAccountClient({
-        persistence,
-        sessionForOrigin: (origin) => session.fromPartition(`persist:tl-account-${crypto.createHash("sha256").update(origin).digest("hex")}`)
-      }),
+      account, catalog,
       persistence
     }
   });

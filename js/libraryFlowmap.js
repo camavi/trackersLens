@@ -185,6 +185,20 @@ const importFlowMapFile = () => {
   input.click();
 };
 
+const importFlowMapOnline = () => {
+  if (!window.TrackerLensCatalogRuntime?.openImportDialog) {
+    flowLibraryState.error = "Runtime catalogo non disponibile.";
+    mountFlowLibrary();
+    return;
+  }
+  window.TrackerLensCatalogRuntime.openImportDialog({
+    kind: "flowmap",
+    onImported: async (result) => {
+      await loadFlowLibrary();
+    },
+  });
+};
+
 const exportFlowMap = async (item, event = null) => {
   event?.stopPropagation?.();
   try {
@@ -475,6 +489,7 @@ const renderTopbar = () =>
     _.Toolbar(
       { class: "tl-library-actions", align: "center", gap: 16 },
       btn({ class: "tl-library-menu tl-library-import", onclick: importFlowMapFile }, icon("upload_file", "sm"), "Import"),
+      btn({ class: "tl-library-menu tl-library-import", onclick: importFlowMapOnline }, icon("travel_explore", "sm"), "Online"),
       btn({ class: "st-btn-primary", onclick: openCreateFlowMapDialog }, icon("add", "sm"), "Nuovo Flow Map")
     )
   );

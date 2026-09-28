@@ -6,11 +6,14 @@ const syntaxFiles = [
   'electron/main.cjs',
   'electron/preload.cjs',
   'core/desktop/account-client.cjs',
+  'core/desktop/catalog-client.cjs',
+  'core/desktop/catalog-bundle.cjs',
   'core/desktop/tl-core.cjs',
   'core/desktop/desktop-persistence.cjs',
   'core/desktop/custom-node-execution.cjs',
   'core/desktop/managed-python-runtime.cjs',
   'core/runtime/runtime-manager.js',
+  'core/runtime/catalog-runtime.js',
   'core/runtime/processor-runtime.js',
   'js/flowMapView.js',
   'js/flow-map/flowMapRuntimeNodes.js',
@@ -18,6 +21,7 @@ const syntaxFiles = [
 ];
 
 const tests = [
+  'test/catalog.test.cjs',
   'test/tl-sidebar-navigation.test.cjs',
   'test/analytics-navigation.test.cjs',
   'test/llm-observation.test.cjs',

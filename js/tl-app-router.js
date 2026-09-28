@@ -40,6 +40,7 @@ window.TrackerLensAppRouter = (() => {
   const resolve = (path = normalizePath()) => routes.get(normalizePath(path)) || null;
 
   const disposeActive = async () => {
+    window.TrackerLensCatalogRuntime?.close?.();
     if (!active) return;
     const previous = active;
     active = null;

@@ -1157,6 +1157,20 @@ class DesktopPersistence {
     } finally { database.close(); }
   }
 
+  // Core-only portable import: all new identities commit together, never overwrite.
+  importCatalogRecords(records) {
+    const { STORES } = require('./catalog-bundle.cjs');
+    if (Object.keys(records).some(store => !STORES.includes(store))) throw new Error('Invalid catalog store');
+    const database = new DatabaseSync(this.databasePath);
+    try {
+      database.exec('BEGIN IMMEDIATE');
+      const insert = database.prepare('INSERT INTO tl_records (store_name, id, workspace_id, record_json, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)');
+      for (const [store, rows] of Object.entries(records)) for (const row of normalizeRecords(rows)) insert.run(store, row.id, row.workspaceId, row.recordJson, now(), now());
+      database.exec('COMMIT');
+    } catch (error) { try { database.exec('ROLLBACK'); } catch (_) {} throw error; }
+    finally { database.close(); }
+  }
+
   writeDevelopmentRecords({ storeName = "", records = [] } = {}) {
     const name = String(storeName || "");
     if (!isAllowedRepositoryStore(name)) throw new Error(`Unsupported persistence store: ${name}`);

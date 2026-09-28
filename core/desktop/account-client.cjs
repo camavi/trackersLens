@@ -8,11 +8,15 @@ const normalizeOrigin = (value) => {
   return url.origin;
 };
 
-const createAccountClient = ({ persistence, sessionForOrigin }) => {
+const createAccountClient = ({ persistence, sessionForOrigin, defaultBaseUrl = "" }) => {
+  // The packaged desktop app has a canonical account service; development
+  // keeps using the local Laravel instance. A user-saved origin always wins.
+  const defaultOrigin = defaultBaseUrl ? normalizeOrigin(defaultBaseUrl) : "";
   let busy = false;
   const config = () => {
     const saved = persistence.readDevelopmentRecordById({ storeName: "tl_settings", id: "desktop-account" });
-    return { baseUrl: saved?.baseUrl ? normalizeOrigin(saved.baseUrl) : "", configured: Boolean(saved?.baseUrl) };
+    const baseUrl = saved?.baseUrl ? normalizeOrigin(saved.baseUrl) : defaultOrigin;
+    return { baseUrl, configured: Boolean(baseUrl) };
   };
   const projectUser = (user) => {
     if (!user || !user.id || typeof user.email !== "string" || typeof user.name !== "string") throw new Error("Risposta account non valida.");
@@ -60,6 +64,16 @@ const createAccountClient = ({ persistence, sessionForOrigin }) => {
       };
       const fields = (...keys) => Object.fromEntries(keys.map(key => [key, String(payload[key] || "")]));
       switch (action) {
+        case 'catalogSearch': {
+          if (!['flowmap', 'workspace'].includes(payload.kind)) throw new Error('Tipo catalogo non supportato.');
+          const query = new URLSearchParams({ kind: payload.kind, query: String(payload.query || ''), page: String(Math.max(1, Number(payload.page) || 1)), mine: payload.mine === true ? '1' : '0' });
+          return request(`/api/catalog?${query}`);
+        }
+        case 'catalogDownload': {
+          if (!/^[a-f0-9-]{36}$/i.test(payload.artifactId || '') || !/^[0-9]+\.[0-9]+\.[0-9]+(?:-[A-Za-z0-9.-]+)?$/.test(payload.version || '')) throw new Error('Codice pubblicazione non valido.');
+          return request(`/api/catalog/${encodeURIComponent(payload.artifactId)}/versions/${encodeURIComponent(payload.version)}`);
+        }
+        case 'catalogPublish': return request('/api/catalog', 'POST', payload);
         case "user": return projectUser(await request("/api/user"));
         case "login":
           await request("/api/login", "POST", { ...fields("email", "password"), remember: payload.remember === true });

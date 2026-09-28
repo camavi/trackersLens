@@ -7,6 +7,16 @@ Last updated: 2026-09-22.
 
 ## Active
 
+### TASK-038: Remote Flow Map and Workspace Catalog
+
+UI follow-up (2026-09-28): shared JSswift Search, grid/list catalog results, dedicated own-publication dialog with Flow Map/Workspace selectors, secondary shared-code access and actionable empty/error states. Verified in isolated Electron alongside the publish/import flow.
+
+Status: Local end-to-end implementation verified (2026-09-27); public-host deployment remains separate.
+Priority: User-selected.
+Scope: publish/search/download of versioned Flow Map and Workspace portable bundles, with declared dependencies and the existing safe local import lifecycle.
+Implemented: authenticated Laravel publication/search/download, immutable owner-bound versions, public/private/unlisted access, paginated metadata and exact SHA-256. Main reuses the Profile session. JSswift dialogs cover publication, own releases, search/shared codes, full review and confirmed import. Core snapshots recursively include linked Flow Maps, assets and referenced AI agent definitions; credentials/known cached fields are excluded visibly. Fresh identities and structural links commit atomically without overwrites; nodes/agents are paused and asset auto-start disabled. Dependencies expose Custom Node exact references and Python/provider requirements without installation or activation. `runtime/artifact-catalog.md` owns the contract and limitations.
+Validation: Core/SQLite regression tests, backend feature tests and real isolated Electron/Laravel publish→search→review→import for Flow Map and nested Workspace pass. Missing Custom Nodes use ZIP review/install; their marketplace service, payments, signed trust and automatic updates remain separate scope.
+
 ### TASK-037: Observable LLM Streaming Runtime
 
 Status: Shared observation, desktop AI Agent compatible streaming and LM Studio native activity verified automatically, in isolated Electron and against local LM Studio (2026-09-26); remaining adapters and full user Flow QA pending.
@@ -545,7 +555,7 @@ Current sub-steps:
 - Step 2 transport: desktop account bridge replaces the removed browser API client; unused shell import and legacy API constants removed.
 - Step 3 auth integration: complete, local CSRF/register/current-user/logout flow verified.
 - Step 4 legacy demonstration dashboard: removed from the desktop Profile; real local store counts and app metadata now use Core projections.
-- Desktop account phase: explicit server configuration; Main-owned per-origin cookie/CSRF session; login/register/logout/restoration, profile editing, password changes and JSON export. Backend changes are in the canonical `trackerslens-site` repository. No runtime sync or account entitlement is inferred.
+- Desktop account phase: Main-owned per-origin cookie/CSRF session; default server is local `http://127.0.0.1:8000` in development and `https://trackerslens.com` for packaged/production builds, while a Profile server override remains available. Login/register/logout/restoration, profile editing, password changes and JSON export are implemented. Backend changes are in the canonical `trackerslens-site` repository. No runtime sync or account entitlement is inferred.
 - Validation: 106 JavaScript tests; 16 backend tests / 277 assertions; real Electron/Laravel account test with temporary SQLite and responsive/dialog-lifecycle assertions; desktop smoke suite.
 - Step 5 persistent runtime/workspace API design: remains separately scoped.
 
