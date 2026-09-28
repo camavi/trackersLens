@@ -7,7 +7,8 @@
   "scripts": {
     "start": "node scripts/patch-jsswift-assets.cjs && env -u ELECTRON_RUN_AS_NODE electron .",
     "dev": "node scripts/patch-jsswift-assets.cjs && env -u ELECTRON_RUN_AS_NODE TL_ELECTRON_DEVTOOLS=1 TL_ENABLE_CUSTOM_NODE_SANDBOX=1 electron .",
-    "verify": "node scripts/verify.cjs"
+    "verify": "node scripts/verify.cjs",
+    "test:chat:desktop": "env -u ELECTRON_RUN_AS_NODE electron test/flow-chat-electron.cjs"
   },
   "devDependencies": {
     "electron": "^44.0.0"

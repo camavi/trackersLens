@@ -71,6 +71,38 @@ const manifest = {
   ui: { schema: "ui.json" }
 };
 
+test("consented installed-source reads and versioned edits preserve archive assets and old versions", async (t) => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "tl-chat-revision-"));
+  t.after(() => fs.rmSync(directory, {recursive: true, force: true}));
+  const records = [];
+  const manager = new CustomNodePackageManager({packagesDirectory: path.join(directory, "packages"), persistence: {
+    readDevelopmentRecords: async () => records,
+    writeDevelopmentRecords: async ({records: updates}) => { records.push(...updates); },
+  }});
+  const original = path.join(directory, "original.tl-node.zip");
+  const source = 'export async function run({emit}) { await emit("output", 1); }';
+  fs.writeFileSync(original, zipStored({'node.json': JSON.stringify(manifest), 'runtime.js': source, 'ui.json': '{}', 'assets/data.json': '{"keep":true}', 'README.md': 'keep documentation'}));
+  const installed = await manager.installFile(original);
+  const reference = {packageId: installed.packageId, version: installed.version, archiveSha256: installed.archive.sha256};
+  await assert.rejects(manager.readSource(reference), {code: 'CUSTOM_NODE_SOURCE_CONSENT_REQUIRED'});
+  const material = await manager.readSource({...reference, confirmed: true});
+  assert.equal(material.source, source);
+  assert.equal(JSON.stringify(material).includes(directory), false);
+  await assert.rejects(manager.buildRevision({baseReference: reference, manifest, source}), {code: 'CUSTOM_NODE_REVISION_VERSION_REQUIRED'});
+  const revisedManifest = {...manifest, version: '1.0.1'};
+  const bytes = await manager.buildRevision({baseReference: reference, manifest: revisedManifest, source: source.replace(', 1', ', 2')});
+  const revision = path.join(directory, 'revision.tl-node.zip');
+  fs.writeFileSync(revision, bytes);
+  const inspected = inspectArchive(bytes);
+  assert.ok(inspected.files.some(file => file.name === 'assets/data.json'));
+  assert.ok(inspected.files.some(file => file.name === 'README.md'));
+  const next = await manager.installFile(revision);
+  assert.equal(next.runtimeExecution, 'blocked');
+  assert.equal((await manager.readSource({...reference, confirmed: true})).source, source);
+  assert.equal(records.length, 2);
+  await assert.rejects(manager.readSource({...reference, archiveSha256: 'bad', confirmed: true}), {code: 'CUSTOM_NODE_PACKAGE_REFERENCE_INVALID'});
+});
+
 test("Custom Node ZIP inspection validates the root manifest without executing runtime code", () => {
   const archive = zipStored({
     "node.json": JSON.stringify(manifest),

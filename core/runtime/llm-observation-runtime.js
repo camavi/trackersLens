@@ -79,18 +79,46 @@ window.TrackerLensLlmObservation = (() => {
     }
   };
 
+  const consumeNdjson = async (response, onFrame, signal) => {
+    if (!response.body?.getReader) throw new Error('Streaming response body unavailable');
+    const reader = response.body.getReader(), decoder = new TextDecoder();
+    let pending = '';
+    const abort = () => { void reader.cancel().catch(() => {}); };
+    signal?.addEventListener('abort', abort, { once: true });
+    try {
+      while (true) {
+        checkAbort(signal);
+        const { value, done } = await reader.read();
+        checkAbort(signal);
+        pending += done ? decoder.decode() : decoder.decode(value, { stream: true });
+        let at;
+        while ((at = pending.indexOf('\n')) >= 0) {
+          const line = pending.slice(0, at); pending = pending.slice(at + 1);
+          if (line.trim()) await onFrame(JSON.parse(line));
+        }
+        if (done) { if (pending.trim()) await onFrame(JSON.parse(pending)); break; }
+      }
+    } finally {
+      signal?.removeEventListener('abort', abort);
+      await reader.cancel().catch(() => {}); reader.releaseLock();
+    }
+  };
+
   const complete = async ({ context, url, body, headers = {}, streaming = true, transport, purpose = 'answer', parentInvocationId = '', promptConfiguration = {}, protocol = 'openai-compatible', bufferedReason = '' }) => {
     const native = protocol === 'lm-studio-native' ? window.TrackerLensLmStudioNative : null;
-    if (!['openai-compatible', 'lm-studio-native'].includes(protocol) || (protocol === 'lm-studio-native' && !native)) throw Object.assign(new Error('LLM observation protocol unavailable'), { llmObserved: true });
+    const ollama = protocol === 'ollama-generate', cli = protocol === 'external-cli';
+    if (!['openai-compatible', 'lm-studio-native', 'ollama-generate', 'external-cli'].includes(protocol) || (protocol === 'lm-studio-native' && !native)) throw Object.assign(new Error('LLM observation protocol unavailable'), { llmObserved: true });
     const session = sessionFor(context);
     const signal = session.controller.signal;
     const invocationId = `${context.jobId}:${session.invocations.length + 1}`;
     const started = performance.now();
     const request = { ...body, stream: streaming };
-    if (streaming && !native) request.stream_options = { ...body.stream_options, include_usage: true };
+    if (streaming && !native && !ollama && !cli) request.stream_options = { ...body.stream_options, include_usage: true };
     let sequence = 0, pending = [], segmentCount = 0, lastFlush = started, firstDeltaMs = null;
     let persistenceError = '', finished = false;
+    let flushTimer = null, flushQueue = Promise.resolve(), backgroundFailure = null;
     const summary = { version, ...context, invocationId, purpose, parentInvocationId, protocol, status: 'running', transport: streaming ? 'streaming' : 'buffered', bufferedReason: streaming ? '' : bufferedReason || 'Streaming is disabled in the node settings.', segmentCount: 0, usage: usageOf(null), startedAt: new Date().toISOString() };
+    if (cli && body.provider === 'codex') summary.transport = 'events';
     session.invocations.push(invocationId);
     session.active = summary;
     const save = async record => {
@@ -111,18 +139,27 @@ window.TrackerLensLlmObservation = (() => {
       const event = { version, ...context, invocationId, sequence: ++sequence, timestamp: new Date().toISOString(), kind, payload };
       pending.push(event);
       publish(event);
+      if (!flushTimer) flushTimer = setTimeout(() => {
+        flushTimer = null;
+        void flush().catch(error => { backgroundFailure = error; session.controller.abort(); });
+      }, 100);
     };
-    const flush = async () => {
-      if (!pending.length) return;
-      const batch = pending;
-      // Advance the manifest only after the segment is durable.
-      await save({ ...context, id: `llm:${invocationId}:segment:${segmentCount}`, kind: 'llm-stream-segment', events: batch });
-      pending = [];
-      segmentCount++;
-      summary.segmentCount = segmentCount;
-      await save({ ...summary, id: `llm:${invocationId}`, kind: 'llm-invocation' });
-      lastFlush = performance.now();
-      publish({ ...context, invocationId, kind: 'trace.saved', payload: { segmentCount } });
+    const flush = () => {
+      clearTimeout(flushTimer); flushTimer = null;
+      const operation = flushQueue.then(async () => {
+        if (!pending.length) return;
+        const batch = pending.splice(0);
+        // Advance the manifest only after the segment is durable.
+        try { await save({ ...context, id: `llm:${invocationId}:segment:${segmentCount}`, kind: 'llm-stream-segment', events: batch }); }
+        catch (error) { pending = batch.concat(pending); throw error; }
+        segmentCount++;
+        summary.segmentCount = segmentCount;
+        await save({ ...summary, id: `llm:${invocationId}`, kind: 'llm-invocation' });
+        lastFlush = performance.now();
+        publish({ ...context, invocationId, kind: 'trace.saved', payload: { segmentCount } });
+      });
+      flushQueue = operation.catch(() => {});
+      return operation;
     };
     const checkpoint = async force => { if (force || performance.now() - lastFlush >= 100) await flush(); };
     let data;
@@ -135,7 +172,54 @@ window.TrackerLensLlmObservation = (() => {
       checkAbort(signal);
       if (!response.ok) throw new Error(`LLM HTTP ${response.status}: ${await response.text()}${native && [404, 405].includes(response.status) ? ' — Native LM Studio API unavailable. Update LM Studio or select Compatible API in the node settings.' : ''}`);
       const isStream = streaming && /text\/event-stream/i.test(response.headers.get('content-type') || '');
-      if (native && isStream) {
+      if (cli || ollama) {
+        let terminal = false, text = '', reasoning = '', final;
+        const append = (kind, value) => {
+          if (typeof value !== 'string' || !value) return;
+          if (kind === 'text.delta') text += value; else reasoning += value;
+          emit(kind, { index: 0, text: value });
+        };
+        const receive = async frame => {
+          if (terminal) throw new Error('Provider emitted data after terminal result');
+          emit('provider.frame', frame);
+          if (frame.error) throw new Error(typeof frame.error === 'string' ? frame.error : JSON.stringify(frame.error));
+          if (ollama) {
+            append('text.delta', frame.response);
+            append('reasoning.delta', frame.thinking);
+            if (frame.done === true) {
+              terminal = true; final = frame;
+              const input = frame.prompt_eval_count, output = frame.eval_count;
+              summary.usage = usageOf(input == null && output == null ? null : { prompt_tokens: input, completion_tokens: output, total_tokens: Number.isFinite(input) && Number.isFinite(output) ? input + output : null });
+            }
+          } else if (frame.tlResult) {
+            terminal = true; final = frame.tlResult;
+            text = final.text;
+            const usage = final.raw?.usage;
+            const input = Number.isFinite(usage?.input_tokens) ? usage.input_tokens + (body.provider === 'claude' ? (usage.cache_read_input_tokens || 0) + (usage.cache_creation_input_tokens || 0) : 0) : null;
+            summary.usage = usageOf(usage ? { ...usage, prompt_tokens: input, completion_tokens: usage.output_tokens, total_tokens: input != null && Number.isFinite(usage.output_tokens) ? input + usage.output_tokens : null } : null);
+          } else {
+            const event = frame.event;
+            if (event?.type === 'item.completed' && event.item?.type === 'agent_message') append('text.delta', (text ? '\n' : '') + event.item.text);
+            if (event?.type === 'item.completed' && event.item?.type === 'reasoning') append('reasoning.delta', event.item.text);
+            const delta = event?.type === 'stream_event' ? event.event?.delta : null;
+            if (delta?.type === 'text_delta') append('text.delta', delta.text);
+            if (delta?.type === 'thinking_delta') append('reasoning.delta', delta.thinking);
+          }
+          await checkpoint();
+        };
+        if (cli || streaming && /ndjson|jsonl/i.test(response.headers.get('content-type') || '')) await consumeNdjson(response, receive, signal);
+        else {
+          summary.transport = 'buffered';
+          emit('transport', { mode: 'buffered', reason: 'Provider returned a complete JSON response.' });
+          await receive(await response.json());
+        }
+        if (!terminal) throw new Error('Provider stream interrupted before completion');
+        data = { choices: [{ index: 0, message: { role: 'assistant', content: text, reasoning_content: reasoning }, finish_reason: ollama ? final.done_reason ?? null : 'stop' }], usage: summary.usage.raw, providerResult: final };
+        summary.outputCharacters = text.length;
+        summary.estimatedOutputTokens = Math.ceil(text.length / 4);
+        emit('provider.response', data);
+        emit('usage', summary.usage);
+      } else if (native && isStream) {
         data = await native.consume({ response, request, summary, emit, checkpoint, consumeSse, signal });
         summary.usage = usageOf(data.usage);
         emit('usage', summary.usage);
@@ -208,7 +292,8 @@ window.TrackerLensLlmObservation = (() => {
       await flush();
       return { data, invocationId, usage: summary.usage, timings: { providerTransportMs: summary.durationMs, firstDeltaMs } };
     } catch (error) {
-      if (!finished) summary.status = signal.aborted ? 'cancelled' : 'failed';
+      if (backgroundFailure) error = backgroundFailure;
+      if (!finished) summary.status = signal.aborted && !backgroundFailure ? 'cancelled' : 'failed';
       summary.error = error.message || String(error);
       summary.durationMs = Math.round(performance.now() - started);
       if (!finished) emit(summary.status, { error: summary.error, durationMs: summary.durationMs });
@@ -217,14 +302,15 @@ window.TrackerLensLlmObservation = (() => {
         publish({ ...context, invocationId, kind: 'persistence.error', payload: { error: persistenceError } });
       }
       error.llmObserved = true;
-      if (signal.aborted) error.name = 'AbortError';
+      if (signal.aborted && !backgroundFailure) error.name = 'AbortError';
       throw error;
     } finally {
+      clearTimeout(flushTimer);
       session.active = null;
     }
   };
   return {
-    version, complete, consumeSse, usageOf, readRecord,
+    version, complete, consumeSse, consumeNdjson, usageOf, readRecord,
     subscribe(listener) { listeners.add(listener); return () => listeners.delete(listener); },
     active(context) { return [...sessions.values()].filter(item => item.context.workspaceId === context.workspaceId && item.context.nodeId === context.nodeId).map(item => ({ ...item.context, invocation: item.active ? { ...item.active } : null })); },
     cancel(context) {

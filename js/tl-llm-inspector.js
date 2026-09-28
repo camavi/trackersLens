@@ -1,12 +1,12 @@
 window.TrackerLensLlmInspector = (() => {
   const dialogs = new Set();
-  const open = async ({ nodeId, workspaceId, onConfigureNode }) => {
+  const open = async ({ nodeId, workspaceId, jobId = '', onConfigureNode }) => {
     const _ = window.JSswift;
     const runtime = window.TrackerLensLlmObservation;
     if (!_ || !runtime) return;
     const btn = ({ text, ...props }) => _.Btn({ type: 'button', ...props }, text);
     let closed = false, timer = null, loading = false, dirty = false;
-    let context = { nodeId, workspaceId, jobId: '' }, jobOffset = 0, invocationOffset = -1;
+    let context = { nodeId, workspaceId, jobId }, jobOffset = 0, invocationOffset = -1;
     let pendingJobId = '';
     let selectedId = '', segment = 0, events = [], output = '', reasoning = '', page = 0;
     let requestText = '', requestPage = 0, timelinePage = 0;
@@ -60,10 +60,11 @@ window.TrackerLensLlmInspector = (() => {
       const state = lastSummary?.status === 'running' && !active ? 'Interrupted / no active local session' : lastSummary?.status || 'No observed request';
       const running = active && lastSummary?.status === 'running';
       const buffered = lastSummary?.transport === 'buffered';
-      connection.textContent = running ? buffered ? 'BUFFERED' : 'LIVE' : state.toUpperCase();
+      const eventStream = lastSummary?.transport === 'events';
+      connection.textContent = running ? buffered ? 'BUFFERED' : eventStream ? 'LIVE EVENTS' : 'LIVE' : state.toUpperCase();
       connection.dataset.state = running ? buffered ? 'buffered' : 'live' : lastSummary?.status || 'idle';
       identity.textContent = `${nodeId} / ${selectedId || 'waiting'}`;
-      emptyOutput.textContent = running ? buffered ? '> Buffered request. Output will appear when the provider finishes.' : '> Awaiting streamed provider output…' : '> No text output in this call.';
+      emptyOutput.textContent = running ? buffered ? '> Buffered request. Output will appear when the provider finishes.' : eventStream ? '> Receiving provider events; text appears when each message completes.' : '> Awaiting streamed provider output…' : '> No text output in this call.';
       const tokens = usage?.totalTokens != null ? `${usage.totalTokens} (${usage.source})` : lastSummary?.estimatedOutputTokens != null ? `~${lastSummary.estimatedOutputTokens} output (character estimate; provider usage unavailable)` : 'unavailable';
       status.textContent = `${state} · ${lastSummary?.purpose || ''} · ${lastSummary?.transport || ''} · tokens: ${tokens}${lastSummary?.durationMs != null ? ` · ${lastSummary.durationMs} ms` : ''}`;
       const activity = lastSummary?.activity;

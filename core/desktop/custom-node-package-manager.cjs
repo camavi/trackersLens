@@ -428,7 +428,32 @@ class CustomNodePackageManager {
     const inspected = inspectArchive(archive);
     const entry = listZipEntries(archive).find((item) => item.name === inspected.manifest.runtime.entry);
     if (!entry) throw errorWithCode("Entry runtime non disponibile.", "CUSTOM_NODE_RUNTIME_ENTRY_MISSING");
-    return { record: this.publicRecord(record), source: readZipEntry(archive, entry).toString("utf8") };
+    if (inspected.manifest.id !== record.packageId || inspected.manifest.version !== record.version) throw errorWithCode("Manifest non coerente con il catalogo.", "CUSTOM_NODE_RUNTIME_MANIFEST_MISMATCH");
+    return { record: this.publicRecord({ ...record, manifest: inspected.manifest }), source: readZipEntry(archive, entry).toString("utf8") };
+  }
+
+  async readSource({ confirmed = false, ...reference } = {}) {
+    if (confirmed !== true) throw errorWithCode("La lettura del sorgente richiede consenso esplicito.", "CUSTOM_NODE_SOURCE_CONSENT_REQUIRED");
+    await this.resolvePackage(reference);
+    const material = await this.loadRuntimeSource(reference);
+    return { packageId: material.record.packageId, version: material.record.version, archiveSha256: material.record.archive.sha256,
+      manifest: material.record.manifest, source: material.source };
+  }
+
+  async buildRevision({ baseReference, manifest, source } = {}) {
+    const record = await this.resolvePackage(baseReference);
+    if (manifest?.id !== record.packageId || !manifest?.version || manifest.version === record.version) throw errorWithCode("Una revisione conserva l'id e richiede una nuova versione.", "CUSTOM_NODE_REVISION_VERSION_REQUIRED");
+    const archivePath = path.join(this.packagesDirectory, safePackageSegment(record.packageId), safePackageSegment(record.version), `${text(record.archive.id)}${ZIP_EXTENSION}`);
+    const archive = await fs.promises.readFile(archivePath);
+    if (sha256(archive) !== record.archive.sha256) throw errorWithCode("Hash archivio non coerente.", "CUSTOM_NODE_ARCHIVE_HASH_MISMATCH");
+    const inspected = inspectArchive(archive);
+    if (manifest?.runtime?.entry !== inspected.manifest.runtime.entry) throw errorWithCode("La revisione deve conservare l'entry runtime originale.", "CUSTOM_NODE_REVISION_ENTRY_CHANGED");
+    const files = Object.fromEntries(listZipEntries(archive).filter(entry => !entry.name.endsWith("/")).map(entry => [entry.name, readZipEntry(archive, entry)]));
+    files["node.json"] = JSON.stringify(manifest);
+    files[manifest.runtime.entry] = String(source || "");
+    const bytes = require("./custom-node-archive.cjs").zipStored(files);
+    inspectArchive(bytes);
+    return bytes;
   }
 
   // This method is intentionally Core-only: it returns the verified source to

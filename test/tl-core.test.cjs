@@ -10,11 +10,32 @@ const executionContract = require("../core/runtime/node-execution-contract.js");
 const { RuntimeManager } = require("../core/runtime/runtime-manager.js");
 const { PythonPackResolver } = require("../core/runtime/python-pack-resolver.cjs");
 const { PythonRuntimeCatalog } = require("../core/desktop/python-runtime-catalog.cjs");
+
+test('external AI lifecycle is Main-owned and cannot be injected through the renderer payload', async () => {
+  let actual;
+  const core = createTlCore({ adapters: { externalAi: { sendMessage: async (payload, lifecycle) => { actual = { payload, lifecycle }; return { text: 'ok' }; } } } });
+  const signal = new AbortController().signal;
+  const lifecycle = { signal, onEvent() {} };
+  await core.request('desktop.externalAi.sendMessage', { provider: 'codex', prompt: 'question', signal: 'forged', onEvent: 'forged', requestId: 'opaque' }, lifecycle);
+  assert.equal(actual.lifecycle, lifecycle);
+  assert.equal(actual.payload.signal, undefined);
+  assert.equal(actual.payload.onEvent, undefined);
+  assert.equal(actual.payload.requestId, undefined);
+});
 const { ManagedPythonPackInstaller } = require("../core/desktop/managed-python-pack-installer.cjs");
 const { ExternalAiProviderBridge } = require("../core/desktop/external-ai-provider-bridge.cjs");
 const ragPackManifest = require("../runtimes/python/packs/rag/pack.json");
 const annotationsPackManifest = require("../runtimes/python/packs/annotations/pack.json");
 const graphRelationsPackManifest = require("../runtimes/python/packs/graph-relations/pack.json");
+
+test('Custom Node source bridge requires consent and projects only exact archive identity', async () => {
+  const calls = [];
+  const core = createTlCore({ adapters: { customNodePackages: { readSource: async value => { calls.push(value); return {source: 'fixture'}; } } } });
+  await assert.rejects(core.request('desktop.customNodePackages.readSource', {packageId:'p'}), /consent/);
+  const result = await core.request('desktop.customNodePackages.readSource', {packageId:'p',version:'1',archiveSha256:'hash',confirmed:true,path:'/ignored'});
+  assert.equal(result.source,'fixture');
+  assert.deepEqual(calls,[{packageId:'p',version:'1',archiveSha256:'hash',confirmed:true}]);
+});
 
 test("managed RAG pack pins its local CrossEncoder reranker", () => {
   const reranker = ragPackManifest.models.find((model) => model.id === "cross-encoder/mmarco-mMiniLMv2-L12-H384-v1");

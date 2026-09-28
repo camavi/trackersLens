@@ -356,7 +356,7 @@
     dialog.open();
   };
   const render = () => {
-    if (!root) return;
+    if (!root) { syncReviewDialog(); return; }
     root.replaceChildren(_.section({ class: "tl-custom-page" },
       _.header({ class: "tl-custom-topbar" },
         _.Search({ class: "tl-library-search-input", label: "Cerca nei Custom Nodes…", "aria-label": "Cerca nei Custom Nodes", value: query }),
@@ -390,6 +390,36 @@
     syncReviewDialog();
   };
   window.TrackerLensViews = window.TrackerLensViews || {};
+  window.TrackerLensReviewChatNodeDraft = ({ manifest, source, baseReference } = {}) => new Promise((resolve) => {
+    if (!api()?.prepareCreate || busy || activeDialog) { resolve({ status: "blocked", message: "Chiudi l'operazione Custom Node in corso e riprova." }); return; }
+    let settled = false;
+    let preparing = false;
+    const finish = (value) => { if (!settled) { settled = true; resolve(value); } };
+    const manifestInput = _.textarea({ rows: 12, value: JSON.stringify(manifest || {}, null, 2), "aria-label": "Manifest proposto" });
+    const sourceInput = _.textarea({ rows: 16, value: String(source || ""), "aria-label": "Script proposto" });
+    const message = _.p({ role: "alert" });
+    const dialog = _.Dialog({ title: "Custom Node proposto dal Chat", closeOnBackdrop: false,
+      content: () => _.div(_.p("Modifica manifest e script, poi verifica il pacchetto. Installazione e attivazione restano passaggi separati."), _.label("node.json", manifestInput), _.label("Sorgente runtime", sourceInput), message),
+      onClose: () => { if (activeDialog === dialog) activeDialog = null; finish({ status: "denied" }); },
+      footer: () => [btn("Annulla", () => { if (!preparing) dialog.close(); }), btn("Verifica pacchetto", async () => {
+        if (preparing) return;
+        preparing = true;
+        try {
+          const manifest = JSON.parse(manifestInput.value);
+          const source = sourceInput.value;
+          const prepared = await api().prepareCreate({ manifest, source, baseReference });
+          if (settled) return;
+          finish({ status: "prepared", manifest, source, message: "Bozza verificata e aperta per revisione. Non installata né eseguita." });
+          dialog.close();
+          review = prepared;
+          syncReviewDialog();
+        } catch (failure) { message.textContent = errorMessage(failure); }
+        finally { preparing = false; }
+      })],
+    });
+    activeDialog = dialog;
+    dialog.open();
+  });
   window.TrackerLensViews.customNodes = {
     async mount({ outlet }) {
       root = outlet; window.TrackerLensAppShell?.setActive("custom-nodes");

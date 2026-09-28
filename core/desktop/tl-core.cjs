@@ -72,7 +72,7 @@ const createTlCore = ({ appVersion = "0.0.0", platform = "unknown", mode = "prod
     multiRuntime: false
   });
 
-  const request = async (command, payload = {}) => {
+  const request = async (command, payload = {}, lifecycle = {}) => {
     switch (command) {
       case "desktop.account.configuration":
       case "desktop.account.configure":
@@ -121,7 +121,7 @@ const createTlCore = ({ appVersion = "0.0.0", platform = "unknown", mode = "prod
         return externalAi.startLogin({ provider: String(payload?.provider || "") });
       case "desktop.externalAi.sendMessage":
         if (!externalAi?.sendMessage) throw errorWithCode("External AI provider bridge is unavailable", "EXTERNAL_AI_UNAVAILABLE");
-        return externalAi.sendMessage({ provider: String(payload?.provider || ""), prompt: String(payload?.prompt || ""), model: String(payload?.model || ""), reasoningEffort: String(payload?.reasoningEffort || ""), speed: String(payload?.speed || "") });
+        return externalAi.sendMessage({ provider: String(payload?.provider || ""), prompt: String(payload?.prompt || ""), model: String(payload?.model || ""), reasoningEffort: String(payload?.reasoningEffort || ""), speed: String(payload?.speed || "") }, lifecycle);
       case "desktop.externalAi.logout": {
         if (!externalAi?.logout) throw errorWithCode("External AI provider bridge is unavailable", "EXTERNAL_AI_UNAVAILABLE");
         if (!payload?.confirmed) throw errorWithCode("External AI logout requires confirmation", "EXTERNAL_AI_LOGOUT_CONFIRMATION_REQUIRED");
@@ -227,7 +227,11 @@ const createTlCore = ({ appVersion = "0.0.0", platform = "unknown", mode = "prod
         return customNodePackages.reviewImport({ importId: String(payload?.importId || ""), maxTokens: payload?.maxTokens, provider: { protocol: String(payload?.provider?.protocol || ""), id: String(payload?.provider?.id || ""), endpoint: String(payload?.provider?.endpoint || ""), model: String(payload?.provider?.model || "") }, confirmed: payload?.confirmed === true });
       case "desktop.customNodePackages.prepareCreate":
         if (!customNodePackages?.prepareCreate) throw errorWithCode("Custom Node creation unavailable", "CUSTOM_NODE_PACKAGES_UNAVAILABLE");
-        return customNodePackages.prepareCreate({ manifest: payload?.manifest, source: String(payload?.source || "") });
+        return customNodePackages.prepareCreate({ manifest: payload?.manifest, source: String(payload?.source || ""), ...(payload?.baseReference ? { baseReference: { packageId: String(payload.baseReference.packageId || ""), version: String(payload.baseReference.version || ""), archiveSha256: String(payload.baseReference.archiveSha256 || "") } } : {}) });
+      case "desktop.customNodePackages.readSource":
+        if (payload?.confirmed !== true) throw errorWithCode("Source read requires consent", "CUSTOM_NODE_SOURCE_CONSENT_REQUIRED");
+        if (!customNodePackages?.readSource) throw errorWithCode("Source unavailable", "CUSTOM_NODE_PACKAGES_UNAVAILABLE");
+        return customNodePackages.readSource({ packageId: String(payload?.packageId || ""), version: String(payload?.version || ""), archiveSha256: String(payload?.archiveSha256 || ""), confirmed: true });
       case "desktop.customNodePackages.applyMigration":
       case "desktop.customNodePackages.restoreMigration": {
         const action = command.split(".").pop();

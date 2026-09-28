@@ -250,6 +250,23 @@ app.whenReady().then(async () => {
         await window.webContents.executeJavaScript(`document.querySelector('.tl-custom-review-dialog [aria-label="Annulla"]').click()`);
         await new Promise(resolve => setTimeout(resolve, 300));
         assert.equal(await window.webContents.executeJavaScript(`Boolean(document.querySelector('.tl-custom-review-dialog'))`), false);
+        const chatDraft = await window.webContents.executeJavaScript(`(async () => {
+          const draft = { manifest: {id:'custom.chat',name:'Chat draft',version:'1.0.0',publisher:'fixture',inputs:['input'],outputs:['output'],permissions:{},runtime:{entry:'runtime.js',mode:'sandboxed'}}, source:'export async function run({input,emit}) { await emit("output", input); }' };
+          const pending = window.TrackerLensReviewChatNodeDraft(draft);
+          const source = document.querySelector('[aria-label="Script proposto"]');
+          if (!source) throw new Error('Missing Chat source editor');
+          source.value += '\\n// user revision';
+          document.querySelector('[aria-label="Verifica pacchetto"]').click();
+          const result = await pending;
+          await new Promise(resolve => setTimeout(resolve, 150));
+          const review = Boolean(document.querySelector('.tl-custom-review-dialog [aria-label="Installa"]'));
+          document.querySelector('.tl-custom-review-dialog [aria-label="Annulla"]').click();
+          await new Promise(resolve => setTimeout(resolve, 200));
+          const cancelled = window.TrackerLensReviewChatNodeDraft(draft);
+          Array.from(document.querySelectorAll('[aria-label="Annulla"]')).at(-1).click();
+          return { status: result.status, edited: result.source.includes('user revision'), review, cancelled: (await cancelled).status };
+        })()`);
+        assert.deepEqual(chatDraft, {status:'prepared', edited:true, review:true, cancelled:'denied'});
         includePendingPython = true;
         const pendingUi = await window.webContents.executeJavaScript(`(async () => {
           document.querySelector('[aria-label="Aggiorna"]').click();

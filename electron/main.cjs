@@ -14,6 +14,8 @@ const { CustomNodeElectronRunner } = require("../core/desktop/custom-node-electr
 const { CustomNodeToolDispatcher } = require("../core/desktop/custom-node-tool-dispatcher.cjs");
 const { DesktopPersistence } = require("../core/desktop/desktop-persistence.cjs");
 const { ExternalAiProviderBridge } = require("../core/desktop/external-ai-provider-bridge.cjs");
+const { runExternalAiChat: runChatProcess, ExternalAiChatRuns } = require("../core/desktop/external-ai-chat-runner.cjs");
+const externalChatRuns = new ExternalAiChatRuns();
 const { PythonPackResolver } = require("../core/runtime/python-pack-resolver.cjs");
 const dataPackManifest = require("../runtimes/python/packs/data/pack.json");
 const { CustomNodePythonRunner } = require("../core/desktop/custom-node-python-runner.cjs");
@@ -122,40 +124,10 @@ const launchExternalAiLogin = async (provider) => {
   });
   return { started: true, background: true };
 };
-const collectAssistantText = (value) => {
-  if (!value || typeof value !== "object") return "";
-  if (typeof value.text === "string") return value.text;
-  if (Array.isArray(value)) return value.map(collectAssistantText).filter(Boolean).join("");
-  return Object.values(value).map(collectAssistantText).filter(Boolean).join("");
-};
-const runExternalAiChat = async (provider, prompt) => {
-  const executable = provider.executablePath || provider.executable;
-  const args = provider.id === "codex"
-    ? ["exec", "--json", "--sandbox", "read-only", "--skip-git-repo-check", "--ephemeral", ...(provider.model ? ["--model", provider.model] : []), ...(provider.reasoningEffort ? ["-c", `model_reasoning_effort=${JSON.stringify(provider.reasoningEffort)}`] : []), ...(provider.speed === "fast" ? ["-c", "service_tier=\"fast\""] : []), "-"]
-    : ["-p", "--output-format", "json", "--max-turns", "1", "--permission-mode", "plan", ...(provider.model ? ["--model", provider.model] : [])];
+const runExternalAiChat = async (provider, prompt, lifecycle = {}) => {
   const directory = fs.mkdtempSync(path.join(app.getPath("temp"), "trackers-lens-ai-chat-"));
-  return new Promise((resolve, reject) => {
-    const child = spawn(executable, args, { cwd: directory, stdio: ["pipe", "pipe", "pipe"], windowsHide: true });
-    let stdout = "";
-    let stderr = "";
-    child.stdout.on("data", (chunk) => { stdout += String(chunk); });
-    child.stderr.on("data", (chunk) => { stderr += String(chunk); });
-    child.once("error", (error) => { fs.rmSync(directory, { recursive: true, force: true }); reject(error); });
-    child.once("close", (code) => {
-      fs.rmSync(directory, { recursive: true, force: true });
-      if (code !== 0) return reject(Object.assign(new Error(stderr || `${provider.label} ha terminato con codice ${code}.`), { code: "EXTERNAL_AI_CHAT_FAILED" }));
-      let result = null;
-      if (provider.id === "claude") {
-        try { result = JSON.parse(stdout); } catch (_) { result = null; }
-      } else {
-        const events = stdout.split(/\r?\n/).filter(Boolean).map((line) => { try { return JSON.parse(line); } catch (_) { return { raw: line }; } });
-        const completed = events.filter((event) => event.type === "item.completed");
-        result = { result: completed.map((event) => collectAssistantText(event.item || {})).filter(Boolean).join("\n"), events };
-      }
-      resolve({ provider: provider.id, text: String(result?.result || ""), raw: result || { raw: stdout }, stderr: stderr || "", sandbox: "isolated-read-only" });
-    });
-    child.stdin.end(prompt);
-  });
+  try { return await runChatProcess(provider, prompt, { ...lifecycle, directory }); }
+  finally { fs.rmSync(directory, { recursive: true, force: true }); }
 };
 const pendingCustomNodeImports = new Map();
 const createPythonNlpRuntime = () => {
@@ -415,10 +387,22 @@ const createWindow = () => {
 };
 
 ipcMain.handle("trackers-core:request", (event, command, payload) => {
-  if (/^desktop\.(account|catalog)\./.test(String(command || ""))) {
+  if (/^desktop\.(account|catalog|externalAi)\./.test(String(command || ""))) {
     if (event.senderFrame !== event.sender.mainFrame || !isAllowedLocalNavigation(event.senderFrame.url) || event.sender.session !== session.defaultSession) {
       throw new Error("Account requests require the trusted desktop shell.");
     }
+  }
+  if (command === "desktop.externalAi.cancelMessage") return { cancelled: externalChatRuns.cancel(event.sender.id, payload?.requestId) };
+  if (command === "desktop.externalAi.sendMessage" && payload?.requestId) {
+    const owner = event.sender;
+    const cancel = () => externalChatRuns.cancelOwner(owner.id);
+    const navigate = (_event, _url, _inPlace, isMainFrame) => { if (isMainFrame) cancel(); };
+    owner.once("destroyed", cancel);
+    owner.on("did-start-navigation", navigate);
+    return externalChatRuns.run(owner.id, payload.requestId,
+      lifecycle => tlCore.request(command, payload, lifecycle),
+      frame => { if (!owner.isDestroyed()) owner.send("trackers-core:external-ai-chat-event", { requestId: payload.requestId, frame }); }
+    ).finally(() => { owner.removeListener("destroyed", cancel); owner.removeListener("did-start-navigation", navigate); });
   }
   return tlCore.request(String(command || ""), payload && typeof payload === "object" ? payload : {});
 });
@@ -525,6 +509,7 @@ app.whenReady().then(async () => {
     ? { ...record, pythonRuntime: customNodePythonRunner ? await customNodePythonRunner.readiness(record.manifest.execution) : { status: "disabled", message: "Avvia TL con il supporto sandbox abilitato (npm run dev)." } }
     : record;
   const customNodePackages = {
+    readSource: (payload) => customNodePackageManager.readSource(payload),
     reviewProviders: () => reviewer.providers(),
     reviewImport: async ({ importId, provider, maxTokens, confirmed }) => {
       const pending = pendingCustomNodeImports.get(importId);
@@ -556,10 +541,12 @@ app.whenReady().then(async () => {
       if (review.origin === "created") await fs.promises.rm(archivePath, { force: true });
       return installed;
     },
-    prepareCreate: async ({ manifest, source }) => {
+    prepareCreate: async ({ manifest, source, baseReference }) => {
       const { zipStored } = require("../core/desktop/custom-node-archive.cjs");
       const { inspectArchive } = require("../core/desktop/custom-node-package-manager.cjs");
-      const bytes = zipStored({ "node.json": JSON.stringify(manifest), "runtime.js": String(source || "") });
+      const bytes = baseReference
+        ? await customNodePackageManager.buildRevision({ baseReference, manifest, source })
+        : zipStored({ "node.json": JSON.stringify(manifest), "runtime.js": String(source || "") });
       const inspection = inspectArchive(bytes);
       const importId = crypto.randomUUID();
       const directory = path.join(app.getPath("userData"), "customNode", ".drafts");

@@ -21,6 +21,8 @@ const syntaxFiles = [
 ];
 
 const tests = [
+  'test/flow-chat-context.test.cjs',
+  'test/external-ai-chat-runner.test.cjs',
   'test/catalog.test.cjs',
   'test/tl-sidebar-navigation.test.cjs',
   'test/analytics-navigation.test.cjs',

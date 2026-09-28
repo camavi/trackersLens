@@ -14,7 +14,7 @@ function fixture() {
     trackers: { desktop: { persistence: { readDevelopmentRecordById: async ({ id }) => records.get(id) } } },
   };
   vm.runInNewContext(nativeSource, { window, console, performance, URL });
-  vm.runInNewContext(source, { window, console, performance, AbortController, TextDecoder });
+  vm.runInNewContext(source, { window, console, performance, AbortController, TextDecoder, setTimeout, clearTimeout });
   const api = window.TrackerLensLlmObservation;
   api.subscribe(event => seen.push(structuredClone(event)));
   return { api, records, seen, window };
@@ -25,6 +25,74 @@ const response = text => new Response(new ReadableStream({ start(controller) {
   controller.close();
 } }), { headers: { 'content-type': 'text/event-stream' } });
 const run = (api, text, extra = {}) => api.complete({ context, url: 'http://fixture/v1/chat/completions', body: { model: 'fixture', messages: [{ role: 'user', content: 'question' }] }, transport: async () => response(text), ...extra });
+
+const ndjsonResponse = frames => {
+  const text = frames.map(frame => JSON.stringify(frame)).join('\r\n');
+  return new Response(new ReadableStream({ start(controller) {
+    for (const byte of new TextEncoder().encode(text)) controller.enqueue(Uint8Array.of(byte));
+    controller.close();
+  } }), { headers: { 'content-type': 'application/x-ndjson' } });
+};
+
+test('Ollama NDJSON preserves split UTF-8, thinking, full terminal metadata and provider counts', async () => {
+  const { api, seen } = fixture();
+  const result = await run(api, '', { protocol: 'ollama-generate', body: { model: 'fixture', prompt: 'Exact' }, transport: async ({ body }) => {
+    assert.equal(body.stream, true); assert.equal(body.stream_options, undefined);
+    return ndjsonResponse([{ thinking: 'notes', response: 'Caffè 🌍', done: false }, { response: '!', done: true, done_reason: 'stop', eval_count: 3, prompt_eval_count: 0, context: [1, 2] }]);
+  } });
+  assert.equal(result.data.choices[0].message.content, 'Caffè 🌍!');
+  assert.equal(result.data.choices[0].message.reasoning_content, 'notes');
+  assert.equal(result.usage.totalTokens, 3);
+  assert.deepEqual(Array.from(result.data.providerResult.context), [1, 2]);
+  assert.equal(seen.find(e => e.kind === 'text.delta').payload.index, 0);
+});
+
+test('Ollama honors buffered setting and rejects missing done and stream errors', async () => {
+  const { api } = fixture();
+  const result = await run(api, '', { protocol: 'ollama-generate', streaming: false, transport: async ({ body }) => {
+    assert.equal(body.stream, false);
+    return Response.json({ response: 'All', done: true });
+  } });
+  assert.equal(result.usage.source, 'unavailable');
+  for (const frames of [[{ response: 'partial' }], [{ response: 'partial' }, { error: 'failure' }]]) {
+    const f = fixture();
+    await assert.rejects(run(f.api, '', { protocol: 'ollama-generate', transport: async () => ndjsonResponse(frames) }));
+    assert.ok(f.seen.some(e => e.kind === 'failed'));
+    assert.ok(!f.seen.some(e => e.kind === 'completed'));
+  }
+});
+
+test('CLI observation persists progress, authoritative final answer and explicit event-only capability', async () => {
+  const { api, seen, records } = fixture();
+  const result = await run(api, '', { protocol: 'external-cli', body: { provider: 'codex', prompt: 'Exact' }, transport: async () => ndjsonResponse([
+    { event: { type: 'item.completed', item: { type: 'agent_message', text: 'Caffè' } } },
+    { tlResult: { text: 'Caffè', raw: { usage: { input_tokens: 4, output_tokens: 2 } } } },
+  ]) });
+  assert.equal(result.data.choices[0].message.content, 'Caffè');
+  assert.equal(result.usage.totalTokens, 6);
+  assert.equal(records.get('llm:job:1').transport, 'events');
+  assert.ok(seen.some(e => e.kind === 'text.delta'));
+});
+
+test('early deltas become durable during a provider pause and append safely across slow persistence', async () => {
+  const { api, records, window } = fixture();
+  let controller;
+  const writer = window.TrackerLensAiRuntimeStore.upsertLog;
+  window.TrackerLensAiRuntimeStore.upsertLog = async record => {
+    if (record.kind === 'llm-stream-segment') await new Promise(resolve => setTimeout(resolve, 20));
+    return writer(record);
+  };
+  const promise = run(api, '', { transport: async () => new Response(new ReadableStream({ start(c) {
+    controller = c; c.enqueue(new TextEncoder().encode(frame(delta('early'))));
+  } }), { headers: { 'content-type': 'text/event-stream' } }) });
+  await new Promise(resolve => setTimeout(resolve, 230));
+  assert.ok([...records.values()].some(r => r.events?.some(e => e.kind === 'text.delta' && e.payload.text === 'early')));
+  controller.enqueue(new TextEncoder().encode(frame(delta(' later', 'stop')) + frame('[DONE]')));
+  const result = await promise;
+  assert.equal(result.data.choices[0].message.content, 'early later');
+  const events = [...records.values()].filter(r => r.kind === 'llm-stream-segment').flatMap(r => r.events);
+  assert.deepEqual(events.map(e => e.sequence), events.map((_, i) => i + 1));
+});
 
 test('streams before completion, reassembles UTF-8 and retains every frame in durable ordered segments', async () => {
   const { api, records, seen } = fixture();

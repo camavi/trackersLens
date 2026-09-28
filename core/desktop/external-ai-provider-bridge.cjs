@@ -189,14 +189,14 @@ class ExternalAiProviderBridge {
     };
   }
 
-  async sendMessage({ provider = "", prompt = "", model = "", reasoningEffort = "", speed = "" } = {}) {
+  async sendMessage({ provider = "", prompt = "", model = "", reasoningEffort = "", speed = "" } = {}, lifecycle = {}) {
     const definition = supportedProvider(provider);
     if (!definition) throw Object.assign(new Error("Provider AI esterno non supportato."), { code: "EXTERNAL_AI_PROVIDER_UNSUPPORTED" });
     if (!String(prompt || "").trim()) throw Object.assign(new Error("Il messaggio non può essere vuoto."), { code: "EXTERNAL_AI_EMPTY_MESSAGE" });
     const executablePath = this.executableResolver(definition.executable);
     if (!this.versionReader(executablePath)?.installed) throw Object.assign(new Error(`${definition.label} non è installato.`), { code: "EXTERNAL_AI_CLI_NOT_INSTALLED" });
     if (!this.chatRunner) throw Object.assign(new Error("Il trasporto chat desktop non è disponibile."), { code: "EXTERNAL_AI_CHAT_UNAVAILABLE" });
-    return this.chatRunner({ ...definition, executablePath, model: String(model || "").trim(), reasoningEffort: String(reasoningEffort || ""), speed: String(speed || "") }, String(prompt));
+    return this.chatRunner({ ...definition, executablePath, model: String(model || "").trim(), reasoningEffort: String(reasoningEffort || ""), speed: String(speed || "") }, String(prompt), lifecycle);
   }
 
   logout({ provider = "" } = {}) {

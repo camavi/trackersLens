@@ -8,6 +8,8 @@ Status: shared observation foundation, desktop AI Agent compatible API and LM St
 
 ## Scope
 
+Chat follow-up (2026-09-28, TASK-032): global Flow Chat now consumes compatible APIs, Ollama generate NDJSON, Claude CLI partial messages and Codex CLI events through this observer. Codex is labeled `events`, not token streaming. Main owns request-scoped children and cancellation; renderer destruction/navigation terminates owned requests. Segments now flush on a 100ms timer even during provider pauses, with serialized writes and no discarded output. The actual app/SQLite Electron fixture verifies restart/resume, uncertain-action protection, live output and stop; existing LLM inspector regression remains applicable. These are Chat adapters only: Ollama/Login node-runtime migrations in the phase table below are still pending. `flow-map/prompt-chat.md` owns Chat contracts and protocol references. No live paid provider call was used for validation.
+
 Make existing LLM calls observable while they execute, retaining final node output contracts. No managed inference engine, GPU manager, model downloads or new AI ecosystem in this task. HTTP streaming is sufficient; WebSocket is not a prerequisite. Provider-emitted reasoning is observable output, not access to hidden model computation.
 
 The inventory is the original static audit baseline. Implementation records below distinguish automated, desktop and live-provider validation. Older project-state/module documents contain historical states.

@@ -29,7 +29,14 @@ const trackers = Object.freeze({
         return () => ipcRenderer.removeListener("trackers-core:external-ai-login-progress", handler);
       },
       startLogin: ({ provider, confirmed = false } = {}) => request("desktop.externalAi.startLogin", { provider: String(provider || ""), confirmed: Boolean(confirmed) }),
-      sendMessage: ({ provider, prompt, model, reasoningEffort, speed } = {}) => request("desktop.externalAi.sendMessage", { provider: String(provider || ""), prompt: String(prompt || ""), model: String(model || ""), reasoningEffort: String(reasoningEffort || ""), speed: String(speed || "") }),
+      sendMessage: ({ provider, prompt, model, reasoningEffort, speed, requestId } = {}) => request("desktop.externalAi.sendMessage", { provider: String(provider || ""), prompt: String(prompt || ""), model: String(model || ""), reasoningEffort: String(reasoningEffort || ""), speed: String(speed || ""), requestId: String(requestId || "") }),
+      cancelMessage: ({ requestId } = {}) => request("desktop.externalAi.cancelMessage", { requestId: String(requestId || "") }),
+      onChatEvent: (requestId, listener) => {
+        if (typeof listener !== "function" || !requestId) return () => {};
+        const handler = (_event, value) => { if (value?.requestId === requestId) listener(value.frame); };
+        ipcRenderer.on("trackers-core:external-ai-chat-event", handler);
+        return () => ipcRenderer.removeListener("trackers-core:external-ai-chat-event", handler);
+      },
       logout: ({ provider, confirmed = false } = {}) => request("desktop.externalAi.logout", { provider: String(provider || ""), confirmed: Boolean(confirmed) })
     }),
     persistence: Object.freeze({
@@ -67,7 +74,8 @@ const trackers = Object.freeze({
     customNodePackages: Object.freeze({
       reviewProviders: () => request("desktop.customNodePackages.reviewProviders"),
       reviewImport: ({ importId, provider, maxTokens, confirmed = false } = {}) => request("desktop.customNodePackages.reviewImport", { importId: String(importId || ""), provider, maxTokens, confirmed: confirmed === true }),
-      prepareCreate: ({ manifest, source } = {}) => request("desktop.customNodePackages.prepareCreate", { manifest, source: String(source || "") }),
+      prepareCreate: ({ manifest, source, baseReference } = {}) => request("desktop.customNodePackages.prepareCreate", { manifest, source: String(source || ""), baseReference }),
+      readSource: ({ packageId, version, archiveSha256, confirmed = false } = {}) => request("desktop.customNodePackages.readSource", { packageId: String(packageId || ""), version: String(version || ""), archiveSha256: String(archiveSha256 || ""), confirmed: confirmed === true }),
       migrationHistory: ({ packageId } = {}) => request("desktop.customNodePackages.migrationHistory", { packageId: String(packageId || "") }),
       previewMigration: ({ source, target } = {}) => request("desktop.customNodePackages.previewMigration", { source, target }),
       applyMigration: ({ planId, confirmed = false } = {}) => request("desktop.customNodePackages.applyMigration", { planId: String(planId || ""), confirmed: confirmed === true }),
