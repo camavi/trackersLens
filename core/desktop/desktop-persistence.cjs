@@ -1136,6 +1136,89 @@ class DesktopPersistence {
   }
 
   // Core-only atomic safe-executor boundary. Never exposed as generic IPC.
+  applyNodeEdits({ workspaceId, edits, expected, confirmed = false, restoreSnapshotId = "" }) {
+    const { planNodeEdits, planGraphEdits, GRAPH_STORES, sortedGraph, busy } = require('./node-edit-plan.cjs');
+    if (typeof workspaceId !== 'string' || !workspaceId || workspaceId === 'all') throw new Error('Workspace non valido.');
+    const database = new DatabaseSync(this.databasePath);
+    try {
+      database.exec('BEGIN IMMEDIATE');
+      const read = (store, id) => {
+        const row = database.prepare('SELECT record_json FROM tl_records WHERE store_name = ? AND id = ?').get(store, id);
+        return row ? parseStoredJson(row.record_json) : null;
+      };
+      const readGraph = () => sortedGraph(Object.fromEntries(GRAPH_STORES.map(store => [store,
+        database.prepare('SELECT record_json FROM tl_records WHERE store_name = ? AND workspace_id = ? ORDER BY id').all(store, workspaceId).map(row => parseStoredJson(row.record_json))])));
+      let plan, graphMode = false;
+      if (restoreSnapshotId) {
+        const snapshot = read('tl_time_travel_snapshots', restoreSnapshotId);
+        if (!snapshot || !['node-edits', 'graph-edits'].includes(snapshot.restoreMode) || snapshot.workspaceId !== workspaceId) throw new Error('Snapshot non valido per questo workspace.');
+        graphMode = snapshot.restoreMode === 'graph-edits';
+        const current = graphMode ? readGraph() : snapshot.after.map(node => read('tl_runtime_nodes', node.id));
+        if (canonicalJson(current) !== canonicalJson(snapshot.after)) throw new Error('Nodi cambiati dopo la modifica: ripristino rifiutato.');
+        plan = { before: current, after: snapshot.before, changed: true };
+      } else {
+        if (!Array.isArray(edits)) throw new Error('Lista modifiche richiesta.');
+        graphMode = edits.some(edit => ['create', 'duplicate', 'delete', 'connect', 'disconnect'].includes(edit?.operation));
+        if (graphMode) plan = planGraphEdits({ graph: readGraph(), edits, workspaceId });
+        else {
+          const nodes = [...new Set(edits.map(edit => edit?.nodeId))].map(id => read('tl_runtime_nodes', id)).filter(Boolean);
+          plan = planNodeEdits({ nodes, edits, workspaceId });
+        }
+        if (confirmed === true && canonicalJson(plan.before) !== canonicalJson(expected)) throw new Error('Nodi cambiati: ripeti anteprima e conferma.');
+      }
+      const currentNodes = graphMode ? plan.before.tl_runtime_nodes : plan.before;
+      if (currentNodes.some(busy)) throw new Error('Ferma i nodi prima della modifica atomica.');
+      if (graphMode) {
+        const newNodes = plan.after.tl_runtime_nodes.filter(node => !plan.before.tl_runtime_nodes.some(previous => previous.id === node.id));
+        const packages = newNodes.some(node => node.metadata?.customPackage)
+          ? database.prepare("SELECT record_json FROM tl_records WHERE store_name = 'tl_packages'").all().map(row => parseStoredJson(row.record_json)) : [];
+        for (const node of newNodes) {
+          const reference = node.metadata?.customPackage;
+          if (!reference) continue;
+          const pkg = packages.find(pkg => pkg.packageId === reference.packageId && pkg.version === reference.version && pkg.archive?.sha256 === reference.archive?.sha256);
+          if (!reference.archive?.sha256 || !pkg || pkg.installState === 'disabled' || pkg.runtimeExecution !== reference.runtimeExecution) throw new Error('Pacchetto Custom Node cambiato o non disponibile: aggiorna la palette.');
+        }
+        // IDs are globally unique per store. Never overwrite another workspace,
+        // including during restore. Foreign references cannot be safely cascaded.
+        for (const store of GRAPH_STORES) for (const row of plan.after[store]) {
+          const existing = read(store, row.id);
+          if (existing && existing.workspaceId !== workspaceId) throw new Error('Identità già usata in un altro workspace.');
+        }
+        const ids = new Set([...plan.before.tl_runtime_nodes, ...plan.after.tl_runtime_nodes].map(row => row.id));
+        const connectionIds = new Set([...plan.before.tl_connections, ...plan.after.tl_connections].map(row => row.id));
+        for (const store of GRAPH_STORES) {
+          const foreign = database.prepare('SELECT record_json FROM tl_records WHERE store_name = ? AND (workspace_id != ? OR workspace_id IS NULL)').all(store, workspaceId).map(row => parseStoredJson(row.record_json));
+          if (foreign.some(row => [row.sourceNodeId, row.targetNodeId, row.sourceRef, row.targetRef, row.fromBoxId, row.toBoxId, row.producerNodeId, row.producerBoxId, ...(row.subscribers || []), ...(row.nodes || []).flatMap(node => [node.id, node.boxId])].some(id => ids.has(id)) || connectionIds.has(row.connectionId) || (row.connections || []).some(id => connectionIds.has(id)))) throw new Error('Riferimenti tra workspace: correggili prima della modifica atomica.');
+        }
+      }
+      const active = database.prepare("SELECT record_json FROM tl_records WHERE store_name = 'tl_ai_jobs' AND workspace_id = ?").all(workspaceId).map(row => parseStoredJson(row.record_json));
+      if (active.some(job => ['running', 'working', 'queued', 'pending'].includes(job.status))) throw new Error('Ferma i job AI del workspace prima della modifica atomica.');
+      if (confirmed !== true || !plan.changed) { database.exec('ROLLBACK'); return { ...plan, applied: false, workspaceId }; }
+      const snapshot = { id: `node_edits_${crypto.randomUUID()}`, workspaceId, restoreMode: graphMode ? 'graph-edits' : 'node-edits', schemaVersion: '1.0.0',
+        reason: restoreSnapshotId ? 'flow-chat-atomic-restore' : 'flow-chat-atomic-edit', label: 'Flow Chat: modifiche atomiche', before: plan.before, after: plan.after, createdAt: now() };
+      const insert = database.prepare('INSERT OR REPLACE INTO tl_records (store_name, id, workspace_id, record_json, created_at, updated_at) VALUES (?, ?, ?, ?, COALESCE((SELECT created_at FROM tl_records WHERE store_name = ? AND id = ?), ?), ?)');
+      const stores = graphMode ? GRAPH_STORES.map(name => [name, plan.after[name]]) : [['tl_runtime_nodes', plan.after]];
+      if (graphMode) {
+        const remove = database.prepare('DELETE FROM tl_records WHERE store_name = ? AND id = ? AND workspace_id = ?');
+        for (const [name, records] of stores) {
+          const retained = new Set(records.map(row => row.id));
+          for (const previous of plan.before[name]) if (!retained.has(previous.id)) remove.run(name, previous.id, workspaceId);
+        }
+      }
+      for (const [name, records] of [['tl_time_travel_snapshots', [snapshot]], ...stores]) {
+        const previous = new Map((graphMode ? plan.before[name] || [] : []).map(row => [row.id, row]));
+        const changedRecords = records.filter(row => !previous.has(row.id) || canonicalJson(previous.get(row.id)) !== canonicalJson(row));
+        for (const record of normalizeRecords(changedRecords)) insert.run(name, record.id, record.workspaceId, record.recordJson, name, record.id, now(), now());
+      }
+      database.exec('COMMIT');
+      const previousNodes = new Map((graphMode ? plan.before.tl_runtime_nodes : plan.before).map(node => [node.id, node]));
+      const nextNodes = new Map((graphMode ? plan.after.tl_runtime_nodes : plan.after).map(node => [node.id, node]));
+      const nodeIds = [...new Set([...previousNodes.keys(), ...nextNodes.keys()])].filter(id => canonicalJson(previousNodes.get(id) || null) !== canonicalJson(nextNodes.get(id) || null));
+      return { applied: true, workspaceId, snapshotId: snapshot.id, nodeIds, warnings: plan.warnings || [] };
+    } catch (error) { try { database.exec('ROLLBACK'); } catch (_) {} throw error; }
+    finally { database.close(); }
+  }
+
   commitCustomNodeMigration({ expected, records, snapshot }) {
     const stores = ["tl_packages", "tl_runtime_nodes", "tl_runtime_dependencies", "tl_connections", "tl_channels"];
     if (!snapshot?.id || snapshot.restoreMode !== "custom-node-migration") throw new Error("Invalid migration snapshot");

@@ -205,8 +205,8 @@
 }
 
 .tl-flow-prompt-chat {
-  display: grid;
-  grid-template-columns: minmax(190px, 250px) minmax(0, 1fr);
+  display: flex;
+  flex-direction: column;
   gap: 14px;
   width: 100%;
   min-width: 0;
@@ -216,8 +216,6 @@
 }
 
 .tl-flow-prompt-aside .tl-flow-prompt-chat {
-  grid-template-columns: 1fr;
-  grid-template-rows: minmax(0, 1fr);
   gap: 10px;
   height: 100%;
   padding: 10px;
@@ -226,7 +224,41 @@
 .tl-flow-prompt-aside .tl-flow-prompt-history,
 .tl-flow-prompt-aside .tl-flow-prompt-conversation {
   min-height: 0;
-  height: 100%;
+  height: auto;
+}
+
+.tl-flow-prompt-chat > .tl-flow-prompt-history,
+.tl-flow-prompt-chat > .tl-flow-prompt-conversation {
+  flex: 1 1 0;
+  min-height: 0;
+}
+
+.tl-flow-prompt-chat > .cms-btn {
+  flex: 0 0 auto;
+}
+
+.tl-flow-prompt-run-status {
+  min-height: 0;
+  min-width: 0;
+  overflow: auto;
+  overflow-wrap: anywhere;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.tl-flow-prompt-work-dialog-body {
+  min-width: 0;
+  max-height: 65vh;
+  overflow: auto;
+}
+
+.tl-flow-prompt-run-status details {
+  margin-top: 6px;
+}
+
+.tl-flow-prompt-run-status pre {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
 }
 
 .tl-flow-prompt-aside .tl-flow-prompt-history-list {
@@ -3430,7 +3462,6 @@
   }
 
   .tl-flow-prompt-chat {
-    grid-template-columns: 1fr;
     min-width: 0;
     height: calc(100vh - 150px);
     max-height: 100%;

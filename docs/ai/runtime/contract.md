@@ -37,6 +37,8 @@ Workspace/Page -> Flow -> Runtime Nodes -> Runtime Dependencies -> Connections -
 
 ## Schema/Form Rules
 
+Chat validation (2026-09-28): `validateConfigValue` checks declared field types, enum/options, numeric min/max, string lengths and nested properties/items without coercion. Optional `metadata.configRules` (or `metadata.manifest.configRules`) declares cross-field rules as `{kind, field, otherField, whenEquals?}`. Supported kinds are `requires`, `lessThanOrEqual`, `greaterThanOrEqual`; comparisons require finite numbers, and `whenEquals` gates a rule using exact JSON equality. Missing rules add no inferred limits. Unknown/malformed rules fail explicitly. Chat single edits validate the proposed final config; atomic edits validate the complete combined config, not intermediate states. The same runtime contract is usable by browser and Core; this is not a complete JSON Schema implementation.
+
 - Node configuration fields come from `settingsSchema` first, then node-specific runtime fields.
 - Use `TrackerLensRuntimeContract.normalizeSettingsSchema` before rendering schema-driven config fields.
 - Hardcoded form fields are allowed only for behavior-specific controls such as Telegram helpers or file upload.

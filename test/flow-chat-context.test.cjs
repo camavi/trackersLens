@@ -20,16 +20,58 @@ function setup() {
       return { ok: true, json: async () => ({ response: 'Answer' }) };
     },
   });
+  vm.runInContext(fs.readFileSync(require.resolve('../core/runtime/runtime-contract.js'), 'utf8'), context);
   vm.runInContext(fs.readFileSync(require.resolve('../js/flow-map/flowMapPromptChat.js'), 'utf8'), context);
   vm.runInContext(`globalThis.api = { conversation: flowPromptConversationContext,
     external: flowPromptBuildExternalReply, local: flowPromptBuildLocalToolProtocolReply,
     observations: flowPromptTurnObservations, recover: flowPromptReplyWithContextRecovery,
     overflow: flowPromptIsContextOverflow, graphProposal: flowPromptGraphProposal,
-    fingerprint: flowPromptGraphFingerprint, configUpdate: flowPromptValidConfigUpdate,
+    fingerprint: flowPromptGraphFingerprint, configUpdate: flowPromptValidConfigUpdate, constraints: flowPromptConfigConstraints, effectiveValue: flowPromptEffectiveNodeConfigValue,
     normalizePlan: flowPromptNormalizeAiPlan, recoveredActions: flowPromptRecoveredActions,
-    requestIdentity: flowPromptRequestIdentity, compatible: flowPromptCallOpenAiCompatible };`, context);
+    requestIdentity: flowPromptRequestIdentity, compatible: flowPromptCallOpenAiCompatible, atomic: flowPromptPrepareAtomicEdits };`, context);
   return { api: context.api, context, requests };
 }
+
+test('chat validates declared choices, integer bounds and nested fields without rewriting values', () => {
+  const { api } = setup();
+  const node = { metadata: { settingsSchema: {
+    count: { type: 'integer', minimum: 0, maximum: 10 },
+    choice: { type: 'string', options: ['', 'valid'] },
+    enabled: { type: 'boolean', required: true },
+    rows: { type: 'array', items: { type: 'object', required: ['name'], properties: { name: { type: 'string', minLength: 2 } }, additionalProperties: false } },
+  } } };
+  for (const value of [0, 10]) assert.equal(api.constraints(node, 'count', value).ok, true);
+  for (const value of [-1, 11, 1.5, '3']) assert.equal(api.constraints(node, 'count', value).ok, false);
+  assert.equal(api.constraints(node, 'choice', '').ok, true);
+  assert.equal(api.constraints(node, 'choice', 'invented').ok, false);
+  assert.equal(api.constraints(node, 'enabled', false).ok, true);
+  assert.equal(api.constraints(node, 'rows', [{ name: 'ok' }]).ok, true);
+  assert.equal(api.constraints(node, 'rows', [{ name: 'x', extra: true }]).ok, false);
+  assert.equal(api.constraints(node, 'rows', [{}]).ok, false);
+  assert.equal(api.constraints(node, 'undeclaredBudget', 10000000).ok, true);
+  node.metadata.settingsSchema.count.maximum = 2;
+  assert.equal(api.constraints(node, 'count', 3).ok, false, 'fresh schema must be authoritative');
+});
+
+test('UI-only choices are reused while explicit schema remains authoritative', () => {
+  const { api, context } = setup();
+  context.configFieldDefinitions = () => [{ key: 'method', type: 'select', options: ['GET', 'POST'] }];
+  assert.equal(api.constraints({ metadata: {} }, 'method', 'DELETE').ok, false);
+  assert.equal(api.constraints({ metadata: {} }, 'method', 'POST').ok, true);
+  const node = { metadata: { settingsSchema: { method: { type: 'string', enum: ['CUSTOM'] } } } };
+  assert.equal(api.constraints(node, 'method', 'CUSTOM').ok, true);
+  delete context.window.TrackerLensRuntimeContract;
+  assert.equal(api.constraints(node, 'method', 'CUSTOM').ok, false);
+});
+
+test('empty persisted fields remain readable and declared cross-field rules reject invalid single edits', () => {
+  const { api } = setup();
+  const node = { metadata: { config: { empty: '', nullable: null, min: 1, max: 3 }, settingsSchema: { min: 'number', max: 'number' }, configRules: [{ kind: 'lessThanOrEqual', field: 'min', otherField: 'max' }] } };
+  assert.equal(api.effectiveValue(node, 'empty').value, '');
+  assert.equal(api.effectiveValue(node, 'nullable').value, null);
+  assert.equal(api.constraints(node, 'min', 4).ok, false);
+  assert.equal(api.constraints(node, 'min', 0).ok, true);
+});
 
 test('chat API uses shared observation with scoped cancellation transport and explicit streaming settings', async () => {
   const { api, context } = setup();
@@ -203,6 +245,31 @@ test('creation preserves repeated palette instances and intentional disconnected
   assert.equal(api.normalizePlan({nodes,edges:[]}).edges.length,0);
   assert.equal(api.normalizePlan({nodes,edges:[{sourceKey:'Preview',targetKey:'second'}]}),null);
   assert.equal(api.normalizePlan({nodes:[nodes[0],nodes[0]],edges:[]}),null);
+});
+
+test('atomic protocol derives palette definitions locally, isolates aliases and rejects raw node injection', () => {
+  const { api, context } = setup();
+  context.window.crypto = require('node:crypto').webcrypto;
+  context.flatPalette = () => [{ label: 'Preview', nodeType: 'processor', subtype: 'preview', inputs: ['input'], outputs: [], settingsSchema: { count: 'integer' } }];
+  context.flowCoordinate = value => value;
+  context.safeRuntimeId = value => String(value);
+  context.FLOW_NODE_DEFAULT_WIDTH = 200;
+  const result = api.atomic([
+    { operation: 'create', newNodeId: '@preview', paletteLabel: 'Preview', config: { count: 0 }, node: { type: 'injected' }, manifest: { runtime: 'injected' } },
+    { operation: 'duplicate', nodeId: 'existing', newNodeId: '@copy', value: 'Copy' },
+    { operation: 'connect', sourceNodeId: '@copy', targetNodeId: '@preview', sourcePort: 'output', targetPort: 'input' },
+  ], 'w');
+  assert.deepEqual(Array.from(result.existingNodeIds), ['existing']);
+  assert.equal(result.edits[0].node.type, 'processor');
+  assert.equal(result.edits[0].node.metadata.config.count, 0);
+  assert.equal(result.edits[0].node.metadata.manifest, null);
+  assert.equal(result.edits[2].targetNodeId, result.aliases['@preview']);
+  assert.equal(result.edits[2].sourceNodeId, result.aliases['@copy']);
+  assert.equal(result.edits[0].node.runtime.active, false);
+  assert.throws(() => api.atomic([{ operation: 'delete', nodeId: '@undeclared' }], 'w'), /Alias/);
+  assert.throws(() => api.atomic([{ operation: 'create', newNodeId: '@x', paletteLabel: 'Missing' }], 'w'), /palette/);
+  assert.throws(() => api.atomic([{ operation: 'duplicate', nodeId: 'existing', newNodeId: 'real-id' }], 'w'), /Alias/);
+  assert.throws(() => api.atomic([{ operation: 'duplicate', nodeId: 'existing', newNodeId: '@x' }, { operation: 'duplicate', nodeId: 'existing', newNodeId: '@x' }], 'w'), /duplicato/);
 });
 
 test('run recovery keeps action receipts, excludes stale reads, and exposes uncertain side effects', () => {

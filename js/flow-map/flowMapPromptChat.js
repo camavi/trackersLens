@@ -487,6 +487,7 @@ const flowPromptEffectiveNodeConfigValue = (node = {}, key = "") => {
     const defaults = knowledgeAiPromptDefaults(subtype);
     if (typeof defaults?.[key] === "string" && defaults[key]) return { value: defaults[key], source: "node-default" };
   }
+  if (Object.prototype.hasOwnProperty.call(config, key) && config[key] !== undefined) return { value: config[key], source: "persisted" };
   return { value: undefined, source: "unconfigured" };
 };
 
@@ -668,6 +669,7 @@ const flowPromptBuildExternalReply = async (providerId = "", prompt = "", { conv
     "Answer in the user's language. You can advise and explain, but cannot apply changes to the Flow Map.",
     FLOW_PROMPT_GRAPH_ACTION_PROTOCOL,
     FLOW_PROMPT_PACKAGE_PROTOCOL,
+    FLOW_PROMPT_ATOMIC_PROTOCOL,
     "For proposed_plan, give every node a unique key in addition to its exact palette label, and reference those keys in edges. Multiple instances may share the same palette label. An empty edges array means disconnected nodes; TL does not invent connections or implicitly reuse existing nodes.",
     "Never claim to have filesystem, terminal, browser, or workspace access. Any Flow change remains a separate confirmed TL action.",
     "For a question about the current Trackers Lens state, configuration, node, connection, run, count, log or document, catalog metadata and prior assistant text are not evidence. If the user did not provide the exact fact, use the relevant available TL tool before answering. For a visible Flow node, prefer tl.workspace.resolveNode before asking the user to select it or provide its id: it preserves ambiguity by returning every match, but returns node metadata when the match is unique. If no suitable tool exists or access is denied, say that clearly without inventing a result.",
@@ -732,6 +734,7 @@ const flowPromptBuildLocalToolProtocolReply = async (prompt = "", { conversation
     "Answer in the user's language. You can advise and explain, but cannot apply changes to the Flow Map.",
     FLOW_PROMPT_GRAPH_ACTION_PROTOCOL,
     FLOW_PROMPT_PACKAGE_PROTOCOL,
+    FLOW_PROMPT_ATOMIC_PROTOCOL,
     "For proposed_plan, give every node a unique key in addition to its exact palette label, and reference those keys in edges. Multiple instances may share the same palette label. An empty edges array means disconnected nodes; TL does not invent connections or implicitly reuse existing nodes.",
     "Never claim filesystem, terminal, browser or workspace access. Current node/runtime/configuration facts require a Trackers Lens tool observation.",
     "Use the supplied static fast-path descriptors directly. For a visible Flow node you MUST call tl.workspace.resolveNode first; do not call tl.workspace.findNodes, tl.workspace.inspectNode or catalog discovery for that same visible reference. resolveNode returns the stable ID and compact inspection when the match is unique. Read actual settings only with tl.workspace.inspectNodeConfig and only for the necessary keys. For a node's Python runtime, resolve the node then call tl.python.inspectNodeRuntime; do not split that read into resolveNodeRequirements and getNodeRuntimeStatus.",
@@ -812,7 +815,65 @@ const flowPromptGraphFingerprint = (runtime = {}, ids = []) => JSON.stringify({
 });
 
 const flowPromptPackageKey = (reference = {}) => JSON.stringify([reference.packageId, reference.version, reference.archiveSha256]);
+const FLOW_PROMPT_ATOMIC_PROTOCOL = 'For coordinated edits propose {"type":"proposed_action","action":"edit_nodes_atomic","args":{"edits":[{"operation":"config","nodeId":"exact ID","field":"existing config field","value":0},{"operation":"rename","nodeId":"exact ID","value":"New name"},{"operation":"move","nodeId":"exact ID","position":{"x":0,"y":0}}]}}. Also supported: {"operation":"create","newNodeId":"@new","paletteLabel":"exact palette label","value":"Instance name","config":{},"position":{"x":0,"y":0}}, {"operation":"duplicate","nodeId":"existing ID","newNodeId":"@copy","value":"Copy name"}, {"operation":"delete","nodeId":"existing ID"}, and {"operation":"connect|disconnect","sourceNodeId":"ID or earlier @alias","targetNodeId":"ID or earlier @alias","sourcePort":"exact output","targetPort":"exact input"}. New aliases must start with @ and be unique; TL assigns real IDs. Declare create/duplicate before links to them. Resolve and inspect every existing affected node, and read each changed existing config field in this turn first. TL validates current palette declarations, confirms the complete before/after and commits all changes with one snapshot or none. Deletion preserves runtime data/logs. New nodes stay inactive; shared channels retain existing producers. Config edits apply to final combined configuration. Do not delete and edit the same node in a batch. Re-read after apply. Stale state or active runtime blocks the batch.';
+
+const flowPromptPrepareAtomicEdits = (proposals, workspaceId) => {
+  if (!Array.isArray(proposals) || !proposals.length) throw new Error("Lista modifiche mancante.");
+  const aliases = new Map(), existingNodeIds = new Set();
+  const resolve = id => {
+    if (typeof id !== "string" || !id) throw new Error("Identità nodo mancante.");
+    if (id.startsWith("@")) {
+      if (!aliases.has(id)) throw new Error("Alias non ancora dichiarato.");
+      return aliases.get(id);
+    }
+    existingNodeIds.add(id); return id;
+  };
+  const newId = alias => {
+    if (typeof alias !== "string" || !alias.startsWith("@") || alias.length < 2 || aliases.has(alias)) throw new Error("Alias nuovo mancante o duplicato.");
+    const id = `chat_${window.crypto.randomUUID()}`; aliases.set(alias, id); return id;
+  };
+  const edits = proposals.map((proposal, index) => {
+    if (!proposal || typeof proposal !== "object") throw new Error("Modifica non valida.");
+    const { operation } = proposal;
+    if (operation === "create") {
+      const item = flowPromptPaletteItem(proposal.paletteLabel);
+      if (!item) throw new Error("Nodo non presente nella palette attuale.");
+      const config = proposal.config ?? {};
+      if (flowPromptConfigType(config) !== "object" || !flowPromptValidConfigUpdate({}, config, "config")) throw new Error("Configurazione di creazione non valida.");
+      const defaults = Object.fromEntries(Object.entries(item.settingsSchema || {}).filter(([, field]) => field && typeof field === "object" && Object.hasOwn(field, "defaultValue")).map(([key, field]) => [key, field.defaultValue]));
+      const spec = flowPromptSpecFromPalette(item.label, { config: { ...defaults, ...config } });
+      const node = flowPromptNodeFromSpec({ spec, workspaceId, index });
+      node.id = newId(proposal.newNodeId); node.sourceRef = node.id;
+      if (proposal.value !== undefined) node.label = proposal.value;
+      node.flowPosition = proposal.position !== undefined ? proposal.position : { ...node.flowPosition, x: Number(String(node.flowPosition.x).replace(/px$/, "")), y: Number(String(node.flowPosition.y).replace(/px$/, "")) };
+      node.runtime = { status: "idle", active: false };
+      return { operation, node };
+    }
+    if (operation === "duplicate") return { operation, nodeId: resolve(proposal.nodeId), newNodeId: newId(proposal.newNodeId), value: proposal.value, ...(proposal.position ? { position: proposal.position } : {}) };
+    if (["connect", "disconnect"].includes(operation)) return { operation, sourceNodeId: resolve(proposal.sourceNodeId), targetNodeId: resolve(proposal.targetNodeId), sourcePort: proposal.sourcePort, targetPort: proposal.targetPort,
+      ...(operation === "connect" ? { dependencyId: `dep_chat_${window.crypto.randomUUID()}`, connectionId: `flow_chat_${window.crypto.randomUUID()}` } : {}) };
+    const nodeId = resolve(proposal.nodeId);
+    if (operation === "config") return { operation, nodeId, field: proposal.field, value: proposal.value };
+    if (operation === "rename") return { operation, nodeId, value: proposal.value };
+    if (operation === "move") return { operation, nodeId, position: proposal.position };
+    if (operation === "delete") return { operation, nodeId };
+    throw new Error("Operazione atomica non supportata.");
+  });
+  return { edits, existingNodeIds: [...existingNodeIds], aliases: Object.fromEntries(aliases) };
+};
 const flowPromptConfigType = value => value === null ? "null" : Array.isArray(value) ? "array" : typeof value;
+const flowPromptConfigConstraints = (node, field, value) => {
+  const schema = node.metadata?.settingsSchema || node.metadata?.manifest?.settingsSchema || {};
+  const declared = Object.hasOwn(schema, field) ? schema[field] : null;
+  const ui = typeof configFieldDefinitions === "function" ? configFieldDefinitions(node).find(item => item.key === field) : null;
+  // UI-only controls contribute explicit choices, not inferred types or budgets.
+  const definition = declared ?? (ui?.type === "select" ? { options: ui.options } : {});
+  const validator = window.TrackerLensRuntimeContract?.validateConfigValue;
+  if (!validator) return { ok: false, errors: ["Validatore delle configurazioni non disponibile."] };
+  const result = validator(value, definition, field);
+  const rules = window.TrackerLensRuntimeContract.validateConfigRules({ ...(node.metadata?.config || {}), [field]: value }, node.metadata?.configRules || node.metadata?.manifest?.configRules || []);
+  return { ok: result.ok && rules.ok, errors: [...result.errors, ...rules.errors] };
+};
 const flowPromptValidConfigUpdate = (previous, next, field = "") => {
   if (["__proto__", "prototype", "constructor"].includes(field)) return false;
   const jsonValue = value => {
@@ -1159,6 +1220,14 @@ const FLOW_PROMPT_AGENT_TOOLS = Object.freeze([
     description: "Rename one existing runtime node.",
   },
   {
+    name: "applyNodeEdits",
+    label: "Atomic Node Edits",
+    category: "write",
+    status: "ready",
+    mutates: true,
+    description: "Confirmed atomic node/config/topology edits through Core SQLite with a scoped snapshot; deletion preserves produced data.",
+  },
+  {
     name: "updateNodeConfig",
     label: "Update Node Config",
     category: "write",
@@ -1334,6 +1403,9 @@ const flowPromptSpecFromPalette = (label, overrides = {}) => {
     manifest: item.manifest || overrides.manifest || null,
     runtime: item.runtime || item.manifest?.runtime || overrides.runtime || {},
     settingsSchema: item.settingsSchema || item.manifest?.settingsSchema || overrides.settingsSchema || {},
+    configRules: item.configRules || item.manifest?.configRules || [],
+    customPackage: item.customPackage || null,
+    runtimeBlocked: Boolean(item.runtimeBlocked || item.customPackage?.runtimeExecution === "blocked"),
     connectionType: item.connectionType || item.url || overrides.connectionType || label,
     config: overrides.config || {},
     description: overrides.description || "",
@@ -6000,6 +6072,9 @@ const flowPromptNodeFromSpec = ({ spec, workspaceId, index }) => {
       manifest: spec.manifest || null,
       permissions: spec.permissions || [],
       settingsSchema: spec.settingsSchema || {},
+      configRules: spec.configRules || [],
+      customPackage: spec.customPackage || null,
+      runtimeBlocked: Boolean(spec.runtimeBlocked),
       runtimeMetadata: spec.runtime || {},
       config: spec.config || {},
       configured: true,
@@ -6399,6 +6474,8 @@ const openFlowPromptChatDialog = async (options = {}) => {
     providerLoading: false,
   };
   let aside = null;
+  let workDialog = null;
+  let workDialogBody = null;
   let stopLoginProgress = null;
   let stopProviderChoice = null;
 
@@ -6909,7 +6986,7 @@ const openFlowPromptChatDialog = async (options = {}) => {
       const resolvedValues = requestedKeys.map((key) => [key, flowPromptEffectiveNodeConfigValue(effectiveNode, key)]);
       const values = Object.fromEntries(resolvedValues.map(([key, resolved]) => [key, resolved.value]).filter(([, value]) => value !== undefined));
       const sources = Object.fromEntries(resolvedValues.map(([key, resolved]) => [key, resolved.source]));
-      providerToolDiscovery.nodeConfigReads.set(matchedNode.id, new Set(Object.keys(values)));
+      providerToolDiscovery.nodeConfigReads.set(matchedNode.id, new Set([...(providerToolDiscovery.nodeConfigReads.get(matchedNode.id) || []), ...Object.keys(values)]));
       return {
         ok: true,
         tool,
@@ -7100,7 +7177,7 @@ const openFlowPromptChatDialog = async (options = {}) => {
           draft.error = reply;
           break;
         }
-        if (["edit_graph", "draft_custom_node", "test_custom_node"].includes(proposedAction?.action)) {
+        if (["draft_custom_node", "test_custom_node"].includes(proposedAction?.action)) {
           const proposalKey = JSON.stringify(proposedAction);
           let observation;
           try {
@@ -7132,33 +7209,6 @@ const openFlowPromptChatDialog = async (options = {}) => {
                 ? await window.trackers.runtime.customNodeSandbox.run({ ...reference, nodeId: `package-test-${flowPromptMessageId("chat")}`, inputs, config, context: { mode: "package-test" } })
                 : { ok: false, status: "denied" };
               if (approved) await appendMessage({ role: "assistant", kind: "text", content: `Risultato del test sandbox della versione ${reference.version} (${reference.archiveSha256}):\n${JSON.stringify(observation, null, 2)}` });
-            } else {
-              await loadRuntime({ force: true });
-              const action = flowPromptGraphProposal({ args: proposedAction.args, runtime: state.runtime, workspaceId: draft.workspaceId, resolved: providerToolDiscovery.resolvedNodeIds, inspected: providerToolDiscovery.inspectedNodeIds });
-              const validation = flowPromptValidateAgentAction(action);
-              if (!validation.ok) throw new Error(validation.reason);
-              const approved = await new Promise((resolve) => {
-                const dialog = _.Dialog({ title: "Conferma modifica del Flow", closeButton: true, onClose: () => resolve(false),
-                  content: () => _.div(_.p(action.summary), _.p(action.type === "deleteNode" ? "Eliminazione del nodo, dei collegamenti e dei riferimenti runtime associati. Verrà acquisito uno snapshot Time Travel." : "Verrà acquisito uno snapshot Time Travel prima della modifica."),
-                    _.pre(JSON.stringify({ proposal: proposedAction.args, affected: JSON.parse(action.expectedGraph) }, null, 2))),
-                  actions: ({ close }) => _.Toolbar({ align: "end" },
-                    flowMapBtn({ onclick: () => { resolve(false); close(); } }, "Annulla"),
-                    flowMapBtn({ onclick: () => { resolve(true); close(); } }, "Conferma modifica")),
-                }); dialog.open();
-              });
-              if (!approved) observation = { ok: false, status: "denied" };
-              else {
-                await loadRuntime({ force: true });
-                await checkpoint({ status: "executing", pendingAction: proposedAction });
-                await applyAgentAction(action, { allowWhileBusy: true });
-                observation = { ok: action.status === "applied", status: action.status === "applied" ? "completed" : "failed", snapshotId: action.snapshotId || "", results: action.execution?.appliedSteps || [], message: action.status === "applied" ? action.summary : draft.error };
-                // Reads before a mutation must not authorize the next mutation.
-                providerToolDiscovery.resolvedNodeIds.clear();
-                providerToolDiscovery.inspectedNodeIds.clear();
-                providerToolDiscovery.nodeConfigReads.clear();
-                providerToolDiscovery.completedReadRequests.clear();
-                observedRequests.clear();
-              }
             }
           } catch (error) { observation = { ok: false, status: "blocked", message: error.message }; }
           const entry = { request: proposedAction, observation };
@@ -7203,6 +7253,60 @@ const openFlowPromptChatDialog = async (options = {}) => {
           rounds += 1;
           continue;
         }
+        if (["edit_nodes_atomic", "edit_graph"].includes(proposedAction?.action)) {
+          const proposalKey = `atomic:${flowPromptRequestIdentity(proposedAction.args)}`;
+          if (providerToolDiscovery.proposedActionKeys.has(proposalKey)) {
+            reply = "Il provider ha ripetuto la stessa proposta atomica già valutata. Nessuna modifica ripetuta.";
+            draft.error = reply; break;
+          }
+          providerToolDiscovery.proposedActionKeys.add(proposalKey);
+          let observation;
+          try {
+            await loadRuntime({ force: true });
+            const args = proposedAction.args;
+            const proposals = proposedAction.action === "edit_graph"
+              ? [{ ...args, value: args.nextLabel, ...(args.operation === "duplicate" ? { newNodeId: "@copy" } : {}) }]
+              : args.edits;
+            const prepared = flowPromptPrepareAtomicEdits(proposals, draft.workspaceId);
+            const { edits, existingNodeIds } = prepared;
+            for (const id of existingNodeIds) if (!providerToolDiscovery.resolvedNodeIds.has(id) || !providerToolDiscovery.inspectedNodeIds.has(id)) throw new Error("Risolvi e ispeziona ogni nodo in questo turno.");
+            for (const edit of edits) if (edit.operation === "config" && existingNodeIds.includes(edit.nodeId) && !providerToolDiscovery.nodeConfigReads.get(edit.nodeId)?.has(edit.field)) throw new Error("Leggi ogni campo modificato in questo turno.");
+            const action = { type: "applyNodeEdits", status: "ready", edits };
+            const validation = flowPromptValidateAgentAction(action);
+            if (!validation.ok) throw new Error(validation.reason);
+            const bridge = window.trackers.desktop.flowChat;
+            const preview = await bridge.applyNodeEdits({ workspaceId: draft.workspaceId, edits });
+            await checkpoint({ status: "waiting-approval", observations: observedToolResults });
+            const approved = await new Promise(resolve => {
+              const dialog = _.Dialog({ title: "Conferma modifiche atomiche", closeButton: true, onClose: () => resolve(false),
+                content: () => _.div(_.p("Tutte le modifiche saranno salvate insieme, con un unico snapshot. Se lo stato cambia, nessuna modifica verrà applicata. Le cancellazioni preservano risultati e log; i nuovi nodi restano inattivi."), _.pre(JSON.stringify({ edits, aliases: prepared.aliases, warnings: preview.warnings || [], before: preview.before, after: preview.after }, null, 2))),
+                actions: ({ close }) => _.Toolbar({ align: "end" }, flowMapBtn({ onclick: () => { resolve(false); close(); } }, "Annulla"), flowMapBtn({ onclick: () => { resolve(true); close(); } }, "Applica tutte")),
+              }); dialog.open();
+            });
+            if (!approved) observation = { ok: false, status: "denied" };
+            else {
+              await loadRuntime({ force: true });
+              const fresh = flowPromptValidateAgentAction(action);
+              if (!fresh.ok) throw new Error(fresh.reason);
+              await checkpoint({ status: "executing", pendingAction: proposedAction });
+              const result = await bridge.applyNodeEdits({ workspaceId: draft.workspaceId, edits, expected: preview.before, confirmed: true });
+              observation = { ok: true, status: result.applied ? "completed" : "not-needed", ...result, aliases: prepared.aliases };
+              if (result.snapshotId) draft.activeChat.atomicSnapshotId = result.snapshotId;
+              // Save the receipt before refresh or another provider request can fail.
+              await checkpoint({ pendingAction: null, observations: [...observedToolResults, { request: proposedAction, observation }], atomicSnapshotId: result.snapshotId || draft.activeChat.agentRun.atomicSnapshotId });
+              for (const id of existingNodeIds) { providerToolDiscovery.nodeConfigReads.delete(id); providerToolDiscovery.inspectedNodeIds.delete(id); }
+              observedRequests.clear(); providerToolDiscovery.completedReadRequests.clear();
+              await loadRuntime({ force: true }); mount({ preserveScroll: true });
+            }
+          } catch (error) {
+            if (draft.activeChat.agentRun?.pendingAction) throw error;
+            if (observation?.ok && observation.applied) throw error;
+            observation = { ok: false, status: "failed", limitations: [error.message] };
+          }
+          toolTrace.push({ request: proposedAction, observation }); observedToolResults.push({ request: proposedAction, observation });
+          reply = await buildProtocolReply({ ...baseReplyOptions, toolObservations: observedToolResults, toolProtocolProgress: providerToolProtocolProgress() });
+          rounds += 1; continue;
+        }
         if (proposedAction?.action === "update_node_config") {
           await loadRuntime({ force: true });
           const nodeId = String(proposedAction.args?.nodeId || "").trim();
@@ -7222,8 +7326,11 @@ const openFlowPromptChatDialog = async (options = {}) => {
             observation = { ok: false, action: "update_node_config", status: "blocked", nodeId, limitations: ["The update requires the exact configuration field to be read with tl.workspace.inspectNodeConfig in this turn."] };
           } else {
             const previousValue = flowPromptEffectiveNodeConfigValue(node, field).value;
+            const constraints = flowPromptConfigConstraints(node, field, nextValue);
             if (!flowPromptValidConfigUpdate(previousValue, nextValue, field)) {
               observation = { ok: false, action: "update_node_config", status: "blocked", nodeId, field, limitations: ["Il nuovo valore deve conservare il tipo JSON del campo letto."] };
+            } else if (!constraints.ok) {
+              observation = { ok: false, action: "update_node_config", status: "blocked", nodeId, field, limitations: constraints.errors };
             } else if (JSON.stringify(previousValue) === JSON.stringify(nextValue)) {
               observation = { ok: true, action: "update_node_config", status: "not-needed", nodeId, field, value: nextValue, limitations: ["The field already has the requested value."] };
             } else {
@@ -7588,6 +7695,12 @@ const openFlowPromptChatDialog = async (options = {}) => {
   };
 
   const refresh = () => {
+    if (workDialogBody) {
+      const expanded = workDialogBody.querySelector('details')?.open;
+      workDialogBody.replaceChildren(renderWorkStatus());
+      const details = workDialogBody.querySelector('details');
+      if (details) details.open = Boolean(expanded);
+    }
     const asideRoot = document.querySelector("[data-flow-prompt-aside]");
     const root = document.querySelector("[data-flow-prompt-chat]");
     if (asideRoot) asideRoot.replaceChildren(...renderAsideShell(), renderAsideResizeHandle());
@@ -8420,6 +8533,30 @@ const openFlowPromptChatDialog = async (options = {}) => {
     }
   };
 
+  const restoreAtomicEdits = async () => {
+    if (draft.busy || !draft.activeChat.atomicSnapshotId) return;
+    draft.busy = true; draft.error = ""; refresh();
+    try {
+      const args = { workspaceId: draft.workspaceId, restoreSnapshotId: draft.activeChat.atomicSnapshotId };
+      const bridge = window.trackers.desktop.flowChat;
+      assertAtomicRuntimeIdle();
+      const preview = await bridge.applyNodeEdits(args);
+      const approved = await new Promise(resolve => {
+        const dialog = _.Dialog({ title: "Ripristina modifiche atomiche", closeButton: true, onClose: () => resolve(false),
+          content: () => _.div(_.p("Ripristino dei record mostrati nell’anteprima. Per modifiche strutturali viene verificata l’intera topologia del workspace: modifiche o nuovi valori dei canali successivi bloccano il ripristino. Documenti, risultati e log non vengono cancellati."), _.pre(JSON.stringify(preview, null, 2))),
+          actions: ({ close }) => _.Toolbar({ align: "end" }, flowMapBtn({ onclick: () => { resolve(false); close(); } }, "Annulla"), flowMapBtn({ onclick: () => { resolve(true); close(); } }, "Ripristina")),
+        }); dialog.open();
+      });
+      if (!approved) return;
+      assertAtomicRuntimeIdle();
+      const result = await bridge.applyNodeEdits({ ...args, confirmed: true });
+      draft.activeChat.atomicSnapshotId = result.snapshotId;
+      await appendMessage({ role: "assistant", kind: "text", content: "Modifiche atomiche ripristinate. Il ripristino ha un proprio snapshot.", snapshotId: result.snapshotId });
+      await loadRuntime({ force: true }); mount({ preserveScroll: true });
+    } catch (error) { draft.error = error.message; }
+    finally { draft.busy = false; refresh(); }
+  };
+
   const focusAgentNode = (nodeId = "") => {
     const node = flowPromptRuntimeNodeById(nodeId);
     if (!node) return;
@@ -8472,6 +8609,15 @@ const openFlowPromptChatDialog = async (options = {}) => {
     return tool;
   };
 
+  const assertAtomicRuntimeIdle = () => {
+    const controller = window.TrackerLensNodeExecutionController?.get?.(draft.workspaceId);
+    const active = (state.runtime.nodes || []).some(node => {
+      const status = controller?.snapshot?.(node.id);
+      return status?.active || status?.queued || ["running", "working", "queued"].includes(node.runtime?.status);
+    });
+    if (state.testRun?.running || active || state.runtimeLoadInFlight) throw new Error("Attendi la fine delle esecuzioni e del caricamento prima della modifica atomica.");
+  };
+
   const flowPromptValidateAgentAction = (action = {}) => {
     if (action.expectedGraph && (currentWorkspaceId() !== action.expectedWorkspaceId || flowPromptGraphFingerprint(state.runtime, action.expectedNodeIds) !== action.expectedGraph)) {
       return { ok: false, reason: "Il Flow è cambiato dopo la proposta: rileggi i nodi e prepara una nuova modifica." };
@@ -8482,6 +8628,59 @@ const openFlowPromptChatDialog = async (options = {}) => {
     }
     if (flowPromptActionAlreadyApplied(action)) {
       return { ok: false, reason: "Azione gia applicata nel runtime corrente.", action, tool };
+    }
+    if (action.type === "applyNodeEdits") {
+      try { assertAtomicRuntimeIdle(); } catch (error) { return { ok: false, reason: error.message }; }
+      if (!Array.isArray(action.edits) || !action.edits.length) return { ok: false, reason: "Modifiche mancanti." };
+      const copies = new Map();
+      for (const edit of action.edits) {
+        if (edit.operation === "create") {
+          const palette = flowPromptPaletteItem(edit.node?.metadata?.paletteLabel);
+          if (!palette) return { ok: false, reason: "Palette non più disponibile." };
+          const current = flowPromptSpecFromPalette(palette.label);
+          const declared = edit.node.metadata;
+          if (JSON.stringify([current.type, current.inputs, current.outputs, current.manifest, current.settingsSchema, current.configRules, current.runtime, current.permissions, current.customPackage, current.runtimeBlocked]) !== JSON.stringify([edit.node.type, edit.node.inputs, edit.node.outputs, declared.manifest, declared.settingsSchema, declared.configRules, declared.runtimeMetadata, declared.permissions, declared.customPackage, declared.runtimeBlocked])) return { ok: false, reason: "Definizione palette cambiata: ripeti la proposta." };
+          copies.set(edit.node.id, JSON.parse(JSON.stringify(edit.node)));
+          continue;
+        }
+        if (["connect", "disconnect"].includes(edit.operation)) {
+          const source = copies.get(edit.sourceNodeId) || flowPromptRuntimeNodeById(edit.sourceNodeId);
+          const target = copies.get(edit.targetNodeId) || flowPromptRuntimeNodeById(edit.targetNodeId);
+          if (!source || !target || source.workspaceId !== draft.workspaceId || target.workspaceId !== draft.workspaceId || !flowPromptNodePortNames(source, "out").includes(edit.sourcePort) || !flowPromptNodePortNames(target, "in").includes(edit.targetPort)) return { ok: false, reason: "Nodi o porte non validi nel workspace." };
+          continue;
+        }
+        const node = copies.get(edit.nodeId) || flowPromptRuntimeNodeById(edit.nodeId);
+        if (!node || node.workspaceId !== draft.workspaceId) return { ok: false, reason: "Nodo fuori dal workspace." };
+        if (!copies.has(node.id)) copies.set(node.id, JSON.parse(JSON.stringify(node)));
+        if (edit.operation === "duplicate") {
+          copies.set(edit.newNodeId, { ...JSON.parse(JSON.stringify(node)), id: edit.newNodeId, label: edit.value });
+          continue;
+        }
+        if (edit.operation === "config") {
+          if (!flowPromptValidConfigUpdate(node.metadata?.config?.[edit.field], edit.value, edit.field)) return { ok: false, reason: "Tipo configurazione non valido." };
+          if (edit.field === "endpoint") {
+            const endpoint = flowPromptValidateEndpointCandidate({ value: edit.value, method: node.metadata?.config?.method || "GET" });
+            if (!endpoint.ok) return { ok: false, reason: endpoint.reason };
+          }
+          copies.get(node.id).metadata.config[edit.field] = edit.value;
+        } else if (!["rename", "move", "delete"].includes(edit.operation)) return { ok: false, reason: "Operazione non atomica." };
+      }
+      for (const edit of action.edits.filter(edit => edit.operation === "config")) {
+        const result = flowPromptConfigConstraints(copies.get(edit.nodeId), edit.field, edit.value);
+        if (!result.ok) return { ok: false, reason: result.errors.join("\n") };
+      }
+      for (const edit of action.edits.filter(edit => edit.operation === "create")) {
+        const node = copies.get(edit.node.id);
+        for (const [field, value] of Object.entries(node.metadata.config || {})) {
+          const result = flowPromptConfigConstraints(node, field, value);
+          if (!result.ok) return { ok: false, reason: result.errors.join("\n") };
+          if (field === "endpoint") {
+            const endpoint = flowPromptValidateEndpointCandidate({ value, method: node.metadata.config.method || "GET" });
+            if (!endpoint.ok) return { ok: false, reason: endpoint.reason };
+          }
+        }
+      }
+      return { ok: true, action, tool };
     }
     if (action.type === "connect") {
       const source = flowPromptRuntimeNodeById(action.source?.id || action.sourceNodeId || "");
@@ -8547,6 +8746,10 @@ const openFlowPromptChatDialog = async (options = {}) => {
       if (!node) return { ok: false, reason: "Nodo da aggiornare non trovato.", action, tool };
       if (action.typedConfig ? !flowPromptValidConfigUpdate(flowPromptEffectiveNodeConfigValue(node, field).value, value, field) : !value) return { ok: false, reason: "Valore configurazione non valido.", action, tool };
       const target = action.target || "config";
+      if (action.typedConfig && target === "config") {
+        const constraints = flowPromptConfigConstraints(node, field, value);
+        if (!constraints.ok) return { ok: false, reason: constraints.errors.join("\n"), action, tool };
+      }
       if (target === "config" && field === "endpoint") {
         const validation = flowPromptValidateEndpointCandidate({
           value,
@@ -10759,9 +10962,8 @@ const openFlowPromptChatDialog = async (options = {}) => {
     ];
   }
 
-  function renderContent() {
+  function renderWorkStatus() {
     return _.div(
-      { class: `tl-flow-prompt-chat is-${draft.view}`, "data-flow-prompt-chat": "true" },
       draft.activeChat.agentRun ? _.div({ class: "tl-flow-prompt-run-status", role: "status" },
         _.span(`Lavoro: ${draft.activeChat.agentRun.status}`),
         _.span(draft.activeChat.agentRun.transport === "streaming" ? " · Streaming" : draft.activeChat.agentRun.transport === "events" ? " · Eventi live (messaggi completati)" : " · Risposta completa alla fine"),
@@ -10774,12 +10976,30 @@ const openFlowPromptChatDialog = async (options = {}) => {
         !draft.busy && ["failed", "interrupted", "cancelled"].includes(draft.activeChat.agentRun.status)
           ? flowMapBtn({ onclick: () => analyze(draft.activeChat.agentRun.prompt, { resume: true }) }, "Riprendi lavoro") : null,
         _.details(_.summary("Stato salvato del lavoro"), _.pre(JSON.stringify(draft.activeChat.agentRun, null, 2)))
-      ) : null,
+      ) : _.p("Nessun lavoro avviato in questa chat."),
+      !draft.busy && draft.activeChat.atomicSnapshotId ? flowMapBtn({ onclick: restoreAtomicEdits }, "Ripristina ultime modifiche atomiche") : null,
+    );
+  }
+
+  function openWorkDialog() {
+    if (workDialog) return;
+    workDialogBody = _.div({ class: "tl-flow-prompt-work-dialog-body" }, renderWorkStatus());
+    workDialog = _.Dialog({ title: "Lavoro", icon: "assignment", closeButton: true,
+      content: () => workDialogBody,
+      onClose: () => { workDialog = null; workDialogBody = null; },
+    });
+    workDialog.open();
+  }
+
+  function renderContent() {
+    return _.div(
+      { class: `tl-flow-prompt-chat is-${draft.view}`, "data-flow-prompt-chat": "true" },
       ...renderContentBody()
     );
   }
 
   const closeAside = () => {
+    workDialog?.close();
     if (!aside) return;
     if (draft.busy) {
       flowPromptSaveOpenState(false, draft.workspaceId);
@@ -10822,6 +11042,12 @@ const openFlowPromptChatDialog = async (options = {}) => {
           title: "Impostazioni chat: provider, modello e permessi",
           onclick: openChatSettingsDialog,
         }, flowMapIcon("tune", "sm")),
+        flowMapBtn({
+          class: "is-ghost is-icon-only",
+          "aria-label": "Lavoro della chat",
+          title: "Lavoro della chat",
+          onclick: openWorkDialog,
+        }, flowMapIcon("assignment", "sm")),
         flowMapBtn({
           class: "is-ghost is-icon-only",
           "aria-label": "Pattern salvati",

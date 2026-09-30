@@ -11,12 +11,32 @@ app.setPath('userData', directory);
 const persistence = new DesktopPersistence({ databasePath: path.join(directory, 'test.sqlite') });
 persistence.initialize();
 const runs = new ExternalAiChatRuns();
-let mode = 'answer', calls = [], aborted = false;
+let mode = 'answer', calls = [], aborted = false, atomicStep = 0;
+const atomicEdits = [{ operation: 'config', nodeId: 'atomic-node', field: 'min', value: 5 }, { operation: 'config', nodeId: 'atomic-node', field: 'max', value: 8 }, { operation: 'rename', nodeId: 'atomic-node', value: 'Atomic renamed' },
+  { operation: 'create', newNodeId: '@preview', paletteLabel: 'Preview', value: 'Atomic preview', config: { mode: 'raw' } },
+  { operation: 'duplicate', nodeId: 'atomic-node', newNodeId: '@copy', value: 'Atomic copy' },
+  { operation: 'connect', sourceNodeId: '@copy', targetNodeId: '@preview', sourcePort: 'output', targetPort: 'raw' },
+];
 const core = createTlCore({ adapters: { persistence, externalAi: {
   getStatus: async ({ provider }) => ({ provider, installed: true, authenticated: true }),
   listModels: async () => ({ models: [], source: 'fixture' }),
   sendMessage: async (payload, { signal, onEvent }) => {
     calls.push(payload);
+    if (mode === 'atomic') {
+      const steps = [
+        { type: 'tool_request', tool: 'tl.workspace.resolveNode', args: { node: 'atomic-node' } },
+        { type: 'tool_request', tool: 'tl.workspace.inspectNodeConfig', args: { nodeId: 'atomic-node', keys: ['min', 'max'] } },
+        { type: 'proposed_action', action: 'edit_nodes_atomic', args: { edits: atomicEdits } },
+      ];
+      return { text: steps[atomicStep] ? JSON.stringify(steps[atomicStep++]) : 'Atomic edit completed' };
+    }
+    if (mode === 'delete') {
+      const steps = [
+        { type: 'tool_request', tool: 'tl.workspace.resolveNode', args: { node: 'atomic-node' } },
+        { type: 'proposed_action', action: 'edit_graph', args: { operation: 'delete', nodeId: 'atomic-node' } },
+      ];
+      return { text: steps[atomicStep] ? JSON.stringify(steps[atomicStep++]) : 'Delete proposal reviewed' };
+    }
     onEvent({ type: 'item.completed', item: { id: 'answer', type: 'agent_message', text: 'Live fixture output' } });
     if (mode === 'wait') await new Promise((resolve, reject) => {
       const cancel = () => { aborted = true; reject(new Error('Fixture cancelled')); };
@@ -52,36 +72,107 @@ app.whenReady().then(async () => {
     await flowPromptSaveChat(chat);
     return workspaceId;
   })()`);
-  const open = async () => { await js('window.TrackerLensOpenFlowPromptChat()'); await waitFor(`document.querySelector('[data-flow-prompt-aside]')?.textContent.includes('Riprendi lavoro')`, 'resume button'); };
-  const resume = () => js(`[...document.querySelectorAll('[data-flow-prompt-aside] button')].find(b=>b.textContent==='Riprendi lavoro').click()`);
+  const open = async () => {
+    await js('window.TrackerLensOpenFlowPromptChat()');
+    await waitFor(`document.querySelector('[aria-label="Lavoro della chat"]')`, 'work button');
+    assert.equal(await js(`Boolean(document.querySelector('[data-flow-prompt-chat] .tl-flow-prompt-run-status'))`), false);
+    await js(`document.querySelector('[aria-label="Lavoro della chat"]').click()`);
+    await waitFor(`document.querySelector('.tl-flow-prompt-work-dialog-body')?.textContent.includes('Riprendi lavoro')`, 'resume button');
+  };
+  const resume = () => js(`[...document.querySelectorAll('.tl-flow-prompt-work-dialog-body button')].find(b=>b.textContent==='Riprendi lavoro').click()`);
   const record = () => persistence.readDevelopmentRecordById({ storeName: 'tl_flow_prompt_chats', id: 'chat-restart' });
   try {
     await load(); await seed(false);
     // A new renderer has no in-memory run owner; SQLite is the only checkpoint source.
     await load(); await open();
-    assert.match(await js(`document.querySelector('[data-flow-prompt-aside]').textContent`), /interrupted/);
+    assert.match(await js(`document.querySelector('.tl-flow-prompt-work-dialog-body').textContent`), /interrupted/);
     await resume();
-    await waitFor(`document.querySelector('.tl-flow-prompt-run-status')?.textContent.includes('completed')`, 'resumed completion');
+    await waitFor(`document.querySelector('.tl-flow-prompt-run-status > span')?.textContent === 'Lavoro: completed'`, 'resumed completion');
     assert.equal(record().messages.filter(m => m.role === 'user').length, 1);
     assert.notEqual(record().agentRun.observationJobId, 'old-attempt');
+    for (const expanded of [false, true]) {
+      await js(`document.querySelector('.tl-flow-prompt-run-status details').open = ${expanded}`);
+      const layout = await js(`(() => {
+        const status = document.querySelector('.tl-flow-prompt-run-status');
+        const conversation = document.querySelector('.tl-flow-prompt-conversation');
+        const panel = document.querySelector('[data-flow-prompt-chat]');
+        const b = conversation.getBoundingClientRect(), c = panel.getBoundingClientRect();
+        return { separated: !panel.contains(status), contained: b.bottom <= c.bottom + 1, usable: b.height > 100, scrollable: getComputedStyle(status).overflowY === 'auto' };
+      })()`);
+      assert.deepEqual(layout, { separated: true, contained: true, usable: true, scrollable: true }, `run status expanded=${expanded}`);
+    }
+    await js(`document.querySelector('.tl-flow-prompt-run-status details').open = false`);
     assert.ok(calls[0].prompt.includes('Resume fixture request'));
 
     await seed(true); mode = 'uncertain'; await load(); await open(); await resume();
-    await waitFor(`document.querySelector('.tl-flow-prompt-run-status')?.textContent.includes('failed')`, 'uncertain action rejected');
+    await waitFor(`document.querySelector('.tl-flow-prompt-run-status > span')?.textContent === 'Lavoro: failed'`, 'uncertain action rejected');
     assert.ok(calls.at(-1).prompt.includes('uncertain'));
     assert.ok(record().agentRun.observations.some(entry => entry.observation?.status === 'uncertain'));
 
     await seed(false); mode = 'wait'; await load(); await open(); await resume();
     await waitFor(`document.querySelector('.tl-flow-prompt-run-status')?.textContent.includes('Eventi live')`, 'CLI live capability');
-    await js(`[...document.querySelectorAll('[data-flow-prompt-aside] button')].find(b=>b.textContent==='Output live e trace').click()`);
+    await js(`[...document.querySelectorAll('.tl-flow-prompt-work-dialog-body button')].find(b=>b.textContent==='Output live e trace').click()`);
     await waitFor(`document.querySelector('.tl-llm-inspector')?.textContent.includes('Live fixture output')`, 'partial live output persisted');
     assert.match(await js(`document.querySelector('.tl-llm-connection').textContent`), /LIVE EVENTS/);
-    await js(`[...document.querySelectorAll('[data-flow-prompt-aside] button')].find(b=>b.textContent==='Interrompi').click()`);
-    await waitFor(`document.querySelector('.tl-flow-prompt-run-status')?.textContent.includes('cancelled')`, 'chat cancelled');
+    await js(`[...document.querySelectorAll('.tl-flow-prompt-work-dialog-body button')].find(b=>b.textContent==='Interrompi').click()`);
+    await waitFor(`document.querySelector('.tl-flow-prompt-run-status > span')?.textContent === 'Lavoro: cancelled'`, 'chat cancelled');
     assert.equal(aborted, true);
     assert.equal(runs.owners.size, 0);
     assert.equal(record().agentRun.status, 'cancelled');
+    const workspaceId = await seed(false);
+    persistence.writeDevelopmentRecords({ storeName: 'tl_runtime_nodes', records: [{ id: 'atomic-node', workspaceId, label: 'Atomic fixture', type: 'processor', inputs: ['input'], outputs: ['output'], metadata: { category: 'processors', subtype: 'transform', config: { min: 1, max: 3 }, settingsSchema: { min: 'number', max: 'number' }, configRules: [{ kind: 'lessThanOrEqual', field: 'min', otherField: 'max' }] } }] });
+    mode = 'atomic'; await load(); await open(); await resume();
+    await waitFor(`[...document.querySelectorAll('button')].some(b=>b.textContent==='Consenti tutte le letture per questa chat')`, 'read consent');
+    await js(`[...document.querySelectorAll('button')].find(b=>b.textContent==='Consenti tutte le letture per questa chat').click()`);
+    await waitFor(`[...document.querySelectorAll('button')].some(b=>b.textContent==='Applica tutte')`, 'atomic confirmation');
+    const readNode = () => persistence.readDevelopmentRecordById({ storeName: 'tl_runtime_nodes', id: 'atomic-node' });
+    assert.equal(readNode().metadata.config.min, 1, 'preview never writes');
+    await js(`[...document.querySelectorAll('button')].find(b=>b.textContent==='Applica tutte').click()`);
+    await waitFor(`document.querySelector('.tl-flow-prompt-run-status > span')?.textContent === 'Lavoro: completed'`, 'atomic completion');
+    await waitFor(`[...document.querySelectorAll('button')].some(b=>b.textContent==='Ripristina ultime modifiche atomiche')`, 'restore button ready');
+    assert.equal(readNode().metadata.config.min, 5); assert.equal(readNode().metadata.config.max, 8); assert.equal(readNode().label, 'Atomic renamed');
+    const created = persistence.readDevelopmentRecords({ storeName: 'tl_runtime_nodes' }).filter(node => ['Atomic preview', 'Atomic copy'].includes(node.label));
+    assert.equal(created.length, 2);
+    assert.equal(created.every(node => node.runtime.active === false), true);
+    const edge = persistence.readDevelopmentRecords({ storeName: 'tl_runtime_dependencies' }).find(row => row.sourceNodeId === created.find(node => node.label === 'Atomic copy').id);
+    assert.equal(edge.targetNodeId, created.find(node => node.label === 'Atomic preview').id);
+    assert.equal(persistence.readDevelopmentRecordById({ storeName: 'tl_connections', id: edge.connectionId }).targetNodeId, edge.targetNodeId);
+    await js(`[...document.querySelectorAll('button')].find(b=>b.textContent==='Ripristina ultime modifiche atomiche').click()`);
+    await waitFor(`[...document.querySelectorAll('button')].some(b=>b.textContent==='Ripristina')`, 'restore confirmation');
+    await js(`[...document.querySelectorAll('button')].find(b=>b.textContent==='Ripristina').click()`);
+    await waitFor(`document.querySelector('[data-flow-prompt-aside]')?.textContent.includes('Modifiche atomiche ripristinate.')`, 'atomic restore');
+    assert.equal(readNode().metadata.config.min, 1); assert.equal(readNode().label, 'Atomic fixture');
+    assert.equal(persistence.readDevelopmentRecords({ storeName: 'tl_runtime_nodes' }).some(node => created.some(item => item.id === node.id)), false);
+    assert.equal(persistence.readDevelopmentRecordById({ storeName: 'tl_runtime_dependencies', id: edge.id }), null);
+    persistence.writeDevelopmentRecords({ storeName: 'tl_runtime_nodes', records: [{ id: 'keep-node', workspaceId, type: 'devPreview', label: 'Keep node', inputs: ['raw'], outputs: [], runtime: { status: 'idle', active: false } }] });
+    persistence.writeDevelopmentRecords({ storeName: 'tl_runtime_dependencies', records: [{ id: 'delete-edge', workspaceId, sourceNodeId: 'atomic-node', targetNodeId: 'keep-node', connectionId: 'delete-connection', channel: 'output', metadata: { sourcePort: 'output', targetPort: 'raw' } }] });
+    persistence.writeDevelopmentRecords({ storeName: 'tl_connections', records: [{ id: 'delete-connection', workspaceId, sourceNodeId: 'atomic-node', targetNodeId: 'keep-node' }] });
+    persistence.writeDevelopmentRecords({ storeName: 'tl_channels', records: [{ id: 'retained-channel', workspaceId, name: 'output', producerNodeId: 'atomic-node', subscribers: ['keep-node'], lastValue: { retained: true } }] });
+    persistence.writeDevelopmentRecords({ storeName: 'tl_events', records: [{ id: 'retained-event', workspaceId, sourceNodeId: 'atomic-node', payload: { retained: true } }] });
+    for (const approve of [false, true]) {
+      await seed(false); mode = 'delete'; atomicStep = 0;
+      await load(); await open(); await resume();
+      await waitFor(`[...document.querySelectorAll('button')].some(b=>b.textContent==='Consenti tutte le letture per questa chat')`, 'delete read consent');
+      await js(`[...document.querySelectorAll('button')].find(b=>b.textContent==='Consenti tutte le letture per questa chat').click()`);
+      await waitFor(`[...document.querySelectorAll('button')].some(b=>b.textContent==='Applica tutte')`, 'delete confirmation');
+      assert.ok(readNode(), 'delete preview never writes');
+      await js(`[...document.querySelectorAll('button')].find(b=>b.textContent===${JSON.stringify(approve ? 'Applica tutte' : 'Annulla')}).click()`);
+      await waitFor(`document.querySelector('.tl-flow-prompt-run-status > span')?.textContent === 'Lavoro: completed'`, 'delete review completion');
+      assert.equal(Boolean(readNode()), !approve);
+      assert.equal(Boolean(persistence.readDevelopmentRecordById({ storeName: 'tl_connections', id: 'delete-connection' })), !approve);
+      assert.equal(Boolean(persistence.readDevelopmentRecordById({ storeName: 'tl_runtime_dependencies', id: 'delete-edge' })), !approve);
+      assert.equal(persistence.readDevelopmentRecordById({ storeName: 'tl_channels', id: 'retained-channel' }).lastValue.retained, true);
+      assert.equal(persistence.readDevelopmentRecordById({ storeName: 'tl_events', id: 'retained-event' }).payload.retained, true);
+    }
+    await waitFor(`[...document.querySelectorAll('button')].some(b=>b.textContent==='Ripristina ultime modifiche atomiche')`, 'delete restore ready');
+    await js(`[...document.querySelectorAll('button')].find(b=>b.textContent==='Ripristina ultime modifiche atomiche').click()`);
+    await waitFor(`[...document.querySelectorAll('button')].some(b=>b.textContent==='Ripristina')`, 'delete restore confirmation');
+    await js(`[...document.querySelectorAll('button')].find(b=>b.textContent==='Ripristina').click()`);
+    await waitFor(`document.querySelector('[data-flow-prompt-aside]')?.textContent.includes('Modifiche atomiche ripristinate.')`, 'delete restore completed');
+    assert.ok(readNode());
+    assert.ok(persistence.readDevelopmentRecordById({ storeName: 'tl_runtime_dependencies', id: 'delete-edge' }));
     console.log('Flow Chat Electron: SQLite restart/resume, uncertain-action guard, CLI live trace and cancellation passed.');
+    console.log('Flow Chat Electron: atomic config/create/duplicate/connect, delete denial/apply, retained outputs and scoped restore passed.');
   } finally {
     win.destroy(); fs.rmSync(directory, { recursive: true, force: true });
   }

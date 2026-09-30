@@ -1,4 +1,4 @@
-window.TrackerLensRuntimeContract = (() => {
+(typeof window !== "undefined" ? window : module.exports).TrackerLensRuntimeContract = (() => {
   const CONTRACT_VERSION = "2026-06-runtime-contract/v1";
   const WORKSPACE_STORE = "tl_pages";
   const FLOW_STORE = "tl_flows";
@@ -70,6 +70,60 @@ window.TrackerLensRuntimeContract = (() => {
 
   const schemaKeys = (schema = {}) =>
     normalizeSettingsSchema(schema).map((field) => field.key);
+
+  const validateConfigRules = (config, rules = []) => {
+    const errors = [];
+    if (!Array.isArray(rules)) return { ok: false, errors: ["configRules deve essere un array."] };
+    for (const rule of rules) {
+      if (!rule || !["requires", "lessThanOrEqual", "greaterThanOrEqual"].includes(rule.kind) || typeof rule.field !== "string" || typeof rule.otherField !== "string") {
+        errors.push("Regola tra campi non valida o non supportata."); continue;
+      }
+      const left = config[rule.field], right = config[rule.otherField];
+      if (Object.hasOwn(rule, "whenEquals") && JSON.stringify(left) !== JSON.stringify(rule.whenEquals)) continue;
+      if (rule.kind === "requires") {
+        if (left != null && left !== "" && (right == null || right === "")) errors.push(`${rule.field} richiede ${rule.otherField}`);
+      } else if (!Number.isFinite(left) || !Number.isFinite(right) || (rule.kind === "lessThanOrEqual" ? left > right : left < right)) {
+        errors.push(`${rule.field} deve essere ${rule.kind === "lessThanOrEqual" ? "≤" : "≥"} ${rule.otherField} (valori numerici)`);
+      }
+    }
+    return { ok: !errors.length, errors };
+  };
+
+  // Validate declared field constraints without coercing or rewriting user values.
+  const validateConfigValue = (value, definition = {}, path = "config") => {
+    const schema = typeof definition === "string" ? { type: definition } : definition || {};
+    const errors = [];
+    const fail = message => errors.push(`${path}: ${message}`);
+    const type = value === null ? "null" : Array.isArray(value) ? "array" : typeof value;
+    const declared = schema.type;
+    if (["string", "number", "integer", "boolean", "object", "array", "null"].includes(declared)
+      && (declared === "integer" ? !Number.isInteger(value) : type !== declared)) fail(`tipo richiesto: ${declared}`);
+    if (schema.required === true && (value == null || value === "")) fail("valore obbligatorio");
+    const options = Array.isArray(schema.enum) ? schema.enum : Array.isArray(schema.options)
+      ? schema.options.map(item => item && typeof item === "object" ? item.value : item)
+      : typeof schema.options === "string" ? schema.options.split("|").map(item => item.trim())
+      : typeof declared === "string" && declared.includes("|") ? declared.split("|").map(item => item.trim()) : null;
+    if (options?.length && !options.some(item => JSON.stringify(item) === JSON.stringify(value))) fail(`valori ammessi: ${JSON.stringify(options)}`);
+    if (typeof value === "number") {
+      if (!Number.isFinite(value)) fail("numero non finito");
+      const min = schema.minimum ?? schema.min, max = schema.maximum ?? schema.max;
+      if (Number.isFinite(min) && value < min) fail(`minimo: ${min}`);
+      if (Number.isFinite(max) && value > max) fail(`massimo: ${max}`);
+    }
+    if (typeof value === "string") {
+      if (Number.isInteger(schema.minLength) && [...value].length < schema.minLength) fail(`lunghezza minima: ${schema.minLength}`);
+      if (Number.isInteger(schema.maxLength) && [...value].length > schema.maxLength) fail(`lunghezza massima: ${schema.maxLength}`);
+    }
+    if (Array.isArray(value) && schema.items) value.forEach((item, index) => errors.push(...validateConfigValue(item, schema.items, `${path}[${index}]`).errors));
+    if (value && type === "object") {
+      for (const key of Array.isArray(schema.required) ? schema.required : []) if (!Object.hasOwn(value, key)) fail(`campo obbligatorio: ${key}`);
+      for (const [key, item] of Object.entries(value)) {
+        if (Object.hasOwn(schema.properties || {}, key)) errors.push(...validateConfigValue(item, schema.properties[key], `${path}.${key}`).errors);
+        else if (schema.additionalProperties === false) fail(`campo non dichiarato: ${key}`);
+      }
+    }
+    return { ok: errors.length === 0, errors };
+  };
 
   const normalizeConnectionMapping = ({
     sourcePort = "all",
@@ -249,6 +303,8 @@ window.TrackerLensRuntimeContract = (() => {
     stores,
     normalizeField,
     normalizeSettingsSchema,
+    validateConfigValue,
+    validateConfigRules,
     normalizeConnectionMapping,
     applyConnectionMapping,
     incomingDependencyForEvent,

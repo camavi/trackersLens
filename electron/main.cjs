@@ -387,7 +387,7 @@ const createWindow = () => {
 };
 
 ipcMain.handle("trackers-core:request", (event, command, payload) => {
-  if (/^desktop\.(account|catalog|externalAi)\./.test(String(command || ""))) {
+  if (/^desktop\.(account|catalog|externalAi|flowChat)\./.test(String(command || ""))) {
     if (event.senderFrame !== event.sender.mainFrame || !isAllowedLocalNavigation(event.senderFrame.url) || event.sender.session !== session.defaultSession) {
       throw new Error("Account requests require the trusted desktop shell.");
     }

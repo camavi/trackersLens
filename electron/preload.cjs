@@ -6,6 +6,9 @@ const pythonNlpEnabled = process.argv.includes("--tl-python-nlp=1");
 
 const trackers = Object.freeze({
   desktop: Object.freeze({
+    flowChat: Object.freeze({
+      applyNodeEdits: ({ workspaceId, edits, expected, confirmed = false, restoreSnapshotId = "" } = {}) => request("desktop.flowChat.applyNodeEdits", { workspaceId, edits, expected, confirmed: confirmed === true, restoreSnapshotId }),
+    }),
     getStatus: () => request("desktop.getStatus"),
     account: Object.freeze(Object.fromEntries([
       "configuration", "configure", "user", "login", "register", "logout", "updateProfile", "updatePassword"

@@ -85,6 +85,7 @@ window.TrackerLensTimeTravelStore = (() => {
   const restore = async ({ snapshotId = "", snapshot = null, stores = [] } = {}) => {
     const record = snapshot || await snapshotById(snapshotId);
     if (!record) throw new Error("Snapshot non trovato");
+    if (["node-edits", "graph-edits"].includes(record.restoreMode)) throw new Error("Questo snapshot richiede il ripristino atomico dalla Chat TL.");
     if (record.restoreMode === "custom-node-migration") throw new Error("Questo snapshot richiede il ripristino verificato dalla pagina Custom Nodes (Versioni).");
     const state = record.state || {};
     const storeMap = runtimeStores();
