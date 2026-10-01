@@ -3,9 +3,11 @@
 Purpose: mutation safety contract for Flow Chat commands.
 Read when: changing Apply, command planning or mutation behavior.
 Do not read when: only changing read-only reports.
-Last updated: 2026-09-29.
+Last updated: 2026-09-30.
 
 ## Contract
+
+Current extension (2026-09-30): provider graph/config proposals, manual Chat command batches and creation-plan Apply now share `applyNodeEdits`. The historical per-step execution described below is superseded for those paths. Canvas/editor controls outside Chat are not migrated by this work.
 
 Every mutating action must:
 
@@ -47,7 +49,15 @@ Executor still validates against real runtime before every write.
 
 The registered `applyNodeEdits` tool is a separate atomic path for existing-node config, rename and move operations. Chat requires same-turn resolved/inspected IDs, reads for every changed config field, renderer validation and full before/after confirmation. The narrow `desktop.flowChat.applyNodeEdits` boundary delegates to Core planning and a SQLite `BEGIN IMMEDIATE` transaction. Core checks workspace, exact existing fields/types, declared schema and final cross-field rules; duplicate targets and unsupported operations fail. Confirmed writes compare all affected records with the reviewed preview, reject active AI jobs, and persist one scoped snapshot plus all node records together. A failure rolls back both. No generic SQL or arbitrary node-record replacement is exposed.
 
-Snapshots use `restoreMode=node-edits`; generic Time Travel refuses them. The Chat restore control explicitly confirms before Core compares current nodes with the saved after-state and restores only affected nodes in one transaction, with its own snapshot. Subsequent edits block restore. This transaction does not atomically include the renderer's chat receipt; interruption before receipt persistence remains conservatively uncertain.
+Snapshots use `restoreMode=node-edits`; generic Time Travel refuses them. The Chat restore control explicitly confirms before Core compares current nodes with the saved after-state and restores only affected nodes in one transaction, with its own snapshot. Subsequent edits block restore. Operation receipts are now committed atomically as described below; the renderer's chat history itself remains separately persisted.
+
+### Durable operation receipts (2026-09-30)
+
+Core owns `tl_flow_mutation_receipts`, a dedicated SQLite table not exposed to generic repository writes/deletes. A trusted caller persists a unique `operationId` before sending a confirmed mutation. Inside the same write transaction, Core binds the ID to workspace and canonical edits/restore target and saves the result alongside graph writes and snapshot. Reusing the ID for the same request returns that result without running validation/writes again; changed arguments or workspace fail. Expected before-state is a precondition, not part of the operation identity. Confirmed no-op requests also have receipts. Receipt insertion failure rolls back the graph and snapshot.
+
+The narrow `getNodeEditReceipt` returns a result only for the exact workspace/operation. Chat resolves interrupted transactional actions before provider recovery: a receipt establishes completion; an absent receipt establishes no committed transaction and requires a fresh proposal/confirmation, never automatic replay. This does not claim exactly-once execution of LLM requests, package tests/installations or other external effects. Old pending actions without transactional IDs remain uncertain. Receipts remain durable independently of generated-memory cleanup; chat-history persistence is not in the graph transaction.
+
+Legacy Chat Apply converts the whole batch into one registered operation and persists its identity with the pending plan before commit. Creation plans allocate palette-derived instance IDs once, save the prepared plan in the chat and reuse its receipt on retry. Current palette declarations/configuration are rechecked before preview and commit. Exact dependency cleanup and disconnected port/channel edits use the same graph planner; connected port edits fail explicitly rather than partially rewriting links. Historical result undo buttons route atomic snapshots to the confirmed atomic restore control. Restore persists its operation ID before commit and reconciles a lost result without repeating the restore.
 
 ### Structural extension (2026-09-29)
 
@@ -55,7 +65,7 @@ Snapshots use `restoreMode=node-edits`; generic Time Travel refuses them. The Ch
 
 Core's pure graph planner preserves the existing runtime store shapes. SQLite owns one transaction across `tl_runtime_nodes`, `tl_runtime_dependencies`, `tl_connections`, `tl_channels`, `tl_flows` and the snapshot. Before-state comparison includes the entire scoped topology, so new incident edges cannot escape a reviewed deletion. Global ID collisions and foreign-workspace references fail rather than overwriting/cascading into other workspaces. Deletion removes edges, connection and Flow references and detaches channel membership, but retains channel values, documents, events, logs and all other output stores. New nodes are inactive. Shared channels keep an existing producer rather than silently transferring ownership to a duplicate; this limitation is shown in the preview/result.
 
-Structural snapshots use `restoreMode=graph-edits`. Generic Time Travel refuses them; explicit Chat restore checks the complete saved after-state and current package references before restoring scoped graph records atomically with another snapshot. Later topology or channel-value changes block restore rather than overwrite user/runtime data. Other workspaces and produced-data stores are untouched. Provider `edit_graph` is now a compatibility spelling for this atomic path. Older manual command-plan/creation-plan Apply paths remain sequential and are not covered by this guarantee. No workspace-wide background execution lock or exactly-once chat receipt is claimed.
+Structural snapshots use `restoreMode=graph-edits`. Generic Time Travel refuses them; explicit Chat restore checks the complete saved after-state and current package references before restoring scoped graph records atomically with another snapshot. Later topology or channel-value changes block restore rather than overwrite user/runtime data. Other workspaces and produced-data stores are untouched. Provider `edit_graph` and `update_node_config` use the same atomic path. No workspace-wide background execution lock is claimed.
 
 ## Core-owned Custom Node migration details
 

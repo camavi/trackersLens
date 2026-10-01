@@ -76,7 +76,9 @@ const createTlCore = ({ appVersion = "0.0.0", platform = "unknown", mode = "prod
     switch (command) {
       case "desktop.flowChat.applyNodeEdits":
         if (!persistence?.applyNodeEdits) throw new Error("Modifiche atomiche non disponibili.");
-        return persistence.applyNodeEdits({ workspaceId: payload.workspaceId, edits: payload.edits, expected: payload.expected, confirmed: payload.confirmed === true, restoreSnapshotId: payload.restoreSnapshotId || "" });
+        return persistence.applyNodeEdits({ workspaceId: payload.workspaceId, edits: payload.edits, expected: payload.expected, confirmed: payload.confirmed === true, restoreSnapshotId: payload.restoreSnapshotId || "", operationId: payload.operationId || "" });
+      case "desktop.flowChat.getNodeEditReceipt":
+        return persistence.getNodeEditReceipt({ workspaceId: payload.workspaceId, operationId: payload.operationId });
       case "desktop.account.configuration":
       case "desktop.account.configure":
       case "desktop.account.user":

@@ -3,11 +3,15 @@
 Purpose: active work and immediate next step.
 Read when: always after `AI.md`.
 Do not read when: never during development sessions.
-Last updated: 2026-09-29.
+Last updated: 2026-09-30.
 
 ## Active Area
 
-User acceptance (TASK-032, 2026-09-30): user reports the new implementation works and explicitly closes its QA cycle, including the latest atomic edits/work-dialog release. Exact tested scenarios/provider/model were not specified. This supersedes pending user-QA notes below, not untested platform/provider coverage. Requested next scope: background work with Chat closed, interruption-safe mutation receipts and migration of legacy manual Apply paths to atomic execution. Background lifecycle (panel closed versus app quit) needs clarification; these follow-ups are not implemented or covered by this acceptance.
+Flow Chat continuation/receipts/manual Apply (TASK-032, 2026-09-30): implemented background continuation in the persistent app-shell renderer while the Chat panel is hidden or another app route is open. Missing read consent and mutation proposals wait for Chat reopening. Quit/reload still interrupts generation; explicit restart recovery remains supported, not an OS service. Core now commits a scoped operation receipt with each identified mutation/snapshot in SQLite; replay returns the original outcome and rejects ID reuse with changed arguments. Chat reconciles pending operation IDs after restart; unreceipted nontransactional effects remain uncertain. Legacy Chat Apply batches and creation plans now use the registered atomic executor, one preview/confirmation and one snapshot; old per-step write loops were removed. Port edits require disconnected dependencies, and exact-ID broken-edge cleanup is transactional. New slice requires separate user QA; earlier acceptance remains closed.
+
+Verification for the 2026-09-30 slice: `npm run verify` passes (202 tests passed, two optional skips, 75 classic-script scope checks). Isolated real Electron with synthetic provider passes manual atomic Apply, lost-reply receipt recovery, hidden-chat route continuation and deferred consent, plus existing restart/cancel/apply/restore coverage. `git diff --check` passes. No live provider calls or user-data mutations were used.
+
+User acceptance (TASK-032, 2026-09-30): user reports the preceding implementation works and explicitly closes its QA cycle, including the atomic edits/work-dialog release. Exact tested scenarios/provider/model were not specified. This supersedes pending user-QA notes below, not untested platform/provider coverage. The subsequent continuation/receipts/manual-Apply slice above is implemented and automatically verified, but is not covered by this earlier user acceptance.
 
 Flow Chat work dialog (2026-09-29): per user request, run status, live trace, resume/stop and atomic restore are now in a JSswift `Lavoro` dialog opened by an icon next to Chat settings. No work-status/control panel occupies the conversation body. Open dialog refreshes with run state and preserves expanded checkpoint details; closing Chat closes the dialog. Updated real Electron smoke passes resume/cancel/apply/restore and asserts status is outside the chat body.
 

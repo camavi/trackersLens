@@ -291,6 +291,12 @@ class DesktopPersistence {
       database.exec(`
         PRAGMA journal_mode = WAL;
         PRAGMA foreign_keys = ON;
+        CREATE TABLE IF NOT EXISTS tl_flow_mutation_receipts (
+          operation_id TEXT PRIMARY KEY,
+          workspace_id TEXT NOT NULL,
+          request_json TEXT NOT NULL,
+          result_json TEXT NOT NULL
+        );
         CREATE TABLE IF NOT EXISTS tl_meta (
           key TEXT PRIMARY KEY,
           value_json TEXT NOT NULL,
@@ -1136,12 +1142,31 @@ class DesktopPersistence {
   }
 
   // Core-only atomic safe-executor boundary. Never exposed as generic IPC.
-  applyNodeEdits({ workspaceId, edits, expected, confirmed = false, restoreSnapshotId = "" }) {
+  getNodeEditReceipt({ workspaceId, operationId }) {
+    if (typeof workspaceId !== 'string' || !workspaceId || typeof operationId !== 'string' || !operationId) throw new Error('Identità operazione richiesta.');
+    const database = new DatabaseSync(this.databasePath);
+    try {
+      const row = database.prepare('SELECT result_json FROM tl_flow_mutation_receipts WHERE operation_id = ? AND workspace_id = ?').get(operationId, workspaceId);
+      return row ? parseStoredJson(row.result_json) : null;
+    } finally { database.close(); }
+  }
+
+  applyNodeEdits({ workspaceId, edits, expected, confirmed = false, restoreSnapshotId = "", operationId = "" }) {
     const { planNodeEdits, planGraphEdits, GRAPH_STORES, sortedGraph, busy } = require('./node-edit-plan.cjs');
     if (typeof workspaceId !== 'string' || !workspaceId || workspaceId === 'all') throw new Error('Workspace non valido.');
     const database = new DatabaseSync(this.databasePath);
     try {
       database.exec('BEGIN IMMEDIATE');
+      if (operationId && typeof operationId !== 'string') throw new Error('Identità operazione non valida.');
+      const requestJson = canonicalJson({ workspaceId, edits: edits || null, restoreSnapshotId });
+      if (operationId) {
+        const receipt = database.prepare('SELECT * FROM tl_flow_mutation_receipts WHERE operation_id = ?').get(operationId);
+        if (receipt) {
+          if (receipt.workspace_id !== workspaceId || receipt.request_json !== requestJson) throw new Error('Identità operazione già usata per una richiesta diversa.');
+          database.exec('ROLLBACK');
+          return { ...parseStoredJson(receipt.result_json), replayed: true };
+        }
+      }
       const read = (store, id) => {
         const row = database.prepare('SELECT record_json FROM tl_records WHERE store_name = ? AND id = ?').get(store, id);
         return row ? parseStoredJson(row.record_json) : null;
@@ -1158,7 +1183,7 @@ class DesktopPersistence {
         plan = { before: current, after: snapshot.before, changed: true };
       } else {
         if (!Array.isArray(edits)) throw new Error('Lista modifiche richiesta.');
-        graphMode = edits.some(edit => ['create', 'duplicate', 'delete', 'connect', 'disconnect'].includes(edit?.operation));
+        graphMode = edits.some(edit => ['create', 'duplicate', 'delete', 'connect', 'disconnect', 'ports', 'removeDependencies'].includes(edit?.operation));
         if (graphMode) plan = planGraphEdits({ graph: readGraph(), edits, workspaceId });
         else {
           const nodes = [...new Set(edits.map(edit => edit?.nodeId))].map(id => read('tl_runtime_nodes', id)).filter(Boolean);
@@ -1193,7 +1218,12 @@ class DesktopPersistence {
       }
       const active = database.prepare("SELECT record_json FROM tl_records WHERE store_name = 'tl_ai_jobs' AND workspace_id = ?").all(workspaceId).map(row => parseStoredJson(row.record_json));
       if (active.some(job => ['running', 'working', 'queued', 'pending'].includes(job.status))) throw new Error('Ferma i job AI del workspace prima della modifica atomica.');
-      if (confirmed !== true || !plan.changed) { database.exec('ROLLBACK'); return { ...plan, applied: false, workspaceId }; }
+      if (confirmed !== true) { database.exec('ROLLBACK'); return { ...plan, applied: false, workspaceId }; }
+      if (!plan.changed) {
+        const result = { applied: false, workspaceId, operationId, nodeIds: [], snapshotId: '' };
+        if (operationId) database.prepare('INSERT INTO tl_flow_mutation_receipts (operation_id, workspace_id, request_json, result_json) VALUES (?, ?, ?, ?)').run(operationId, workspaceId, requestJson, canonicalJson(result));
+        database.exec('COMMIT'); return result;
+      }
       const snapshot = { id: `node_edits_${crypto.randomUUID()}`, workspaceId, restoreMode: graphMode ? 'graph-edits' : 'node-edits', schemaVersion: '1.0.0',
         reason: restoreSnapshotId ? 'flow-chat-atomic-restore' : 'flow-chat-atomic-edit', label: 'Flow Chat: modifiche atomiche', before: plan.before, after: plan.after, createdAt: now() };
       const insert = database.prepare('INSERT OR REPLACE INTO tl_records (store_name, id, workspace_id, record_json, created_at, updated_at) VALUES (?, ?, ?, ?, COALESCE((SELECT created_at FROM tl_records WHERE store_name = ? AND id = ?), ?), ?)');
@@ -1210,11 +1240,13 @@ class DesktopPersistence {
         const changedRecords = records.filter(row => !previous.has(row.id) || canonicalJson(previous.get(row.id)) !== canonicalJson(row));
         for (const record of normalizeRecords(changedRecords)) insert.run(name, record.id, record.workspaceId, record.recordJson, name, record.id, now(), now());
       }
-      database.exec('COMMIT');
       const previousNodes = new Map((graphMode ? plan.before.tl_runtime_nodes : plan.before).map(node => [node.id, node]));
       const nextNodes = new Map((graphMode ? plan.after.tl_runtime_nodes : plan.after).map(node => [node.id, node]));
       const nodeIds = [...new Set([...previousNodes.keys(), ...nextNodes.keys()])].filter(id => canonicalJson(previousNodes.get(id) || null) !== canonicalJson(nextNodes.get(id) || null));
-      return { applied: true, workspaceId, snapshotId: snapshot.id, nodeIds, warnings: plan.warnings || [] };
+      const result = { applied: true, workspaceId, snapshotId: snapshot.id, nodeIds, warnings: plan.warnings || [], operationId };
+      if (operationId) database.prepare('INSERT INTO tl_flow_mutation_receipts (operation_id, workspace_id, request_json, result_json) VALUES (?, ?, ?, ?)').run(operationId, workspaceId, requestJson, canonicalJson(result));
+      database.exec('COMMIT');
+      return result;
     } catch (error) { try { database.exec('ROLLBACK'); } catch (_) {} throw error; }
     finally { database.close(); }
   }

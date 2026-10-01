@@ -28,7 +28,7 @@ function setup() {
     overflow: flowPromptIsContextOverflow, graphProposal: flowPromptGraphProposal,
     fingerprint: flowPromptGraphFingerprint, configUpdate: flowPromptValidConfigUpdate, constraints: flowPromptConfigConstraints, effectiveValue: flowPromptEffectiveNodeConfigValue,
     normalizePlan: flowPromptNormalizeAiPlan, recoveredActions: flowPromptRecoveredActions,
-    requestIdentity: flowPromptRequestIdentity, compatible: flowPromptCallOpenAiCompatible, atomic: flowPromptPrepareAtomicEdits };`, context);
+    requestIdentity: flowPromptRequestIdentity, compatible: flowPromptCallOpenAiCompatible, atomic: flowPromptPrepareAtomicEdits, materialize: flowPromptMaterializePlan };`, context);
   return { api: context.api, context, requests };
 }
 
@@ -270,6 +270,48 @@ test('atomic protocol derives palette definitions locally, isolates aliases and 
   assert.throws(() => api.atomic([{ operation: 'create', newNodeId: '@x', paletteLabel: 'Missing' }], 'w'), /palette/);
   assert.throws(() => api.atomic([{ operation: 'duplicate', nodeId: 'existing', newNodeId: 'real-id' }], 'w'), /Alias/);
   assert.throws(() => api.atomic([{ operation: 'duplicate', nodeId: 'existing', newNodeId: '@x' }, { operation: 'duplicate', nodeId: 'existing', newNodeId: '@x' }], 'w'), /duplicato/);
+});
+
+test('legacy creation materializes once through Core and recovers a lost reply using the persisted plan identity', async () => {
+  const { api, context } = setup();
+  const os = require('node:os'), path = require('node:path');
+  const { DesktopPersistence } = require('../core/desktop/desktop-persistence.cjs');
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'tl-materialize-'));
+  try {
+    const persistence = new DesktopPersistence({ databasePath: path.join(directory, 'test.sqlite') }); persistence.initialize();
+    context.window.crypto = require('node:crypto').webcrypto;
+    context.flatPalette = () => [{ label: 'Preview', nodeType: 'devPreview', subtype: 'preview', inputs: ['raw'], outputs: [], settingsSchema: {} }];
+    context.flowCoordinate = value => value;
+    context.flowWorldNumber = value => Number(value);
+    context.safeRuntimeId = value => String(value);
+    context.FLOW_NODE_DEFAULT_WIDTH = 200;
+    context.loadRuntime = async () => {};
+    context.flowMapBtn = (options, label) => ({ ...options, label });
+    let confirmations = 0, loseReply = true, stored;
+    context._ = { div() {}, p() {}, pre() {}, Toolbar: (...args) => args, Dialog: options => ({ open() {
+      confirmations++;
+      options.actions({ close() {} }).find(button => button.label === 'Applica tutte').onclick();
+    } }) };
+    context.window.trackers.desktop.flowChat = {
+      getNodeEditReceipt: args => persistence.getNodeEditReceipt(args),
+      applyNodeEdits: args => {
+        const result = persistence.applyNodeEdits(args);
+        if (args.confirmed && loseReply) { loseReply = false; throw new Error('lost IPC reply'); }
+        return result;
+      },
+    };
+    const analysis = { analyzedNodes: [{ spec: { key: 'preview', label: 'Preview', config: {} }, node: { label: 'Preview instance', flowPosition: { x: 1, y: 2 } } }], analyzedEdges: [] };
+    const options = { workspaceId: 'w', onPrepared: async plan => { stored = JSON.parse(JSON.stringify(plan)); } };
+    await assert.rejects(api.materialize(analysis, options), /lost IPC/);
+    assert.ok(stored.operationId);
+    const recovered = { ...analysis, atomicPlan: stored };
+    const result = await api.materialize(recovered, options);
+    assert.ok(result.snapshotId);
+    assert.equal(confirmations, 1);
+    assert.equal(persistence.readDevelopmentRecords({ storeName: 'tl_runtime_nodes' }).length, 1);
+    assert.equal(persistence.readDevelopmentRecords({ storeName: 'tl_time_travel_snapshots' }).length, 1);
+    assert.equal(persistence.readDevelopmentRecords({ storeName: 'tl_runtime_nodes' })[0].runtime.active, false);
+  } finally { fs.rmSync(directory, { recursive: true, force: true }); }
 });
 
 test('run recovery keeps action receipts, excludes stale reads, and exposes uncertain side effects', () => {

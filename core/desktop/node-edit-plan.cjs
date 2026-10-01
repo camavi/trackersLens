@@ -86,7 +86,7 @@ function planGraphEdits({ graph, edits, workspaceId }) {
     after.tl_connections = after.tl_connections.filter(row => !connectionIds.has(row.id));
     for (const flow of after.tl_flows) flow.connections = (flow.connections || []).filter(id => !connectionIds.has(id));
   };
-  const newNodes = [], ordinary = [], deleted = new Set(), targets = new Set();
+  const newNodes = [], channelNodes = new Set(), ordinary = [], deleted = new Set(), targets = new Set();
   for (const edit of edits) {
     if (['config', 'rename', 'move'].includes(edit.operation)) {
       const key = JSON.stringify([edit.nodeId, edit.operation, edit.operation === 'config' ? edit.field : '']);
@@ -120,6 +120,26 @@ function planGraphEdits({ graph, edits, workspaceId }) {
         if (!result.ok) throw new Error(result.errors.join('\n'));
       }
       add('tl_runtime_nodes', node); newNodes.push(node.id); syncNode(node);
+    } else if (edit.operation === 'removeDependencies') {
+      if (!Array.isArray(edit.dependencyIds) || !edit.dependencyIds.length) throw new Error('Dipendenze esatte richieste.');
+      const selected = edit.dependencyIds.map(id => {
+        const row = after.tl_runtime_dependencies.find(row => row.id === id);
+        if (!row) throw new Error('Dipendenza non trovata nel workspace.');
+        return row;
+      });
+      removeLinks(selected);
+    } else if (edit.operation === 'ports') {
+      const node = find(edit.nodeId);
+      if (!['input', 'output', 'channel'].includes(edit.target) || typeof edit.value !== 'string' || !edit.value.trim()) throw new Error('Porta o canale non valido.');
+      if (after.tl_runtime_dependencies.some(row => row.sourceNodeId === node.id || row.targetNodeId === node.id)) throw new Error('Scollega prima le dipendenze del nodo per cambiare le porte.');
+      const key = { input: 'inputs', output: 'outputs', channel: 'channels' }[edit.target];
+      node[key] = [edit.value, ...(node[key] || []).slice(1)].filter(Boolean);
+      if (key !== 'channels') node.channels = [...new Set([...(node.channels || []), edit.value])];
+      for (const channel of after.tl_channels) {
+        if (channel.producerNodeId === node.id) { channel.producerNodeId = ''; channel.producerBoxId = ''; }
+        if (Array.isArray(channel.subscribers)) channel.subscribers = channel.subscribers.filter(id => id !== node.id);
+      }
+      channelNodes.add(node.id); syncNode(node);
     } else if (edit.operation === 'connect' || edit.operation === 'disconnect') {
       const source = find(edit.sourceNodeId), target = find(edit.targetNodeId);
       if (typeof edit.sourcePort !== 'string' || !edit.sourcePort.trim() || typeof edit.targetPort !== 'string' || !edit.targetPort.trim()) throw new Error('Porte esatte richieste.');
@@ -164,12 +184,12 @@ function planGraphEdits({ graph, edits, workspaceId }) {
     } else throw new Error('Operazione atomica non supportata.');
   }
   if (ordinary.some(edit => deleted.has(edit.nodeId))) throw new Error('Modifica e cancellazione dello stesso nodo non consentite.');
-  for (const id of new Set([...newNodes, ...ordinary.map(edit => edit.nodeId)].filter(id => !deleted.has(id)))) {
+  for (const id of new Set([...newNodes, ...channelNodes, ...ordinary.map(edit => edit.nodeId)].filter(id => !deleted.has(id)))) {
     const node = find(id);
     const rules = contract.validateConfigRules(node.metadata?.config || {}, node.metadata?.configRules || node.metadata?.manifest?.configRules || []);
     if (!rules.ok) throw new Error(rules.errors.join('\n'));
   }
-  for (const id of newNodes.filter(id => !deleted.has(id))) {
+  for (const id of new Set([...newNodes, ...channelNodes].filter(id => !deleted.has(id)))) {
     const node = find(id);
     // Channel names follow ChannelRegistry. Do not silently steal a producer
     // when duplicating a node that publishes an already-owned shared channel.

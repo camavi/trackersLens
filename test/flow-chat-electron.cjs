@@ -12,6 +12,7 @@ const persistence = new DesktopPersistence({ databasePath: path.join(directory, 
 persistence.initialize();
 const runs = new ExternalAiChatRuns();
 let mode = 'answer', calls = [], aborted = false, atomicStep = 0;
+let releaseBackground = null;
 const atomicEdits = [{ operation: 'config', nodeId: 'atomic-node', field: 'min', value: 5 }, { operation: 'config', nodeId: 'atomic-node', field: 'max', value: 8 }, { operation: 'rename', nodeId: 'atomic-node', value: 'Atomic renamed' },
   { operation: 'create', newNodeId: '@preview', paletteLabel: 'Preview', value: 'Atomic preview', config: { mode: 'raw' } },
   { operation: 'duplicate', nodeId: 'atomic-node', newNodeId: '@copy', value: 'Atomic copy' },
@@ -22,6 +23,11 @@ const core = createTlCore({ adapters: { persistence, externalAi: {
   listModels: async () => ({ models: [], source: 'fixture' }),
   sendMessage: async (payload, { signal, onEvent }) => {
     calls.push(payload);
+    if (mode === 'background' || (mode === 'background-consent' && atomicStep++ === 0)) {
+      await new Promise(resolve => { releaseBackground = resolve; });
+      if (mode === 'background-consent') return { text: JSON.stringify({ type: 'tool_request', tool: 'tl.workspace.resolveNode', args: { node: 'atomic-node' } }) };
+      return { text: 'Background work completed after navigation' };
+    }
     if (mode === 'atomic') {
       const steps = [
         { type: 'tool_request', tool: 'tl.workspace.resolveNode', args: { node: 'atomic-node' } },
@@ -43,7 +49,7 @@ const core = createTlCore({ adapters: { persistence, externalAi: {
       signal.addEventListener('abort', cancel, { once: true });
       if (signal.aborted) cancel();
     });
-    return { text: mode === 'uncertain' ? JSON.stringify({ type: 'proposed_action', action: 'edit_graph', args: { operation: 'rename', nodeId: 'fixture-node', nextLabel: 'Changed' } }) : 'Recovered fixture answer', raw: { usage: { input_tokens: 5, output_tokens: 3 } } };
+    return { text: ['uncertain', 'receipt'].includes(mode) ? JSON.stringify({ type: 'proposed_action', action: 'edit_graph', args: { operation: 'rename', nodeId: mode === 'receipt' ? 'atomic-node' : 'fixture-node', nextLabel: mode === 'receipt' ? 'Receipt fixture' : 'Changed' } }) : 'Recovered fixture answer', raw: { usage: { input_tokens: 5, output_tokens: 3 } } };
   } }, customNodePackages: { list: async () => [] } } });
 ipcMain.handle('trackers-core:request', (event, command, payload) => {
   if (command === 'desktop.externalAi.cancelMessage') return { cancelled: runs.cancel(event.sender.id, payload.requestId) };
@@ -171,8 +177,65 @@ app.whenReady().then(async () => {
     await waitFor(`document.querySelector('[data-flow-prompt-aside]')?.textContent.includes('Modifiche atomiche ripristinate.')`, 'delete restore completed');
     assert.ok(readNode());
     assert.ok(persistence.readDevelopmentRecordById({ storeName: 'tl_runtime_dependencies', id: 'delete-edge' }));
+    await seed(false);
+    const manual = record();
+    manual.agentRun = null;
+    manual.messages.push({ id: 'manual-plan', role: 'assistant', kind: 'agent-report', agentReport: { intent: 'mutation', pendingAction: {
+      type: 'batch', status: 'ready', summary: 'Manual atomic fixture', actions: [
+        { type: 'renameNode', status: 'ready', nodeId: 'atomic-node', nextLabel: 'Manual renamed', summary: 'Rename fixture' },
+        { type: 'moveNode', status: 'ready', nodeId: 'atomic-node', nextPosition: { x: 42, y: 84 }, summary: 'Move fixture' },
+      ],
+    } } });
+    persistence.writeDevelopmentRecords({ storeName: 'tl_flow_prompt_chats', records: [manual] });
+    await load(); await js('window.TrackerLensOpenFlowPromptChat()');
+    await waitFor(`[...document.querySelectorAll('[data-flow-prompt-aside] button')].some(b=>b.textContent.includes('Apply'))`, 'manual Apply ready');
+    const snapshotsBeforeManual = persistence.readDevelopmentRecords({ storeName: 'tl_time_travel_snapshots' }).length;
+    await js(`[...document.querySelectorAll('[data-flow-prompt-aside] button')].find(b=>b.textContent.includes('Apply')).click()`);
+    await waitFor(`[...document.querySelectorAll('button')].some(b=>b.textContent==='Applica tutte')`, 'manual atomic preview');
+    assert.equal(readNode().label, 'Atomic fixture');
+    await js(`[...document.querySelectorAll('button')].find(b=>b.textContent==='Applica tutte').click()`);
+    await waitFor(`document.querySelector('[data-flow-prompt-aside]')?.textContent.includes('Apply completato:')`, 'manual commit');
+    assert.equal(readNode().label, 'Manual renamed');
+    assert.equal(readNode().flowPosition.x, 42);
+    assert.equal(persistence.readDevelopmentRecords({ storeName: 'tl_time_travel_snapshots' }).length, snapshotsBeforeManual + 1);
+    const receiptEdits = [{ operation: 'rename', nodeId: 'atomic-node', value: 'Receipt fixture' }];
+    const receiptPreview = persistence.applyNodeEdits({ workspaceId, edits: receiptEdits });
+    const committed = persistence.applyNodeEdits({ workspaceId, edits: receiptEdits, expected: receiptPreview.before, confirmed: true, operationId: 'lost-reply-fixture' });
+    await seed(true);
+    const interrupted = record();
+    interrupted.agentRun.pendingOperationId = 'lost-reply-fixture';
+    interrupted.agentRun.pendingAction = { action: 'edit_graph', args: { operation: 'rename', nodeId: 'atomic-node', nextLabel: 'Receipt fixture' } };
+    persistence.writeDevelopmentRecords({ storeName: 'tl_flow_prompt_chats', records: [interrupted] });
+    mode = 'receipt'; await load(); await open(); await resume();
+    await waitFor(`document.querySelector('.tl-flow-prompt-run-status > span')?.textContent === 'Lavoro: failed'`, 'completed operation replay rejected');
+    assert.ok(record().agentRun.observations.some(entry => entry.observation?.snapshotId === committed.snapshotId && entry.observation?.status === 'completed'));
+    assert.equal(record().agentRun.observations.some(entry => entry.observation?.status === 'uncertain'), false);
+    assert.equal(readNode().label, 'Receipt fixture');
+    await seed(false); mode = 'background'; await load(); await open(); await resume();
+    await waitFor(`document.querySelector('.tl-flow-prompt-run-status > span')?.textContent === 'Lavoro: waiting-provider'`, 'background started');
+    await js(`document.querySelector('[aria-label="Chiudi AI Flow Chat"]').click()`);
+    await js(`window.TrackerLensAppRouter.navigate('settings.html')`);
+    assert.ok(releaseBackground);
+    releaseBackground();
+    await waitFor(`document.querySelector('[data-flow-prompt-aside]')?.textContent.includes('Background work completed after navigation')`, 'background response retained');
+    assert.equal(record().agentRun.status, 'completed');
+    assert.equal(await js(`document.querySelector('[data-flow-prompt-aside]').classList.contains('is-open')`), false);
+    await js(`window.TrackerLensOpenFlowPromptChat()`);
+    assert.equal(await js(`document.querySelector('[data-flow-prompt-aside]').classList.contains('is-open')`), true);
+    await seed(false); mode = 'background-consent'; atomicStep = 0; releaseBackground = null;
+    await load(); await open(); await resume();
+    await waitFor(`document.querySelector('.tl-flow-prompt-run-status > span')?.textContent === 'Lavoro: waiting-provider'`, 'background consent request started');
+    await js(`document.querySelector('[aria-label="Chiudi AI Flow Chat"]').click()`);
+    releaseBackground();
+    await waitFor(`window.trackers.desktop.persistence.readDevelopmentRecordById({storeName:'tl_flow_prompt_chats',id:'chat-restart'}).then(chat=>chat.agentRun.status==='waiting-approval')`, 'background waits for user');
+    assert.equal(await js(`[...document.querySelectorAll('button')].some(b=>b.textContent==='Consenti tutte le letture per questa chat')`), false);
+    await js(`window.TrackerLensOpenFlowPromptChat()`);
+    await waitFor(`[...document.querySelectorAll('button')].some(b=>b.textContent==='Consenti tutte le letture per questa chat')`, 'consent shown only on return');
+    await js(`[...document.querySelectorAll('button')].find(b=>b.textContent==='Consenti tutte le letture per questa chat').click()`);
+    await waitFor(`window.trackers.desktop.persistence.readDevelopmentRecordById({storeName:'tl_flow_prompt_chats',id:'chat-restart'}).then(chat=>chat.agentRun.status==='completed')`, 'background consent continuation');
     console.log('Flow Chat Electron: SQLite restart/resume, uncertain-action guard, CLI live trace and cancellation passed.');
     console.log('Flow Chat Electron: atomic config/create/duplicate/connect, delete denial/apply, retained outputs and scoped restore passed.');
+    console.log('Flow Chat Electron: manual batch atomic Apply, lost-reply receipt recovery, hidden-chat route continuation and deferred consent passed.');
   } finally {
     win.destroy(); fs.rmSync(directory, { recursive: true, force: true });
   }

@@ -50,6 +50,56 @@ function withGraph(callback) {
 }
 const readGraph = persistence => Object.fromEntries(GRAPH_STORES.map(storeName => [storeName, persistence.readDevelopmentRecords({ storeName }).sort((a, b) => a.id.localeCompare(b.id))]));
 
+test('durable receipts survive lost replies and retries without duplicating graph writes or snapshots', () => withGraph((persistence, databasePath) => {
+  const edits = structuralEdits(), workspaceId = 'w', operationId = 'durable-operation';
+  const preview = persistence.applyNodeEdits({ workspaceId, edits });
+  const result = persistence.applyNodeEdits({ workspaceId, edits, operationId, expected: preview.before, confirmed: true });
+  const restarted = new DesktopPersistence({ databasePath }); restarted.initialize();
+  assert.deepEqual(restarted.getNodeEditReceipt({ workspaceId, operationId }), result);
+  assert.equal(restarted.getNodeEditReceipt({ workspaceId: 'other', operationId }), null);
+  const replay = restarted.applyNodeEdits({ workspaceId, edits, operationId, expected: preview.before, confirmed: true });
+  assert.equal(replay.replayed, true);
+  assert.equal(replay.snapshotId, result.snapshotId);
+  assert.equal(restarted.readDevelopmentRecords({ storeName: 'tl_time_travel_snapshots' }).length, 1);
+  assert.throws(() => restarted.applyNodeEdits({ workspaceId, operationId, edits: [{ operation: 'delete', nodeId: 'copy' }], confirmed: true }), /diversa/);
+  const db = new DatabaseSync(databasePath);
+  db.exec("CREATE TRIGGER fail_receipt BEFORE INSERT ON tl_flow_mutation_receipts BEGIN SELECT RAISE(ABORT, 'receipt failed'); END");
+  const next = [{ operation: 'rename', nodeId: 'copy', value: 'Must roll back' }];
+  const nextPreview = restarted.applyNodeEdits({ workspaceId, edits: next });
+  assert.throws(() => restarted.applyNodeEdits({ workspaceId, edits: next, expected: nextPreview.before, operationId: 'fail', confirmed: true }), /receipt failed/);
+  assert.equal(restarted.readDevelopmentRecordById({ storeName: 'tl_runtime_nodes', id: 'copy' }).label, 'Copy');
+  assert.equal(restarted.getNodeEditReceipt({ workspaceId, operationId: 'fail' }), null);
+  db.close();
+}));
+
+test('legacy edge cleanup and port updates use one rollback-safe graph plan', () => {
+  const graph = graphFixture();
+  graph.tl_runtime_dependencies.push({ id: 'broken', workspaceId: 'w', sourceNodeId: 'missing', targetNodeId: 'a', connectionId: 'connection' });
+  graph.tl_connections.push({ id: 'connection', workspaceId: 'w', sourceNodeId: 'missing', targetNodeId: 'a' });
+  const plan = planGraphEdits({ graph, workspaceId: 'w', edits: [{ operation: 'removeDependencies', dependencyIds: ['broken'] }, { operation: 'ports', nodeId: 'a', target: 'output', value: 'new.output' }] });
+  assert.equal(plan.after.tl_runtime_dependencies.length, 0);
+  assert.equal(plan.after.tl_connections.length, 0);
+  assert.equal(plan.after.tl_runtime_nodes[0].outputs[0], 'new.output');
+  assert.deepEqual(plan.after.tl_channels.find(row => row.id === 'channel_w_output').lastValue, { keep: 'all output' });
+});
+
+test('confirmed no-ops and restores are idempotent even after subsequent graph changes', () => withGraph(persistence => {
+  const workspaceId = 'w', noOp = [{ operation: 'rename', nodeId: 'a', value: 'a' }];
+  const preview = persistence.applyNodeEdits({ workspaceId, edits: noOp });
+  const result = persistence.applyNodeEdits({ workspaceId, edits: noOp, expected: preview.before, confirmed: true, operationId: 'no-op' });
+  assert.equal(result.applied, false);
+  const node = persistence.readDevelopmentRecordById({ storeName: 'tl_runtime_nodes', id: 'a' });
+  persistence.writeDevelopmentRecords({ storeName: 'tl_runtime_nodes', records: [{ ...node, label: 'Later name' }] });
+  assert.equal(persistence.applyNodeEdits({ workspaceId, edits: noOp, confirmed: true, operationId: 'no-op' }).replayed, true);
+  assert.equal(persistence.readDevelopmentRecordById({ storeName: 'tl_runtime_nodes', id: 'a' }).label, 'Later name');
+  const edits = structuralEdits(), plan = persistence.applyNodeEdits({ workspaceId, edits });
+  const committed = persistence.applyNodeEdits({ workspaceId, edits, expected: plan.before, operationId: 'graph', confirmed: true });
+  const restoreArgs = { workspaceId, restoreSnapshotId: committed.snapshotId, operationId: 'restore', confirmed: true };
+  const restored = persistence.applyNodeEdits(restoreArgs);
+  assert.equal(persistence.applyNodeEdits(restoreArgs).snapshotId, restored.snapshotId);
+  assert.equal(persistence.readDevelopmentRecords({ storeName: 'tl_time_travel_snapshots' }).length, 2);
+}));
+
 test('structural batch clones, configures, connects and deletes with intact channel output and flow references', () => {
   const original = graphFixture(), plan = planGraphEdits({ graph: original, workspaceId: 'w', edits: structuralEdits() });
   assert.equal(original.tl_runtime_nodes.length, 2);
