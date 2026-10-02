@@ -3,7 +3,7 @@
   const api = () => window.trackers?.desktop?.customNodePackages;
   const icon = (name, size = "sm") => _.Icon({ name, size });
   const buttonIcons = { Dettagli: "open_in_new", Esporta: "download", Permessi: "shield", Attiva: "play_arrow", Disattiva: "pause", Elimina: "delete", Installa: "download", Conferma: "check", "Verifica pacchetto": "fact_check" };
-  const btn = (label, onclick, disabled = false) => _.Btn({ type: "button", class: `tl-custom-button ${["Dettagli", "Installa", "Conferma", "Verifica pacchetto"].includes(label) ? "is-primary" : ""} ${label === "Elimina" ? "is-danger" : ""} ${["Esporta", "Disattiva", "Elimina"].includes(label) ? "is-icon" : ""}`, title: label, "aria-label": label, onclick, disabled }, buttonIcons[label] ? icon(buttonIcons[label]) : null, ["Esporta", "Disattiva", "Elimina"].includes(label) ? null : label);
+  const btn = (label, onclick, disabled = false) => _.Btn({ type: "button", class: `tl-custom-button ${["Dettagli", "Conferma", "Verifica pacchetto"].includes(label) || label.startsWith("Installa") ? "is-primary" : ""} ${label === "Elimina" ? "is-danger" : ""} ${["Esporta", "Disattiva", "Elimina"].includes(label) ? "is-icon" : ""}`, title: label, "aria-label": label, onclick, disabled }, buttonIcons[label] || (label.startsWith("Installa") ? buttonIcons.Installa : null) ? icon(buttonIcons[label] || buttonIcons.Installa) : null, ["Esporta", "Disattiva", "Elimina"].includes(label) ? null : label);
   let query = "";
   let filter = "all";
   let view = "grid";
@@ -268,11 +268,24 @@
     });
     activeDialog = dialog; dialog.open();
   };
+  const activationDialog = (pkg) => {
+    const dialog = _.Dialog({ class: "tl-custom-activation-dialog", title: "Attiva Custom Node", content: () => _.div({ class: "tl-activation-review" },
+      _.section({ class: "tl-activation-hero" }, _.span({ class: "tl-activation-hero-icon" }, icon("play_circle", "lg")), _.div(_.span("ATTIVAZIONE RUNTIME"), _.h2(pkg.name || pkg.packageId), _.p(`${pkg.packageId} · versione ${pkg.version}`))),
+      _.p({ class: "tl-activation-intro" }, "L’attivazione rende disponibile questo archivio verificato nel sandbox locale. Non avvia alcun Flow e non esegue il Node finché non riceve dati in un Flow configurato."),
+      _.div({ class: "tl-activation-grid" },
+        _.article(_.span({ class: "tl-activation-icon" }, icon("shield_check")), _.div(_.strong("Permessi"), _.p("Consenso registrato per questa versione e questo archivio.")), _.span({ class: "tl-activation-ok" }, "Pronto")),
+        _.article(_.span({ class: "tl-activation-icon" }, icon("deployed_code")), _.div(_.strong("Sandbox locale"), _.p("Il codice opera nell’ambiente isolato di Trackers Lens.")), _.span({ class: "tl-activation-ok" }, "Abilita")),
+        _.article(_.span({ class: "tl-activation-icon" }, icon("input")), _.div(_.strong("Porte"), _.p(`${(pkg.manifest?.inputs || []).length} ingressi · ${(pkg.manifest?.outputs || []).length} uscite`)), _.span({ class: "tl-activation-neutral" }, "Configurate"))
+      ),
+      _.details({ class: "tl-activation-technical" }, _.summary("Identità tecnica"), _.dl({ class: "tl-custom-facts" }, _.dt("Identificatore"), _.dd(pkg.packageId), _.dt("Versione"), _.dd(pkg.version), _.dt("SHA-256 archivio"), _.dd(pkg.archive.sha256)))
+    ), footer: () => [btn("Annulla", () => dialog.close()), btn("Attiva", () => { dialog.close(); void perform(() => api().activateSandboxRuntime({ ...ref(pkg), confirmed: true })); })] });
+    activeDialog = dialog; dialog.open();
+  };
   const activatePackage = (pkg) => perform(async () => {
     const current = (await api().list()).find((item) => item.packageId === pkg.packageId && item.version === pkg.version && item.archive.sha256 === pkg.archive.sha256);
     if (!current) throw new Error("Il pacchetto non è più disponibile. Aggiorna il catalogo.");
     if (pythonUnavailable(current)) { await showPythonRequirement(current); return; }
-    confirm("Attivare questo Custom Node?", _.div(_.p("Il codice elaborerà i dati ricevuti nel sandbox. I permessi devono essere già concessi. Il supporto sandbox deve essere abilitato nell’app."), details(ref(current))), () => api().activateSandboxRuntime({ ...ref(current), confirmed: true }));
+    activationDialog(current);
   });
   const publishNode = (pkg) => {
     const catalog = window.trackers?.desktop?.catalog;
@@ -311,6 +324,24 @@
     activeDialog = dialog; dialog.open();
     actions.replaceChildren(_.Btn({ type: "button", class: "tl-custom-button is-primary", onclick: prepare }, "Prepara anteprima"), _.Btn({ type: "button", class: "tl-custom-button", onclick: close }, "Annulla"));
   };
+  const permissionDialog = (pkg) => {
+    const declared = pkg.permissions || {};
+    const capabilities = [
+      { key: "aiProvider", iconName: "smart_toy", label: "Provider AI", detail: "Può richiedere il provider AI configurato per il Flow.", allowed: declared.aiProvider === true },
+      { key: "memory", iconName: "memory", label: "Memoria", detail: "Può usare la memoria esplicitamente collegata al runtime.", allowed: declared.memory === true },
+      { key: "runtimeGraph", iconName: "account_tree", label: "Grafo runtime", detail: declared.runtimeGraph === "write" ? "Può proporre modifiche, soggette a preflight e consenso." : declared.runtimeGraph === "read" ? "Può leggere il grafo del Flow durante l’esecuzione." : "Non può leggere o modificare il grafo runtime.", allowed: declared.runtimeGraph === "read" || declared.runtimeGraph === "write", state: declared.runtimeGraph || "none" },
+      { key: "network", iconName: "language", label: "Rete", detail: "Il runtime dei Custom Node non offre accesso diretto alla rete.", allowed: false },
+      { key: "filesystem", iconName: "folder", label: "File locali", detail: "Il runtime dei Custom Node non offre accesso diretto al filesystem.", allowed: false }
+    ];
+    const requested = capabilities.filter((item) => item.allowed).length;
+    const dialog = _.Dialog({ class: "tl-custom-permission-dialog", title: "Permessi del Custom Node", content: () => _.div({ class: "tl-permission-review" },
+      _.section({ class: "tl-permission-hero" }, _.span({ class: "tl-permission-hero-icon" }, icon("shield", "lg")), _.div(_.span("RICHIESTA DI CONSENSO"), _.h2(pkg.name || pkg.packageId), _.p(`${pkg.packageId} · versione ${pkg.version}`))),
+      _.p({ class: "tl-permission-intro" }, requested ? `Questo Node richiede ${requested} capacità. Puoi concederle solo per questa versione e questo archivio.` : "Questo Node non richiede capacità runtime aggiuntive. Il consenso registra comunque la revisione della versione installata."),
+      _.div({ class: "tl-permission-grid" }, ...capabilities.map((item) => _.article({ class: `tl-permission-item ${item.allowed ? "is-requested" : "is-blocked"}` }, _.span({ class: "tl-permission-icon" }, icon(item.iconName)), _.div(_.strong(item.label), _.p(item.detail)), _.span({ class: "tl-permission-state" }, item.allowed ? (item.state === "write" ? "Proposte" : item.state === "read" ? "Lettura" : "Richiesto") : "Nessun accesso")))),
+      _.details({ class: "tl-permission-technical" }, _.summary("Dettagli tecnici"), _.dl({ class: "tl-custom-facts" }, _.dt("SHA-256 archivio"), _.dd(pkg.archive.sha256), _.dt("Permessi dichiarati"), _.dd(JSON.stringify(declared))))
+    ), footer: () => [btn("Annulla", () => dialog.close()), btn("Conferma", () => { dialog.close(); void perform(() => api().grantPermissions({ ...ref(pkg), permissions: declared, confirmed: true })); })] });
+    activeDialog = dialog; dialog.open();
+  };
   const packageRow = (pkg) => _.Card({ class: `tl-custom-card is-${status(pkg)}` },
     _.div({ class: "tl-custom-card-heading" }, _.h2({ title: pkg.name || pkg.packageId }, pkg.name || pkg.packageId), _.span({ class: "tl-custom-version" }, `v${pkg.version}`)),
     _.div({ class: "tl-custom-card-identity" }, _.span({ class: "tl-custom-node-icon" }, icon(pkg.manifest?.icon || "extension", "lg")),
@@ -327,7 +358,7 @@
       btn("Pubblica", () => publishNode(pkg), busy),
       btn("Test", () => testPackage(pkg), busy || pkg.runtimeExecution !== "sandboxed" || pythonUnavailable(pkg)),
       btn("Esporta", () => perform(() => api().export(ref(pkg))), busy),
-      pkg.permissionConsent.status !== "granted" ? btn("Permessi", () => confirm("Concedere i permessi dichiarati?", details({ ...ref(pkg), permissions: pkg.permissions }), () => api().grantPermissions({ ...ref(pkg), permissions: pkg.permissions, confirmed: true })), busy) : null,
+      pkg.permissionConsent.status !== "granted" ? btn("Permessi", () => permissionDialog(pkg), busy) : null,
       pythonUnavailable(pkg) ? btn(pkg.pythonRuntime?.dependencies?.installPlan?.supported ? "Installa pack Python" : "Verifica runtime", () => activatePackage(pkg), busy) : pkg.runtimeExecution !== "sandboxed" ? btn("Attiva", () => activatePackage(pkg), busy || pkg.permissionConsent.status !== "granted") : null,
       pkg.runtimeExecution === "sandboxed" ? btn("Disattiva", () => confirm("Disattivare il nodo?", _.p("Il pacchetto e le configurazioni rimangono salvati. Le nuove esecuzioni saranno bloccate; quelle già avviate possono terminare."), () => api().deactivate({ ...ref(pkg), confirmed: true })), busy) : null,
       btn("Elimina", () => perform(async () => {
@@ -337,7 +368,8 @@
         }
         confirm("Eliminare il pacchetto locale?", _.p(`${pkg.name || pkg.packageId} ${pkg.version}: l’archivio sarà cancellato. I dati prodotti nei Flow restano salvati.`), () => api().remove({ ...ref(pkg), confirmed: true }));
       }), busy || pkg.runtimeExecution === "sandboxed")
-    )
+    ),
+    pkg.runtimeExecution === "sandboxed" ? _.p({ class: "tl-custom-delete-note" }, "Disattiva il nodo prima di eliminarlo. Dopo la disattivazione, TL controllerà anche che non sia usato in un Flow.") : null
   );
   const visiblePackages = () => packages.filter((pkg) => (filter === "all" || status(pkg) === filter) && [pkg.name, pkg.packageId, pkg.publisher].join(" ").toLocaleLowerCase().includes(query.toLocaleLowerCase().trim()));
   const renderResults = () => {
@@ -359,6 +391,9 @@
       return;
     }
     const selectedReview = review;
+    const installed = selectedReview.installed || { exact: false, sameVersion: [] };
+    const hasSameVersion = installed.sameVersion.length > 0;
+    const installLabel = installed.exact ? "Già installato" : hasSameVersion ? "Installa come copia locale" : "Installa";
     const options = {
       class: "tl-custom-review-dialog",
       title: "Revisione prima dell’installazione",
@@ -370,14 +405,16 @@
         _.p("Verifica manifest, permessi e audit statico. L’audit non costituisce una garanzia di sicurezza. Puoi richiedere una revisione AI prima di installare."),
         error ? _.p({ class: "tl-custom-notice is-error", role: "alert" }, error) : null,
         busy ? _.p({ role: "status" }, "Operazione in corso…") : null,
+        installed.exact ? _.div({ class: "tl-custom-notice" }, _.strong("Questa versione è già installata."), _.p("Identificatore, versione e SHA-256 coincidono con il pacchetto locale. Non verrà creata una copia e non sarà modificato nulla.")) : null,
+        !installed.exact && hasSameVersion ? _.div({ class: "tl-custom-notice" }, _.strong("Esiste una versione locale con la stessa identità."), _.p("L’archivio Marketplace ha un SHA-256 diverso. Puoi installarlo come copia locale separata: i Flow esistenti continueranno a usare il loro riferimento esatto."), _.details(_.summary("Versione locale esistente"), _.pre(installed.sameVersion.map((item) => `${item.packageId}@${item.version} · ${item.archiveSha256}`).join("\n")))) : null,
         packageDetails({ ...selectedReview, ...selectedReview.manifest, packageId: selectedReview.manifest.id, archive: { sha256: selectedReview.archiveSha256 }, permissions: selectedReview.manifest.permissions, installState: "manifest-only" })),
       footer: () => [
-        btn("Annulla", () => reviewDialog?.close(), busy),
+        btn(installed.exact ? "Chiudi" : "Annulla", () => reviewDialog?.close(), busy),
         btn("Revisione AI", reviewWithAi, busy),
-        btn("Installa", () => perform(async () => {
+        btn(installLabel, () => perform(async () => {
           await api().install({ importId: selectedReview.importId });
           if (review === selectedReview) review = null;
-        }), busy)
+        }), busy || installed.exact)
       ]
     };
     if (reviewDialog) { reviewDialog.update(options); return; }

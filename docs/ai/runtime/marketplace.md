@@ -30,6 +30,8 @@ For each family, a publisher can offer a release at no charge or for a price. Fr
 
 Publish the exact hash-verified archive and manifest as an immutable release. Marketplace signatures/review status must be verifiable by Core. Downloaded archives enter the existing Custom Node archive inspection and explicit install path. Verified status never means permission consent or activation. Dependencies identify trusted Python packs and platform/runtime support.
 
+Before installation, Core reports installed records with the same package identity and version. An identical archive hash is already installed and must remain visible in the review dialog without writing or closing it silently. A different archive hash under the same `id@version` requires an explicit “install as local copy” choice; it preserves the existing record and all Flow references, which remain bound to their exact archive hash.
+
 ### Flow Map
 
 Reuse `tl-catalog-bundle/v1` graph closure and current credential/cache exclusions. Show Custom Node, Python and provider requirements before acquisition. Keep atomic import with fresh identities and paused execution.

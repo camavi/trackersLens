@@ -137,7 +137,11 @@ window.TrackerLensCatalogRuntime = (() => {
     const fields = {
       title: _.input({ value: title, placeholder: 'Titolo' }), description: _.textarea({ rows: 3, placeholder: 'Descrizione' }),
       artifactId: _.input({ placeholder: 'Vuoto per nuova pubblicazione; ID per nuova versione' }), version: _.input({ value: '1.0.0' }),
-      license: _.input({ placeholder: 'Licenza (es. MIT)' }), visibility: _.select(...['private', 'unlisted', 'public'].map(value => _.option({ value }, value))),
+      license: _.input({ placeholder: 'Licenza (es. MIT)' }), visibility: _.select(...[
+        ['private', 'Privato — visibile solo nel tuo account'],
+        ['unlisted', 'Tramite codice — accessibile a chi riceve il codice'],
+        ['public', 'Pubblico — visibile nel Marketplace globale']
+      ].map(([value, label]) => _.option({ value }, label))),
     };
     const notice = _.p({ role: 'status' }), review = _.Col({ gap: 8 }), actions = _.Toolbar({ align: 'end', gap: 8 });
     let disposed = false, busy = false, plan = null;
@@ -157,12 +161,20 @@ window.TrackerLensCatalogRuntime = (() => {
       try {
         const metadata = Object.fromEntries(Object.entries(fields).map(([key, field]) => [key, field.value]));
         const result = await api().publish({ ...metadata, planId: plan.planId, confirmed: true }); plan = null;
-        if (!disposed) { notice.textContent = `Pubblicato: ${result.artifactId}@${result.version}`; actions.replaceChildren(button('Copia codice', () => navigator.clipboard.writeText(`${result.artifactId}@${result.version}`)), button('Chiudi', close)); }
+        if (!disposed) {
+          const visibilityNotice = fields.visibility.value === 'public' ? 'La release è ora visibile nel Marketplace globale.' : fields.visibility.value === 'unlisted' ? 'La release è disponibile solo tramite il suo codice.' : 'La release resta privata e non compare nel Marketplace globale.';
+          notice.textContent = `Pubblicato: ${result.artifactId}@${result.version}. ${visibilityNotice}`;
+          actions.replaceChildren(button('Copia codice', () => navigator.clipboard.writeText(`${result.artifactId}@${result.version}`)), button('Chiudi', close));
+        }
       } catch (error) { if (!disposed) notice.textContent = messageOf(error); }
       finally { busy = false; }
     };
     show({ title: `Pubblica ${kind === 'flowmap' ? 'Flow Map' : 'Workspace'}`,
-      body: _.Col({ gap: 12 }, ...Object.entries(fields).map(([name, field]) => _.label(name, field)), notice, review), actions,
+      body: _.Col({ gap: 12 },
+        ...Object.entries(fields).flatMap(([name, field]) => name === 'visibility'
+          ? [_.label('Visibilità', field), _.p({ class: 'tl-catalog-visibility-help' }, 'Scegli Pubblico per comparire nel Marketplace globale. Privato non viene mostrato agli altri utenti.')]
+          : [_.label(name, field)]),
+        notice, review), actions,
       cleanup: () => { disposed = true; discard(); } });
     actions.replaceChildren(button('Prepara anteprima', prepare), button('Chiudi', close)); void prepare();
   }

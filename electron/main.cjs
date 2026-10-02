@@ -508,6 +508,16 @@ app.whenReady().then(async () => {
   const withPythonStatus = async (record) => record?.manifest?.execution?.runtime === "python"
     ? { ...record, pythonRuntime: customNodePythonRunner ? await customNodePythonRunner.readiness(record.manifest.execution) : { status: "disabled", message: "Avvia TL con il supporto sandbox abilitato (npm run dev)." } }
     : record;
+  const withInstalledState = async (inspection) => {
+    const sameVersion = (await customNodePackageManager.listInstalled()).filter((item) => item.packageId === inspection.manifest.id && item.version === inspection.manifest.version);
+    return {
+      ...inspection,
+      installed: {
+        exact: sameVersion.some((item) => item.archive.sha256 === inspection.archiveSha256),
+        sameVersion: sameVersion.map((item) => ({ packageId: item.packageId, version: item.version, archiveSha256: item.archive.sha256, name: item.name, runtimeExecution: item.runtimeExecution }))
+      }
+    };
+  };
   const customNodePackages = {
     readSource: (payload) => customNodePackageManager.readSource(payload),
     reviewProviders: () => reviewer.providers(),
@@ -530,7 +540,7 @@ app.whenReady().then(async () => {
       const inspection = await customNodePackageManager.inspectFile(archivePath);
       const importId = crypto.randomUUID();
       pendingCustomNodeImports.set(importId, { archivePath, hash: inspection.archiveSha256 });
-      return withPythonStatus({ ...inspection, importId });
+      return withPythonStatus(await withInstalledState({ ...inspection, importId }));
     },
     inspectDownloaded: async ({ archiveBase64 = "", expectedHash = "" } = {}) => {
       const archive = Buffer.from(String(archiveBase64), "base64");
@@ -542,7 +552,7 @@ app.whenReady().then(async () => {
       const archivePath = path.join(directory, `${importId}.tl-node.zip`);
       await fs.promises.writeFile(archivePath, archive, { flag: "wx" });
       pendingCustomNodeImports.set(importId, { archivePath, hash: inspection.archiveSha256, origin: "marketplace" });
-      return withPythonStatus({ ...inspection, importId });
+      return withPythonStatus(await withInstalledState({ ...inspection, importId }));
     },
     install: async ({ importId = "" } = {}) => {
       const review = pendingCustomNodeImports.get(String(importId || ""));
@@ -566,7 +576,7 @@ app.whenReady().then(async () => {
       const archivePath = path.join(directory, `${importId}.tl-node.zip`);
       await fs.promises.writeFile(archivePath, bytes, { flag: "wx" });
       pendingCustomNodeImports.set(importId, { archivePath, hash: inspection.archiveSha256, origin: "created" });
-      return withPythonStatus({ ...inspection, importId });
+      return withPythonStatus(await withInstalledState({ ...inspection, importId }));
     },
     compareVersions: (payload) => customNodePackageManager.compareVersions(payload),
     dependencies: (payload) => customNodePackageManager.dependencies(payload),
