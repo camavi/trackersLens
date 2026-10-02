@@ -25,6 +25,7 @@ Last updated: 2026-06-11.
 
 ## Runtime Files
 
+- `runtime/marketplace.md`: online publication, free/paid acquisition and implementation plan for Custom Nodes, Flow Maps and Workspaces (TASK-039).
 - `runtime/llm-streaming.md`: Flow Map LLM call inventory, streaming observation contract and TASK-037 implementation checkpoints.
 
 - `runtime/stores.md`: SQLite collections and ownership.

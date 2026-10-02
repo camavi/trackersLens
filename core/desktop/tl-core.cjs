@@ -103,7 +103,7 @@ const createTlCore = ({ appVersion = "0.0.0", platform = "unknown", mode = "prod
       case 'desktop.catalog.discard': {
         const action = command.split('.').pop();
         if (!catalog?.[action]) throw errorWithCode('Catalog unavailable', 'CATALOG_UNAVAILABLE');
-        return catalog[action](payload);
+        return catalog[action]({ ...payload, workspaceId: String(payload?.workspaceId || ''), kind: String(payload?.kind || ''), packageId: String(payload?.packageId || ''), version: String(payload?.version || ''), archiveSha256: String(payload?.archiveSha256 || '') });
       }
       case "runtime.getStatus":
         return getRuntimeStatus();
@@ -263,6 +263,9 @@ const createTlCore = ({ appVersion = "0.0.0", platform = "unknown", mode = "prod
       case "desktop.customNodePackages.inspect":
         if (!customNodePackages?.inspect) throw errorWithCode("Custom Node package import is unavailable", "CUSTOM_NODE_PACKAGES_UNAVAILABLE");
         return customNodePackages.inspect();
+      case "desktop.customNodePackages.inspectDownloaded":
+        if (!customNodePackages?.inspectDownloaded) throw errorWithCode("Custom Node marketplace import is unavailable", "CUSTOM_NODE_PACKAGES_UNAVAILABLE");
+        return customNodePackages.inspectDownloaded({ archiveBase64: String(payload?.archiveBase64 || ""), expectedHash: String(payload?.expectedHash || "") });
       case "desktop.customNodePackages.install":
         if (!customNodePackages?.install) throw errorWithCode("Custom Node package import is unavailable", "CUSTOM_NODE_PACKAGES_UNAVAILABLE");
         return customNodePackages.install({ importId: String(payload?.importId || "") });

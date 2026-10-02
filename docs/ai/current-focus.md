@@ -3,9 +3,11 @@
 Purpose: active work and immediate next step.
 Read when: always after `AI.md`.
 Do not read when: never during development sessions.
-Last updated: 2026-09-30.
+Last updated: 2026-10-01.
 
 ## Active Area
+
+Marketplace implementation kickoff (TASK-039, 2026-10-01): free Custom Node publication, browse/search/download and Core revalidation/review handoff are connected to existing package installation. The authenticated web dashboard Marketplace supports typed browsing. A separate public `/marketplace` page is implemented for anonymous metadata browsing across all three kinds, backed by rate-limited `/api/public/catalog`, which returns only `public` release metadata, never bundles, private or unlisted records. Public landing navigation points to the global marketplace; downloads route to the signed-in dashboard. Backend test, site build and page QA remain to run. Paid purchase/entitlements/payouts, verified signatures, public-host deployment and hosted execution remain unimplemented; payment/legal/tax/capacity decisions remain open.
 
 Flow Chat continuation/receipts/manual Apply (TASK-032, 2026-09-30): implemented background continuation in the persistent app-shell renderer while the Chat panel is hidden or another app route is open. Missing read consent and mutation proposals wait for Chat reopening. Quit/reload still interrupts generation; explicit restart recovery remains supported, not an OS service. Core now commits a scoped operation receipt with each identified mutation/snapshot in SQLite; replay returns the original outcome and rejects ID reuse with changed arguments. Chat reconciles pending operation IDs after restart; unreceipted nontransactional effects remain uncertain. Legacy Chat Apply batches and creation plans now use the registered atomic executor, one preview/confirmation and one snapshot; old per-step write loops were removed. Port edits require disconnected dependencies, and exact-ID broken-edge cleanup is transactional. New slice requires separate user QA; earlier acceptance remains closed.
 

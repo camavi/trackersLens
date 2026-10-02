@@ -7,6 +7,15 @@ Last updated: 2026-09-22.
 
 ## Active
 
+### TASK-039: Online Marketplace for Custom Nodes, Flow Maps and Workspaces
+
+Status: Initial backend contract slice in progress; marketplace user flows incomplete.
+Priority: User-selected.
+Scope: one marketplace with artifact-specific publication/acquisition and free or paid listings for Custom Nodes, Flow Maps and Workspaces.
+Contract and phased plan: `runtime/marketplace.md`.
+Baseline: Flow Map/Workspace have authenticated immutable free catalog and safe import lifecycle. Custom Nodes now have free publication from an exact installed release, marketplace browse/search/download, Core archive/hash validation and handoff to the existing review/install flow. Website dashboard `/app/marketplace` has signed-in typed catalog access. A separate anonymous `/marketplace` page and `/api/public/catalog` endpoint now expose metadata for public releases only; private/unlisted items and bundle content stay excluded. Landing navigation links to the global catalog. Paid purchase/entitlement/refund/publisher-settlement, signed verification, public-host deployment and update flows remain incomplete.
+Next: validate anonymous public catalog access and privacy with backend tests, build and UI review; then improve creator release continuity and unify buyer flows across all three kinds. Resolve commercial/service decisions before paid checkout. Do not surface paid purchase as available before payment and entitlement service deployment.
+
 ### TASK-038: Remote Flow Map and Workspace Catalog
 
 UI follow-up (2026-09-28): shared JSswift Search, grid/list catalog results, dedicated own-publication dialog with Flow Map/Workspace selectors, secondary shared-code access and actionable empty/error states. Verified in isolated Electron alongside the publish/import flow.

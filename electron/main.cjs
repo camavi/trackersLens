@@ -532,6 +532,18 @@ app.whenReady().then(async () => {
       pendingCustomNodeImports.set(importId, { archivePath, hash: inspection.archiveSha256 });
       return withPythonStatus({ ...inspection, importId });
     },
+    inspectDownloaded: async ({ archiveBase64 = "", expectedHash = "" } = {}) => {
+      const archive = Buffer.from(String(archiveBase64), "base64");
+      if (!archive.length || archive.toString("base64") !== String(archiveBase64) || crypto.createHash("sha256").update(archive).digest("hex") !== String(expectedHash).toLowerCase()) throw new Error("Hash archivio marketplace non valido.");
+      const inspection = require("../core/desktop/custom-node-package-manager.cjs").inspectArchive(archive);
+      const importId = crypto.randomUUID();
+      const directory = path.join(app.getPath("userData"), "customNode", ".drafts");
+      await fs.promises.mkdir(directory, { recursive: true });
+      const archivePath = path.join(directory, `${importId}.tl-node.zip`);
+      await fs.promises.writeFile(archivePath, archive, { flag: "wx" });
+      pendingCustomNodeImports.set(importId, { archivePath, hash: inspection.archiveSha256, origin: "marketplace" });
+      return withPythonStatus({ ...inspection, importId });
+    },
     install: async ({ importId = "" } = {}) => {
       const review = pendingCustomNodeImports.get(String(importId || ""));
       const archivePath = review?.archivePath;
@@ -587,7 +599,7 @@ app.whenReady().then(async () => {
     sessionForOrigin: (origin) => session.fromPartition(`persist:tl-account-${crypto.createHash('sha256').update(origin).digest('hex')}`),
     defaultBaseUrl: accountDefaultOrigin
   });
-  const catalog = require('../core/desktop/catalog-client.cjs').createCatalogClient({ account, persistence, pythonPacks });
+  const catalog = require('../core/desktop/catalog-client.cjs').createCatalogClient({ account, persistence, pythonPacks, customNodePackageManager });
   tlCore = createTlCore({
     appVersion: app.getVersion(),
     platform: process.platform,

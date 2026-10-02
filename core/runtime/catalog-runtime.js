@@ -11,7 +11,12 @@ window.TrackerLensCatalogRuntime = (() => {
       onClose: () => { if (active === dialog) active = null; cleanup?.(); } });
     active = dialog; dialog.open(); return dialog;
   }
-  const reviewBody = plan => _.Col({ gap: 12 },
+  const reviewBody = plan => plan.manifest ? _.Col({ gap: 12 },
+    _.p(`Autore: ${plan.manifest.publisher || plan.item?.publisher || 'Sconosciuto'} · ${plan.manifest.id}@${plan.manifest.version}`),
+    _.p(`SHA-256 archivio: ${plan.archiveSha256}`),
+    _.p(`File inclusi: ${(plan.files || []).map(file => file.name).join(' · ')}`),
+    _.details(_.summary('Manifest completo'), _.pre(JSON.stringify(plan.manifest, null, 2))),
+    _.p('Il download apre la revisione locale. Installazione, consenso ai permessi e attivazione restano azioni distinte.')) : _.Col({ gap: 12 },
     _.p(Object.entries(plan.counts).map(([key, count]) => `${key.replace('tl_', '')}: ${count}`).join(' · ')),
     ...plan.dependencies.map(dep => _.p(`${dep.type}: ${dep.packageId || dep.packId || dep.nodeId} ${dep.version || ''} — ${dep.status}`)),
     plan.removed?.length ? _.details(_.summary(`Campi locali esclusi (${plan.removed.length})`), _.pre(plan.removed.join('\n'))) : null,
@@ -48,9 +53,9 @@ window.TrackerLensCatalogRuntime = (() => {
       results.className = `tl-catalog-results is-${view}`;
       summary.textContent = response ? `${response.total} versioni disponibili` : '';
       results.replaceChildren(...(response?.items || []).map(item => _.Card({ class: 'tl-catalog-item' },
-        _.div({ class: 'tl-catalog-artwork', 'aria-hidden': 'true' }, _.Icon({ name: item.kind === 'flowmap' ? 'account_tree' : 'dashboard_customize', size: 'lg' })),
+        _.div({ class: 'tl-catalog-artwork', 'aria-hidden': 'true' }, _.Icon({ name: ({ node: 'extension', flowmap: 'account_tree', workspace: 'dashboard_customize' })[item.kind] || 'inventory_2', size: 'lg' })),
         _.div({ class: 'tl-catalog-item-info' },
-          _.small({ class: 'tl-catalog-kind' }, item.kind === 'flowmap' ? 'FLOW MAP' : 'WORKSPACE'),
+          _.small({ class: 'tl-catalog-kind' }, ({ node: 'CUSTOM NODE', flowmap: 'FLOW MAP', workspace: 'WORKSPACE' })[item.kind] || item.kind.toUpperCase()),
           _.h3(item.title), _.p(item.description || 'Nessuna descrizione'),
           _.div({ class: 'tl-catalog-meta' }, _.span(item.publisher), _.span(`v${item.version}`), _.span(item.license || '')),
           mine ? _.span({ class: 'tl-catalog-visibility' }, visibility(item.visibility)) : null),
@@ -82,13 +87,20 @@ window.TrackerLensCatalogRuntime = (() => {
       const downloaded = await api().download(item);
       if (disposed) { void api().discard({ planId: downloaded.planId }); return; }
       plan = downloaded; mode = 'review'; results.className = 'tl-catalog-results is-review';
-      results.replaceChildren(_.h3(plan.item.title), reviewBody(plan), _.p('Importa una copia locale con nodi in pausa. I Custom Node mancanti richiedono il relativo ZIP; provider e modelli si configurano localmente.'));
+      results.replaceChildren(_.h3(plan.item.title), reviewBody(plan), plan.manifest ? null : _.p('Importa una copia locale con nodi in pausa. I Custom Node mancanti richiedono il relativo ZIP; provider e modelli si configurano localmente.'));
       summary.textContent = `Versione ${plan.item.version}`;
       actions.replaceChildren(button('Torna ai risultati', () => { if (busy) return; discard(); mode = 'results'; renderResults(); }),
-        button('Conferma importazione', () => work(async () => {
+        button(plan.manifest ? 'Scarica e revisiona' : 'Conferma importazione', () => work(async () => {
           const imported = await api().install({ planId: plan.planId, confirmed: true });
           plan = null;
           if (disposed) return;
+          if (imported.kind === 'node') {
+            const inspected = await window.trackers?.desktop?.customNodePackages?.inspectDownloaded({ archiveBase64: imported.archiveBase64, expectedHash: imported.archiveSha256 });
+            results.replaceChildren(empty('fact_check', 'Revisione locale pronta', 'Controlla manifest, codice e permessi. Installazione e attivazione richiedono conferme separate.'));
+            actions.replaceChildren(button('Chiudi', close));
+            await onImported?.(inspected, item);
+            return;
+          }
           results.replaceChildren(empty('check_circle', 'Importazione completata', 'La copia locale è disponibile nella libreria, con i nodi in pausa.'));
           actions.replaceChildren(button('Chiudi', close));
           await onImported?.(imported, item);
@@ -104,14 +116,14 @@ window.TrackerLensCatalogRuntime = (() => {
     });
     const scope = _.Toolbar({ class: 'tl-catalog-scope', gap: 8 });
     const renderScope = () => {
-      if (mine) scope.replaceChildren(...[['flowmap', 'Flow Map'], ['workspace', 'Workspace']].map(([key, label]) =>
+      if (mine) scope.replaceChildren(...[['node', 'Custom Node'], ['flowmap', 'Flow Map'], ['workspace', 'Workspace']].map(([key, label]) =>
         action(label, key === 'flowmap' ? 'account_tree' : 'dashboard_customize', () => {
           if (busy) return; kind = key; renderScope(); search(1);
         }, { 'aria-pressed': kind === key, class: `tl-catalog-button ${kind === key ? 'is-active' : ''}` })));
       else scope.replaceChildren(action('Le mie pubblicazioni', 'inventory_2', () => openImportDialog({ kind, mine: true, onImported })));
     };
     renderScope(); renderSwitcher();
-    show({ browser: true, title: mine ? 'Le mie pubblicazioni' : kind === 'flowmap' ? 'Flow Map online' : 'Workspace online',
+    show({ browser: true, title: mine ? 'Le mie pubblicazioni' : ({ node: 'Custom Node online', flowmap: 'Flow Map online', workspace: 'Workspace online' })[kind],
       body: _.Col({ class: 'tl-catalog-browser', gap: 16 },
         _.Row({ class: 'tl-catalog-controls', gap: 8 }, searchField, action('Cerca', 'search', () => search(1))),
         _.Row({ class: 'tl-catalog-browser-tools', gap: 12 }, scope, switcher),

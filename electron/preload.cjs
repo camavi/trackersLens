@@ -17,7 +17,7 @@ const trackers = Object.freeze({
     catalog: Object.freeze({
       search: ({ kind, query = '', page = 1, mine = false } = {}) => request('desktop.catalog.search', { kind, query, page, mine }),
       download: ({ kind, artifactId, version, sha256 } = {}) => request('desktop.catalog.download', { kind, artifactId, version, sha256 }),
-      preparePublish: ({ workspaceId, kind } = {}) => request('desktop.catalog.preparePublish', { workspaceId, kind }),
+      preparePublish: ({ workspaceId, kind, packageId, version, archiveSha256 } = {}) => request('desktop.catalog.preparePublish', { workspaceId, kind, packageId, version, archiveSha256 }),
       publish: ({ planId, confirmed, artifactId, version, title, description, license, visibility } = {}) => request('desktop.catalog.publish', { planId, confirmed, artifactId, version, title, description, license, visibility }),
       install: ({ planId, confirmed } = {}) => request('desktop.catalog.install', { planId, confirmed }),
       discard: ({ planId } = {}) => request('desktop.catalog.discard', { planId })
@@ -90,6 +90,7 @@ const trackers = Object.freeze({
       remove: ({ packageId, version, archiveSha256, confirmed = false } = {}) => request("desktop.customNodePackages.remove", { packageId: String(packageId || ""), version: String(version || ""), archiveSha256: String(archiveSha256 || ""), confirmed: confirmed === true }),
       export: ({ packageId, version, archiveSha256, confirmed = false } = {}) => request("desktop.customNodePackages.export", { packageId: String(packageId || ""), version: String(version || ""), archiveSha256: String(archiveSha256 || ""), confirmed: confirmed === true }),
       inspect: () => request("desktop.customNodePackages.inspect"),
+      inspectDownloaded: ({ archiveBase64, expectedHash } = {}) => request("desktop.customNodePackages.inspectDownloaded", { archiveBase64: String(archiveBase64 || ""), expectedHash: String(expectedHash || "") }),
       install: ({ importId } = {}) => request("desktop.customNodePackages.install", { importId: String(importId || "") }),
       list: () => request("desktop.customNodePackages.list"),
       grantPermissions: ({ packageId, version, archiveSha256, permissions = {}, confirmed = false } = {}) => request("desktop.customNodePackages.grantPermissions", {

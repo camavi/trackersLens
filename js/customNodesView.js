@@ -274,6 +274,43 @@
     if (pythonUnavailable(current)) { await showPythonRequirement(current); return; }
     confirm("Attivare questo Custom Node?", _.div(_.p("Il codice elaborerà i dati ricevuti nel sandbox. I permessi devono essere già concessi. Il supporto sandbox deve essere abilitato nell’app."), details(ref(current))), () => api().activateSandboxRuntime({ ...ref(current), confirmed: true }));
   });
+  const publishNode = (pkg) => {
+    const catalog = window.trackers?.desktop?.catalog;
+    if (!catalog?.preparePublish || !catalog?.publish) { error = "Marketplace desktop non disponibile."; render(); return; }
+    const title = _.input({ value: pkg.name || pkg.packageId, placeholder: "Titolo" });
+    const description = _.textarea({ rows: 3, placeholder: "Descrizione del Custom Node" });
+    const license = _.input({ placeholder: "Licenza (es. MIT)" });
+    const visibility = _.select(...["public", "unlisted", "private"].map(value => _.option({ value }, ({ public: "Pubblico", unlisted: "Tramite codice", private: "Privato" })[value])));
+    const message = _.p({ role: "status" });
+    const preview = _.div();
+    let plan = null, working = false;
+    const close = () => { if (plan) void catalog.discard({ planId: plan.planId }).catch(() => {}); dialog.close(); };
+    const actions = _.Toolbar({ align: "end", gap: 8 });
+    const prepare = async () => {
+      if (working) return; working = true; message.textContent = "Verifico archivio e manifest…";
+      try {
+        if (plan) await catalog.discard({ planId: plan.planId });
+        plan = await catalog.preparePublish({ kind: "node", packageId: pkg.packageId, version: pkg.version, archiveSha256: pkg.archive.sha256 });
+        preview.replaceChildren(_.p(`${plan.manifest.id}@${plan.manifest.version} · SHA-256 ${plan.archiveSha256}`), _.p(`File inclusi: ${plan.files.map(file => file.name).join(" · ")}`), _.pre(JSON.stringify(plan.staticAnalysis, null, 2)), _.details(_.summary("Manifest completo"), _.pre(JSON.stringify(plan.manifest, null, 2))));
+        message.textContent = "Anteprima pronta. Questa release sarà gratuita; la pubblicazione non concede permessi di esecuzione.";
+        actions.replaceChildren(_.Btn({ type: "button", class: "tl-custom-button", onclick: prepare }, "Aggiorna anteprima"), _.Btn({ type: "button", class: "tl-custom-button is-primary", onclick: publish }, "Pubblica gratis"));
+      } catch (failure) { message.textContent = errorMessage(failure); }
+      finally { working = false; }
+    };
+    const publish = async () => {
+      if (working || !plan) return; working = true; message.textContent = "Pubblicazione in corso…";
+      try {
+        if (!title.value.trim() || !license.value.trim()) throw new Error("Inserisci titolo e licenza.");
+        const result = await catalog.publish({ planId: plan.planId, confirmed: true, version: pkg.version, title: title.value.trim(), description: description.value, license: license.value.trim(), visibility: visibility.value });
+        plan = null; message.textContent = `Pubblicato: ${result.artifactId}@${result.version}`;
+        actions.replaceChildren(_.Btn({ type: "button", class: "tl-custom-button", onclick: () => navigator.clipboard.writeText(`${result.artifactId}@${result.version}`) }, "Copia codice"), _.Btn({ type: "button", class: "tl-custom-button", onclick: () => dialog.close() }, "Chiudi"));
+      } catch (failure) { message.textContent = errorMessage(failure); }
+      finally { working = false; }
+    };
+    const dialog = _.Dialog({ class: "tl-custom-publish-dialog", title: "Pubblica Custom Node gratis", closeButton: true, onClose: () => { if (plan) void catalog.discard({ planId: plan.planId }).catch(() => {}); }, content: () => _.div({ class: "tl-custom-editor" }, _.p("Pubblica l’archivio verificato come release gratuita. Il marketplace non firma né attiva il codice; gli acquirenti passeranno dalla revisione e dal consenso locali."), _.label("Titolo", title), _.label("Descrizione", description), _.label("Licenza", license), _.label("Visibilità", visibility), preview, message), footer: () => actions });
+    activeDialog = dialog; dialog.open();
+    actions.replaceChildren(_.Btn({ type: "button", class: "tl-custom-button is-primary", onclick: prepare }, "Prepara anteprima"), _.Btn({ type: "button", class: "tl-custom-button", onclick: close }, "Annulla"));
+  };
   const packageRow = (pkg) => _.Card({ class: `tl-custom-card is-${status(pkg)}` },
     _.div({ class: "tl-custom-card-heading" }, _.h2({ title: pkg.name || pkg.packageId }, pkg.name || pkg.packageId), _.span({ class: "tl-custom-version" }, `v${pkg.version}`)),
     _.div({ class: "tl-custom-card-identity" }, _.span({ class: "tl-custom-node-icon" }, icon(pkg.manifest?.icon || "extension", "lg")),
@@ -287,6 +324,7 @@
         activeDialog = _.Dialog({ title: pkg.name || pkg.packageId, content: () => packageDetails(pkg), footer: () => btn("Chiudi", () => activeDialog.close()) }); activeDialog.open();
       }, busy),
       btn("Versioni", () => comparePackage(pkg), busy),
+      btn("Pubblica", () => publishNode(pkg), busy),
       btn("Test", () => testPackage(pkg), busy || pkg.runtimeExecution !== "sandboxed" || pythonUnavailable(pkg)),
       btn("Esporta", () => perform(() => api().export(ref(pkg))), busy),
       pkg.permissionConsent.status !== "granted" ? btn("Permessi", () => confirm("Concedere i permessi dichiarati?", details({ ...ref(pkg), permissions: pkg.permissions }), () => api().grantPermissions({ ...ref(pkg), permissions: pkg.permissions, confirmed: true })), busy) : null,
@@ -361,6 +399,7 @@
       _.header({ class: "tl-custom-topbar" },
         _.Search({ class: "tl-library-search-input", label: "Cerca nei Custom Nodes…", "aria-label": "Cerca nei Custom Nodes", value: query }),
         _.Toolbar({ class: "tl-custom-actions", align: "center", gap: 10 },
+          _.Btn({ class: "tl-custom-button", disabled: busy || !window.TrackerLensCatalogRuntime?.openImportDialog, onclick: () => window.TrackerLensCatalogRuntime.openImportDialog({ kind: "node", onImported: (item) => { if (item?.importId) { review = item; render(); } } }) }, icon("storefront"), "Marketplace"),
           _.Btn({ class: "tl-custom-button", disabled: busy || !api(), onclick: () => perform(async () => { const result = await api().inspect(); if (!result.cancelled) review = result; }) }, icon("upload_file"), "Importa"),
           _.Btn({ class: "tl-custom-button is-primary", "aria-label": "Crea Custom Node", disabled: busy || !api(), onclick: create }, icon("add"), "Crea nodo"),
           _.Btn({ class: "tl-custom-button is-icon", title: "Aggiorna", "aria-label": "Aggiorna", disabled: busy || !api(), onclick: () => perform(async () => {}) }, icon("refresh"))
@@ -370,7 +409,7 @@
           _.div({ class: "tl-custom-panel-title" }, _.h1("Custom Nodes"), icon("extension")),
           _.p({ class: "tl-custom-section-label" }, "Libreria locale"),
           _.div({ class: "tl-custom-filters" }, ...filters.map(([key, label, symbol]) => _.Btn({ class: `tl-custom-filter ${filter === key ? "is-active" : ""}`, "aria-pressed": filter === key, onclick: () => { filter = key; render(); } }, icon(symbol), _.span(label), _.small(String(packages.filter((pkg) => key === "all" || status(pkg) === key).length))))),
-          _.div({ class: "tl-custom-marketplace" }, _.div(icon("storefront"), _.h2("Marketplace")), _.span({ class: "tl-custom-badge" }, "Non disponibile"), _.p("Download e pubblicazione gratuita o a pagamento saranno disponibili qui.")),
+          _.div({ class: "tl-custom-marketplace" }, _.div(icon("storefront"), _.h2("Marketplace")), _.span({ class: "tl-custom-badge" }, "Catalogo gratuito"), _.p("Esplora i Custom Node pubblicati. Ogni download passa dalla revisione locale; permessi e attivazione restano sotto il tuo controllo."), _.Btn({ class: "tl-custom-button is-primary", onclick: () => window.TrackerLensCatalogRuntime.openImportDialog({ kind: "node", onImported: (item) => { if (item?.importId) { review = item; render(); } } }) }, icon("explore"), "Esplora i Node")),
           _.div({ class: "tl-custom-sidebar-note" }, icon("inventory_2"), _.p("I nodi disattivati restano nella tua libreria locale."))
         ),
         _.main({ class: "tl-custom-main" },

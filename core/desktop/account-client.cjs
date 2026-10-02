@@ -65,7 +65,7 @@ const createAccountClient = ({ persistence, sessionForOrigin, defaultBaseUrl = "
       const fields = (...keys) => Object.fromEntries(keys.map(key => [key, String(payload[key] || "")]));
       switch (action) {
         case 'catalogSearch': {
-          if (!['flowmap', 'workspace'].includes(payload.kind)) throw new Error('Tipo catalogo non supportato.');
+          if (!['node', 'flowmap', 'workspace'].includes(payload.kind)) throw new Error('Tipo catalogo non supportato.');
           const query = new URLSearchParams({ kind: payload.kind, query: String(payload.query || ''), page: String(Math.max(1, Number(payload.page) || 1)), mine: payload.mine === true ? '1' : '0' });
           return request(`/api/catalog?${query}`);
         }

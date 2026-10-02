@@ -1,6 +1,6 @@
 const crypto = require('node:crypto');
 const { hash, validate, buildBundle, dependencies, copyRecords } = require('./catalog-bundle.cjs');
-function createCatalogClient({ account, persistence, pythonPacks }) {
+function createCatalogClient({ account, persistence, pythonPacks, customNodePackageManager }) {
   const pending = new Map();
   const remote = async (action, payload) => {
     const response = await account.dispatch(action, payload);
@@ -23,7 +23,15 @@ function createCatalogClient({ account, persistence, pythonPacks }) {
   };
   return {
     search: payload => remote('catalogSearch', payload),
-    async preparePublish({ workspaceId, kind }) {
+    async preparePublish({ workspaceId, kind, packageId, version, archiveSha256 }) {
+      if (kind === 'node') {
+        if (!customNodePackageManager?.readArchive) throw new Error('Custom Node publisher non disponibile.');
+        const { archive, inspection } = await customNodePackageManager.readArchive({ packageId, version, archiveSha256 });
+        const release = { schema: 'tl-custom-node-marketplace/v1', manifest: inspection.manifest, archiveBase64: archive.toString('base64'), archiveSha256: inspection.archiveSha256 };
+        const bundleJson = JSON.stringify(release);
+        const planId = await plan({ type: 'publish', bundleJson, kind: 'node' });
+        return { planId, sha256: hash(bundleJson), manifest: inspection.manifest, archiveSha256: inspection.archiveSha256, files: inspection.files, staticAnalysis: inspection.staticAnalysis, bundleJson };
+      }
       const { bundle, removed } = buildBundle(persistence, { workspaceId, kind });
       const bundleJson = JSON.stringify(bundle);
       const planId = await plan({ type: 'publish', bundleJson, kind });
@@ -43,6 +51,17 @@ function createCatalogClient({ account, persistence, pythonPacks }) {
       if (response.item?.kind !== kind || response.item?.artifactId !== artifactId || response.item?.version !== version || typeof response.bundleJson !== 'string') throw new Error('Identità del download non valida.');
       const digest = hash(response.bundleJson);
       if (digest !== response.item.sha256 || (sha256 && digest !== sha256)) throw new Error('Integrità del bundle non valida.');
+      if (kind === 'node') {
+        const release = JSON.parse(response.bundleJson);
+        if (release?.schema !== 'tl-custom-node-marketplace/v1' || typeof release.archiveBase64 !== 'string' || !release.manifest || !/^[a-f0-9]{64}$/i.test(release.archiveSha256 || '')) throw new Error('Formato Custom Node del marketplace non valido.');
+        const archive = Buffer.from(release.archiveBase64, 'base64');
+        if (archive.toString('base64') !== release.archiveBase64 || hash(archive) !== release.archiveSha256.toLowerCase()) throw new Error('Integrità archivio Custom Node non valida.');
+        const { inspectArchive } = require('./custom-node-package-manager.cjs');
+        const inspected = inspectArchive(archive);
+        if (JSON.stringify(inspected.manifest) !== JSON.stringify(release.manifest) || inspected.manifest.version !== version) throw new Error('Manifest Custom Node diverso dalla release richiesta.');
+        const planId = await plan({ type: 'import-node', release, item: response.item });
+        return { planId, item: response.item, manifest: inspected.manifest, archiveSha256: inspected.archiveSha256, files: inspected.files, staticAnalysis: inspected.staticAnalysis };
+      }
       const bundle = validate(JSON.parse(response.bundleJson));
       if (bundle.kind !== kind) throw new Error('Tipo bundle non valido.');
       const required = dependencies(bundle, persistence, pythonPacks);
@@ -51,8 +70,13 @@ function createCatalogClient({ account, persistence, pythonPacks }) {
     },
     async install({ planId, confirmed }) {
       if (confirmed !== true) throw new Error('Conferma l’importazione.');
-      const prepared = await get(planId, 'import');
+      const existing = pending.get(planId);
+      const prepared = await get(planId, existing?.type === 'import-node' ? 'import-node' : 'import');
       try {
+      if (prepared.type === 'import-node') {
+        pending.delete(planId);
+        return { kind: 'node', item: prepared.item, manifest: prepared.release.manifest, archiveBase64: prepared.release.archiveBase64, archiveSha256: prepared.release.archiveSha256 };
+      }
       const required = dependencies(prepared.bundle, persistence, pythonPacks);
       const copied = copyRecords(prepared.bundle, { ...prepared.item, origin: prepared.origin });
       for (const node of copied.records.tl_runtime_nodes) {

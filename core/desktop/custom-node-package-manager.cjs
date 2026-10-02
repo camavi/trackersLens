@@ -228,6 +228,15 @@ class CustomNodePackageManager {
     return inspectArchive(archive);
   }
 
+  async readArchive(reference = {}) {
+    const record = await this.resolvePackage(reference);
+    const archivePath = path.join(this.packagesDirectory, safePackageSegment(record.packageId), safePackageSegment(record.version), `archive_${record.archive.sha256}${ZIP_EXTENSION}`);
+    const archive = await fs.promises.readFile(archivePath);
+    const inspection = inspectArchive(archive);
+    if (inspection.archiveSha256 !== record.archive.sha256) throw errorWithCode("Hash archivio non valido.", "CUSTOM_NODE_ARCHIVE_HASH_MISMATCH");
+    return { archive, inspection };
+  }
+
   async installFile(archivePath = "", { expectedHash = "", origin = "local-upload", aiReviews = [] } = {}) {
     const source = path.resolve(String(archivePath || ""));
     if (!source.toLowerCase().endsWith(ZIP_EXTENSION)) throw errorWithCode("Seleziona un archivio .tl-node.zip.", "CUSTOM_NODE_ARCHIVE_EXTENSION_INVALID");
