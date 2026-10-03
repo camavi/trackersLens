@@ -16,9 +16,10 @@ const trackers = Object.freeze({
     ].map(action => [action, (payload = {}) => request(`desktop.account.${action}`, payload)]))),
     catalog: Object.freeze({
       search: ({ kind, query = '', page = 1, mine = false } = {}) => request('desktop.catalog.search', { kind, query, page, mine }),
+      checkout: ({ artifactId, version, idempotencyKey } = {}) => request('desktop.catalog.checkout', { artifactId, version, idempotencyKey }),
       download: ({ kind, artifactId, version, sha256 } = {}) => request('desktop.catalog.download', { kind, artifactId, version, sha256 }),
       preparePublish: ({ workspaceId, kind, packageId, version, archiveSha256 } = {}) => request('desktop.catalog.preparePublish', { workspaceId, kind, packageId, version, archiveSha256 }),
-      publish: ({ planId, confirmed, artifactId, version, title, description, license, visibility } = {}) => request('desktop.catalog.publish', { planId, confirmed, artifactId, version, title, description, license, visibility }),
+      publish: ({ planId, confirmed, artifactId, version, title, description, license, visibility, listingType, priceMinor, currency } = {}) => request('desktop.catalog.publish', { planId, confirmed, artifactId, version, title, description, license, visibility, listingType, priceMinor, currency }),
       install: ({ planId, confirmed } = {}) => request('desktop.catalog.install', { planId, confirmed }),
       discard: ({ planId } = {}) => request('desktop.catalog.discard', { planId })
     }),

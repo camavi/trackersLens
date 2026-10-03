@@ -15,6 +15,8 @@ Last updated: 2026-09-25.
 ## Implemented API Surface
 
 - Artifact catalog (TASK-038): authenticated `GET /api/catalog`, `POST /api/catalog`, `GET /api/catalog/{artifactId}/versions/{version}`. Immutable versions, owner-only publication, public/private/unlisted read scopes, complete paginated metadata and exact bundle SHA-256. See `runtime/artifact-catalog.md`.
+- Marketplace sales (TASK-039): authenticated `GET /api/dashboard/sales` returns per-currency verified paid-order gross, platform fee and seller-net snapshots plus recent orders and ledger entries. `POST /api/dashboard/sales/payout-access` creates a short-lived Stripe Express dashboard login link only for the authenticated publisher's enabled Connect account; live available balance and payout execution remain Stripe-owned.
+- Stripe Connect: `POST /api/stripe/connect/onboarding`, `GET /api/stripe/connect/status`; checkout and exact-version entitlement handling are documented in `runtime/marketplace.md`.
 
 - Auth:
   - `GET /sanctum/csrf-cookie`

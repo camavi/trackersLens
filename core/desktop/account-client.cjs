@@ -74,6 +74,11 @@ const createAccountClient = ({ persistence, sessionForOrigin, defaultBaseUrl = "
           return request(`/api/catalog/${encodeURIComponent(payload.artifactId)}/versions/${encodeURIComponent(payload.version)}`);
         }
         case 'catalogPublish': return request('/api/catalog', 'POST', payload);
+        case 'catalogCheckout': {
+          if (!/^[a-f0-9-]{36}$/i.test(payload.artifactId || '') || !/^[0-9]+\.[0-9]+\.[0-9]+(?:-[A-Za-z0-9.-]+)?$/.test(payload.version || '')) throw new Error('Codice release non valido.');
+          if (!/^[a-f0-9-]{36}$/i.test(payload.idempotencyKey || '')) throw new Error('Chiave checkout non valida.');
+          return request('/api/marketplace/checkout', 'POST', { artifactId: payload.artifactId, version: payload.version, idempotencyKey: payload.idempotencyKey });
+        }
         case "user": return projectUser(await request("/api/user"));
         case "login":
           await request("/api/login", "POST", { ...fields("email", "password"), remember: payload.remember === true });

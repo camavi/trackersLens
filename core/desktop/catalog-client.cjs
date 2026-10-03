@@ -23,6 +23,7 @@ function createCatalogClient({ account, persistence, pythonPacks, customNodePack
   };
   return {
     search: payload => remote('catalogSearch', payload),
+    checkout: payload => remote('catalogCheckout', payload),
     async preparePublish({ workspaceId, kind, packageId, version, archiveSha256 }) {
       if (kind === 'node') {
         if (!customNodePackageManager?.readArchive) throw new Error('Custom Node publisher non disponibile.');
@@ -37,11 +38,11 @@ function createCatalogClient({ account, persistence, pythonPacks, customNodePack
       const planId = await plan({ type: 'publish', bundleJson, kind });
       return { planId, sha256: hash(bundleJson), removed, bundleJson, dependencies: dependencies(bundle, persistence, pythonPacks), counts: Object.fromEntries(Object.entries(bundle.records).map(([key, rows]) => [key, rows.length])) };
     },
-    async publish({ planId, confirmed, artifactId = '', version, title, description = '', license, visibility }) {
+    async publish({ planId, confirmed, artifactId = '', version, title, description = '', license, visibility, listingType = 'free', priceMinor, currency }) {
       if (confirmed !== true) throw new Error('Conferma la pubblicazione.');
       const prepared = await get(planId, 'publish');
       try {
-      const result = await remote('catalogPublish', { ...(artifactId ? { artifactId } : {}), kind: prepared.kind, version, title, description, license, visibility, bundleJson: prepared.bundleJson });
+      const result = await remote('catalogPublish', { ...(artifactId ? { artifactId } : {}), kind: prepared.kind, version, title, description, license, visibility, listingType, ...(listingType === 'paid' ? { priceMinor, currency } : {}), bundleJson: prepared.bundleJson });
       pending.delete(planId);
       return result;
       } finally { prepared.busy = false; }

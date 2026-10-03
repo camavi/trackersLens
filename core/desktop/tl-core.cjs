@@ -97,6 +97,9 @@ const createTlCore = ({ appVersion = "0.0.0", platform = "unknown", mode = "prod
       case "desktop.catalog.download":
         if (!catalog?.download) throw errorWithCode("Online catalog is not connected.", "CATALOG_UNAVAILABLE");
         return catalog.download({ kind: String(payload?.kind || ""), artifactId: String(payload?.artifactId || ""), version: String(payload?.version || ""), sha256: String(payload?.sha256 || '') });
+      case "desktop.catalog.checkout":
+        if (!catalog?.checkout) throw errorWithCode("Marketplace checkout is unavailable.", "CATALOG_CHECKOUT_UNAVAILABLE");
+        return catalog.checkout({ artifactId: String(payload?.artifactId || ""), version: String(payload?.version || ""), idempotencyKey: String(payload?.idempotencyKey || "") });
       case 'desktop.catalog.preparePublish':
       case 'desktop.catalog.publish':
       case 'desktop.catalog.install':

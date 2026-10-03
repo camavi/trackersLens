@@ -3,6 +3,18 @@ window.TrackerLensCatalogRuntime = (() => {
   const api = () => window.trackers?.desktop?.catalog;
   const button = (label, onclick, disabled = false) => _.Btn({ type: 'button', class: 'tl-catalog-button', onclick, disabled }, label);
   const messageOf = error => String(error?.message || error).replace(/^Error invoking remote method '[^']+': (?:Error: )?/, '');
+  const listingPrice = item => {
+    if (item.listingType !== 'paid' || !Number.isInteger(item.priceMinor) || !item.currency) return 'Gratuito';
+    try {
+      const digits = new Intl.NumberFormat('en', { style: 'currency', currency: item.currency }).resolvedOptions().maximumFractionDigits;
+      return new Intl.NumberFormat(undefined, { style: 'currency', currency: item.currency }).format(item.priceMinor / (10 ** digits));
+    } catch (_) { return `${item.priceMinor} ${item.currency}`; }
+  };
+  const euroMinor = raw => {
+    const match = String(raw || '').trim().match(/^(\d{1,8})(?:[.,](\d{1,2}))?$/);
+    if (!match) return null;
+    return Number(match[1]) * 100 + Number((match[2] || '').padEnd(2, '0'));
+  };
   const close = () => active?.close();
   function show({ title, body, actions, cleanup, browser = false }) {
     close();
@@ -37,6 +49,7 @@ window.TrackerLensCatalogRuntime = (() => {
         const [artifactId, version] = code.value.trim().split('@'); inspect({ kind, artifactId, version });
       })));
     let disposed = false, busy = false, page = 1, plan = null, view = 'grid', response = null, mode = 'results';
+    const checkoutKeys = new Map();
     const visibility = value => ({ public: 'Pubblico', private: 'Privato', unlisted: 'Tramite codice' }[value] || value);
     const discard = () => { if (plan) void api().discard({ planId: plan.planId }).catch(() => {}); plan = null; };
     const empty = (symbol, title, description, ...buttons) => _.Col({ class: 'tl-catalog-empty', gap: 12 },
@@ -57,11 +70,15 @@ window.TrackerLensCatalogRuntime = (() => {
         _.div({ class: 'tl-catalog-item-info' },
           _.small({ class: 'tl-catalog-kind' }, ({ node: 'CUSTOM NODE', flowmap: 'FLOW MAP', workspace: 'WORKSPACE' })[item.kind] || item.kind.toUpperCase()),
           _.h3(item.title), _.p(item.description || 'Nessuna descrizione'),
-          _.div({ class: 'tl-catalog-meta' }, _.span(item.publisher), _.span(`v${item.version}`), _.span(item.license || '')),
+          _.div({ class: 'tl-catalog-meta' }, _.span(item.publisher), _.span(`v${item.version}`), _.span(item.license || ''), _.span(listingPrice(item))),
           mine ? _.span({ class: 'tl-catalog-visibility' }, visibility(item.visibility)) : null),
         _.Toolbar({ class: 'tl-catalog-item-actions', gap: 8 },
           mine ? action('', 'content_copy', () => copy(item), { title: 'Copia codice', 'aria-label': `Copia codice di ${item.title}` }) : null,
-          action('Esamina', 'arrow_forward', () => inspect(item))))));
+          item.listingType === 'paid' && item.checkoutAvailable !== true
+            ? action('Acquisto non attivo', 'lock', () => {}, { disabled: true })
+            : item.listingType === 'paid'
+              ? action('Acquista', 'credit_card', () => purchase(item))
+              : action('Esamina', 'arrow_forward', () => inspect(item))))));
       if (!response?.items?.length) results.replaceChildren(empty('search_off', mine ? 'Nessuna pubblicazione' : 'Nessun risultato', 'Prova con un altro nome o una descrizione diversa.'));
       actions.replaceChildren(_.span({ class: 'tl-catalog-page' }, `Pagina ${page}`),
         button('Precedente', () => search(page - 1), page <= 1),
@@ -82,6 +99,20 @@ window.TrackerLensCatalogRuntime = (() => {
         }
       } finally { busy = false; results.removeAttribute('aria-busy'); }
     };
+    const purchase = item => work(async () => {
+      const key = `${item.artifactId}@${item.version}`;
+      const idempotencyKey = checkoutKeys.get(key) || crypto.randomUUID();
+      checkoutKeys.set(key, idempotencyKey);
+      const result = await api().checkout({ artifactId: item.artifactId, version: item.version, idempotencyKey });
+      if (result.alreadyPaid) { summary.textContent = 'La release risulta già acquistata; aggiorna il catalogo per importarla.'; return; }
+      const checkoutUrl = new URL(result.checkoutUrl);
+      if (checkoutUrl.protocol !== 'https:' || checkoutUrl.hostname !== 'checkout.stripe.com') throw new Error('URL Checkout Stripe non valida.');
+      const openExternal = window.trackers?.desktop?.openExternal;
+      if (typeof openExternal !== 'function') throw new Error('Apertura del checkout esterno non disponibile.');
+      await openExternal(checkoutUrl.href);
+      checkoutKeys.delete(key);
+      summary.textContent = 'Checkout Stripe aperto. Dopo la conferma del pagamento, aggiorna il catalogo e importa la release acquistata.';
+    });
     const inspect = item => work(async () => {
       discard(); summary.textContent = 'Caricamento dettagli…';
       const downloaded = await api().download(item);
@@ -142,6 +173,8 @@ window.TrackerLensCatalogRuntime = (() => {
         ['unlisted', 'Tramite codice — accessibile a chi riceve il codice'],
         ['public', 'Pubblico — visibile nel Marketplace globale']
       ].map(([value, label]) => _.option({ value }, label))),
+      listingType: _.select(_.option({ value: 'free' }, 'Gratuito'), _.option({ value: 'paid' }, 'A pagamento')),
+      price: _.input({ type: 'number', min: '0.01', step: '0.01', placeholder: 'Prezzo (EUR)' }),
     };
     const notice = _.p({ role: 'status' }), review = _.Col({ gap: 8 }), actions = _.Toolbar({ align: 'end', gap: 8 });
     let disposed = false, busy = false, plan = null;
@@ -160,20 +193,26 @@ window.TrackerLensCatalogRuntime = (() => {
       if (busy || !plan) return; busy = true; notice.textContent = 'Pubblicazione…';
       try {
         const metadata = Object.fromEntries(Object.entries(fields).map(([key, field]) => [key, field.value]));
-        const result = await api().publish({ ...metadata, planId: plan.planId, confirmed: true }); plan = null;
+        const paidTerms = metadata.listingType === 'paid' ? { priceMinor: euroMinor(metadata.price), currency: 'EUR' } : {};
+        if (metadata.listingType === 'paid' && paidTerms.priceMinor === null) throw new Error('Inserisci un prezzo EUR valido con massimo due decimali.');
+        const result = await api().publish({ ...metadata, ...paidTerms, planId: plan.planId, confirmed: true }); plan = null;
         if (!disposed) {
           const visibilityNotice = fields.visibility.value === 'public' ? 'La release è ora visibile nel Marketplace globale.' : fields.visibility.value === 'unlisted' ? 'La release è disponibile solo tramite il suo codice.' : 'La release resta privata e non compare nel Marketplace globale.';
-          notice.textContent = `Pubblicato: ${result.artifactId}@${result.version}. ${visibilityNotice}`;
+          notice.textContent = `Pubblicato: ${result.artifactId}@${result.version}${metadata.listingType === 'paid' ? ` · ${metadata.price} EUR` : ' · Gratuito'}. ${visibilityNotice} L’acquisto sarà attivo quando Stripe sarà configurato.`;
           actions.replaceChildren(button('Copia codice', () => navigator.clipboard.writeText(`${result.artifactId}@${result.version}`)), button('Chiudi', close));
         }
       } catch (error) { if (!disposed) notice.textContent = messageOf(error); }
       finally { busy = false; }
     };
+    fields.listingType.addEventListener('change', () => {
+      if (!plan || busy) return;
+      actions.replaceChildren(button('Aggiorna anteprima', prepare), button(fields.listingType.value === 'paid' ? 'Pubblica a pagamento' : 'Pubblica gratis', publish));
+    });
     show({ title: `Pubblica ${kind === 'flowmap' ? 'Flow Map' : 'Workspace'}`,
       body: _.Col({ gap: 12 },
         ...Object.entries(fields).flatMap(([name, field]) => name === 'visibility'
           ? [_.label('Visibilità', field), _.p({ class: 'tl-catalog-visibility-help' }, 'Scegli Pubblico per comparire nel Marketplace globale. Privato non viene mostrato agli altri utenti.')]
-          : [_.label(name, field)]),
+          : name === 'listingType' ? [_.label('Tipo di pubblicazione', field)] : name === 'price' ? [_.label('Prezzo di listino (EUR)', field), _.p('La vendita a pagamento resta disabilitata finché Stripe e le regole di pagamento non sono configurati.')] : [_.label(name, field)]),
         notice, review), actions,
       cleanup: () => { disposed = true; discard(); } });
     actions.replaceChildren(button('Prepara anteprima', prepare), button('Chiudi', close)); void prepare();

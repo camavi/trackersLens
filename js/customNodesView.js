@@ -287,6 +287,11 @@
     if (pythonUnavailable(current)) { await showPythonRequirement(current); return; }
     activationDialog(current);
   });
+  const euroMinor = (raw) => {
+    const match = String(raw || "").trim().match(/^(\d{1,8})(?:[.,](\d{1,2}))?$/);
+    if (!match) return { priceMinor: null, currency: "EUR" };
+    return { priceMinor: Number(match[1]) * 100 + Number((match[2] || "").padEnd(2, "0")), currency: "EUR" };
+  };
   const publishNode = (pkg) => {
     const catalog = window.trackers?.desktop?.catalog;
     if (!catalog?.preparePublish || !catalog?.publish) { error = "Marketplace desktop non disponibile."; render(); return; }
@@ -294,6 +299,8 @@
     const description = _.textarea({ rows: 3, placeholder: "Descrizione del Custom Node" });
     const license = _.input({ placeholder: "Licenza (es. MIT)" });
     const visibility = _.select(...["public", "unlisted", "private"].map(value => _.option({ value }, ({ public: "Pubblico", unlisted: "Tramite codice", private: "Privato" })[value])));
+    const listingType = _.select(_.option({ value: "free" }, "Gratuito"), _.option({ value: "paid" }, "A pagamento"));
+    const price = _.input({ type: "number", min: "0.01", step: "0.01", placeholder: "Prezzo in EUR" });
     const message = _.p({ role: "status" });
     const preview = _.div();
     let plan = null, working = false;
@@ -305,8 +312,8 @@
         if (plan) await catalog.discard({ planId: plan.planId });
         plan = await catalog.preparePublish({ kind: "node", packageId: pkg.packageId, version: pkg.version, archiveSha256: pkg.archive.sha256 });
         preview.replaceChildren(_.p(`${plan.manifest.id}@${plan.manifest.version} · SHA-256 ${plan.archiveSha256}`), _.p(`File inclusi: ${plan.files.map(file => file.name).join(" · ")}`), _.pre(JSON.stringify(plan.staticAnalysis, null, 2)), _.details(_.summary("Manifest completo"), _.pre(JSON.stringify(plan.manifest, null, 2))));
-        message.textContent = "Anteprima pronta. Questa release sarà gratuita; la pubblicazione non concede permessi di esecuzione.";
-        actions.replaceChildren(_.Btn({ type: "button", class: "tl-custom-button", onclick: prepare }, "Aggiorna anteprima"), _.Btn({ type: "button", class: "tl-custom-button is-primary", onclick: publish }, "Pubblica gratis"));
+        message.textContent = "Anteprima pronta. La pubblicazione non concede permessi di esecuzione; gli acquisti saranno attivati quando Stripe sarà configurato.";
+        actions.replaceChildren(_.Btn({ type: "button", class: "tl-custom-button", onclick: prepare }, "Aggiorna anteprima"), _.Btn({ type: "button", class: "tl-custom-button is-primary", onclick: publish }, listingType.value === "paid" ? "Pubblica a pagamento" : "Pubblica gratis"));
       } catch (failure) { message.textContent = errorMessage(failure); }
       finally { working = false; }
     };
@@ -314,13 +321,19 @@
       if (working || !plan) return; working = true; message.textContent = "Pubblicazione in corso…";
       try {
         if (!title.value.trim() || !license.value.trim()) throw new Error("Inserisci titolo e licenza.");
-        const result = await catalog.publish({ planId: plan.planId, confirmed: true, version: pkg.version, title: title.value.trim(), description: description.value, license: license.value.trim(), visibility: visibility.value });
-        plan = null; message.textContent = `Pubblicato: ${result.artifactId}@${result.version}`;
+        const terms = listingType.value === "paid" ? euroMinor(price.value) : {};
+        if (listingType.value === "paid" && terms.priceMinor === null) throw new Error("Inserisci un prezzo EUR valido con massimo due decimali.");
+        const result = await catalog.publish({ planId: plan.planId, confirmed: true, version: pkg.version, title: title.value.trim(), description: description.value, license: license.value.trim(), visibility: visibility.value, listingType: listingType.value, ...terms });
+        plan = null; message.textContent = `Pubblicato: ${result.artifactId}@${result.version}${listingType.value === "paid" ? ` · ${price.value} EUR (acquisto non ancora attivo)` : " · Gratis"}`;
         actions.replaceChildren(_.Btn({ type: "button", class: "tl-custom-button", onclick: () => navigator.clipboard.writeText(`${result.artifactId}@${result.version}`) }, "Copia codice"), _.Btn({ type: "button", class: "tl-custom-button", onclick: () => dialog.close() }, "Chiudi"));
       } catch (failure) { message.textContent = errorMessage(failure); }
       finally { working = false; }
     };
-    const dialog = _.Dialog({ class: "tl-custom-publish-dialog", title: "Pubblica Custom Node gratis", closeButton: true, onClose: () => { if (plan) void catalog.discard({ planId: plan.planId }).catch(() => {}); }, content: () => _.div({ class: "tl-custom-editor" }, _.p("Pubblica l’archivio verificato come release gratuita. Il marketplace non firma né attiva il codice; gli acquirenti passeranno dalla revisione e dal consenso locali."), _.label("Titolo", title), _.label("Descrizione", description), _.label("Licenza", license), _.label("Visibilità", visibility), preview, message), footer: () => actions });
+    listingType.addEventListener("change", () => {
+      if (!plan || working) return;
+      actions.replaceChildren(_.Btn({ type: "button", class: "tl-custom-button", onclick: prepare }, "Aggiorna anteprima"), _.Btn({ type: "button", class: "tl-custom-button is-primary", onclick: publish }, listingType.value === "paid" ? "Pubblica a pagamento" : "Pubblica gratis"));
+    });
+    const dialog = _.Dialog({ class: "tl-custom-publish-dialog", title: "Pubblica Custom Node", closeButton: true, onClose: () => { if (plan) void catalog.discard({ planId: plan.planId }).catch(() => {}); }, content: () => _.div({ class: "tl-custom-editor" }, _.p("Pubblica l’archivio verificato. Le release possono essere pubblicate gratis o con prezzo; l’acquisto sarà attivato quando Stripe sarà configurato. Il download non concede permessi né attiva il codice."), _.label("Titolo", title), _.label("Descrizione", description), _.label("Licenza", license), _.label("Visibilità", visibility), _.label("Tipo di pubblicazione", listingType), _.label("Prezzo di listino (EUR)", price), preview, message), footer: () => actions });
     activeDialog = dialog; dialog.open();
     actions.replaceChildren(_.Btn({ type: "button", class: "tl-custom-button is-primary", onclick: prepare }, "Prepara anteprima"), _.Btn({ type: "button", class: "tl-custom-button", onclick: close }, "Annulla"));
   };
