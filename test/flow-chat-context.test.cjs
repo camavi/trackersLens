@@ -146,6 +146,44 @@ for (const provider of ['codex', 'claude', 'local']) {
   });
 }
 
+test('all provider transports receive the same TL contract, context and repair instructions', async () => {
+  const { api, context, requests } = setup();
+  context.flatPalette = () => [{ label: 'Preview', nodeType: 'processor', inputs: ['input'], outputs: ['output'] }];
+  const observation = { request: { tool: 'tl.workspace.resolveNode', args: { reference: 'Preview' } }, observation: { nodeId: 'A' } };
+  const options = {
+    conversationContext: api.conversation([{ role: 'user', content: 'Prima richiesta' }], 'Crea un flow'),
+    toolCatalog: { tools: [{ name: 'tl.workspace.resolveNode' }] },
+    sessionContext: { workspaceId: 'workspace-fixture' },
+    toolObservation: observation, toolObservations: [observation],
+    toolProtocolProgress: { completedReads: [observation.request] },
+    forceNaturalAnswer: true, requireToolContinuation: true,
+    requirePlanProposal: true, planProposalErrors: ['Unknown output port'],
+  };
+  await api.external('codex', 'Crea un flow', options);
+  await api.external('claude', 'Crea un flow', options);
+  await api.local('Crea un flow', options);
+  assert.equal(requests.length, 3);
+  assert.equal(requests[0], requests[1]);
+  assert.equal(requests[0], requests[2]);
+  const example = JSON.parse(requests[0].match(/respond ONLY with (\{"type":"proposed_plan".*?\})\. Use only/)[1]);
+  const keys = example.plan.nodes.map(node => node.key);
+  assert.ok(keys.every(key => typeof key === 'string' && key.length > 0));
+  assert.equal(new Set(keys).size, keys.length);
+  for (const edge of example.plan.edges) {
+    assert.ok(keys.includes(edge.sourceKey));
+    assert.ok(keys.includes(edge.targetKey));
+  }
+  // Fill the illustrative palette placeholders with a real repeated node type.
+  const plan = api.normalizePlan({
+    nodes: example.plan.nodes.map(node => ({ ...node, label: 'Preview' })),
+    edges: example.plan.edges.map(edge => ({ ...edge, sourcePort: 'output', targetPort: 'input' })),
+  });
+  assert.ok(plan);
+  assert.deepEqual(Array.from(plan.nodes, node => node.key), keys);
+  assert.equal(plan.edges[0].sourceKey, example.plan.edges[0].sourceKey);
+  assert.equal(plan.edges[0].targetKey, example.plan.edges[0].targetKey);
+});
+
 test('observation order preserves changes and denials without mutating input', () => {
   const { api } = setup();
   const earlier = { request: { tool: 'read' }, observation: { value: 'old' } };

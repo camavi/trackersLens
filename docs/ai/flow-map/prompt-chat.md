@@ -3,7 +3,11 @@
 Purpose: AI Flow Chat behavior and implementation notes.
 Read when: changing `js/flow-map/flowMapPromptChat.js`.
 Do not read when: unrelated Flow Map visual-only work.
-Last updated: 2026-09-30.
+Last updated: 2026-10-04.
+
+## Shared provider instructions (2026-10-04)
+
+`flowPromptComposeProviderRequest` builds the TL instruction and context payload for Codex, Claude and Locale. Provider adapters retain authentication, model selection and transport only; the external optional explicitly authorized Flow summary is passed to the composer. The common creation example uses unique node keys and matching edge references. Tests compare serialized requests across all three transports and verify example normalization with repeated palette types. This is built-in Chat guidance, not an installable skill system.
 
 ## Conversation continuity (2026-09-28)
 
