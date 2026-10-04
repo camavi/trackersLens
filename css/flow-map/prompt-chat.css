@@ -3563,3 +3563,30 @@
     animation: none;
   }
 }
+
+/* Full originals stay in SQLite; thumbnails only constrain presentation. */
+.tl-flow-prompt-attachments { display: flex; flex-wrap: wrap; gap: 8px; }
+.tl-flow-prompt-attachment { display: grid; grid-template-columns: auto minmax(0, 1fr) auto auto; align-items: center; gap: 8px; width: 100%; box-sizing: border-box; padding: 8px; border: 1px solid var(--border-color, #39424e); border-radius: 8px; min-width: 0; max-width: 100%; }
+.tl-flow-prompt-attachment a { overflow-wrap: anywhere; min-width: 0; color: #9dd8ed; }
+.tl-flow-prompt-attachment-image { width: 64px; height: 64px; object-fit: contain; flex-shrink: 0; }
+.tl-flow-prompt-attachment small { white-space: nowrap; }
+
+.tl-flow-prompt-attachment details { grid-column: 1 / -1; grid-row: 2; min-width: 0; overflow: auto; }
+.tl-flow-prompt-attachment-remove { grid-column: 4; grid-row: 1; }
+.tl-flow-prompt-attachment details pre { white-space: pre-wrap; overflow-wrap: anywhere; }
+.tl-flow-prompt-composer .tl-flow-prompt-attachments { max-height: 220px; overflow: auto; }
+
+.tl-flow-prompt-composer .tl-flow-prompt-composer-actions {
+  padding: 0;
+  margin: 0;
+  min-height: 36px;
+  flex-wrap: nowrap;
+}
+.tl-flow-prompt-composer-actions .tl-flow-prompt-send { margin-left: auto; order: 2; }
+.tl-flow-prompt-composer-actions button[aria-label] {
+  width: 36px;
+  height: 36px;
+  min-height: 36px;
+  padding: 8px;
+  border-radius: 9px;
+}

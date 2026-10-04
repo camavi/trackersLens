@@ -1,11 +1,41 @@
+const fs = require('node:fs');
+const os = require('node:os');
+const path = require('node:path');
 const { spawn } = require('node:child_process');
 const { StringDecoder } = require('node:string_decoder');
 
 // Only this module owns child handles. Callers receive events, never a process API.
-function runExternalAiChat(provider, prompt, { directory, signal, onEvent = () => {}, spawnProcess = spawn } = {}) {
+async function runExternalAiChat(provider, prompt, { directory, images = [], signal, onEvent = () => {}, spawnProcess = spawn } = {}) {
+  if (!Array.isArray(images)) throw new Error('Invalid image attachments');
+  const validatedImages = images.map(image => {
+    if (!image || !['image/png', 'image/jpeg', 'image/webp', 'image/gif'].includes(image.mime)
+      || typeof image.data !== 'string' || !image.data || image.data.length % 4 !== 0 || !/^[A-Za-z0-9+/]*={0,2}$/.test(image.data)) throw new Error('Invalid image attachment');
+    const bytes = Buffer.from(image.data, 'base64');
+    const valid = image.mime === 'image/png' ? bytes.subarray(0, 8).equals(Buffer.from([137,80,78,71,13,10,26,10]))
+      : image.mime === 'image/jpeg' ? bytes[0] === 255 && bytes[1] === 216 && bytes[2] === 255
+      : image.mime === 'image/gif' ? /^GIF8[79]a/.test(bytes.subarray(0, 6).toString())
+      : bytes.subarray(0, 4).toString() === 'RIFF' && bytes.subarray(8, 12).toString() === 'WEBP';
+    if (!valid) throw new Error('Image attachment content does not match its MIME type');
+    return { mime: image.mime, data: image.data, bytes };
+  });
+  let imageDirectory;
+  const imagePaths = [];
+  try {
+    if (provider.id === 'codex' && validatedImages.length) {
+      imageDirectory = fs.mkdtempSync(path.join(os.tmpdir(), 'tl-chat-images-'));
+      validatedImages.forEach((image, index) => {
+        const filename = path.join(imageDirectory, `${index}.${image.mime.split('/')[1]}`);
+        fs.writeFileSync(filename, image.bytes, { mode: 0o600 });
+        imagePaths.push(filename);
+      });
+    }
+  } catch (error) {
+    if (imageDirectory) fs.rmSync(imageDirectory, { recursive: true, force: true });
+    throw error;
+  }
   const args = provider.id === 'codex'
-    ? ['exec', '--json', '--sandbox', 'read-only', '--skip-git-repo-check', '--ephemeral', '--ignore-user-config', '--disable', 'shell_tool', '--disable', 'unified_exec', ...(provider.model ? ['--model', provider.model] : []), ...(provider.reasoningEffort ? ['-c', `model_reasoning_effort=${JSON.stringify(provider.reasoningEffort)}`] : []), ...(provider.speed === 'fast' ? ['-c', 'service_tier="fast"'] : []), '-']
-    : ['-p', '--output-format', 'stream-json', '--verbose', '--include-partial-messages', '--max-turns', '1', '--permission-mode', 'plan', '--safe-mode', '--tools', '', '--no-session-persistence', ...(provider.model ? ['--model', provider.model] : [])];
+    ? ['exec', '--json', '--sandbox', 'read-only', '--skip-git-repo-check', '--ephemeral', '--ignore-user-config', '--disable', 'shell_tool', '--disable', 'unified_exec', ...imagePaths.flatMap(filename => ['--image', filename]), ...(provider.model ? ['--model', provider.model] : []), ...(provider.reasoningEffort ? ['-c', `model_reasoning_effort=${JSON.stringify(provider.reasoningEffort)}`] : []), ...(provider.speed === 'fast' ? ['-c', 'service_tier="fast"'] : []), '-']
+    : ['-p', ...(validatedImages.length ? ['--input-format', 'stream-json'] : []), '--output-format', 'stream-json', '--verbose', '--include-partial-messages', '--max-turns', '1', '--permission-mode', 'plan', '--safe-mode', '--tools', '', '--no-session-persistence', ...(provider.model ? ['--model', provider.model] : [])];
   return new Promise((resolve, reject) => {
     if (signal?.aborted) return reject(Object.assign(new Error('Generation cancelled'), { name: 'AbortError' }));
     const child = spawnProcess(provider.executablePath || provider.executable, args, { cwd: directory, stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true });
@@ -59,8 +89,12 @@ function runExternalAiChat(provider, prompt, { directory, signal, onEvent = () =
     });
     signal?.addEventListener('abort', abort, { once: true });
     if (signal?.aborted) abort();
-    else child.stdin.end(prompt);
-  });
+    else child.stdin.end(provider.id === 'claude' && validatedImages.length
+      ? JSON.stringify({ type: 'user', message: { role: 'user', content: [
+        { type: 'text', text: prompt },
+        ...validatedImages.map(image => ({ type: 'image', source: { type: 'base64', media_type: image.mime, data: image.data } })),
+      ] } }) + '\n' : prompt);
+  }).finally(() => { if (imageDirectory) fs.rmSync(imageDirectory, { recursive: true, force: true }); });
 }
 
 class ExternalAiChatRuns {

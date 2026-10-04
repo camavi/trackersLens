@@ -5,6 +5,16 @@ Read when: changing `js/flow-map/flowMapPromptChat.js`.
 Do not read when: unrelated Flow Map visual-only work.
 Last updated: 2026-10-04.
 
+## Chat attachments (2026-10-04)
+
+The composer accepts multiple files through a picker, drop or clipboard paste. A pending attachment belongs to its chat and is saved as `pendingAttachments`; sending records it on the user message and `agentRun.attachments` for restart recovery. Images have native preview/download; documents expose extracted text and extraction limitations. The existing Core SQLite persistence API owns all saved originals; no new store or filesystem capability is exposed to the renderer.
+
+UTF-8 text/code is preserved. PDF, DOCX, XLSX, PPTX, ODT, ODS, ODP and RTF are parsed locally by `js/flow-map/flowChatDocumentWorker.js`, using the pinned officeparser browser slim bundle and local PDF worker. The disposable worker supports cancellation. Configurable parser content limits are disabled to avoid implicit truncation; warnings remain inspectable. Original document bytes remain downloadable, while only extracted text is sent. OCR, embedded document images, full visual layout and legacy binary DOC/XLS/PPT are not supported in this path. No-text documents show an explicit notice; scanned pages can be attached as images. No macro execution or OCR/model downloads occur.
+
+`flowPromptComposeProviderRequest` includes attachment descriptions and complete extracted text, never base64 as prompt text. Native images are gathered from the selected conversation history and current attachments, preserving order and deduplicating the same attachment identity during recovery. Codex receives validated images through temporary Main-owned files and `--image`; Claude uses `--input-format stream-json` image blocks; Ollama uses `images`; compatible APIs use multimodal `image_url` content. Original images are not resized. Unsupported provider/model capabilities are surfaced as errors, not silently downgraded to text.
+
+Validation: focused serialization/CLI tests cover native image transport, malformed input rejection, temporary cleanup, history selection and complete text. The real Electron fixture covers local PDF/Office extraction, clipboard images, drop/removal, draft reload, attachment-only sends, original persistence and follow-up image reuse, with synthetic provider responses. Live model visual understanding remains unverified.
+
 ## Shared provider instructions (2026-10-04)
 
 `flowPromptComposeProviderRequest` builds the TL instruction and context payload for Codex, Claude and Locale. Provider adapters retain authentication, model selection and transport only; the external optional explicitly authorized Flow summary is passed to the composer. The common creation example uses unique node keys and matching edge references. Tests compare serialized requests across all three transports and verify example normalization with repeated palette types. This is built-in Chat guidance, not an installable skill system.

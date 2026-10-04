@@ -5,18 +5,19 @@ const vm = require('node:vm');
 
 function setup() {
   const requests = [];
+  const payloads = [];
   const context = vm.createContext({
     window: {
       TrackerLensAppRouter: {},
       TrackerLensAiRuntimeStore: { list: async () => ({ providers: [{ provider: 'ollama', model: 'fixture' }] }) },
       trackers: { desktop: { externalAi: {
         getStatus: async () => ({ installed: true, authenticated: true }),
-        sendMessage: async ({ prompt }) => { requests.push(prompt); return { text: 'Answer' }; },
+        sendMessage: async (payload) => { const { prompt } = payload; payloads.push(payload); requests.push(prompt); return { text: 'Answer' }; },
       } } },
     },
     console: { groupCollapsed() {}, log() {}, groupEnd() {} },
     fetch: async (_url, { body }) => {
-      requests.push(JSON.parse(body).prompt);
+      payloads.push(JSON.parse(body)); requests.push(JSON.parse(body).prompt);
       return { ok: true, json: async () => ({ response: 'Answer' }) };
     },
   });
@@ -29,7 +30,7 @@ function setup() {
     fingerprint: flowPromptGraphFingerprint, configUpdate: flowPromptValidConfigUpdate, constraints: flowPromptConfigConstraints, effectiveValue: flowPromptEffectiveNodeConfigValue,
     normalizePlan: flowPromptNormalizeAiPlan, recoveredActions: flowPromptRecoveredActions,
     requestIdentity: flowPromptRequestIdentity, compatible: flowPromptCallOpenAiCompatible, atomic: flowPromptPrepareAtomicEdits, materialize: flowPromptMaterializePlan };`, context);
-  return { api: context.api, context, requests };
+  return { api: context.api, context, requests, payloads };
 }
 
 test('chat validates declared choices, integer bounds and nested fields without rewriting values', () => {
@@ -364,4 +365,23 @@ test('run recovery keeps action receipts, excludes stale reads, and exposes unce
   assert.equal(recovered[1].observation.status,'uncertain');
   assert.equal(api.requestIdentity({a:1,b:2}),api.requestIdentity({b:2,a:1}));
   assert.equal(api.recoveredActions({observations:[{request:pending,observation:{status:'completed'}}],pendingAction:pending}).length,1);
+});
+
+test('attachments preserve full text and use native images across transports and history selection', async () => {
+  const { api, context, payloads } = setup();
+  const image = { id:'image-1', kind:'image', name:'screenshot.png', mime:'image/png', dataUrl:'data:image/png;base64,aW1hZ2U=' };
+  const file = { id:'text-1', kind:'text', name:'source.js', text:'full source\n'.repeat(3000) };
+  const history = api.conversation([{role:'user',content:'Read these',attachments:[image,file]}], 'Follow up');
+  await api.external('codex', 'Follow up', {conversationContext:history});
+  assert.equal(payloads[0].images[0].data, 'aW1hZ2U=');
+  assert.ok(payloads[0].prompt.includes(JSON.stringify(file.text).slice(1,-1)));
+  assert.ok(!payloads[0].prompt.includes(image.dataUrl));
+  await api.local('New image', { attachments:[image] });
+  assert.deepEqual(Array.from(payloads[1].images), ['aW1hZ2U=']);
+  await api.external('claude', 'Selected context', {conversationContext:{...history,recent:[]}});
+  assert.equal(payloads[2].images.length, 0);
+  const observed = [];
+  context.window.TrackerLensLlmObservation = { complete: async request => { observed.push(request); return {data:{choices:[{message:{content:'ok'}}]}}; } };
+  await api.compatible({provider:{endpoint:'http://fixture/v1'}, model:'vision', prompt:'Describe', images:[{mime:'image/png',data:'aW1hZ2U='}], observationContext:{jobId:'fixture'}});
+  assert.equal(observed[0].body.messages[0].content[1].image_url.url, image.dataUrl);
 });

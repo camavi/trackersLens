@@ -34,7 +34,7 @@ const trackers = Object.freeze({
         return () => ipcRenderer.removeListener("trackers-core:external-ai-login-progress", handler);
       },
       startLogin: ({ provider, confirmed = false } = {}) => request("desktop.externalAi.startLogin", { provider: String(provider || ""), confirmed: Boolean(confirmed) }),
-      sendMessage: ({ provider, prompt, model, reasoningEffort, speed, requestId } = {}) => request("desktop.externalAi.sendMessage", { provider: String(provider || ""), prompt: String(prompt || ""), model: String(model || ""), reasoningEffort: String(reasoningEffort || ""), speed: String(speed || ""), requestId: String(requestId || "") }),
+      sendMessage: ({ provider, prompt, images = [], model, reasoningEffort, speed, requestId } = {}) => request("desktop.externalAi.sendMessage", { images, provider: String(provider || ""), prompt: String(prompt || ""), model: String(model || ""), reasoningEffort: String(reasoningEffort || ""), speed: String(speed || ""), requestId: String(requestId || "") }),
       cancelMessage: ({ requestId } = {}) => request("desktop.externalAi.cancelMessage", { requestId: String(requestId || "") }),
       onChatEvent: (requestId, listener) => {
         if (typeof listener !== "function" || !requestId) return () => {};

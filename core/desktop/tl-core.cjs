@@ -129,7 +129,7 @@ const createTlCore = ({ appVersion = "0.0.0", platform = "unknown", mode = "prod
         return externalAi.startLogin({ provider: String(payload?.provider || "") });
       case "desktop.externalAi.sendMessage":
         if (!externalAi?.sendMessage) throw errorWithCode("External AI provider bridge is unavailable", "EXTERNAL_AI_UNAVAILABLE");
-        return externalAi.sendMessage({ provider: String(payload?.provider || ""), prompt: String(payload?.prompt || ""), model: String(payload?.model || ""), reasoningEffort: String(payload?.reasoningEffort || ""), speed: String(payload?.speed || "") }, lifecycle);
+        return externalAi.sendMessage({ images: payload?.images ?? [], provider: String(payload?.provider || ""), prompt: String(payload?.prompt || ""), model: String(payload?.model || ""), reasoningEffort: String(payload?.reasoningEffort || ""), speed: String(payload?.speed || "") }, lifecycle);
       case "desktop.externalAi.logout": {
         if (!externalAi?.logout) throw errorWithCode("External AI provider bridge is unavailable", "EXTERNAL_AI_UNAVAILABLE");
         if (!payload?.confirmed) throw errorWithCode("External AI logout requires confirmation", "EXTERNAL_AI_LOGOUT_CONFIRMATION_REQUIRED");

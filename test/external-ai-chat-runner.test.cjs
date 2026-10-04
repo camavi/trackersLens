@@ -4,13 +4,13 @@ const { EventEmitter } = require('node:events');
 const { PassThrough } = require('node:stream');
 const { runExternalAiChat, ExternalAiChatRuns } = require('../core/desktop/external-ai-chat-runner.cjs');
 
-function fixture(provider = 'codex', signal) {
+function fixture(provider = 'codex', signal, images = []) {
   const child = new EventEmitter();
   child.stdout = new PassThrough(); child.stderr = new PassThrough(); child.stdin = new PassThrough();
   child.kill = () => { queueMicrotask(() => child.emit('close', null)); return true; };
   const events = []; let args;
   const promise = runExternalAiChat({ id: provider, executable: provider }, 'Exact prompt', {
-    directory: '/fixture', signal, onEvent: e => events.push(e),
+    directory: '/fixture', signal, images, onEvent: e => events.push(e),
     spawnProcess: (_command, options) => { args = options; return child; },
   });
   const send = event => { for (const byte of Buffer.from(JSON.stringify(event) + '\n')) child.stdout.write(Buffer.of(byte)); };
@@ -77,4 +77,31 @@ test('cancellation stops the child; owner and request IDs isolate concurrent cal
   await assert.rejects(detached, e => e.name === 'AbortError');
   assert.equal(runs.owners.size, 0);
   await assert.rejects(runs.run('owner', '../bad-id', () => {}), /Invalid AI request/);
+});
+
+const imageFixture = { mime: 'image/png', data: 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jRZkAAAAASUVORK5CYII=' };
+test('Codex receives original image files and cleans temporary paths after completion and failure', async () => {
+  const fs = require('node:fs');
+  for (const failed of [false, true]) {
+    const f = fixture('codex', undefined, [imageFixture]);
+    const filename = f.args[f.args.indexOf('--image') + 1];
+    assert.deepEqual(fs.readFileSync(filename), Buffer.from(imageFixture.data, 'base64'));
+    if (failed) { f.send({ type: 'turn.failed', error: { message: 'fixture failure' } }); await assert.rejects(f.promise, /fixture failure/); }
+    else { f.send({ type: 'turn.completed' }); f.child.emit('close', 0); await f.promise; }
+    assert.equal(fs.existsSync(filename), false);
+  }
+});
+test('Claude sends native image blocks via stream-json with built-in tools still disabled', async () => {
+  const f = fixture('claude', undefined, [imageFixture]);
+  assert.equal(f.args[f.args.indexOf('--input-format') + 1], 'stream-json');
+  assert.equal(f.args[f.args.indexOf('--tools') + 1], '');
+  const input = JSON.parse(f.child.stdin.read().toString());
+  assert.equal(input.message.content[0].text, 'Exact prompt');
+  assert.deepEqual(input.message.content[1], { type: 'image', source: { type: 'base64', media_type: imageFixture.mime, data: imageFixture.data } });
+  f.send({ type: 'result', subtype: 'success', result: 'Image answer' }); f.child.emit('close', 0); await f.promise;
+});
+test('image transport rejects arbitrary paths, malformed base64 and MIME mismatches before spawning', async () => {
+  for (const images of [[{ path: '/private/file.png' }], [{mime:'image/png', data:'!!!'}], [{mime:'image/jpeg', data:imageFixture.data}]]) {
+    await assert.rejects(runExternalAiChat({id:'codex'}, 'prompt', { images, spawnProcess: () => { throw new Error('must not spawn'); } }), /image attachment/i);
+  }
 });

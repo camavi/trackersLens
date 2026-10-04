@@ -233,6 +233,52 @@ app.whenReady().then(async () => {
     await waitFor(`[...document.querySelectorAll('button')].some(b=>b.textContent==='Consenti tutte le letture per questa chat')`, 'consent shown only on return');
     await js(`[...document.querySelectorAll('button')].find(b=>b.textContent==='Consenti tutte le letture per questa chat').click()`);
     await waitFor(`window.trackers.desktop.persistence.readDevelopmentRecordById({storeName:'tl_flow_prompt_chats',id:'chat-restart'}).then(chat=>chat.agentRun.status==='completed')`, 'background consent continuation');
+    // Real sandboxed renderer: local worker parsing, paste, drafts and persisted originals.
+    mode = 'answer'; await seed(false); await load(); await js('window.TrackerLensOpenFlowPromptChat()');
+    const documentFixtures = require('./fixtures/chat-document-fixtures.json');
+    for (const [extension, data] of Object.entries(documentFixtures)) {
+      const parsed = await js(`flowPromptReadAttachment(new File([Uint8Array.from(atob(${JSON.stringify(data)}), c=>c.charCodeAt(0))], 'fixture.${extension}'))`);
+      assert.match(parsed.text, new RegExp('CHAT\\s+' + extension.toUpperCase() + '\\s+CONTENT'));
+      assert.equal(parsed.dataUrl.split(',')[1], data);
+    }
+    const png = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jRZkAAAAASUVORK5CYII=';
+    await js(`(() => {
+      const transfer = new DataTransfer();
+      transfer.items.add(new File([Uint8Array.from(atob('${png}'), c=>c.charCodeAt(0))], 'pasted.png', {type:'image/png'}));
+      document.querySelector('[data-flow-prompt-chat] textarea').dispatchEvent(new ClipboardEvent('paste', { clipboardData: transfer, bubbles:true, cancelable:true }));
+    })()`);
+    await waitFor(`document.querySelector('.tl-flow-prompt-composer .tl-flow-prompt-attachment-image') !== null`, 'pasted image thumbnail');
+    await waitFor(`window.trackers.desktop.persistence.readDevelopmentRecordById({storeName:'tl_flow_prompt_chats',id:'chat-restart'}).then(chat=>chat.pendingAttachments?.length===1)`, 'persisted draft image');
+    await load(); await js('window.TrackerLensOpenFlowPromptChat()');
+    await waitFor(`document.querySelector('.tl-flow-prompt-composer .tl-flow-prompt-attachment-image') !== null`, 'restored image preview');
+    await js(`document.querySelector('[aria-label="Invia messaggio"]').click()`);
+    await waitFor(`window.trackers.desktop.persistence.readDevelopmentRecordById({storeName:'tl_flow_prompt_chats',id:'chat-restart'}).then(chat=>chat.messages.some(message=>message.attachments?.length)&&chat.agentRun.status==='completed')`, 'attachment-only submission');
+    assert.equal(calls.at(-1).images[0].data, png);
+    assert.equal(record().messages.find(message=>message.attachments?.length).attachments[0].dataUrl.split(',')[1], png);
+    assert.equal(record().pendingAttachments.length, 0);
+    await js(`(() => { const text = document.querySelector('[data-flow-prompt-chat] textarea'); text.value='Descrivi ancora quella immagine'; text.dispatchEvent(new Event('input',{bubbles:true})); document.querySelector('[aria-label="Invia messaggio"]').click(); })()`);
+    await waitFor(`window.trackers.desktop.persistence.readDevelopmentRecordById({storeName:'tl_flow_prompt_chats',id:'chat-restart'}).then(chat=>chat.agentRun.prompt==='Descrivi ancora quella immagine'&&chat.agentRun.status==='completed')`, 'follow-up image');
+    assert.equal(calls.at(-1).images[0].data, png);
+    await js(`(() => {
+      const transfer = new DataTransfer();
+      transfer.items.add(new File(['alpha\\nbeta'], 'notes.txt', {type:'text/plain'}));
+      transfer.items.add(new File([Uint8Array.from(atob(${JSON.stringify(documentFixtures.docx)}), c=>c.charCodeAt(0))], 'fixture.docx'));
+      document.querySelector('.tl-flow-prompt-composer').dispatchEvent(new DragEvent('drop', {dataTransfer:transfer,bubbles:true,cancelable:true}));
+    })()`);
+    await waitFor(`document.querySelectorAll('.tl-flow-prompt-composer .tl-flow-prompt-attachment').length===2`, 'text and Office drop');
+    await js(`document.querySelector('[aria-label="Rimuovi notes.txt"]').click()`);
+    await waitFor(`document.querySelectorAll('.tl-flow-prompt-composer .tl-flow-prompt-attachment').length===1`, 'remove selected attachment');
+    await js(`document.querySelector('.tl-flow-prompt-composer details').open=true`);
+    fs.writeFileSync('/private/tmp/tl-chat-attachments.png', (await win.webContents.capturePage()).toPNG());
+    await js(`document.querySelector('[aria-label="Invia messaggio"]').click()`);
+    await waitFor(`window.trackers.desktop.persistence.readDevelopmentRecordById({storeName:'tl_flow_prompt_chats',id:'chat-restart'}).then(chat=>chat.messages.some(message=>message.attachments?.some(item=>item.kind==='document'))&&chat.agentRun.status==='completed')`, 'document submission');
+    assert.match(calls.at(-1).prompt, /CHAT DOCX CONTENT/);
+    assert.ok(!calls.at(-1).prompt.includes(documentFixtures.docx));
+    const savedDocument = record().messages.flatMap(message=>message.attachments||[]).find(item=>item.kind==='document');
+    assert.equal(savedDocument.dataUrl.split(',')[1], documentFixtures.docx);
+    await load(); await js('window.TrackerLensOpenFlowPromptChat()');
+    await waitFor(`document.querySelectorAll('.tl-flow-prompt-message .tl-flow-prompt-attachment').length>=2`, 'restored message attachments');
+    console.log('Flow Chat attachments: PDF/DOCX/XLSX/PPTX extraction, image paste, SQLite draft reload, attachment-only send and image follow-up passed.');
     console.log('Flow Chat Electron: SQLite restart/resume, uncertain-action guard, CLI live trace and cancellation passed.');
     console.log('Flow Chat Electron: atomic config/create/duplicate/connect, delete denial/apply, retained outputs and scoped restore passed.');
     console.log('Flow Chat Electron: manual batch atomic Apply, lost-reply receipt recovery, hidden-chat route continuation and deferred consent passed.');
