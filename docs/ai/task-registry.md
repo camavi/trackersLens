@@ -5,6 +5,9 @@ Read when: changing task status or deciding next work.
 Do not read when: doing a local implementation already scoped by `current-focus.md`.
 Last updated: 2026-10-03.
 
+
+Flow Chat / Custom Node workflow (TASK-032, 2026-10-04): message envelopes now render as natural text, including saved history. Package drafts and sandbox results use concise messages with expandable full artifacts; originals stay in SQLite/history. Atomic approval shows counts, named changes and expandable before/after fields. The Chat draft editor uses responsive dark code panes. Draft review now waits for the actual install/cancel outcome instead of returning at preparation. A consented listNodeTypes tool exposes the current palette and exact custom package references; atomic create rejects ambiguous labels and supports exact packageReference. Package inventory includes permission/Python readiness; activate_custom_node opens exact-package permissions, optional managed Python installation and separate activation, returning the result to the same provider turn. Node-card activation uses these dialogs directly. Package installation/revision itself never inserts a Flow instance; existing safe atomic creation remains confirmed. No anonymization pipeline or unrestricted AI access was introduced. Verification: 209 unit tests pass, two optional skips; isolated Electron covers Chat atomic edits/restore and the new package dialog lifecycle with simulated services. Live Codex Astra scenario remains to be tested by the user.
+
 ## Active
 
 ### TASK-039: Online Marketplace for Custom Nodes, Flow Maps and Workspaces

@@ -30,6 +30,7 @@ const core = createTlCore({ adapters: { persistence, externalAi: {
     }
     if (mode === 'atomic') {
       const steps = [
+        { type: 'tool_request', tool: 'tl.workspace.listNodeTypes', args: {} },
         { type: 'tool_request', tool: 'tl.workspace.resolveNode', args: { node: 'atomic-node' } },
         { type: 'tool_request', tool: 'tl.workspace.inspectNodeConfig', args: { nodeId: 'atomic-node', keys: ['min', 'max'] } },
         { type: 'proposed_action', action: 'edit_nodes_atomic', args: { edits: atomicEdits } },
@@ -131,11 +132,18 @@ app.whenReady().then(async () => {
     await waitFor(`[...document.querySelectorAll('button')].some(b=>b.textContent==='Consenti tutte le letture per questa chat')`, 'read consent');
     await js(`[...document.querySelectorAll('button')].find(b=>b.textContent==='Consenti tutte le letture per questa chat').click()`);
     await waitFor(`[...document.querySelectorAll('button')].some(b=>b.textContent==='Applica tutte')`, 'atomic confirmation');
+    assert.ok(await js(`document.querySelector('.tl-flow-plan-review-summary')`));
+    assert.ok(await js(`document.querySelectorAll('.tl-flow-plan-review-item').length > 0`));
+    assert.equal(await js(`document.querySelector('.tl-flow-plan-review-json').open`), false);
+    await new Promise(resolve => setTimeout(resolve, 400));
+    fs.writeFileSync('/private/tmp/tl-plan-review.png', (await win.webContents.capturePage()).toPNG());
     const readNode = () => persistence.readDevelopmentRecordById({ storeName: 'tl_runtime_nodes', id: 'atomic-node' });
     assert.equal(readNode().metadata.config.min, 1, 'preview never writes');
     await js(`[...document.querySelectorAll('button')].find(b=>b.textContent==='Applica tutte').click()`);
-    await waitFor(`document.querySelector('.tl-flow-prompt-run-status > span')?.textContent === 'Lavoro: completed'`, 'atomic completion');
+    await waitFor(`window.trackers.desktop.persistence.readDevelopmentRecordById({storeName:'tl_flow_prompt_chats',id:'chat-restart'}).then(chat=>chat.agentRun.status==='completed')`, 'atomic completion');
+    await js(`document.querySelector('[aria-label="Lavoro della chat"]').click()`);
     await waitFor(`[...document.querySelectorAll('button')].some(b=>b.textContent==='Ripristina ultime modifiche atomiche')`, 'restore button ready');
+    assert.ok(record().agentRun.observations.some(entry => entry.request?.tool === 'tl.workspace.listNodeTypes' && entry.observation?.nodes?.some(node => node.label === 'Preview')));
     assert.equal(readNode().metadata.config.min, 5); assert.equal(readNode().metadata.config.max, 8); assert.equal(readNode().label, 'Atomic renamed');
     const created = persistence.readDevelopmentRecords({ storeName: 'tl_runtime_nodes' }).filter(node => ['Atomic preview', 'Atomic copy'].includes(node.label));
     assert.equal(created.length, 2);
@@ -163,7 +171,8 @@ app.whenReady().then(async () => {
       await waitFor(`[...document.querySelectorAll('button')].some(b=>b.textContent==='Applica tutte')`, 'delete confirmation');
       assert.ok(readNode(), 'delete preview never writes');
       await js(`[...document.querySelectorAll('button')].find(b=>b.textContent===${JSON.stringify(approve ? 'Applica tutte' : 'Annulla')}).click()`);
-      await waitFor(`document.querySelector('.tl-flow-prompt-run-status > span')?.textContent === 'Lavoro: completed'`, 'delete review completion');
+      await waitFor(`window.trackers.desktop.persistence.readDevelopmentRecordById({storeName:'tl_flow_prompt_chats',id:'chat-restart'}).then(chat=>chat.agentRun.status==='completed')`, 'delete review completion');
+    await js(`document.querySelector('[aria-label="Lavoro della chat"]').click()`);
       assert.equal(Boolean(readNode()), !approve);
       assert.equal(Boolean(persistence.readDevelopmentRecordById({ storeName: 'tl_connections', id: 'delete-connection' })), !approve);
       assert.equal(Boolean(persistence.readDevelopmentRecordById({ storeName: 'tl_runtime_dependencies', id: 'delete-edge' })), !approve);

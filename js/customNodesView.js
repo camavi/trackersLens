@@ -20,9 +20,17 @@
   let review = null;
   let activeDialog = null;
   let reviewDialog = null;
+  let chatReviewCompletion = null;
+  const trackedDialog = options => {
+    const dialog = _.Dialog({ ...options, onClose: (...args) => {
+      if (activeDialog === dialog) activeDialog = null;
+      options.onClose?.(...args);
+    } });
+    return dialog;
+  };
   const details = (value) => _.pre({ class: "tl-custom-json" }, JSON.stringify(value, null, 2));
   const confirm = (title, content, action) => {
-    activeDialog = _.Dialog({ title, content: () => content, footer: () => [
+    activeDialog = trackedDialog({ title, content: () => content, footer: () => [
       btn("Annulla", () => activeDialog.close()),
       btn("Conferma", () => { activeDialog.close(); void perform(action); })
     ] });
@@ -121,7 +129,7 @@
       finally { preparing = false; prepare.disabled = false; }
     });
     sync();
-    const dialog = _.Dialog({ class: "tl-custom-create-dialog", title: "Crea Custom Node", content: () => _.div({ class: "tl-custom-editor" },
+    const dialog = trackedDialog({ class: "tl-custom-create-dialog", title: "Crea Custom Node", content: () => _.div({ class: "tl-custom-editor" },
       _.h3("Identità e porte"), identity, _.h3("Configurazione del nodo"), settingsHost, btn("Aggiungi parametro", addSetting), _.h3("Permessi dichiarati"), permissionControls,
       _.label("Codice runtime", source), _.details(_.summary("Manifest generato"), manifest), message),
       footer: () => [btn("Annulla", () => dialog.close()), prepare] });
@@ -139,7 +147,7 @@
       const tokenField = _.label("Token massimi della risposta (obbligatorio per Anthropic)", tokenControl);
       const updateDestination = () => { tokenField.hidden = provider?.protocol !== "anthropic-messages"; destination.textContent = provider ? `${provider.name} · ${provider.model} · ${provider.endpoint} · ${provider.local ? "Locale" : "Esterno: il codice lascerà questo dispositivo"}` : "Configura un profilo LM Studio o API compatibile con Chat Completions o Anthropic, con endpoint e modello in AI Runtime."; };
       updateDestination();
-      const dialog = _.Dialog({ title: "Revisione AI del pacchetto", onClose: () => { if (activeDialog === dialog) activeDialog = reviewDialog; }, content: () => _.div(
+      const dialog = trackedDialog({ title: "Revisione AI del pacchetto", onClose: () => { if (activeDialog === dialog) activeDialog = reviewDialog; }, content: () => _.div(
         _.p("Invia manifest, codice runtime completo e audit statico al modello selezionato. Gli altri file del pacchetto non saranno analizzati."),
         providers.length ? _.Select({ value: provider.id, options: providers.map((item) => ({ value: item.id, label: `${item.name} · ${item.model}` })), onChange: (value) => { provider = providers.find((item) => item.id === value); tokenInput.value = provider?.maxTokens || ""; updateDestination(); } }) : null,
         destination, tokenField, _.p(`SHA-256: ${selectedReview.archiveSha256}`), _.p("Il rapporto è consultivo. L’agente non esegue il pacchetto e non lo installa o attiva.")), footer: () => [btn("Annulla", () => dialog.close()), providers.length ? btn("Conferma e analizza", () => {
@@ -194,7 +202,7 @@
       } catch (failure) { output.replaceChildren(_.p({ role: "alert" }, failure.message)); }
       finally { running = false; run.disabled = false; }
     });
-    const dialog = _.Dialog({ title: `Test · ${pkg.name || pkg.packageId}`, content: () => _.div({ class: "tl-custom-editor" }, _.p("Esegue il pacchetto attivato con questi dati di prova. Nessun Flow viene avviato; l’accesso al grafo richiede invece un test dentro un Flow."), _.label("Input JSON", inputs), _.label("Configurazione JSON", config), _.label("Timeout in millisecondi (0 = nessun limite)", timeoutControl), output), footer: () => [btn("Chiudi", () => dialog.close()), run] });
+    const dialog = trackedDialog({ title: `Test · ${pkg.name || pkg.packageId}`, content: () => _.div({ class: "tl-custom-editor" }, _.p("Esegue il pacchetto attivato con questi dati di prova. Nessun Flow viene avviato; l’accesso al grafo richiede invece un test dentro un Flow."), _.label("Input JSON", inputs), _.label("Configurazione JSON", config), _.label("Timeout in millisecondi (0 = nessun limite)", timeoutControl), output), footer: () => [btn("Chiudi", () => dialog.close()), run] });
     activeDialog = dialog; dialog.open();
   };
   const comparePackage = async (pkg) => {
@@ -239,7 +247,7 @@
         finally { comparing = false; prepareMigration.disabled = false; }
       });
       const historyPanel = _.section(_.h3("Migrazioni salvate"), ...history.map((item) => _.div({ class: "tl-custom-detail-section" }, _.p(`${item.label} · ${item.createdAt} · ${item.nodeCount} nodi${item.restoredAt ? " · ripristinata" : ""}`), item.restoredAt ? null : btn("Ripristina migrazione", () => confirm("Ripristinare la migrazione?", _.p("Il ripristino conserva gli altri nodi e richiede che nodi migrati e collegamenti non siano cambiati."), () => api().restoreMigration({ snapshotId: item.snapshotId, confirmed: true }))))));
-      const dialog = _.Dialog({ title: `Versioni · ${pkg.name || pkg.packageId}`, content: () => _.div(
+      const dialog = trackedDialog({ title: `Versioni · ${pkg.name || pkg.packageId}`, content: () => _.div(
         _.p(`Versione di partenza: ${pkg.version} · ${pkg.archive.sha256}`),
         alternatives.length ? _.Select({ value: target.archive.sha256, options: alternatives.map((item) => ({ value: item.archive.sha256, label: `${item.version} · ${item.archive.sha256}` })), onChange: (value) => { target = alternatives.find((item) => item.archive.sha256 === value); output.replaceChildren(); } }) : _.p("Importa un’altra versione dello stesso pacchetto per confrontarla. La versione attuale resterà installata."), output, historyPanel),
         footer: () => [btn("Chiudi", () => dialog.close()), alternatives.length ? run : null, alternatives.length ? prepareMigration : null] });
@@ -256,7 +264,7 @@
       });
       return;
     }
-    const dialog = _.Dialog({
+    const dialog = trackedDialog({
       title: "Runtime Python non disponibile",
       content: () => _.div(
         _.p(pkg.pythonRuntime?.message || "Aggiorna il catalogo per verificare il runtime Python richiesto da questo nodo."),
@@ -268,8 +276,11 @@
     });
     activeDialog = dialog; dialog.open();
   };
-  const activationDialog = (pkg) => {
-    const dialog = _.Dialog({ class: "tl-custom-activation-dialog", title: "Attiva Custom Node", content: () => _.div({ class: "tl-activation-review" },
+  const activationDialog = (pkg, complete = null) => {
+    let submitted = false;
+    let outcome = null;
+    const message = _.p({ role: "alert" });
+    const dialog = trackedDialog({ class: "tl-custom-activation-dialog", onClose: () => { if (activeDialog === dialog) activeDialog = null; complete?.(outcome || { status: submitted ? "uncertain" : "denied", message: submitted ? "Operazione in corso alla chiusura: rileggi lo stato del pacchetto." : "Operazione annullata." }); }, title: "Attiva Custom Node", content: () => _.div({ class: "tl-activation-review" },
       _.section({ class: "tl-activation-hero" }, _.span({ class: "tl-activation-hero-icon" }, icon("play_circle", "lg")), _.div(_.span("ATTIVAZIONE RUNTIME"), _.h2(pkg.name || pkg.packageId), _.p(`${pkg.packageId} · versione ${pkg.version}`))),
       _.p({ class: "tl-activation-intro" }, "L’attivazione rende disponibile questo archivio verificato nel sandbox locale. Non avvia alcun Flow e non esegue il Node finché non riceve dati in un Flow configurato."),
       _.div({ class: "tl-activation-grid" },
@@ -278,7 +289,7 @@
         _.article(_.span({ class: "tl-activation-icon" }, icon("input")), _.div(_.strong("Porte"), _.p(`${(pkg.manifest?.inputs || []).length} ingressi · ${(pkg.manifest?.outputs || []).length} uscite`)), _.span({ class: "tl-activation-neutral" }, "Configurate"))
       ),
       _.details({ class: "tl-activation-technical" }, _.summary("Identità tecnica"), _.dl({ class: "tl-custom-facts" }, _.dt("Identificatore"), _.dd(pkg.packageId), _.dt("Versione"), _.dd(pkg.version), _.dt("SHA-256 archivio"), _.dd(pkg.archive.sha256)))
-    ), footer: () => [btn("Annulla", () => dialog.close()), btn("Attiva", () => { dialog.close(); void perform(() => api().activateSandboxRuntime({ ...ref(pkg), confirmed: true })); })] });
+    , message), footer: () => [btn("Annulla", () => dialog.close()), btn("Attiva", async () => { if (submitted) return; submitted = true; try { await api().activateSandboxRuntime({ ...ref(pkg), confirmed: true }); await reload(); outcome = { status: "activated", ...ref(pkg) }; dialog.close(); render(); } catch (failure) { submitted = false; message.textContent = errorMessage(failure); } })] });
     activeDialog = dialog; dialog.open();
   };
   const activatePackage = (pkg) => perform(async () => {
@@ -333,11 +344,14 @@
       if (!plan || working) return;
       actions.replaceChildren(_.Btn({ type: "button", class: "tl-custom-button", onclick: prepare }, "Aggiorna anteprima"), _.Btn({ type: "button", class: "tl-custom-button is-primary", onclick: publish }, listingType.value === "paid" ? "Pubblica a pagamento" : "Pubblica gratis"));
     });
-    const dialog = _.Dialog({ class: "tl-custom-publish-dialog", title: "Pubblica Custom Node", closeButton: true, onClose: () => { if (plan) void catalog.discard({ planId: plan.planId }).catch(() => {}); }, content: () => _.div({ class: "tl-custom-editor" }, _.p("Pubblica l’archivio verificato. Le release possono essere pubblicate gratis o con prezzo; l’acquisto sarà attivato quando Stripe sarà configurato. Il download non concede permessi né attiva il codice."), _.label("Titolo", title), _.label("Descrizione", description), _.label("Licenza", license), _.label("Visibilità", visibility), _.label("Tipo di pubblicazione", listingType), _.label("Prezzo di listino (EUR)", price), preview, message), footer: () => actions });
+    const dialog = trackedDialog({ class: "tl-custom-publish-dialog", title: "Pubblica Custom Node", closeButton: true, onClose: () => { if (plan) void catalog.discard({ planId: plan.planId }).catch(() => {}); }, content: () => _.div({ class: "tl-custom-editor" }, _.p("Pubblica l’archivio verificato. Le release possono essere pubblicate gratis o con prezzo; l’acquisto sarà attivato quando Stripe sarà configurato. Il download non concede permessi né attiva il codice."), _.label("Titolo", title), _.label("Descrizione", description), _.label("Licenza", license), _.label("Visibilità", visibility), _.label("Tipo di pubblicazione", listingType), _.label("Prezzo di listino (EUR)", price), preview, message), footer: () => actions });
     activeDialog = dialog; dialog.open();
     actions.replaceChildren(_.Btn({ type: "button", class: "tl-custom-button is-primary", onclick: prepare }, "Prepara anteprima"), _.Btn({ type: "button", class: "tl-custom-button", onclick: close }, "Annulla"));
   };
-  const permissionDialog = (pkg) => {
+  const permissionDialog = (pkg, complete = null) => {
+    let submitted = false;
+    let outcome = null;
+    const message = _.p({ role: "alert" });
     const declared = pkg.permissions || {};
     const capabilities = [
       { key: "aiProvider", iconName: "smart_toy", label: "Provider AI", detail: "Può richiedere il provider AI configurato per il Flow.", allowed: declared.aiProvider === true },
@@ -347,12 +361,12 @@
       { key: "filesystem", iconName: "folder", label: "File locali", detail: "Il runtime dei Custom Node non offre accesso diretto al filesystem.", allowed: false }
     ];
     const requested = capabilities.filter((item) => item.allowed).length;
-    const dialog = _.Dialog({ class: "tl-custom-permission-dialog", title: "Permessi del Custom Node", content: () => _.div({ class: "tl-permission-review" },
+    const dialog = trackedDialog({ class: "tl-custom-permission-dialog", onClose: () => { if (activeDialog === dialog) activeDialog = null; complete?.(outcome || { status: submitted ? "uncertain" : "denied", message: submitted ? "Operazione in corso alla chiusura: rileggi lo stato del pacchetto." : "Operazione annullata." }); }, title: "Permessi del Custom Node", content: () => _.div({ class: "tl-permission-review" },
       _.section({ class: "tl-permission-hero" }, _.span({ class: "tl-permission-hero-icon" }, icon("shield", "lg")), _.div(_.span("RICHIESTA DI CONSENSO"), _.h2(pkg.name || pkg.packageId), _.p(`${pkg.packageId} · versione ${pkg.version}`))),
       _.p({ class: "tl-permission-intro" }, requested ? `Questo Node richiede ${requested} capacità. Puoi concederle solo per questa versione e questo archivio.` : "Questo Node non richiede capacità runtime aggiuntive. Il consenso registra comunque la revisione della versione installata."),
       _.div({ class: "tl-permission-grid" }, ...capabilities.map((item) => _.article({ class: `tl-permission-item ${item.allowed ? "is-requested" : "is-blocked"}` }, _.span({ class: "tl-permission-icon" }, icon(item.iconName)), _.div(_.strong(item.label), _.p(item.detail)), _.span({ class: "tl-permission-state" }, item.allowed ? (item.state === "write" ? "Proposte" : item.state === "read" ? "Lettura" : "Richiesto") : "Nessun accesso")))),
       _.details({ class: "tl-permission-technical" }, _.summary("Dettagli tecnici"), _.dl({ class: "tl-custom-facts" }, _.dt("SHA-256 archivio"), _.dd(pkg.archive.sha256), _.dt("Permessi dichiarati"), _.dd(JSON.stringify(declared))))
-    ), footer: () => [btn("Annulla", () => dialog.close()), btn("Conferma", () => { dialog.close(); void perform(() => api().grantPermissions({ ...ref(pkg), permissions: declared, confirmed: true })); })] });
+    , message), footer: () => [btn("Annulla", () => dialog.close()), btn("Conferma", async () => { if (submitted) return; submitted = true; try { await api().grantPermissions({ ...ref(pkg), permissions: declared, confirmed: true }); await reload(); outcome = { status: "granted" }; dialog.close(); render(); } catch (failure) { submitted = false; message.textContent = errorMessage(failure); } })] });
     activeDialog = dialog; dialog.open();
   };
   const packageRow = (pkg) => _.Card({ class: `tl-custom-card is-${status(pkg)}` },
@@ -365,7 +379,7 @@
     pythonUnavailable(pkg) ? _.p({ class: "tl-custom-python-status" }, pkg.pythonRuntime?.dependencies?.installPlan?.supported ? "Pack Python da installare" : "Runtime Python non disponibile") : null,
     _.div({ class: "tl-custom-actions" },
       btn("Dettagli", () => {
-        activeDialog = _.Dialog({ title: pkg.name || pkg.packageId, content: () => packageDetails(pkg), footer: () => btn("Chiudi", () => activeDialog.close()) }); activeDialog.open();
+        activeDialog = trackedDialog({ title: pkg.name || pkg.packageId, content: () => packageDetails(pkg), footer: () => btn("Chiudi", () => activeDialog.close()) }); activeDialog.open();
       }, busy),
       btn("Versioni", () => comparePackage(pkg), busy),
       btn("Pubblica", () => publishNode(pkg), busy),
@@ -377,7 +391,7 @@
       btn("Elimina", () => perform(async () => {
         const dependencies = await api().dependencies(ref(pkg));
         if (dependencies.length) {
-          activeDialog = _.Dialog({ title: "Pacchetto usato nei Flow", content: () => _.div(_.p("Rimuovi prima questi riferimenti. Nessun Flow verrà cancellato automaticamente."), details(dependencies)), footer: () => btn("Chiudi", () => activeDialog.close()) }); activeDialog.open(); return;
+          activeDialog = trackedDialog({ title: "Pacchetto usato nei Flow", content: () => _.div(_.p("Rimuovi prima questi riferimenti. Nessun Flow verrà cancellato automaticamente."), details(dependencies)), footer: () => btn("Chiudi", () => activeDialog.close()) }); activeDialog.open(); return;
         }
         confirm("Eliminare il pacchetto locale?", _.p(`${pkg.name || pkg.packageId} ${pkg.version}: l’archivio sarà cancellato. I dati prodotti nei Flow restano salvati.`), () => api().remove({ ...ref(pkg), confirmed: true }));
       }), busy || pkg.runtimeExecution === "sandboxed")
@@ -425,16 +439,22 @@
         btn(installed.exact ? "Chiudi" : "Annulla", () => reviewDialog?.close(), busy),
         btn("Revisione AI", reviewWithAi, busy),
         btn(installLabel, () => perform(async () => {
-          await api().install({ importId: selectedReview.importId });
+          const result = await api().install({ importId: selectedReview.importId });
+          await reload();
+          const completion = chatReviewCompletion; chatReviewCompletion = null;
           if (review === selectedReview) review = null;
+          syncReviewDialog();
+          completion?.({ status: "installed", reference: { packageId: result?.packageId || selectedReview.manifest.id, version: result?.version || selectedReview.manifest.version, archiveSha256: result?.archive?.sha256 || selectedReview.archiveSha256 }, message: "Pacchetto installato. Rileggi il catalogo per permessi e attivazione; nessun nodo è stato aggiunto al Flow." });
         }), busy || installed.exact)
       ]
     };
     if (reviewDialog) { reviewDialog.update(options); return; }
     activeDialog?.close();
-    const dialog = _.Dialog({ ...options, onClose: () => {
+    const dialog = trackedDialog({ ...options, onClose: () => {
       if (reviewDialog === dialog) {
         reviewDialog = null;
+        const completion = chatReviewCompletion; chatReviewCompletion = null;
+        completion?.({ status: busy ? "uncertain" : installed.exact ? "installed" : "denied", message: busy ? "Dialogo chiuso durante l’operazione: rileggi il catalogo per verificarne l’esito." : installed.exact ? "Questo archivio è già installato. Nessuna copia creata." : "Installazione annullata." });
         if (review === selectedReview) review = null;
       }
       if (activeDialog === dialog) activeDialog = null;
@@ -483,13 +503,14 @@
     if (!api()?.prepareCreate || busy || activeDialog) { resolve({ status: "blocked", message: "Chiudi l'operazione Custom Node in corso e riprova." }); return; }
     let settled = false;
     let preparing = false;
+    let handedOff = false;
     const finish = (value) => { if (!settled) { settled = true; resolve(value); } };
     const manifestInput = _.textarea({ rows: 12, value: JSON.stringify(manifest || {}, null, 2), "aria-label": "Manifest proposto" });
     const sourceInput = _.textarea({ rows: 16, value: String(source || ""), "aria-label": "Script proposto" });
     const message = _.p({ role: "alert" });
-    const dialog = _.Dialog({ title: "Custom Node proposto dal Chat", closeOnBackdrop: false,
-      content: () => _.div(_.p("Modifica manifest e script, poi verifica il pacchetto. Installazione e attivazione restano passaggi separati."), _.label("node.json", manifestInput), _.label("Sorgente runtime", sourceInput), message),
-      onClose: () => { if (activeDialog === dialog) activeDialog = null; finish({ status: "denied" }); },
+    const dialog = trackedDialog({ class: "tl-custom-chat-draft-dialog", width: "min(1100px, calc(100vw - 32px))", bodyMaxHeight: "70vh", title: "Custom Node proposto dal Chat", closeOnBackdrop: false,
+      content: () => _.div({ class: "tl-custom-editor tl-custom-chat-draft" }, _.p("Rivedi il nodo proposto, poi verifica il pacchetto e conferma l’installazione."), _.div({ class: "tl-custom-chat-draft-grid" }, _.label(_.span("Manifest · node.json"), manifestInput), _.label(_.span("Sorgente runtime"), sourceInput)), message),
+      onClose: () => { if (activeDialog === dialog) activeDialog = null; if (!handedOff) finish({ status: "denied" }); },
       footer: () => [btn("Annulla", () => { if (!preparing) dialog.close(); }), btn("Verifica pacchetto", async () => {
         if (preparing) return;
         preparing = true;
@@ -498,7 +519,8 @@
           const source = sourceInput.value;
           const prepared = await api().prepareCreate({ manifest, source, baseReference });
           if (settled) return;
-          finish({ status: "prepared", manifest, source, message: "Bozza verificata e aperta per revisione. Non installata né eseguita." });
+          handedOff = true;
+          chatReviewCompletion = result => finish({ ...result, manifest, source });
           dialog.close();
           review = prepared;
           syncReviewDialog();
@@ -509,6 +531,33 @@
     activeDialog = dialog;
     dialog.open();
   });
+  const activateExactPackage = async (reference = {}) => {
+    const current = () => api().list().then(items => items.find(item => item.packageId === reference.packageId && item.version === reference.version && item.archive.sha256 === (reference.archiveSha256 || reference.archive?.sha256)));
+    let pkg = await current();
+    if (!pkg) return { status: "blocked", message: "Pacchetto esatto non disponibile." };
+    if (pkg.permissionConsent?.status !== "granted") {
+      const consent = await new Promise(resolve => permissionDialog(pkg, resolve));
+      if (consent.status !== "granted") return consent;
+      pkg = await current();
+    }
+    if (!pkg) return { status: "blocked", message: "Pacchetto non più disponibile." };
+    if (pythonUnavailable(pkg)) {
+      const plan = pkg.pythonRuntime?.dependencies?.installPlan;
+      if (!plan?.supported) return { status: "blocked", message: pkg.pythonRuntime?.message || "Runtime Python non disponibile." };
+      const result = await window.TrackerLensPythonPackInstaller.open({ packId: plan.packId || pkg.manifest.execution.dependencies.python.packId, waitForClose: true });
+      if (result?.status !== "completed") return { status: "denied", message: "Installazione Python non completata." };
+      pkg = await current();
+      if (!pkg || pythonUnavailable(pkg)) return { status: "blocked", message: "Il runtime Python richiesto non è pronto." };
+    }
+    if (pkg.runtimeExecution === "sandboxed") return { status: "activated", ...ref(pkg) };
+    return new Promise(resolve => activationDialog(pkg, resolve));
+  };
+  let activationTask = null;
+  window.TrackerLensActivateCustomNode = (reference = {}) => {
+    if (activationTask || activeDialog) return Promise.resolve({ status: "blocked", message: "Completa o chiudi il dialogo Custom Node aperto." });
+    activationTask = activateExactPackage(reference).finally(() => { activationTask = null; });
+    return activationTask;
+  };
   window.TrackerLensViews.customNodes = {
     async mount({ outlet }) {
       root = outlet; window.TrackerLensAppShell?.setActive("custom-nodes");

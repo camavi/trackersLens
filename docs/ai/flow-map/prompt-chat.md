@@ -93,3 +93,11 @@ Protocol references: [Codex non-interactive JSON events](https://learn.chatgpt.c
 - Do not apply blocked or stale actions.
 - Do not bypass `flowPromptValidateAgentAction`.
 - Do not bypass Time Travel snapshot capture for Apply.
+
+### Chat package lifecycle and readable approvals (2026-10-04)
+
+`tl.workspace.listNodeTypes` is a consented fast-path read: it refreshes installed packages and returns the actual palette labels/ports plus exact custom package identities. For atomic custom creation, `packageReference` selects packageId/version/archiveSha256; ambiguous labels alone are rejected. Revisions do not imply new Flow instances.
+
+`draft_custom_node` awaits the shared editor and installation review through install/cancel. `activate_custom_node` requires a same-turn package-list reference and opens the existing user permission/managed Python/activation confirmations, then feeds their result into the same provider loop. Read the inventory again before testing. These are explicit UI consent operations through the existing Core package APIs, never agent-authored grants or arbitrary installs. A missing unsupported Python runtime remains an observable block.
+
+Message wrappers (`message`, `answer`, `final_answer`, `final`) are unwrapped only for display/answer text. Drafts and sandbox observations retain full artifacts in history and SQLite, rendered behind expandable details. Atomic approval shows a readable change summary with the full JSON still accessible. Tests use synthetic providers and temporary profiles; they do not validate real-model planning or an anonymization pipeline.

@@ -23,7 +23,7 @@ function setup() {
   });
   vm.runInContext(fs.readFileSync(require.resolve('../core/runtime/runtime-contract.js'), 'utf8'), context);
   vm.runInContext(fs.readFileSync(require.resolve('../js/flow-map/flowMapPromptChat.js'), 'utf8'), context);
-  vm.runInContext(`globalThis.api = { conversation: flowPromptConversationContext,
+  vm.runInContext(`globalThis.api = { answer: flowPromptParseExternalAnswer, conversation: flowPromptConversationContext,
     external: flowPromptBuildExternalReply, local: flowPromptBuildLocalToolProtocolReply,
     observations: flowPromptTurnObservations, recover: flowPromptReplyWithContextRecovery,
     overflow: flowPromptIsContextOverflow, graphProposal: flowPromptGraphProposal,
@@ -384,4 +384,29 @@ test('attachments preserve full text and use native images across transports and
   context.window.TrackerLensLlmObservation = { complete: async request => { observed.push(request); return {data:{choices:[{message:{content:'ok'}}]}}; } };
   await api.compatible({provider:{endpoint:'http://fixture/v1'}, model:'vision', prompt:'Describe', images:[{mime:'image/png',data:'aW1hZ2U='}], observationContext:{jobId:'fixture'}});
   assert.equal(observed[0].body.messages[0].content[1].image_url.url, image.dataUrl);
+});
+
+test('message envelopes are text while package proposals retain their structure', () => {
+  const { api } = setup();
+  assert.equal(api.answer('{"type":"message","content":"Nodo pronto"}'), 'Nodo pronto');
+  assert.equal(api.answer('```json\n{"type":"message","content":"Nodo pronto"}\n```'), 'Nodo pronto');
+  const proposal = '{"type":"proposed_action","action":"draft_custom_node","args":{}}';
+  assert.equal(api.answer(proposal), proposal);
+  const context = api.conversation([{role:'assistant', content:'Bozza', artifact:{source:'full source'}}]);
+  assert.match(JSON.stringify(context), /full source/);
+});
+
+test('custom creation chooses exact package version and rejects ambiguous labels', () => {
+  const { api, context } = setup();
+  context.window.crypto = require('node:crypto').webcrypto;
+  context.flowCoordinate = value => value;
+  context.safeRuntimeId = value => String(value);
+  context.FLOW_NODE_DEFAULT_WIDTH = 200;
+  context.flatPalette = () => ['1.0.0', '2.0.0'].map(version => ({ label:'Same name', nodeType:'custom', subtype:'fixture', inputs:['input'], outputs:['output'], customPackage:{packageId:'custom.fixture',version,archive:{sha256:version},runtimeExecution:'sandboxed'} }));
+  const proposal = {operation:'create',newNodeId:'@fixture',paletteLabel:'Same name'};
+  assert.throws(() => api.atomic([proposal], 'w'), /palette/);
+  const created = api.atomic([{...proposal,packageReference:{packageId:'custom.fixture',version:'2.0.0',archiveSha256:'2.0.0'}}], 'w').edits[0].node;
+  assert.equal(created.metadata.customPackage.version,'2.0.0');
+  assert.equal(created.metadata.customPackage.archive.sha256,'2.0.0');
+  assert.equal(created.runtime.active,false);
 });

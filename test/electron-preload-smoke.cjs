@@ -257,16 +257,18 @@ app.whenReady().then(async () => {
           if (!source) throw new Error('Missing Chat source editor');
           source.value += '\\n// user revision';
           document.querySelector('[aria-label="Verifica pacchetto"]').click();
-          const result = await pending;
+          let settled = false; pending.then(() => { settled = true; });
           await new Promise(resolve => setTimeout(resolve, 150));
+          if (settled) throw new Error("Chat must wait for installation review");
           const review = Boolean(document.querySelector('.tl-custom-review-dialog [aria-label="Installa"]'));
           document.querySelector('.tl-custom-review-dialog [aria-label="Annulla"]').click();
+          const result = await pending;
           await new Promise(resolve => setTimeout(resolve, 200));
           const cancelled = window.TrackerLensReviewChatNodeDraft(draft);
           Array.from(document.querySelectorAll('[aria-label="Annulla"]')).at(-1).click();
           return { status: result.status, edited: result.source.includes('user revision'), review, cancelled: (await cancelled).status };
         })()`);
-        assert.deepEqual(chatDraft, {status:'prepared', edited:true, review:true, cancelled:'denied'});
+        assert.deepEqual(chatDraft, {status:'denied', edited:true, review:true, cancelled:'denied'});
         includePendingPython = true;
         const pendingUi = await window.webContents.executeJavaScript(`(async () => {
           document.querySelector('[aria-label="Aggiorna"]').click();

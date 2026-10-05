@@ -5031,7 +5031,7 @@ const renderCustomRuntimeNodeInlineForm = (node = {}) => {
       _.strong("Runtime blocked"),
       _.span(`${pkg.packageId || node.label} · ${pkg.version || "local package"}`),
       _.small(`Trust: ${pkg.trustLevel || "local-dev"} · ${pkg.installState === "sandbox-ready" ? "Sandbox requires the desktop feature flag" : "Manifest-only import"}`),
-      flowMapBtn({ class: "st-btn-sm", onclick: () => window.TrackerLensCustomNodePackages?.openDialog?.() }, flowMapIcon("extension", "sm"), "Gestisci package")
+      flowMapBtn({ class: "st-btn-sm", onclick: async () => { try { const result = await window.TrackerLensActivateCustomNode?.(pkg); if (result?.status === "blocked" || result?.status === "uncertain") JSswift.notify?.error?.(result.message); } catch (error) { JSswift.notify?.error?.(error.message); } } }, flowMapIcon("shield", "sm"), "Permessi e attivazione")
     );
   }
   const layout = customNodeFormLayout(node);

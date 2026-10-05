@@ -12,11 +12,14 @@ const visibleInstallProgress = (progress = {}) => progress.phase === "downloadin
   ? Number(progress.modelProgress)
   : Number(progress.progress || 0);
 
-const open = async ({ packId = "", onComplete = null } = {}) => {
+const open = async ({ packId = "", onComplete = null, waitForClose = false } = {}) => {
   const runtime = window.trackers?.runtime?.pythonRuntime;
   const plan = await runtime?.getInstallPlan?.({ packId });
   if (!plan) throw new Error("Piano di installazione Python non disponibile");
   const progressId = `tl-managed-python-install-${crypto.randomUUID()}`;
+  let outcome = { status: "denied" };
+  let finish;
+  const completion = new Promise(resolve => { finish = resolve; });
   let unsubscribe = () => {};
   const syncProgress = (progress = {}) => {
     if (progress.packId !== packId) return;
@@ -40,7 +43,7 @@ const open = async ({ packId = "", onComplete = null } = {}) => {
     icon: "download",
     closeButton: false,
     persistent: true,
-    onClose: () => unsubscribe(),
+    onClose: () => { unsubscribe(); finish(outcome); },
     content: () => _.div(
       { class: "tl-managed-python-pack-copy" },
       _.p("TL installerà solo il lockfile e i modelli dichiarati da questo pack. Il Nodo non riceve accesso a pip, shell o filesystem."),
@@ -69,6 +72,7 @@ const open = async ({ packId = "", onComplete = null } = {}) => {
         syncProgress({ packId, phase: "preparing", progress: 0, message: "Preparazione installazione" });
         try {
           await runtime.installPack({ packId, confirmed: true });
+          outcome = { status: "completed", packId };
           syncProgress({ packId, phase: "complete", progress: 100, message: "Installazione completata e verificata" });
           if (closeButton) { closeButton.disabled = false; closeButton.textContent = "Chiudi"; }
           try { await onComplete?.(); }
@@ -83,7 +87,7 @@ const open = async ({ packId = "", onComplete = null } = {}) => {
     )
   });
   dialog.open();
-  return dialog;
+  return waitForClose ? completion : dialog;
 };
 
 window.TrackerLensPythonPackInstaller = Object.freeze({ open });

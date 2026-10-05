@@ -135,3 +135,12 @@
 .tl-custom-setting-row { display: grid; grid-template-columns: minmax(0,1fr) minmax(0,1fr); gap: 10px; padding: 14px 0; border-bottom: 1px solid #293540; }
 .tl-custom-setting-row label { display: grid; gap: 6px; margin: 0; font-size: 12px; color: #9daebb; }
 .tl-custom-setting-row > div { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+
+/* Chat authoring shares the native package editor, with readable code panes. */
+.tl-custom-chat-draft-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.4fr); gap: 18px; }
+.tl-custom-chat-draft-grid > label { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+.tl-custom-chat-draft-grid > label > span { font-weight: 650; color: #bfd1df; }
+.tl-custom-chat-draft-grid textarea { min-height: 360px; tab-size: 2; line-height: 1.6; resize: vertical; }
+@media (max-width: 760px) { .tl-custom-chat-draft-grid { grid-template-columns: minmax(0, 1fr); } .tl-custom-chat-draft-grid textarea { min-height: 240px; } }
+
+.tl-custom-chat-draft > p { color: #b4c2ce; }
