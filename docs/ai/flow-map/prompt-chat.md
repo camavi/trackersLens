@@ -3,7 +3,23 @@
 Purpose: AI Flow Chat behavior and implementation notes.
 Read when: changing `js/flow-map/flowMapPromptChat.js`.
 Do not read when: unrelated Flow Map visual-only work.
-Last updated: 2026-10-04.
+Last updated: 2026-10-05.
+
+## Duplicate feedback and continued work (2026-10-05)
+
+An identical atomic proposal already evaluated returns a structured `TL_ACTION_ALREADY_EVALUATED` observation to the provider, with `executionRepeated:false`, the complete original result (including aliases/receipt, denial or uncertainty) and corrective next actions. It does not set the red error/end the turn. Completed/denied mutations are not applied or confirmed again. Failed preflight proposals may be reconsidered after a new successful uncached read; execution uncertainty never permits replay. Resumed actions receive the same historical-result feedback so the model can diagnose via read tools or report uncertainty.
+
+Cached reads are appended to complete turn observations and returned without a forced final answer. The old two-duplicate-read cutoff is removed. Only explicit user-configured tool-round limits, cancellation and actual transport/runtime errors stop this coordinator path; limits account for both read requests and action proposals. Tests exercise synthetic-provider Electron loops with one committed mutation despite two duplicate proposals, denial without another confirmation, preflight recovery, repeated-read continuation and SQLite receipt/checkpoint recovery. Live-model quality remains separate QA.
+
+## Local AI authoring (2026-10-05)
+
+If a local profile is absent, Chat reads `tl.providers.discoverLocal({service:"lm-studio"|"ollama",endpoints?:[]})` before asking the user for an URL. Discovery reads model metadata from configured/user-supplied bases and attributed documented default candidates; only successful evidence permits `configure_local_provider` with exact discovery ID/base/model ID. Core previews a credential-free owner-bound one-use plan, JSswift confirms it once, then internal SQLite compare-and-save preserves matching profile identity/credentials and rejects stale state. The same turn refreshes `listLocal` and can continue package authoring/testing. Login accounts are external accounts, not broken local endpoints. GET catalog discovery starts/downloads no service/model and does not imply inference success.
+
+`tl.providers.listLocal` reads safe configured profile readiness and the Core tool contract. JavaScript packages can declare/grant `aiProvider`, require string `aiProviderId` config and call `tools.ai.complete({messages})`; Core resolves only configured loopback API profiles and their model/credentials. It returns full text/response/usage/provenance and persists complete request/result details. Draft guidance requires installed-source reads and a new version to repair a fetch-based package; adding endpoint/model fields or activating the old package cannot repair it. Test approval identifies the local profile destination as well as disclosure of output to the Chat provider. Real-model execution, PDF/OCR, Python AI tools and remote provider broker support are not implied.
+
+## Automatic package setup (2026-10-05)
+
+`draft_custom_node` defaults to a verified immutable archive and one combined setup approval instead of the editor → import → permissions → installer → activation click chain. `activate_custom_node` uses the same plan for an installed exact reference. Chat saves an executing checkpoint with setup plan/job identity before Core effects, displays progress and feeds the actual complete/partial/failed/uncertain outcome into the same provider loop. Package/workspace caches are invalidated after the operation. Code/inputs testing and graph mutations retain their own registered-tool review. The optional `reviewOnly` UI path retains editable draft review; ordinary management actions remain separate.
 
 ## Chat attachments (2026-10-04)
 
@@ -30,6 +46,20 @@ The selected-provider protocol includes the full ordered user/assistant history,
 There is no automatic truncation/compaction. On an explicit provider context-overflow error, a JSswift dialog offers a user-selected history starting point or current request only. Selection applies only to the current turn, is recorded in chat, and is disclosed to the model. Full history remains stored. Only the provider call is retried; current-turn tool observations remain complete and executed actions are never replayed by recovery. If the current request/tools alone exceed capacity, TL reports that a larger-context model or explicitly smaller request is needed. Tool traces are persisted even when a later provider call fails or recovery is cancelled. Checkpoint recovery and compatible API streaming are described below. `test/flow-chat-context.test.cjs` exercises full-script context construction, actual provider request builders with mocked transports, and recovery/cancellation/error handling.
 
 ## Existing responsibilities
+
+### Whole-Flow topology read (2026-10-05)
+
+`tl.workspace.inspectTopology` is a consented fast-path read for the active workspace. Agent Runtime builds one graph snapshot and returns every node's stable ID, label, type, ports, status, configuration-key names and exact Custom Node package reference, plus every dependency's endpoints and ports. It does not return configuration values, package source, documents or event payloads; those remain separate scoped reads. Chat uses the result as a current-turn Flow index for duplicate-package checks and resolved node IDs. A committed atomic graph edit invalidates that index, so subsequent reasoning must inspect the changed Flow again. The provider prompt directs whole-Flow and node-placement tasks to this read before proposing changes. There is no implicit node insertion or permission grant.
+
+### SQLite evidence reads (2026-10-05)
+
+The Chat fast path now exposes `tl.sqlite.listStores`, `tl.sqlite.listRecords` and `tl.sqlite.readRecord`. The catalog contains names only; record pages return metadata for the active workspace and expose `hasMore` for explicit paging. Exact full JSON can be read only for an ID listed in the same provider turn and in the active workspace. Its consent dialog names the collection and ID and cannot be bypassed by a previous “all reads” grant. Core performs the scoped lookup in a read-only SQLite connection. No SQL string, database path, cross-workspace record or write command is available to the provider. The returned record can contain private data and is persisted as a consented Chat observation.
+
+### Selected project folder (2026-10-05)
+
+`tl.project.chooseFolder` opens a native folder picker and stores an opaque, chat-scoped grant in Electron Main for this app session. The provider sees only the folder label. `listDirectory` returns direct child names and types; `searchText` returns all literal UTF-8 line matches with explicit skipped binary/symlink entries; `readTextFile` returns the full contents and SHA-256 of one listed or searched file. Search and full-file reads always request specific consent even after an all-read grant. Core resolves every path against the selected real directory and rejects traversal and symlink escapes. Grants expire on app restart and folder changes.
+
+After a same-turn file read, `edit_project_file` can propose one complete UTF-8 replacement. TL previews full before/after text in a JSswift dialog, then sends a one-use preview token and expected SHA-256 to Core after user confirmation. Core rejects stale files and writes the replacement through a temporary file in the same directory; the result returns to the provider. Interrupted writes remain uncertain until the file is inspected again. This is not general filesystem or shell access; no native Codex IDE session, test-command runner, MCP integration or cross-provider code harness is implied.
 
 ### Provider structural edits and script drafts (2026-09-28)
 
@@ -96,8 +126,76 @@ Protocol references: [Codex non-interactive JSON events](https://learn.chatgpt.c
 
 ### Chat package lifecycle and readable approvals (2026-10-04)
 
+Duplicate prevention (2026-10-05): `draft_custom_node` requires successful, consented `tl.workspace.inspectFlow` and `tl.customNodes.list` in the current turn. Existing package IDs require an exact installed source read and a `baseReference`; matching Flow node labels/subtypes are reported before a new draft can open. A revision does not add a Flow instance. Package inventory becomes stale after installation/activation and must be read again. This is a proposal prerequisite, not a semantic filter on runtime output or an automatic Flow mutation.
+
 `tl.workspace.listNodeTypes` is a consented fast-path read: it refreshes installed packages and returns the actual palette labels/ports plus exact custom package identities. For atomic custom creation, `packageReference` selects packageId/version/archiveSha256; ambiguous labels alone are rejected. Revisions do not imply new Flow instances.
 
 `draft_custom_node` awaits the shared editor and installation review through install/cancel. `activate_custom_node` requires a same-turn package-list reference and opens the existing user permission/managed Python/activation confirmations, then feeds their result into the same provider loop. Read the inventory again before testing. These are explicit UI consent operations through the existing Core package APIs, never agent-authored grants or arbitrary installs. A missing unsupported Python runtime remains an observable block.
 
 Message wrappers (`message`, `answer`, `final_answer`, `final`) are unwrapped only for display/answer text. Drafts and sandbox observations retain full artifacts in history and SQLite, rendered behind expandable details. Atomic approval shows a readable change summary with the full JSON still accessible. Tests use synthetic providers and temporary profiles; they do not validate real-model planning or an anonymization pipeline.
+
+### Project file creation and verification scripts (2026-10-05)
+
+`create_project_file` requires an inspected parent directory in the current turn and full proposed UTF-8 content. Core's reviewed text-edit API uses `expectedSha256: "absent"`, checks absence again and atomically publishes the new file without overwriting a concurrent creation. Existing edits require the exact previously read hash. Both show complete before/after content and require separate approval.
+
+`run_project_script` requires the current consented `package.json` hash and an exact script name. `ChatProjectScripts` previews declared pre/main/post commands, consumes a one-use approval token, revalidates the manifest and executes `npm run -- <name>` in the selected project. This is execution with user local permissions, explicitly disclosed in the approval dialog; it is not an OS sandbox. Main binds runs and streaming events to the trusted webContents/request ID and cancels the process group on explicit stop or owner navigation/destruction. Full stdout/stderr and exit status become provider observations and saved work output. macOS/Linux are supported; Windows execution is explicitly unavailable. No arbitrary executable, shell-command or raw-path endpoint is exposed. Script effects invalidate the current file-read cache. Renderer interruption during an effect remains uncertain and cannot silently replay it.
+
+### Native Codex chat session continuity (2026-10-05)
+
+For observed Codex chat requests, the renderer sends workspace/chat/work identities, never a native thread ID or path. Main's `ExternalAiWorkSessions` verifies the current work against the persisted chat record and maps workspace/chat/provider to a native thread in `tl_ai_jobs`. The first call omits `--ephemeral`; subsequent calls use `codex exec ... resume <exact UUID> -`, never `--last`. The native thread is recorded at `thread.started`, including before later cancellation/failure. Native session data remains owned by the Codex CLI; TL's complete chat history and observations remain in SQLite.
+
+Working directories are opaque Core-owned directories; native transport does not add project filesystem or shell rights. Sandbox read-only, ignored config/rules and disabled shell/unified-exec remain mandatory on every invocation. Same-chat follow-ups resume the same thread after validating the new work ID. Native sessions are not graph evidence or authorization: same-turn discovery and confirmed mutations remain mandatory. The Work dialog shows persistent/resumed state and offers a separately confirmed reset after failed/interrupted/cancelled work. Reset archives native identities and never replays uncertain effects. Context-overflow selection explicitly resets the native session to honor the user's selected history. A missing/incompatible native session fails visibly; no silent stateless fallback occurs. Claude/Locale continuity still uses TL history. Native session transport is unit-tested with simulated provider events and real temporary SQLite. Authenticated CLI live QA passed with two marker-only prompts: a reconstructed manager resumed the same UUID and the second reply recalled the first-turn marker. No project/Flow data was sent. This confirms the installed CLI contract; complete live-model TL-tool behavior remains unverified.
+
+### Coordinated files and terminal commands (2026-10-05)
+
+`edit_project_files` accepts `args.edits` with exact relativePath, expectedSha256 and complete content for each file. Same-turn reads are mandatory for replacements; creations use `absent` with an inspected existing parent. One JSswift review shows all before/after contents. Core binds a one-use token to the exact edit list, rejects duplicate/aliased paths, stages all writes and revalidates all files before sequential commits. Runtime failure attempts conditional rollback: only unchanged TL outputs are restored, concurrent user edits stay intact. `partial` results retain full before/proposed contents for recovery. This is not a multi-file filesystem transaction; process crash/restart remains an uncertain action and is never replayed automatically.
+
+`run_project_command` accepts exact commandText and an inspected relative working directory. A separate confirmation displays the full shell text and explicitly discloses user local permissions, environment/network and effects outside the project. Core runs fixed `/bin/sh -c <reviewed text>` with cwd from the opaque folder grant; command approval is bound to text/cwd/chat/folder and single-use. macOS/Linux only. The renderer receives full stdout/stderr/status/exit code through the existing request-owned event stream, can interrupt the process group and saves received output during execution using serialized writes. Script and terminal outputs invalidate file-read caches. Commands have no automatic timeout or output truncation. Blocking commands have no stdin. The nonblocking stdin session capability below is separate; PTY and cross-restart process reconnection are not implemented.
+
+### Nonblocking terminal sessions (2026-10-05)
+
+`start_project_terminal` uses the same exact-command/directory review with an interactive one-use token. Core persists the job before starting and returns its opaque sessionId on spawn, allowing the provider loop to continue. `tl.project.listTerminals` returns chat-scoped metadata; `pollTerminal` requires a discovered session ID and returns full current stdout/stderr/status/exit and input trace. Identical live polls are never cached. Inputs/stops require a current running-session poll and separate explicit review. Exact text and EOF are recorded before stdin delivery; successful writes are submitted, failed writes remain uncertain. File-read caches invalidate after inputs.
+
+Main-controlled owner identity never comes from payload. Input/stop cannot control another renderer's session; owner destruction/main-frame navigation aborts attached process groups. Core persists complete output on a serialized timer and completion in `tl_ai_jobs`; unknown running records after restart are labeled interrupted, with unknown outcome and no automatic replay. Process handles never cross preload. The Work dialog can manually refresh full output, submit exact input/EOF via JSswift controls and stop a running session. Stdin uses pipes, not a PTY; tty-only/fullscreen apps are unsupported. Persisted records are not proof that a process survived a Core crash. Tests exercise real shell stdin/EOF, owner cancellation, unknown restart outcomes and Electron provider-loop/SQLite transport.
+
+## Observable work timeline (2026-10-05)
+
+The Chat activity card renders readable operations from the real request/observation sequence. A pending request is in progress; completed results never spin while the model prepares another reply. Cached results, duplicate feedback, denials and failed/partial/uncertain results have separate labels. Each step expands to the complete envelope, without truncation. Unknown tools retain their exact names.
+
+Completed tool messages show work duration, operation count and confirmed changed-file/Flow counts. Approved project previews are attached to the resulting observation as `reviewedFiles`; graph previews/edits use `reviewedGraph`. These historical before/after records describe the reviewed change, not current filesystem state. Failed rollbacks remain inspectable and are not presented as confirmed applied files. Duplicate feedback does not count changes again. The existing safe restore is offered only for the chat’s latest matching graph snapshot; project-file undo is not implemented. No hidden chain of thought is inferred or displayed.
+
+## Custom Node create revalidation repair (2026-10-05)
+
+Atomic create and manual creation plans share `flowPromptValidateCreatedNodePalette`: Custom Packages resolve by the complete package id/version/archive hash, then compare canonical palette definitions. Multiple versions with the same visible label and reordered object keys cannot cause a false stale-definition error. Missing packages or genuine schema/port/runtime/permission changes remain blocked with `TL_PALETTE_CHANGED`.
+
+An atomic preflight failure invalidates successful package/workspace observations and associated discovery state, preserving explicit read denials. The provider receives a failed/no-write result, corrective next actions and permission to retry after fresh reads. Failed/stale proposals never apply automatically; a revised applicable proposal still uses the existing full review, immediate revalidation and Core snapshot transaction. Runtime errors after pending execution remain uncertain and are never treated as preflight failures.
+
+## Live provider output in Chat (2026-10-06)
+
+While a work is running, Chat subscribes to `TrackerLensLlmObservation` with exact workspaceId/nodeId/jobId matching. Text and provider-emitted reasoning updates appear in the activity card as received, without waiting for the protocol loop to finish. Invocation changes reset the current display. JSON protocol output remains fully expandable; natural text and public provider updates use a readable pane. Existing observer persistence and inspector preserve the complete trace. RequestAnimationFrame batches rendering without dropping text. Finally unsubscribes and cancels queued rendering on completion/failure/cancellation.
+
+These are actual provider outputs, not inferred hidden thought or invented status prose. Codex CLI may emit completed message events rather than token deltas; buffered providers may send no intermediate output. The waiting view explicitly states this and offers the full live inspector.
+
+## Login readiness verification (2026-10-06)
+
+Version probe failure is not proof of missing installation. Core reports `verification=unavailable` with a diagnostic for an existing executable; ENOENT remains missing. Authentication probe transport errors use `authentication=unknown`, permitting the native CLI invocation to report its real outcome instead of falsely demanding login. No credentials or authentication state are fabricated.
+
+A successful installed/authenticated status is retained in an in-memory receipt for the current provider tool loop only. Subsequent replies reuse it; new or resumed work performs fresh checks. Core still resolves/invokes the CLI, and real authentication/execution errors propagate normally. This does not retry a provider request or replay Flow mutations; existing work checkpoints preserve applied receipts after failure.
+
+## Metadata module ownership (2026-10-10)
+
+`app.html` loads `flowMapChatCapabilities.js` and `flowMapChatPythonMetadata.js` before `flowMapPromptChat.js`. Each exposes one closure-scoped API; Chat retains its existing local bindings through destructuring. These modules have no app-service dependencies. The first owns capability descriptors/schemas and discovery lookup, the second the existing path-free Python metadata projections. Consent, tool dispatch, installation and provider invocation remain in their existing owners. See `../javascript-modularization.md` for the inventory and next boundaries.
+
+## Conversation module ownership (2026-10-10)
+
+`flowMapChatConversation.js` is loaded before Chat and exports `createFlowMapChatConversation`. Chat supplies lazy adapters for its existing text normalization, expression lookup and attachment metadata projection, preserving classic-script initialization order. The factory owns history construction/serialization, context labels, previous-plan intent and the provider-only overflow recovery algorithm. JSswift history selection, native-session reset, selection persistence and mutation execution remain in Chat; recovery receives `send`, `chooseHistory` and `onSelection` callbacks. Only explicit selection changes provider context; full stored history and current-turn observations are retained.
+
+## Protocol and attachment module ownership (2026-10-10)
+
+`flowMapChatProtocol.js` owns the existing response parsers, exposing one closure-scoped API without application dependencies. Parsed actions/plans remain proposals; validation, consent and execution retain their existing owners. `flowMapChatAttachments.js` exports a factory receiving message ID generation, original data-URL reading and document extraction. It owns attachment classification and provider projections; `FileReader`, the disposable document worker, abort listeners and termination remain in Chat. App loading and context tests load both modules before Chat. Full source bodies are preserved; this extraction does not change existing parsing acceptance, file formats, cancellation semantics or size handling.
+
+## Complete responsibility wiring (2026-10-10)
+
+The Chat owner now wires `js/flow-map/chat/` components for providers/requests, intent, runtime context/diagnosis, brain/memory, graph/config/endpoint plans, previews/consent, read tools, tool-loop execution, history/actions, restore/mutations and JSswift views. Session state, running-chat tracking and lifecycle handles keep one owner. Dependencies use lazy getters; discovery/read-cache replacements use setters to the original owner. The complete seven-owner refactoring and remaining size inventory are recorded in `../javascript-modularization.md`; source ownership is indexed by `../javascript-modules.json`.
+
+The first animation frame now emits the existing foreground event after the aside becomes open. A deterministic Electron fixture holds/releases this frame and verifies that a waiting recovered proposal continues without replay. This does not make hidden panels eligible for consent or mutation.

@@ -2,7 +2,8 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const vm = require('node:vm');
-const source = fs.readFileSync(require.resolve('../js/flow-map/flowMapRuntimeNodes.js'), 'utf8');
+const source = fs.readFileSync(require.resolve('../js/flow-map/nodes/flowMapPreviewData.js'), 'utf8');
+const viewSource = fs.readFileSync(require.resolve('../js/flow-map/nodes/flowMapPreviewView.js'), 'utf8');
 const helpers = source.slice(source.indexOf('const parsePreviewJsonString ='), source.indexOf('const escapePreviewHtml ='));
 const { expand, text } = vm.runInNewContext(`${helpers}\n({ expand: expandPreviewJsonStrings, text: previewValueText })`, {
   prettyRuntimeValue: value => JSON.stringify(value, null, 2),
@@ -59,7 +60,7 @@ test('Preview pagination bounds each rendered page and preserves the entire payl
   assert.equal(textPage('', 0).pages, 1);
 });
 
-const cardHelpers = source.slice(source.indexOf('const previewCardValueText ='), source.indexOf('const openPreviewPayloadDialog ='));
+const cardHelpers = viewSource.slice(viewSource.indexOf('const previewCardValueText ='), viewSource.indexOf('const openPreviewPayloadDialog ='));
 const card = vm.runInNewContext(`${cardHelpers}\npreviewTextForRecord`);
 test('Card rendering stops reading payload as soon as its configured excerpt is filled', () => {
   const payload = { text: 'a'.repeat(10000000) };
@@ -76,7 +77,7 @@ test('Card rendering stops reading payload as soon as its configured excerpt is 
 test('Deferred Preview reads the exact stored event only on explicit hydration, and maps the full payload', async () => {
   const calls = [];
   const payload = { text: 'csv;data\n'.repeat(10000) };
-  const hydrateSource = source.slice(source.indexOf('const hydratePreviewRecord ='), source.indexOf('const copyPreviewRecord ='));
+  const hydrateSource = viewSource.slice(viewSource.indexOf('const hydratePreviewRecord ='), viewSource.indexOf('const copyPreviewRecord ='));
   const hydrate = vm.runInNewContext(`${hydrateSource}\nhydratePreviewRecord`, {
     runtimeStoreName: () => 'tl_events',
     previewPayloadForNodeEvent: (_node, event) => ({ payload: event.payload }),

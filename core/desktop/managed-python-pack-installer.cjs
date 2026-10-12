@@ -217,14 +217,15 @@ class ManagedPythonPackInstaller {
       requirements: (pack.requirements || []).map((item) => ({ name: String(item.name), version: String(item.version || "").replace(/^==/, "") })),
       models,
       network: { required: true, reasons: ["Download pinned Python packages from configured package indexes", ...models.filter((model) => !model.installed).map((model) => `Download model ${model.id} at declared revision`)] },
-      integrity: { lockfile: String(pack.lockfile || ""), versionPinned: true, hashesPresent: false },
+      integrity: { lockfile: String(pack.lockfile || ""), lockfileSha256: crypto.createHash('sha256').update(await fs.readFile(pack.lockfilePath)).digest('hex'), versionPinned: true, hashesPresent: false },
       requiresUserConsent: true
     };
   }
 
-  async install({ packId, confirmed = false } = {}) {
+  async install({ packId, confirmed = false, expectedPlan = null } = {}) {
     if (!confirmed) throw errorWithCode("Python pack installation requires confirmation.", "PYTHON_PACK_CONFIRMATION_REQUIRED");
     const plan = await this.getInstallPlan({ packId });
+    if (expectedPlan && JSON.stringify(plan) !== JSON.stringify(expectedPlan)) throw errorWithCode('Il piano Python approvato è cambiato. Ripeti la revisione.', 'PYTHON_INSTALL_PLAN_CHANGED');
     if (this.installing.has(plan.environment.id)) throw errorWithCode("A Python environment installation is already running.", "PYTHON_INSTALL_IN_PROGRESS");
     const pack = this.pack(packId);
     const environment = this.environment(pack.environment);

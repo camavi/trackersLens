@@ -105,3 +105,28 @@ test('image transport rejects arbitrary paths, malformed base64 and MIME mismatc
     await assert.rejects(runExternalAiChat({id:'codex'}, 'prompt', { images, spawnProcess: () => { throw new Error('must not spawn'); } }), /image attachment/i);
   }
 });
+
+test('native Codex start/resume keeps restrictive flags and only accepts the exact thread', async () => {
+  const uuid = '12345678-1234-1234-1234-123456789abc';
+  for (const sessionId of ['', uuid]) {
+    const child = new EventEmitter();
+    child.stdout = new PassThrough(); child.stderr = new PassThrough(); child.stdin = new PassThrough();
+    child.kill = () => { queueMicrotask(() => child.emit('close', null)); return true; };
+    let args;
+    const pending = runExternalAiChat({ id: 'codex', executable: 'codex' }, 'next', { directory: '/fixture', persistent: true, sessionId,
+      spawnProcess: (_command, actual) => { args = actual; return child; } });
+    child.stdout.write(JSON.stringify({ type: 'thread.started', thread_id: uuid }) + '\n');
+    child.stdout.write(JSON.stringify({ type: 'item.completed', item: { id: 'm', type: 'agent_message', text: 'done' } }) + '\n');
+    child.stdout.write(JSON.stringify({ type: 'turn.completed' }) + '\n');
+    child.emit('close', 0);
+    const result = await pending;
+    assert.equal(result.nativeSession.id, uuid);
+    assert.equal(result.nativeSession.resumed, Boolean(sessionId));
+    assert.equal(args.includes('--ephemeral'), false);
+    for (const flag of ['read-only', '--ignore-user-config', '--ignore-rules', 'shell_tool', 'unified_exec']) assert.ok(args.includes(flag));
+    assert.equal(args.includes('resume'), Boolean(sessionId));
+    assert.equal(args.includes('--last'), false);
+    if (sessionId) assert.equal(args.at(-2), uuid);
+  }
+  await assert.rejects(runExternalAiChat({ id: 'codex' }, 'bad', { persistent: true, sessionId: '--last' }), /Invalid native session/);
+});

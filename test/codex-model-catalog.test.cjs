@@ -67,3 +67,13 @@ test('bridge reads account email when CLI status only confirms login and tolerat
   assert.equal(unavailable.accountEmail, '');
   assert.equal(unavailable.accountIdentity, 'codex-account-read-unavailable');
 });
+
+test('version probe timeout does not classify an existing CLI as missing', () => {
+  const {readCliVersion} = require('../core/desktop/external-ai-provider-bridge.cjs');
+  const probe = () => ({error:Object.assign(new Error('probe timed out'),{code:'ETIMEDOUT'}),status:null});
+  const timedOut = readCliVersion(process.execPath,probe);
+  assert.equal(timedOut.installed,true); assert.equal(timedOut.verification,'unavailable');
+  assert.match(timedOut.diagnostic,/timed out/);
+  const missing = readCliVersion('/not-present-cli',()=>({error:Object.assign(new Error('not found'),{code:'ENOENT'})}));
+  assert.equal(missing.installed,false); assert.equal(missing.verification,'missing');
+});

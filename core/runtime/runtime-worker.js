@@ -1,6 +1,6 @@
 self.window = self;
 
-const RUNTIME_WORKER_VERSION = "0.1.288-runtime-snapshot-projection-1";
+const RUNTIME_WORKER_VERSION = "0.1.289-js-modules-1";
 const ports = new Set();
 const workspaces = new Map();
 
@@ -37,7 +37,32 @@ const loadRuntimeScripts = () => {
     "processor-runtime.js?v=custom-error-boundary-1",
     "action-runtime.js?v=agent-tool-links-1",
     "storage-runtime.js?v=agent-tool-links-1",
-    "knowledge-runtime.js?v=knowledge-context-retries-3",
+    "knowledge/knowledge-persistence.js?v=js-modules-1",
+    "knowledge/knowledge-diagnostics.js?v=js-modules-1",
+    "knowledge/knowledge-language.js?v=js-modules-1",
+    "knowledge/knowledge-chunking.js?v=js-modules-1",
+    "knowledge/knowledge-embeddings.js?v=js-modules-1",
+    "knowledge/knowledge-node-contracts.js?v=js-modules-1",
+    "knowledge/knowledge-graph-query-cues.js?v=js-modules-1",
+    "knowledge/knowledge-structured-store.js?v=js-modules-1",
+    "knowledge/knowledge-world-records.js?v=js-modules-1",
+    "knowledge/knowledge-world-generator.js?v=js-modules-1",
+    "knowledge/knowledge-documents.js?v=js-modules-1",
+    "knowledge/knowledge-dictionary.js?v=js-modules-1",
+    "knowledge/knowledge-narrative-events.js?v=js-modules-1",
+    "knowledge/knowledge-event-extraction.js?v=js-modules-1",
+    "knowledge/knowledge-entity-extraction.js?v=js-modules-1",
+    "knowledge/knowledge-semantic-rules.js?v=js-modules-1",
+    "knowledge/knowledge-chat-transport.js?v=js-modules-1",
+    "knowledge/knowledge-graph-builder-provider.js?v=js-modules-1",
+    "knowledge/knowledge-graph-builder.js?v=js-modules-1",
+    "knowledge/knowledge-semantic-enrichment.js?v=js-modules-1",
+    "knowledge/knowledge-search.js?v=js-modules-1",
+    "knowledge/knowledge-graph-query.js?v=js-modules-1",
+    "knowledge/knowledge-reasoning-evidence.js?v=js-modules-1",
+    "knowledge/knowledge-reasoning.js?v=js-modules-1",
+    "knowledge/knowledge-execution.js?v=js-modules-1",
+    "knowledge-runtime.js?v=js-modules-1",
     "agent-runtime.js?v=structured-world-store-1",
     "lm-studio-native.js",
     "llm-observation-runtime.js",

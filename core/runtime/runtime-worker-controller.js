@@ -1,5 +1,5 @@
 window.TrackerLensRuntimeWorker = (() => {
-  const WORKER_VERSION = "runtime-snapshot-projection-1";
+  const WORKER_VERSION = "js-modules-1";
   let worker = null;
   let port = null;
   let connected = false;

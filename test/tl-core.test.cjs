@@ -417,7 +417,7 @@ test("desktop persistence omits undefined fields and recovers legacy undefined J
   ]);
 });
 
-test("desktop persistence verifies a development first-cohort import without activating SQLite", (context) => {
+test("desktop persistence verifies a development first-cohort import without activating SQLite", async (context) => {
   const fixtureDirectory = fs.mkdtempSync(path.join(os.tmpdir(), "trackers-lens-persistence-"));
   context.after(() => fs.rmSync(fixtureDirectory, { recursive: true, force: true }));
   const persistence = new DesktopPersistence({ databasePath: path.join(fixtureDirectory, "development.sqlite") });
@@ -434,6 +434,12 @@ test("desktop persistence verifies a development first-cohort import without act
   assert.equal(pageSummaries.records[0].id, "page_2");
   assert.equal(Object.hasOwn(pageSummaries.records[0], "title"), false);
   assert.deepEqual(persistence.readDevelopmentRecordById({ storeName: "tl_pages", id: "page_2" }), { id: "page_2", workspaceId: "workspace_1", title: "SQLite page" });
+  assert.deepEqual(persistence.readDevelopmentRecordForWorkspace({ storeName: "tl_pages", id: "page_2", workspaceId: "workspace_1" }), { id: "page_2", workspaceId: "workspace_1", title: "SQLite page" });
+  assert.equal(persistence.readDevelopmentRecordForWorkspace({ storeName: "tl_pages", id: "page_2", workspaceId: "another_workspace" }), null);
+  const scopedCore = createTlCore({ adapters: { persistence } });
+  assert.deepEqual(await scopedCore.request("desktop.persistence.readDevelopmentRecordForWorkspace", { storeName: "tl_pages", id: "page_2", workspaceId: "workspace_1" }), { id: "page_2", workspaceId: "workspace_1", title: "SQLite page" });
+  assert.throws(() => persistence.readDevelopmentRecordForWorkspace({ storeName: "tl_pages", id: "page_2" }), /one workspace/);
+  assert.throws(() => persistence.readDevelopmentRecordForWorkspace({ storeName: "tl_unapproved_records", id: "page_2", workspaceId: "workspace_1" }), /Unsupported persistence store/);
   assert.ok(persistence.listDevelopmentStores().find((store) => store.name === "tl_pages")?.totalSizeBytes > 0);
   assert.equal(persistence.deleteDevelopmentRecords({ storeName: "tl_pages", ids: ["page_2"] }).status, "development-delete-complete");
   assert.deepEqual(persistence.readDevelopmentRecords({ storeName: "tl_pages", workspaceId: "workspace_1" }), [{ id: "page_1", workspaceId: "workspace_1" }]);
@@ -817,9 +823,12 @@ test("Python runtime catalog exposes managed metadata without local paths and re
   assert.equal(fs.existsSync(modelDirectory), false);
 });
 
-test("Python pack installation exposes an allow-listed plan and never starts without confirmation", async () => {
+test("Python pack installation exposes an allow-listed plan and never starts without confirmation", async (context) => {
+  const fixtureDirectory = fs.mkdtempSync(path.join(os.tmpdir(), "tl-python-plan-"));
+  context.after(() => fs.rmSync(fixtureDirectory, { recursive: true, force: true }));
+  fs.writeFileSync(path.join(fixtureDirectory, "requirements.lock"), "sentence-transformers==5.5.0\n");
   const installer = new ManagedPythonPackInstaller({
-    packs: [{ id: "builtin-nlp", version: "1.0.0", trustLevel: "built-in", installPolicy: "managed-optional", environment: "nlp", lockfile: "python/nlp.lock", lockfilePath: "/managed/python/nlp.lock", requirements: [{ name: "sentence-transformers", version: "==5.5.0" }] }],
+    packs: [{ id: "builtin-nlp", version: "1.0.0", trustLevel: "built-in", installPolicy: "managed-optional", environment: "nlp", lockfile: "python/nlp.lock", lockfilePath: path.join(fixtureDirectory, "requirements.lock"), requirements: [{ name: "sentence-transformers", version: "==5.5.0" }] }],
     environments: [{ id: "nlp", interpreter: "Python 3.11", pythonPath: "/managed/python/bin/python", directory: "/managed/python", bootstrapPython: "python3.11", models: [] }]
   });
   const core = createTlCore({ adapters: { pythonPackInstaller: installer } });
@@ -827,12 +836,16 @@ test("Python pack installation exposes an allow-listed plan and never starts wit
   assert.equal(plan.pack.id, "builtin-nlp");
   assert.deepEqual(plan.requirements, [{ name: "sentence-transformers", version: "5.5.0" }]);
   assert.equal(plan.requiresUserConsent, true);
+  assert.match(plan.integrity.lockfileSha256, /^[a-f0-9]{64}$/);
   assert.equal(Object.hasOwn(plan, "lockfilePath"), false);
   await assert.rejects(core.request("runtime.pythonRuntime.installPack", { packId: "builtin-nlp" }), (error) => error.code === "PYTHON_PACK_CONFIRMATION_REQUIRED");
+  fs.writeFileSync(path.join(fixtureDirectory, "requirements.lock"), "changed==1.0.0\n");
+  await assert.rejects(installer.install({ packId: "builtin-nlp", confirmed: true, expectedPlan: plan }), error => error.code === 'PYTHON_INSTALL_PLAN_CHANGED');
 });
 
 test("managed Python pack installation reports Core-owned progress through verification", async (context) => {
   const fixtureDirectory = fs.mkdtempSync(path.join(os.tmpdir(), "trackers-lens-python-install-"));
+  fs.writeFileSync(path.join(fixtureDirectory, "requirements.lock"), "sentence-transformers==5.5.0\n");
   const pythonPath = path.join(fixtureDirectory, "python");
   const modelDirectory = path.join(fixtureDirectory, "model");
   fs.writeFileSync(pythonPath, "fixture");
@@ -840,7 +853,7 @@ test("managed Python pack installation reports Core-owned progress through verif
   const progress = [];
   let started = 0;
   const installer = new ManagedPythonPackInstaller({
-    packs: [{ id: "builtin-nlp", version: "1.0.0", trustLevel: "built-in", environment: "nlp", lockfile: "python/nlp.lock", lockfilePath: "/managed/python/nlp.lock", requirements: [{ name: "sentence-transformers", version: "==5.5.0" }], models: [{ id: "model/test", revision: "rev", displayName: "Test model" }] }],
+    packs: [{ id: "builtin-nlp", version: "1.0.0", trustLevel: "built-in", environment: "nlp", lockfile: "python/nlp.lock", lockfilePath: path.join(fixtureDirectory, "requirements.lock"), requirements: [{ name: "sentence-transformers", version: "==5.5.0" }], models: [{ id: "model/test", revision: "rev", displayName: "Test model" }] }],
     environments: [{ id: "nlp", interpreter: "Python 3.11", pythonPath, directory: fixtureDirectory, bootstrapPython: "python3.11", models: [{ id: "model/test", directory: modelDirectory }], onInstalled: async () => { started += 1; } }],
     runProcess: async (_command, args) => {
       if (args[1] === "pip") return { stdout: "", stderr: "" };
@@ -861,6 +874,7 @@ test("managed Python pack installation reports Core-owned progress through verif
 
 test("managed Python pack installation resumes only a revision-verified partial model download", async (context) => {
   const fixtureDirectory = fs.mkdtempSync(path.join(os.tmpdir(), "trackers-lens-python-resume-"));
+  fs.writeFileSync(path.join(fixtureDirectory, "requirements.lock"), "sentence-transformers==5.5.0\n");
   const pythonPath = path.join(fixtureDirectory, "python");
   const modelDirectory = path.join(fixtureDirectory, "model");
   const temporaryDirectory = `${modelDirectory}.installing`;
@@ -871,7 +885,7 @@ test("managed Python pack installation resumes only a revision-verified partial 
   context.after(() => fs.rmSync(fixtureDirectory, { recursive: true, force: true }));
   const progress = [];
   const installer = new ManagedPythonPackInstaller({
-    packs: [{ id: "builtin-rag", version: "1.0.0", trustLevel: "built-in", environment: "nlp", lockfile: "python/rag.lock", lockfilePath: "/managed/python/rag.lock", requirements: [{ name: "sentence-transformers", version: "==5.5.0" }], models: [{ id: "model/test", revision: "pinned-revision", displayName: "Test model", downloadFiles: ["partial.bin"] }] }],
+    packs: [{ id: "builtin-rag", version: "1.0.0", trustLevel: "built-in", environment: "nlp", lockfile: "python/rag.lock", lockfilePath: path.join(fixtureDirectory, "requirements.lock"), requirements: [{ name: "sentence-transformers", version: "==5.5.0" }], models: [{ id: "model/test", revision: "pinned-revision", displayName: "Test model", downloadFiles: ["partial.bin"] }] }],
     environments: [{ id: "nlp", interpreter: "Python 3.11", pythonPath, directory: fixtureDirectory, bootstrapPython: "python3.11", models: [{ id: "model/test", directory: modelDirectory }] }],
     runProcess: async (_command, args) => {
       if (args[1] === "pip") return { stdout: "", stderr: "" };
@@ -892,13 +906,14 @@ test("managed Python pack installation resumes only a revision-verified partial 
 
 test("managed Python pack installation accepts only a Core-downloaded pinned wheel artifact", async (context) => {
   const fixtureDirectory = fs.mkdtempSync(path.join(os.tmpdir(), "trackers-lens-python-wheel-"));
+  fs.writeFileSync(path.join(fixtureDirectory, "requirements.lock"), "spacy==3.8.14\n");
   const pythonPath = path.join(fixtureDirectory, "python");
   const modelDirectory = path.join(fixtureDirectory, "model");
   fs.writeFileSync(pythonPath, "fixture");
   context.after(() => fs.rmSync(fixtureDirectory, { recursive: true, force: true }));
   const downloads = [];
   const installer = new ManagedPythonPackInstaller({
-    packs: [{ id: "builtin-annotations", version: "1.0.0", trustLevel: "built-in", environment: "nlp", lockfile: "python/annotations.lock", lockfilePath: "/managed/python/annotations.lock", requirements: [{ name: "spacy", version: "==3.8.14" }], models: [{ id: "it_core_news_sm", revision: "3.8.0", displayName: "Italian pipeline", estimatedDownloadBytes: 12, artifact: { type: "python-wheel", source: "Official spaCy release", url: "https://github.com/explosion/spacy-models/releases/download/it_core_news_sm-3.8.0/it_core_news_sm-3.8.0-py3-none-any.whl", sha256: "a".repeat(64), sizeBytes: 12 } }] }],
+    packs: [{ id: "builtin-annotations", version: "1.0.0", trustLevel: "built-in", environment: "nlp", lockfile: "python/annotations.lock", lockfilePath: path.join(fixtureDirectory, "requirements.lock"), requirements: [{ name: "spacy", version: "==3.8.14" }], models: [{ id: "it_core_news_sm", revision: "3.8.0", displayName: "Italian pipeline", estimatedDownloadBytes: 12, artifact: { type: "python-wheel", source: "Official spaCy release", url: "https://github.com/explosion/spacy-models/releases/download/it_core_news_sm-3.8.0/it_core_news_sm-3.8.0-py3-none-any.whl", sha256: "a".repeat(64), sizeBytes: 12 } }] }],
     environments: [{ id: "nlp", interpreter: "Python 3.11", pythonPath, directory: fixtureDirectory, bootstrapPython: "python3.11", models: [{ id: "it_core_news_sm", directory: modelDirectory, artifact: { type: "python-wheel", url: "https://github.com/explosion/spacy-models/releases/download/it_core_news_sm-3.8.0/it_core_news_sm-3.8.0-py3-none-any.whl", sha256: "a".repeat(64), sizeBytes: 12 } }] }],
     downloadWheelArtifact: async ({ model, temporaryDirectory, onProgress }) => {
       downloads.push(model.id);
@@ -1062,7 +1077,7 @@ test("Electron Main wires the sandbox execution adapter to Core independently of
     isDevelopment: true, pythonPocEnabled: false, pythonNlpEnabled: () => false,
     customNodeSandboxEnabled: true, shell: {}, pythonNlpAdapter: null,
     pythonPacks: null, pythonRuntimeCatalog: null, pythonPackInstaller: null,
-    customNodePackages: {}, externalAiProviderBridge: null, persistence: {}, account: null, catalog: null,
+    customNodePackages: {}, externalAiProviderBridge: null, chatProject: null, nativeWorkSessions: null, persistence: {}, account: null, catalog: null,
     require: () => ({ createAccountClient: () => null }),
     launchCustomNodeSandbox: async (payload) => { calls.push(payload); return { status: "success" }; },
   };

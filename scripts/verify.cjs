@@ -10,20 +10,40 @@ const syntaxFiles = [
   'core/desktop/catalog-bundle.cjs',
   'core/desktop/tl-core.cjs',
   'core/desktop/desktop-persistence.cjs',
+  'core/desktop/chat-project-workspace.cjs',
+  'core/desktop/chat-project-scripts.cjs',
+  'core/desktop/chat-project-terminal.cjs',
+  'core/desktop/chat-project-edits.cjs',
+  'core/desktop/external-ai-work-sessions.cjs',
   'core/desktop/custom-node-execution.cjs',
+  'core/desktop/custom-node-setup.cjs',
+  'core/desktop/custom-node-local-ai.cjs',
   'core/desktop/managed-python-runtime.cjs',
   'core/runtime/runtime-manager.js',
   'core/runtime/catalog-runtime.js',
   'core/runtime/processor-runtime.js',
   'js/flowMapView.js',
   'js/flow-map/flowMapRuntimeNodes.js',
+  'js/flow-map/chat/flowMapChatCapabilities.js',
+  'js/flow-map/chat/flowMapChatPythonMetadata.js',
+  'js/flow-map/chat/flowMapChatConversation.js',
+  'js/flow-map/chat/flowMapChatProtocol.js',
+  'js/flow-map/chat/flowMapChatAttachments.js',
+  'js/flow-map/flowMapPromptChat.js',
   'js/flow-map/flowMapState.js'
 ];
 
 const tests = [
   'test/node-edit-plan.test.cjs',
   'test/flow-chat-context.test.cjs',
+  'test/javascript-modules.test.cjs',
+  'test/chat-project-reader.test.cjs',
+  'test/chat-project-edits.test.cjs',
+  'test/chat-project-scripts.test.cjs',
+  'test/chat-project-terminal.test.cjs',
+  'test/agent-runtime-topology.test.cjs',
   'test/external-ai-chat-runner.test.cjs',
+  'test/external-ai-work-sessions.test.cjs',
   'test/catalog.test.cjs',
   'test/tl-sidebar-navigation.test.cjs',
   'test/analytics-navigation.test.cjs',
@@ -31,6 +51,8 @@ const tests = [
   'test/account-client.test.cjs',
   'test/tl-core.test.cjs',
   'test/custom-node-package-manager.test.cjs',
+  'test/custom-node-setup.test.cjs',
+  'test/custom-node-local-ai.test.cjs',
   'test/ai-provider-connections.test.cjs',
   'test/codex-model-catalog.test.cjs',
   'test/preview-json-strings.test.cjs',
@@ -51,6 +73,10 @@ function run(args) {
   if (result.status !== 0) process.exit(result.status || 1);
 }
 
-for (const file of syntaxFiles) run(['--check', file]);
+// app.html is the authoritative classic-script entry point, including extracted modules.
+const fs = require('node:fs');
+const appScripts = [...fs.readFileSync(require.resolve('../app.html'), 'utf8').matchAll(/<script src="([^"]+)"/g)]
+  .map(match => match[1].split('?')[0]).filter(file => file.endsWith('.js') && !file.startsWith('node_modules/'));
+for (const file of new Set([...syntaxFiles, ...appScripts, 'core/runtime/runtime-worker.js'])) run(['--check', file]);
 run(['test/app-classic-script-scope.test.cjs']);
 run(['--test', ...tests]);

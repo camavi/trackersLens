@@ -34,7 +34,8 @@ const trackers = Object.freeze({
         return () => ipcRenderer.removeListener("trackers-core:external-ai-login-progress", handler);
       },
       startLogin: ({ provider, confirmed = false } = {}) => request("desktop.externalAi.startLogin", { provider: String(provider || ""), confirmed: Boolean(confirmed) }),
-      sendMessage: ({ provider, prompt, images = [], model, reasoningEffort, speed, requestId } = {}) => request("desktop.externalAi.sendMessage", { images, provider: String(provider || ""), prompt: String(prompt || ""), model: String(model || ""), reasoningEffort: String(reasoningEffort || ""), speed: String(speed || ""), requestId: String(requestId || "") }),
+      resetSession: ({ workSession, confirmed = false } = {}) => request("desktop.externalAi.resetSession", { workSession: { workspaceId: String(workSession?.workspaceId || ""), chatId: String(workSession?.chatId || ""), workId: String(workSession?.workId || "") }, confirmed: confirmed === true }),
+      sendMessage: ({ provider, prompt, images = [], model, reasoningEffort, speed, requestId, workSession = null } = {}) => request("desktop.externalAi.sendMessage", { workSession: workSession ? { workspaceId: String(workSession.workspaceId || ""), chatId: String(workSession.chatId || ""), workId: String(workSession.workId || "") } : null, images, provider: String(provider || ""), prompt: String(prompt || ""), model: String(model || ""), reasoningEffort: String(reasoningEffort || ""), speed: String(speed || ""), requestId: String(requestId || "") }),
       cancelMessage: ({ requestId } = {}) => request("desktop.externalAi.cancelMessage", { requestId: String(requestId || "") }),
       onChatEvent: (requestId, listener) => {
         if (typeof listener !== "function" || !requestId) return () => {};
@@ -43,6 +44,33 @@ const trackers = Object.freeze({
         return () => ipcRenderer.removeListener("trackers-core:external-ai-chat-event", handler);
       },
       logout: ({ provider, confirmed = false } = {}) => request("desktop.externalAi.logout", { provider: String(provider || ""), confirmed: Boolean(confirmed) })
+    }),
+    chatProject: Object.freeze({
+      chooseFolder: ({ chatId } = {}) => request("desktop.chatProject.chooseFolder", { chatId: String(chatId || "") }),
+      listDirectory: ({ chatId, folderId, relativePath = "" } = {}) => request("desktop.chatProject.listDirectory", { chatId: String(chatId || ""), folderId: String(folderId || ""), relativePath: String(relativePath || "") }),
+      readTextFile: ({ chatId, folderId, relativePath } = {}) => request("desktop.chatProject.readTextFile", { chatId: String(chatId || ""), folderId: String(folderId || ""), relativePath: String(relativePath || "") }),
+      searchText: ({ chatId, folderId, relativePath = "", query, caseSensitive = false } = {}) => request("desktop.chatProject.searchText", { chatId: String(chatId || ""), folderId: String(folderId || ""), relativePath: String(relativePath || ""), query: String(query || ""), caseSensitive: caseSensitive === true }),
+      previewFileEdits: ({ chatId, folderId, edits } = {}) => request("desktop.chatProject.previewFileEdits", { chatId: String(chatId || ""), folderId: String(folderId || ""), edits }),
+      applyFileEdits: ({ chatId, folderId, edits, previewToken, confirmed = false } = {}) => request("desktop.chatProject.applyFileEdits", { chatId: String(chatId || ""), folderId: String(folderId || ""), edits, previewToken: String(previewToken || ""), confirmed: confirmed === true }),
+      previewTextEdit: ({ chatId, folderId, relativePath, expectedSha256, content } = {}) => request("desktop.chatProject.previewTextEdit", { chatId: String(chatId || ""), folderId: String(folderId || ""), relativePath: String(relativePath || ""), expectedSha256: String(expectedSha256 || ""), content }),
+      applyTextEdit: ({ chatId, folderId, relativePath, expectedSha256, content, previewToken, confirmed = false } = {}) => request("desktop.chatProject.applyTextEdit", { chatId: String(chatId || ""), folderId: String(folderId || ""), relativePath: String(relativePath || ""), expectedSha256: String(expectedSha256 || ""), content, previewToken: String(previewToken || ""), confirmed: confirmed === true }),
+      previewTerminal: ({ chatId, workspaceId, workId, folderId, sessionId, commandText, relativePath = "", text, endInput = false, previewToken, confirmed = false } = {}) => request("desktop.chatProject.previewTerminal", { chatId: String(chatId || ""), workspaceId: String(workspaceId || ""), workId: String(workId || ""), folderId: String(folderId || ""), sessionId: String(sessionId || ""), commandText, relativePath: String(relativePath || ""), text, endInput: endInput === true, previewToken: String(previewToken || ""), confirmed: confirmed === true }),
+      startTerminal: ({ chatId, workspaceId, workId, folderId, sessionId, commandText, relativePath = "", text, endInput = false, previewToken, confirmed = false } = {}) => request("desktop.chatProject.startTerminal", { chatId: String(chatId || ""), workspaceId: String(workspaceId || ""), workId: String(workId || ""), folderId: String(folderId || ""), sessionId: String(sessionId || ""), commandText, relativePath: String(relativePath || ""), text, endInput: endInput === true, previewToken: String(previewToken || ""), confirmed: confirmed === true }),
+      listTerminals: ({ chatId, workspaceId, workId, folderId, sessionId, commandText, relativePath = "", text, endInput = false, previewToken, confirmed = false } = {}) => request("desktop.chatProject.listTerminals", { chatId: String(chatId || ""), workspaceId: String(workspaceId || ""), workId: String(workId || ""), folderId: String(folderId || ""), sessionId: String(sessionId || ""), commandText, relativePath: String(relativePath || ""), text, endInput: endInput === true, previewToken: String(previewToken || ""), confirmed: confirmed === true }),
+      pollTerminal: ({ chatId, workspaceId, workId, folderId, sessionId, commandText, relativePath = "", text, endInput = false, previewToken, confirmed = false } = {}) => request("desktop.chatProject.pollTerminal", { chatId: String(chatId || ""), workspaceId: String(workspaceId || ""), workId: String(workId || ""), folderId: String(folderId || ""), sessionId: String(sessionId || ""), commandText, relativePath: String(relativePath || ""), text, endInput: endInput === true, previewToken: String(previewToken || ""), confirmed: confirmed === true }),
+      writeTerminal: ({ chatId, workspaceId, workId, folderId, sessionId, commandText, relativePath = "", text, endInput = false, previewToken, confirmed = false } = {}) => request("desktop.chatProject.writeTerminal", { chatId: String(chatId || ""), workspaceId: String(workspaceId || ""), workId: String(workId || ""), folderId: String(folderId || ""), sessionId: String(sessionId || ""), commandText, relativePath: String(relativePath || ""), text, endInput: endInput === true, previewToken: String(previewToken || ""), confirmed: confirmed === true }),
+      stopTerminal: ({ chatId, workspaceId, workId, folderId, sessionId, commandText, relativePath = "", text, endInput = false, previewToken, confirmed = false } = {}) => request("desktop.chatProject.stopTerminal", { chatId: String(chatId || ""), workspaceId: String(workspaceId || ""), workId: String(workId || ""), folderId: String(folderId || ""), sessionId: String(sessionId || ""), commandText, relativePath: String(relativePath || ""), text, endInput: endInput === true, previewToken: String(previewToken || ""), confirmed: confirmed === true }),
+      previewCommand: ({ chatId, folderId, commandText, relativePath = "" } = {}) => request("desktop.chatProject.previewCommand", { chatId: String(chatId || ""), folderId: String(folderId || ""), commandText, relativePath: String(relativePath || "") }),
+      runCommand: ({ chatId, folderId, commandText, relativePath = "", previewToken, confirmed = false, requestId } = {}) => request("desktop.chatProject.runCommand", { chatId: String(chatId || ""), folderId: String(folderId || ""), commandText, relativePath: String(relativePath || ""), previewToken: String(previewToken || ""), confirmed: confirmed === true, requestId: String(requestId || "") }),
+      previewPackageScript: ({ chatId, folderId, scriptName, expectedSha256 } = {}) => request("desktop.chatProject.previewPackageScript", { chatId: String(chatId || ""), folderId: String(folderId || ""), scriptName: String(scriptName || ""), expectedSha256: String(expectedSha256 || "") }),
+      runPackageScript: ({ chatId, folderId, scriptName, expectedSha256, previewToken, confirmed = false, requestId } = {}) => request("desktop.chatProject.runPackageScript", { chatId: String(chatId || ""), folderId: String(folderId || ""), scriptName: String(scriptName || ""), expectedSha256: String(expectedSha256 || ""), previewToken: String(previewToken || ""), confirmed: confirmed === true, requestId: String(requestId || "") }),
+      cancelScript: ({ requestId } = {}) => request("desktop.chatProject.cancelScript", { requestId: String(requestId || "") }),
+      onScriptEvent: (requestId, listener) => {
+        if (typeof listener !== "function" || !requestId) return () => {};
+        const handler = (_event, value) => { if (value?.requestId === requestId) listener(value.frame); };
+        ipcRenderer.on("trackers-core:project-script-event", handler);
+        return () => ipcRenderer.removeListener("trackers-core:project-script-event", handler);
+      },
     }),
     persistence: Object.freeze({
       getStatus: ({ verifyIntegrity = false } = {}) => request("desktop.persistence.getStatus", { verifyIntegrity: verifyIntegrity === true }),
@@ -60,6 +88,7 @@ const trackers = Object.freeze({
       readDevelopmentRecordPage: ({ storeName, workspaceId = "", offset = 0, limit = 25 } = {}) => request("desktop.persistence.readDevelopmentRecordPage", { storeName: String(storeName || ""), workspaceId: String(workspaceId || ""), offset: Number(offset) || 0, limit: Number(limit) || 25 }),
       readDevelopmentRecordSummaryPage: ({ storeName, workspaceId = "", offset = 0, limit = 25 } = {}) => request("desktop.persistence.readDevelopmentRecordSummaryPage", { storeName: String(storeName || ""), workspaceId: String(workspaceId || ""), offset: Number(offset) || 0, limit: Number(limit) || 25 }),
       readDevelopmentRecordById: ({ storeName, id } = {}) => request("desktop.persistence.readDevelopmentRecordById", { storeName: String(storeName || ""), id: String(id || "") }),
+      readDevelopmentRecordForWorkspace: ({ storeName, id, workspaceId } = {}) => request("desktop.persistence.readDevelopmentRecordForWorkspace", { storeName: String(storeName || ""), id: String(id || ""), workspaceId: String(workspaceId || "") }),
       readLatestDevelopmentRecord: ({ storeName, nodeId = "", runId = "" } = {}) => request("desktop.persistence.readLatestDevelopmentRecord", { storeName: String(storeName || ""), nodeId: String(nodeId || ""), runId: String(runId || "") }),
       readAiAgentJobPage: ({ agentId, workspaceId = "", offset = 0, limit = 8 } = {}) => request("desktop.persistence.readAiAgentJobPage", { agentId: String(agentId || ""), workspaceId: String(workspaceId || ""), offset: Number(offset) || 0, limit: Number(limit) || 8 }),
       readAiRunRecords: ({ workspaceId = "", runId = "", agentId = "", includeFlowRecords = true } = {}) => request("desktop.persistence.readAiRunRecords", { workspaceId: String(workspaceId || ""), runId: String(runId || ""), agentId: String(agentId || ""), includeFlowRecords: Boolean(includeFlowRecords) }),
@@ -77,7 +106,21 @@ const trackers = Object.freeze({
       setDevelopmentRuntimeActive: (active) => request("desktop.persistence.setDevelopmentRuntimeActive", { active: Boolean(active) })
     }),
     customNodePackages: Object.freeze({
+      previewSetup: ({ importId = '', reference } = {}) => request('desktop.customNodePackages.previewSetup', { importId: String(importId), reference: { packageId: String(reference?.packageId || ''), version: String(reference?.version || ''), archiveSha256: String(reference?.archiveSha256 || reference?.archive?.sha256 || '') } }),
+      executeSetup: ({ planId = '', confirmed = false } = {}) => request('desktop.customNodePackages.executeSetup', { planId: String(planId), confirmed: confirmed === true }),
+      discardSetup: ({ planId = '' } = {}) => request('desktop.customNodePackages.discardSetup', { planId: String(planId) }),
+      onSetupProgress: listener => {
+        if (typeof listener !== 'function') return () => {};
+        const handler = (_event, progress) => listener(progress && typeof progress === 'object' ? progress : {});
+        ipcRenderer.on('trackers-core:custom-node-setup-progress', handler);
+        return () => ipcRenderer.removeListener('trackers-core:custom-node-setup-progress', handler);
+      },
       reviewProviders: () => request("desktop.customNodePackages.reviewProviders"),
+      localAiProviders: () => request('desktop.customNodePackages.localAiProviders'),
+      discoverLocalAi: ({ service = 'lm-studio', endpoints = [] } = {}) => request('desktop.customNodePackages.discoverLocalAi', { service: String(service), endpoints }),
+      previewLocalAiProfile: ({ discoveryId = '', endpoint = '', model = '', providerId = '' } = {}) => request('desktop.customNodePackages.previewLocalAiProfile', { discoveryId: String(discoveryId), endpoint: String(endpoint), model: String(model), providerId: String(providerId) }),
+      applyLocalAiProfile: ({ planId = '', confirmed = false } = {}) => request('desktop.customNodePackages.applyLocalAiProfile', { planId: String(planId), confirmed: confirmed === true }),
+      discardLocalAiProfile: ({ planId = '' } = {}) => request('desktop.customNodePackages.discardLocalAiProfile', { planId: String(planId) }),
       reviewImport: ({ importId, provider, maxTokens, confirmed = false } = {}) => request("desktop.customNodePackages.reviewImport", { importId: String(importId || ""), provider, maxTokens, confirmed: confirmed === true }),
       prepareCreate: ({ manifest, source, baseReference } = {}) => request("desktop.customNodePackages.prepareCreate", { manifest, source: String(source || ""), baseReference }),
       readSource: ({ packageId, version, archiveSha256, confirmed = false } = {}) => request("desktop.customNodePackages.readSource", { packageId: String(packageId || ""), version: String(version || ""), archiveSha256: String(archiveSha256 || ""), confirmed: confirmed === true }),
@@ -165,6 +208,7 @@ contextBridge.exposeInMainWorld("trackersDesktop", Object.freeze({
   readDevelopmentRecordPage: trackers.desktop.persistence.readDevelopmentRecordPage,
   readDevelopmentRecordSummaryPage: trackers.desktop.persistence.readDevelopmentRecordSummaryPage,
   readDevelopmentRecordById: trackers.desktop.persistence.readDevelopmentRecordById,
+  readDevelopmentRecordForWorkspace: trackers.desktop.persistence.readDevelopmentRecordForWorkspace,
   readLatestDevelopmentRecord: trackers.desktop.persistence.readLatestDevelopmentRecord,
   readAiAgentJobPage: trackers.desktop.persistence.readAiAgentJobPage,
   readAiRunRecords: trackers.desktop.persistence.readAiRunRecords,

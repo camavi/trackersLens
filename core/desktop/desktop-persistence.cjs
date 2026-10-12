@@ -599,6 +599,23 @@ class DesktopPersistence {
     }
   }
 
+  readDevelopmentRecordForWorkspace({ storeName = "", id = "", workspaceId = "" } = {}) {
+    const name = String(storeName || "");
+    const recordId = String(id || "");
+    const workspace = String(workspaceId || "");
+    if (!isAllowedRepositoryStore(name)) throw new Error(`Unsupported persistence store: ${name}`);
+    if (!recordId || !workspace || workspace === "all") throw new Error("A record id and one workspace are required.");
+    if (!this.databasePath || !fs.existsSync(this.databasePath)) throw new Error("SQLite development candidate does not exist.");
+    const database = new DatabaseSync(this.databasePath, { readOnly: true });
+    try {
+      const row = database.prepare("SELECT record_json FROM tl_records WHERE store_name = ? AND id = ? AND workspace_id = ?")
+        .get(name, recordId, workspace);
+      return row ? parseStoredJson(row.record_json) : null;
+    } finally {
+      database.close();
+    }
+  }
+
   clearFlowMemory({ workspaceId = "", includeDocuments = false, confirmed = false } = {}) {
     const scope = String(workspaceId || "");
     if (!scope || scope === "all") throw new Error("Seleziona un singolo workspace.");
@@ -1282,6 +1299,24 @@ class DesktopPersistence {
       const insert = database.prepare('INSERT INTO tl_records (store_name, id, workspace_id, record_json, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)');
       for (const [store, rows] of Object.entries(records)) for (const row of normalizeRecords(rows)) insert.run(store, row.id, row.workspaceId, row.recordJson, now(), now());
       database.exec('COMMIT');
+    } catch (error) { try { database.exec('ROLLBACK'); } catch (_) {} throw error; }
+    finally { database.close(); }
+  }
+
+  // Internal Core-only exact-profile compare-and-save; no renderer IPC route.
+  commitLocalAiProfile({ expected = null, next } = {}) {
+    if (!next?.id) throw new Error('Identità del profilo richiesta.');
+    const database = new DatabaseSync(this.databasePath);
+    try {
+      database.exec('BEGIN IMMEDIATE');
+      const row = database.prepare('SELECT record_json, created_at FROM tl_records WHERE store_name = ? AND id = ?').get('tl_ai_providers', next.id);
+      if (canonicalJson(row ? parseStoredJson(row.record_json) : null) !== canonicalJson(expected)) throw new Error('Il profilo è cambiato. Rileggi e rivedi il piano prima di salvare.');
+      const [record] = normalizeRecords([next]);
+      const timestamp = now();
+      database.prepare('INSERT OR REPLACE INTO tl_records (store_name, id, workspace_id, record_json, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)').run('tl_ai_providers', record.id, record.workspaceId, record.recordJson, row?.created_at || timestamp, timestamp);
+      database.exec('COMMIT');
+      this.lastDevelopmentShadowMatch = false;
+      return { status: 'profile-saved', id: next.id };
     } catch (error) { try { database.exec('ROLLBACK'); } catch (_) {} throw error; }
     finally { database.close(); }
   }

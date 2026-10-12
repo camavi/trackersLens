@@ -5,14 +5,16 @@ const errorWithCode = (message, code) => Object.assign(new Error(message), { cod
 const clone = (value) => JSON.parse(JSON.stringify(value));
 
 // Core-owned, deliberately small tool dispatcher. It never exposes SQLite
-// handles/paths and has no mutation operation; sandbox code can only request
-// a workspace-scoped graph snapshot after the broker grants that capability.
+// handles/paths and has no mutation operation. Graph reads are workspace scoped;
+// local AI goes through an explicitly configured profile and granted capability.
 class CustomNodeToolDispatcher {
-  constructor({ persistence = null } = {}) {
+  constructor({ persistence = null, localAi = null } = {}) {
     this.persistence = persistence;
+    this.localAi = localAi;
   }
 
-  async dispatch({ tool = "", arguments: args = {}, request = {} } = {}) {
+  async dispatch({ tool = "", arguments: args = {}, request = {}, executionId = '' } = {}) {
+    if (tool === 'ai.complete' && this.localAi) return this.localAi.complete({ arguments: args, request, executionId });
     if (tool === "runtimeGraph.read") return this.readRuntimeGraph(request);
     if (tool === "runtimeGraph.preflight") return this.preflightRuntimeGraph(request, args);
     throw errorWithCode("Custom Node tool non disponibile.", "CUSTOM_NODE_TOOL_UNAVAILABLE");

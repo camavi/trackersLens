@@ -53,7 +53,7 @@ test('automatic tools do not repeat RAG search when input already carries RAG or
 });
 
 test('node timing keeps the measured execution when later bookkeeping emits a zero source span', () => {
-  const source = read('../js/flow-map/flowMapCanvasInspector.js');
+  const source = read('../js/flow-map/canvas/flowMapNodeMetrics.js');
   const actual = { createdAt: '2026-09-22T14:16:09Z', meta: { timing: { spans: [{ nodeId: 'ai', durationMs: 38876, phase: 'Risposta LLM pronta' }] } } };
   const bookkeeping = { createdAt: '2026-09-22T14:16:10Z', meta: { timing: { spans: [{ nodeId: 'ai', durationMs: 0, phase: 'Emissione sorgente' }] } } };
   const select = vm.runInNewContext(source.slice(source.indexOf('const latestNodeTiming ='), source.indexOf('const openNodeTimingDialog =')) + '\nlatestNodeTiming', { state: { runtime: { events: [bookkeeping, actual] } } });

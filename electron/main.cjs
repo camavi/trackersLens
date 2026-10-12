@@ -12,10 +12,14 @@ const { CustomNodePackageManager } = require("../core/desktop/custom-node-packag
 const { CustomNodeSandboxBroker } = require("../core/desktop/custom-node-sandbox-broker.cjs");
 const { CustomNodeElectronRunner } = require("../core/desktop/custom-node-electron-runner.cjs");
 const { CustomNodeToolDispatcher } = require("../core/desktop/custom-node-tool-dispatcher.cjs");
+const { CustomNodeLocalAi } = require("../core/desktop/custom-node-local-ai.cjs");
 const { DesktopPersistence } = require("../core/desktop/desktop-persistence.cjs");
 const { ExternalAiProviderBridge } = require("../core/desktop/external-ai-provider-bridge.cjs");
+const { ChatProjectWorkspace } = require("../core/desktop/chat-project-workspace.cjs");
+const { ExternalAiWorkSessions } = require("../core/desktop/external-ai-work-sessions.cjs");
 const { runExternalAiChat: runChatProcess, ExternalAiChatRuns } = require("../core/desktop/external-ai-chat-runner.cjs");
 const externalChatRuns = new ExternalAiChatRuns();
+const projectScriptRuns = new ExternalAiChatRuns();
 const { PythonPackResolver } = require("../core/runtime/python-pack-resolver.cjs");
 const dataPackManifest = require("../runtimes/python/packs/data/pack.json");
 const { CustomNodePythonRunner } = require("../core/desktop/custom-node-python-runner.cjs");
@@ -79,6 +83,9 @@ let pythonPoc = null;
 let pythonNlp = null;
 let pythonGraphRelations = null;
 let persistence = null;
+let nativeWorkSessions = null;
+let chatProjectSessions = null;
+const terminalOwners = new Set();
 let customNodePackageManager = null;
 let customNodeSandboxRunner = null;
 let customNodePythonRunner = null;
@@ -125,6 +132,7 @@ const launchExternalAiLogin = async (provider) => {
   return { started: true, background: true };
 };
 const runExternalAiChat = async (provider, prompt, lifecycle = {}) => {
+  if (provider.id === "codex" && lifecycle.workSession) return nativeWorkSessions.run(provider, prompt, lifecycle);
   const directory = fs.mkdtempSync(path.join(app.getPath("temp"), "trackers-lens-ai-chat-"));
   try { return await runChatProcess(provider, prompt, { ...lifecycle, directory }); }
   finally { fs.rmSync(directory, { recursive: true, force: true }); }
@@ -387,12 +395,39 @@ const createWindow = () => {
 };
 
 ipcMain.handle("trackers-core:request", (event, command, payload) => {
-  if (/^desktop\.(account|catalog|externalAi|flowChat)\./.test(String(command || ""))) {
+  if (/^desktop\.(account|catalog|externalAi|flowChat|chatProject|customNodePackages)\./.test(String(command || ""))) {
     if (event.senderFrame !== event.sender.mainFrame || !isAllowedLocalNavigation(event.senderFrame.url) || event.sender.session !== session.defaultSession) {
       throw new Error("Account requests require the trusted desktop shell.");
     }
   }
+  if (['desktop.customNodePackages.discoverLocalAi', 'desktop.customNodePackages.previewLocalAiProfile', 'desktop.customNodePackages.applyLocalAiProfile', 'desktop.customNodePackages.discardLocalAiProfile', 'desktop.customNodePackages.previewSetup', 'desktop.customNodePackages.executeSetup', 'desktop.customNodePackages.discardSetup'].includes(command)) {
+    const owner = event.sender;
+    return tlCore.request(command, payload, { ownerId: owner.id, onProgress: progress => {
+      if (!owner.isDestroyed()) owner.send('trackers-core:custom-node-setup-progress', progress);
+    } });
+  }
   if (command === "desktop.externalAi.cancelMessage") return { cancelled: externalChatRuns.cancel(event.sender.id, payload?.requestId) };
+  if (/^desktop\.chatProject\.(startTerminal|writeTerminal|stopTerminal)$/.test(command)) {
+    const owner = event.sender;
+    if (!terminalOwners.has(owner.id)) {
+      terminalOwners.add(owner.id);
+      owner.once("destroyed", () => { chatProjectSessions?.cancelOwner(owner.id); terminalOwners.delete(owner.id); });
+      owner.on("did-start-navigation", (_event, _url, _inPlace, isMainFrame) => { if (isMainFrame) chatProjectSessions?.cancelOwner(owner.id); });
+    }
+    return tlCore.request(command, payload, { ownerId: owner.id });
+  }
+  if (command === "desktop.chatProject.cancelScript") return { cancelled: projectScriptRuns.cancel(event.sender.id, payload?.requestId) };
+  if (["desktop.chatProject.runPackageScript", "desktop.chatProject.runCommand"].includes(command)) {
+    const owner = event.sender;
+    const cancel = () => projectScriptRuns.cancelOwner(owner.id);
+    const navigate = (_event, _url, _inPlace, isMainFrame) => { if (isMainFrame) cancel(); };
+    owner.once("destroyed", cancel);
+    owner.on("did-start-navigation", navigate);
+    return projectScriptRuns.run(owner.id, payload?.requestId,
+      lifecycle => tlCore.request(command, payload, lifecycle),
+      frame => { if (!owner.isDestroyed()) owner.send("trackers-core:project-script-event", { requestId: payload.requestId, frame }); }
+    ).finally(() => { owner.removeListener("destroyed", cancel); owner.removeListener("did-start-navigation", navigate); });
+  }
   if (command === "desktop.externalAi.sendMessage" && payload?.requestId) {
     const owner = event.sender;
     const cancel = () => externalChatRuns.cancelOwner(owner.id);
@@ -424,13 +459,20 @@ ipcMain.handle("trackers-custom-node-sandbox:tool", (event, message) => {
 
 app.whenReady().then(async () => {
   persistence = new DesktopPersistence({ databasePath: path.join(app.getPath("userData"), "trackers-lens.sqlite") });
+  const chatProject = new ChatProjectWorkspace({ persistence, selectDirectory: async () => {
+    const result = await dialog.showOpenDialog({ title: "Scegli la cartella del progetto per la chat", properties: ["openDirectory"] });
+    return result.canceled ? "" : String(result.filePaths?.[0] || "");
+  } });
+  chatProjectSessions = chatProject.terminals;
+  nativeWorkSessions = new ExternalAiWorkSessions({ persistence, directory: path.join(app.getPath("userData"), "ai-work-sessions"), runner: runChatProcess });
   externalAiProviderBridge = new ExternalAiProviderBridge({ loginLauncher: launchExternalAiLogin, chatRunner: runExternalAiChat });
   customNodePackageManager = new CustomNodePackageManager({
     packagesDirectory: path.join(app.getPath("userData"), "customNode"),
     persistence
   });
+  const customNodeLocalAi = new CustomNodeLocalAi({ persistence });
   if (customNodeSandboxEnabled) {
-    const toolDispatcher = new CustomNodeToolDispatcher({ persistence });
+    const toolDispatcher = new CustomNodeToolDispatcher({ persistence, localAi: customNodeLocalAi });
     const broker = new CustomNodeSandboxBroker({ onToolCall: (call) => toolDispatcher.dispatch(call) });
     customNodePythonRunner = new CustomNodePythonRunner({ broker, resolver: pythonPacks, environments: [dataEnvironment, nlpEnvironment, graphEnvironment] });
     customNodeSandboxRunner = new CustomNodeElectronRunner({
@@ -483,9 +525,11 @@ app.whenReady().then(async () => {
         };
       } finally {
         clearTimeout(timeout);
+        customNodeLocalAi.cancel(request.executionId);
         runner.close(request.executionId);
       }
     } catch (error) {
+      customNodeLocalAi.cancel(request.executionId);
       customNodeSandboxRunner.broker.fail({
         executionId: request.executionId,
         code: "CUSTOM_NODE_SANDBOX_LAUNCH_FAILED",
@@ -519,8 +563,27 @@ app.whenReady().then(async () => {
     };
   };
   const customNodePackages = {
+    setupMaterial: async ({ importId, reference } = {}) => {
+      if (importId) {
+        const pending = pendingCustomNodeImports.get(importId);
+        if (!pending) throw new Error('Revisione del pacchetto scaduta.');
+        const { inspection } = await customNodePackageManager.reviewMaterial(pending.archivePath, pending.hash);
+        const installed = (await customNodePackageManager.listInstalled()).find(pkg => pkg.packageId === inspection.manifest.id && pkg.version === inspection.manifest.version && pkg.archive.sha256 === inspection.archiveSha256) || null;
+        const state = await withPythonStatus(installed || { manifest: inspection.manifest });
+        return { inspection, installed, pythonRuntime: state.pythonRuntime || null };
+      }
+      const record = await customNodePackageManager.resolvePackage(reference);
+      const { inspection } = await customNodePackageManager.readArchive(reference);
+      const state = await withPythonStatus(record);
+      return { inspection, installed: customNodePackageManager.publicRecord(record), pythonRuntime: state.pythonRuntime || null };
+    },
     readSource: (payload) => customNodePackageManager.readSource(payload),
     reviewProviders: () => reviewer.providers(),
+    localAiProviders: async () => ({ ...(await customNodeLocalAi.list()), enabled: customNodeSandboxEnabled }),
+    discoverLocalAi: (payload, lifecycle) => customNodeLocalAi.discover(payload, lifecycle),
+    previewLocalAiProfile: (payload, lifecycle) => customNodeLocalAi.previewProfile(payload, lifecycle),
+    applyLocalAiProfile: (payload, lifecycle) => customNodeLocalAi.applyProfile(payload, lifecycle),
+    discardLocalAiProfile: (payload, lifecycle) => customNodeLocalAi.discardProfile(payload, lifecycle),
     reviewImport: async ({ importId, provider, maxTokens, confirmed }) => {
       const pending = pendingCustomNodeImports.get(importId);
       if (!pending) throw new Error("Revisione import scaduta. Seleziona di nuovo il pacchetto.");
@@ -625,6 +688,8 @@ app.whenReady().then(async () => {
       customNodePackages,
       customNodeSandbox: { run: launchCustomNodeSandbox },
       externalAi: externalAiProviderBridge,
+      chatProject,
+      nativeWorkSessions,
       account, catalog,
       persistence
     }

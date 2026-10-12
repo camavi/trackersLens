@@ -1195,6 +1195,46 @@ window.TrackerLensAgentRuntime = (() => {
     };
   };
 
+  // A single consented topology read gives the chat a coherent view of the
+  // whole active Flow. Values, source code and historical payloads retain
+  // their separate, narrower read boundaries.
+  const inspectTopology = async ({ workspaceId = "" } = {}) => {
+    const snapshot = await buildSnapshot(workspaceId);
+    const nodes = graphNodes(snapshot);
+    const dependencies = graphDependencies(snapshot);
+    return {
+      version: VERSION,
+      inspectedAt: nowIso(),
+      workspaceId: snapshot.filters?.workspaceId || normalizeWorkspaceId(workspaceId),
+      nodes: nodes.map((node) => ({
+        ...nodeSummary(node),
+        category: nodeCategory(node),
+        ports: {
+          inputs: nodePortNames(nodePorts(node).inputs),
+          outputs: nodePortNames(nodePorts(node).outputs),
+        },
+        status: node.status || node.runtime?.status || node.metadata?.runtimeStatus || "idle",
+        configKeys: Object.keys(nodeConfig(node)),
+        packageReference: node.metadata?.customPackage?.packageId ? {
+          packageId: node.metadata.customPackage.packageId,
+          version: node.metadata.customPackage.version || "",
+          archiveSha256: node.metadata.customPackage.archive?.sha256 || "",
+        } : null,
+      })),
+      dependencies: dependencies.map((dependency) => ({
+        ...dependencySummary(dependency),
+        sourcePort: dependency.metadata?.sourcePort || dependency.sourcePort || "",
+        targetPort: dependency.metadata?.targetPort || dependency.targetPort || "",
+      })),
+      validation: snapshot.validation || null,
+      limitations: [
+        "Configuration values require tl.workspace.inspectNodeConfig with explicit keys.",
+        "Installed package source requires tl.customNodes.readSource with an exact reference.",
+        "Runtime events and document contents require their dedicated read tools.",
+      ],
+    };
+  };
+
   const findNodes = async ({ workspaceId = "", query = "" } = {}) => {
     const snapshot = await buildSnapshot(workspaceId);
     const normalizedQuery = normalizeSearchText(query);
@@ -1869,6 +1909,12 @@ window.TrackerLensAgentRuntime = (() => {
   };
 
   const tools = {
+    inspectTopology: {
+      name: "inspectTopology",
+      description: "Read every current Flow node and link, with ports and identities but without configuration values or payloads.",
+      mutates: false,
+      run: inspectTopology,
+    },
     inspectFlow: {
       name: "inspectFlow",
       description: "Inspect the current runtime graph, roots, leaves, agent nodes and validation issues.",
@@ -1955,6 +2001,7 @@ window.TrackerLensAgentRuntime = (() => {
     callTool,
     findNodes,
     inspectFlow,
+    inspectTopology,
     inspectNode,
     inspectNodeConfig,
     inspectNodePythonRequirement,

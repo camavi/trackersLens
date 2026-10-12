@@ -45,16 +45,21 @@ const accountEmailFromStatus = (value, visited = new Set()) => {
   return "";
 };
 
-const readCliVersion = (executable) => {
-  const result = spawnSync(executable, ["--version"], { encoding: "utf8", timeout: 4000, windowsHide: true });
-  if (result.error || result.status !== 0) return { installed: false, version: "" };
-  return { installed: true, version: String(result.stdout || result.stderr || "").trim() };
+const readCliVersion = (executable, probe = spawnSync) => {
+  const result = probe(executable, ["--version"], { encoding: "utf8", timeout: 4000, windowsHide: true });
+  if (result.error || result.status !== 0) {
+    const missing = result.error?.code === "ENOENT";
+    return { installed: !missing && executableExists(executable), version: "", verification: missing ? "missing" : "unavailable",
+      diagnostic: result.error?.message || String(result.stderr || result.stdout || `Version probe exited with status ${result.status}`) };
+  }
+  return { installed: true, version: String(result.stdout || result.stderr || "").trim(), verification: "verified" };
 };
 const readAuthentication = (definition, executable) => {
   const args = definition.id === "codex" ? ["login", "status"] : ["auth", "status"];
   const result = spawnSync(executable, args, { encoding: "utf8", timeout: 4000, windowsHide: true });
   const output = String(result.stdout || result.stderr || "").trim();
-  if (result.error || result.status !== 0) return { authenticated: false, accountEmail: "" };
+  if (result.error) return { authenticated: false, accountEmail: "", verification: "unavailable", diagnostic: result.error.message };
+  if (result.status !== 0) return { authenticated: false, accountEmail: "", verification: "unauthenticated" };
   if (definition.id === "claude") {
     try {
       const status = JSON.parse(output);
@@ -147,10 +152,14 @@ class ExternalAiProviderBridge {
       provider: definition.id,
       label: definition.label,
       installed: Boolean(cli?.installed),
+      verification: cli?.verification || (cli?.installed ? "verified" : "missing"),
+      diagnostic: cli?.diagnostic || "",
+      authenticationVerification: authentication.verification || "verified",
+      authenticationDiagnostic: authentication.diagnostic || "",
       version: String(cli?.version || ""),
       configuredModel: configured.model,
       configuredReasoningEffort: configured.reasoningEffort,
-      authentication: !cli?.installed ? "cli-not-installed" : authenticated ? "authenticated" : "requires-official-login",
+      authentication: !cli?.installed ? "cli-not-installed" : authenticated ? "authenticated" : authentication.verification === "unavailable" ? "unknown" : "requires-official-login",
       authenticated,
       accountEmail,
       accountIdentity,
@@ -189,14 +198,14 @@ class ExternalAiProviderBridge {
     };
   }
 
-  async sendMessage({ provider = "", prompt = "", images = [], model = "", reasoningEffort = "", speed = "" } = {}, lifecycle = {}) {
+  async sendMessage({ provider = "", prompt = "", images = [], model = "", reasoningEffort = "", speed = "", workSession = null } = {}, lifecycle = {}) {
     const definition = supportedProvider(provider);
     if (!definition) throw Object.assign(new Error("Provider AI esterno non supportato."), { code: "EXTERNAL_AI_PROVIDER_UNSUPPORTED" });
     if (!String(prompt || "").trim()) throw Object.assign(new Error("Il messaggio non può essere vuoto."), { code: "EXTERNAL_AI_EMPTY_MESSAGE" });
     const executablePath = this.executableResolver(definition.executable);
     if (!this.versionReader(executablePath)?.installed) throw Object.assign(new Error(`${definition.label} non è installato.`), { code: "EXTERNAL_AI_CLI_NOT_INSTALLED" });
     if (!this.chatRunner) throw Object.assign(new Error("Il trasporto chat desktop non è disponibile."), { code: "EXTERNAL_AI_CHAT_UNAVAILABLE" });
-    return this.chatRunner({ ...definition, executablePath, model: String(model || "").trim(), reasoningEffort: String(reasoningEffort || ""), speed: String(speed || "") }, String(prompt), { ...lifecycle, images });
+    return this.chatRunner({ ...definition, executablePath, model: String(model || "").trim(), reasoningEffort: String(reasoningEffort || ""), speed: String(speed || "") }, String(prompt), { ...lifecycle, images, workSession });
   }
 
   logout({ provider = "" } = {}) {
@@ -209,4 +218,4 @@ class ExternalAiProviderBridge {
   }
 }
 
-module.exports = { ExternalAiProviderBridge, PROVIDERS, resolveExecutable, readConfiguredCodexModel };
+module.exports = { ExternalAiProviderBridge, PROVIDERS, resolveExecutable, readConfiguredCodexModel, readCliVersion };

@@ -33,6 +33,7 @@ const createTlCore = ({ appVersion = "0.0.0", platform = "unknown", mode = "prod
   const externalAi = adapters.externalAi || null;
   const catalog = adapters.catalog || null;
   const flags = { ...DEFAULT_FEATURE_FLAGS, ...featureFlags };
+  const customNodeSetup = new (require('./custom-node-setup.cjs').CustomNodeSetup)({ packages: customNodePackages, pythonInstaller: pythonPackInstaller, persistence, enabled: flags.customNodeSandbox });
 
   // Display metadata only: remembered identity never establishes authentication.
   const syncExternalAccountIdentity = (status) => {
@@ -74,6 +75,58 @@ const createTlCore = ({ appVersion = "0.0.0", platform = "unknown", mode = "prod
 
   const request = async (command, payload = {}, lifecycle = {}) => {
     switch (command) {
+      case 'desktop.customNodePackages.previewSetup':
+        return customNodeSetup.preview({ importId: String(payload?.importId || ''), reference: payload?.reference }, lifecycle);
+      case 'desktop.customNodePackages.executeSetup':
+        return customNodeSetup.execute({ planId: String(payload?.planId || ''), confirmed: payload?.confirmed === true }, lifecycle);
+      case 'desktop.customNodePackages.discardSetup':
+        return customNodeSetup.discard({ planId: String(payload?.planId || '') }, lifecycle);
+      case "desktop.chatProject.chooseFolder":
+        if (!adapters.chatProject?.chooseFolder) throw errorWithCode("Project reader is unavailable", "CHAT_PROJECT_UNAVAILABLE");
+        return adapters.chatProject.chooseFolder({ chatId: String(payload?.chatId || "") });
+      case "desktop.chatProject.listDirectory":
+        if (!adapters.chatProject?.listDirectory) throw errorWithCode("Project reader is unavailable", "CHAT_PROJECT_UNAVAILABLE");
+        return adapters.chatProject.listDirectory({ chatId: String(payload?.chatId || ""), folderId: String(payload?.folderId || ""), relativePath: String(payload?.relativePath || "") });
+      case "desktop.chatProject.readTextFile":
+        if (!adapters.chatProject?.readTextFile) throw errorWithCode("Project reader is unavailable", "CHAT_PROJECT_UNAVAILABLE");
+        return adapters.chatProject.readTextFile({ chatId: String(payload?.chatId || ""), folderId: String(payload?.folderId || ""), relativePath: String(payload?.relativePath || "") });
+      case "desktop.chatProject.searchText":
+        if (!adapters.chatProject?.searchText) throw errorWithCode("Project search is unavailable", "CHAT_PROJECT_UNAVAILABLE");
+        return adapters.chatProject.searchText({ chatId: String(payload?.chatId || ""), folderId: String(payload?.folderId || ""), relativePath: String(payload?.relativePath || ""), query: String(payload?.query || ""), caseSensitive: payload?.caseSensitive === true });
+      case "desktop.chatProject.previewFileEdits":
+      case "desktop.chatProject.applyFileEdits": {
+        const method = command.endsWith("previewFileEdits") ? "previewFileEdits" : "applyFileEdits";
+        if (!adapters.chatProject?.[method]) throw errorWithCode("Project editor is unavailable", "CHAT_PROJECT_UNAVAILABLE");
+        return adapters.chatProject[method]({ chatId: String(payload?.chatId || ""), folderId: String(payload?.folderId || ""), edits: Array.isArray(payload?.edits) ? payload.edits.map(edit => ({ relativePath: edit?.relativePath, expectedSha256: edit?.expectedSha256, content: edit?.content })) : null, previewToken: String(payload?.previewToken || ""), confirmed: payload?.confirmed === true });
+      }
+      case "desktop.chatProject.previewTextEdit":
+      case "desktop.chatProject.applyTextEdit": {
+        const method = command === "desktop.chatProject.previewTextEdit" ? "previewTextEdit" : "applyTextEdit";
+        if (!adapters.chatProject?.[method]) throw errorWithCode("Project editor is unavailable", "CHAT_PROJECT_UNAVAILABLE");
+        return adapters.chatProject[method]({ chatId: String(payload?.chatId || ""), folderId: String(payload?.folderId || ""), relativePath: String(payload?.relativePath || ""), expectedSha256: String(payload?.expectedSha256 || ""), content: payload?.content, previewToken: String(payload?.previewToken || ""), confirmed: payload?.confirmed === true });
+      }
+      case "desktop.chatProject.previewTerminal":
+      case "desktop.chatProject.startTerminal":
+      case "desktop.chatProject.listTerminals":
+      case "desktop.chatProject.pollTerminal":
+      case "desktop.chatProject.writeTerminal":
+      case "desktop.chatProject.stopTerminal": {
+        const method = command.split(".").at(-1);
+        if (!adapters.chatProject?.[method]) throw errorWithCode("Terminal sessions are unavailable", "CHAT_PROJECT_UNAVAILABLE");
+        return adapters.chatProject[method]({ chatId: String(payload?.chatId || ""), workspaceId: String(payload?.workspaceId || ""), workId: String(payload?.workId || ""), folderId: String(payload?.folderId || ""), sessionId: String(payload?.sessionId || ""), commandText: payload?.commandText, relativePath: String(payload?.relativePath || ""), text: payload?.text, endInput: payload?.endInput === true, previewToken: String(payload?.previewToken || ""), confirmed: payload?.confirmed === true }, lifecycle);
+      }
+      case "desktop.chatProject.previewCommand":
+      case "desktop.chatProject.runCommand": {
+        const method = command.endsWith("previewCommand") ? "previewCommand" : "runCommand";
+        if (!adapters.chatProject?.[method]) throw errorWithCode("Project terminal is unavailable", "CHAT_PROJECT_UNAVAILABLE");
+        return adapters.chatProject[method]({ chatId: String(payload?.chatId || ""), folderId: String(payload?.folderId || ""), commandText: payload?.commandText, relativePath: String(payload?.relativePath || ""), previewToken: String(payload?.previewToken || ""), confirmed: payload?.confirmed === true }, lifecycle);
+      }
+      case "desktop.chatProject.previewPackageScript":
+      case "desktop.chatProject.runPackageScript": {
+        const method = command === "desktop.chatProject.previewPackageScript" ? "previewPackageScript" : "runPackageScript";
+        if (!adapters.chatProject?.[method]) throw errorWithCode("Project script runner is unavailable", "CHAT_PROJECT_UNAVAILABLE");
+        return adapters.chatProject[method]({ chatId: String(payload?.chatId || ""), folderId: String(payload?.folderId || ""), scriptName: String(payload?.scriptName || ""), expectedSha256: String(payload?.expectedSha256 || ""), previewToken: String(payload?.previewToken || ""), confirmed: payload?.confirmed === true }, lifecycle);
+      }
       case "desktop.flowChat.applyNodeEdits":
         if (!persistence?.applyNodeEdits) throw new Error("Modifiche atomiche non disponibili.");
         return persistence.applyNodeEdits({ workspaceId: payload.workspaceId, edits: payload.edits, expected: payload.expected, confirmed: payload.confirmed === true, restoreSnapshotId: payload.restoreSnapshotId || "", operationId: payload.operationId || "" });
@@ -127,9 +180,12 @@ const createTlCore = ({ appVersion = "0.0.0", platform = "unknown", mode = "prod
         if (!externalAi?.startLogin) throw errorWithCode("External AI provider bridge is unavailable", "EXTERNAL_AI_UNAVAILABLE");
         if (!payload?.confirmed) throw errorWithCode("External AI login requires confirmation", "EXTERNAL_AI_LOGIN_CONFIRMATION_REQUIRED");
         return externalAi.startLogin({ provider: String(payload?.provider || "") });
+      case "desktop.externalAi.resetSession":
+        if (!adapters.nativeWorkSessions?.reset) throw errorWithCode("Native sessions are unavailable", "EXTERNAL_AI_SESSION_UNAVAILABLE");
+        return adapters.nativeWorkSessions.reset({ confirmed: payload?.confirmed === true, workSession: { workspaceId: String(payload?.workSession?.workspaceId || ""), chatId: String(payload?.workSession?.chatId || ""), workId: String(payload?.workSession?.workId || "") } });
       case "desktop.externalAi.sendMessage":
         if (!externalAi?.sendMessage) throw errorWithCode("External AI provider bridge is unavailable", "EXTERNAL_AI_UNAVAILABLE");
-        return externalAi.sendMessage({ images: payload?.images ?? [], provider: String(payload?.provider || ""), prompt: String(payload?.prompt || ""), model: String(payload?.model || ""), reasoningEffort: String(payload?.reasoningEffort || ""), speed: String(payload?.speed || "") }, lifecycle);
+        return externalAi.sendMessage({ workSession: payload?.workSession ? { workspaceId: String(payload.workSession.workspaceId || ""), chatId: String(payload.workSession.chatId || ""), workId: String(payload.workSession.workId || "") } : null, images: payload?.images ?? [], provider: String(payload?.provider || ""), prompt: String(payload?.prompt || ""), model: String(payload?.model || ""), reasoningEffort: String(payload?.reasoningEffort || ""), speed: String(payload?.speed || "") }, lifecycle);
       case "desktop.externalAi.logout": {
         if (!externalAi?.logout) throw errorWithCode("External AI provider bridge is unavailable", "EXTERNAL_AI_UNAVAILABLE");
         if (!payload?.confirmed) throw errorWithCode("External AI logout requires confirmation", "EXTERNAL_AI_LOGOUT_CONFIRMATION_REQUIRED");
@@ -167,6 +223,9 @@ const createTlCore = ({ appVersion = "0.0.0", platform = "unknown", mode = "prod
       case "desktop.persistence.readDevelopmentRecordById":
         if (!persistence?.readDevelopmentRecordById) throw errorWithCode("Desktop persistence is unavailable", "PERSISTENCE_UNAVAILABLE");
         return persistence.readDevelopmentRecordById(payload);
+      case "desktop.persistence.readDevelopmentRecordForWorkspace":
+        if (!persistence?.readDevelopmentRecordForWorkspace) throw errorWithCode("Desktop persistence is unavailable", "PERSISTENCE_UNAVAILABLE");
+        return persistence.readDevelopmentRecordForWorkspace(payload);
       case "desktop.persistence.readLatestDevelopmentRecord":
         if (!persistence?.readLatestDevelopmentRecord) throw errorWithCode("Desktop persistence is unavailable", "PERSISTENCE_UNAVAILABLE");
         return persistence.readLatestDevelopmentRecord(payload);
@@ -230,6 +289,21 @@ const createTlCore = ({ appVersion = "0.0.0", platform = "unknown", mode = "prod
       case "desktop.customNodePackages.reviewProviders":
         if (!customNodePackages?.reviewProviders) throw errorWithCode("Review unavailable", "CUSTOM_NODE_PACKAGES_UNAVAILABLE");
         return customNodePackages.reviewProviders();
+      case 'desktop.customNodePackages.localAiProviders':
+        if (!customNodePackages?.localAiProviders) throw errorWithCode('Local AI unavailable', 'CUSTOM_NODE_LOCAL_AI_UNAVAILABLE');
+        return customNodePackages.localAiProviders();
+      case 'desktop.customNodePackages.discoverLocalAi':
+        if (!customNodePackages?.discoverLocalAi) throw errorWithCode('Local discovery unavailable', 'CUSTOM_NODE_LOCAL_AI_UNAVAILABLE');
+        return customNodePackages.discoverLocalAi({ service: String(payload?.service || 'lm-studio'), endpoints: payload?.endpoints || [] }, { ownerId: lifecycle.ownerId });
+      case 'desktop.customNodePackages.previewLocalAiProfile':
+        if (!customNodePackages?.previewLocalAiProfile) throw errorWithCode('Local profile unavailable', 'CUSTOM_NODE_LOCAL_AI_UNAVAILABLE');
+        return customNodePackages.previewLocalAiProfile({ discoveryId: String(payload?.discoveryId || ''), endpoint: String(payload?.endpoint || ''), model: String(payload?.model || ''), providerId: String(payload?.providerId || '') }, { ownerId: lifecycle.ownerId });
+      case 'desktop.customNodePackages.applyLocalAiProfile':
+        if (!customNodePackages?.applyLocalAiProfile) throw errorWithCode('Local profile unavailable', 'CUSTOM_NODE_LOCAL_AI_UNAVAILABLE');
+        return customNodePackages.applyLocalAiProfile({ planId: String(payload?.planId || ''), confirmed: payload?.confirmed === true }, { ownerId: lifecycle.ownerId });
+      case 'desktop.customNodePackages.discardLocalAiProfile':
+        if (!customNodePackages?.discardLocalAiProfile) throw errorWithCode('Local profile unavailable', 'CUSTOM_NODE_LOCAL_AI_UNAVAILABLE');
+        return customNodePackages.discardLocalAiProfile({ planId: String(payload?.planId || '') }, { ownerId: lifecycle.ownerId });
       case "desktop.customNodePackages.reviewImport":
         if (!customNodePackages?.reviewImport) throw errorWithCode("Review unavailable", "CUSTOM_NODE_PACKAGES_UNAVAILABLE");
         return customNodePackages.reviewImport({ importId: String(payload?.importId || ""), maxTokens: payload?.maxTokens, provider: { protocol: String(payload?.provider?.protocol || ""), id: String(payload?.provider?.id || ""), endpoint: String(payload?.provider?.endpoint || ""), model: String(payload?.provider?.model || "") }, confirmed: payload?.confirmed === true });

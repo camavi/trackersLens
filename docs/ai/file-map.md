@@ -3,22 +3,31 @@
 Purpose: locate implementation ownership quickly.
 Read when: deciding which files to inspect.
 Do not read when: file scope is already obvious.
-Last updated: 2026-08-25.
+Last updated: 2026-10-10.
 
 ## Flow Map
 
-- `flowMap.html`: Flow Map page shell and script loading.
+- `app.html`: persistent shell and authoritative ordered classic-script loading; Flow Map is an internal route.
 - `js/flowMapView.js`: main Flow Map view orchestration.
 - `js/flow-map/flowMapState.js`: shared state.
-- `js/flow-map/flowMapPromptChat.js`: AI Flow Chat, query tools, planner, safe command plans.
-- `js/flow-map/flowMapRuntimeTests.js`: Pulse/Live Test and runtime test logging.
-- `js/flow-map/flowMapCanvasInspector.js`: node/edge inspector and canvas UI.
-- `js/flow-map/flowMapRuntimeNodes.js`: node rendering/model helpers.
-- `js/flow-map/flowMapInteractions.js`: graph interactions.
-- `js/flow-map/flowMapNodeBuilder.js`: node builder.
+- `js/flow-map/flowMapPromptChat.js`: Chat/session owner and wiring; `js/flow-map/chat/` owns provider, memory, planning, consent, execution and presentation components.
+- `js/flow-map/chat/flowMapChatCapabilities.js`: isolated capability catalog, discovery schemas and fast-path tool index; no app-service dependencies.
+- `js/flow-map/chat/flowMapChatPythonMetadata.js`: pure provider-facing Python catalog/resolution/status/install-plan projections; no runtime execution.
+- `js/flow-map/chat/flowMapChatConversation.js`: conversation/history projections and provider-only overflow recovery factory; explicit text/attachment dependencies, no UI/storage/session ownership.
+- `js/flow-map/chat/flowMapChatProtocol.js`: pure parsing of provider tool requests, answers, action proposals and plan proposals; never executes them.
+- `js/flow-map/chat/flowMapChatAttachments.js`: attachment classification and provider text/image projections; browser readers and document extraction injected by Chat.
+- `js/flow-map/flowMapRuntimeTests.js` and `js/flow-map/live-test/`: Pulse/Live Test inputs, tracking, assertions, sample scenarios and run/menu UI.
+- `js/flow-map/flowMapCanvasInspector.js` and `js/flow-map/canvas/`: canvas geometry/rendering, inspector components, Knowledge graph/document UI and status.
+- `js/flow-map/flowMapRuntimeNodes.js` and `js/flow-map/nodes/`: node/config models, forms, previews, aliases, deletion and links.
+- `js/flow-map/flowMapInteractions.js` and `js/flow-map/interactions/`: pointer/viewport, selection, embedded Flow/asset placement and channel operations.
+- `js/flow-map/flowMapNodeBuilder.js` and `js/flow-map/builder/`: builder dialog, palette, template/layout/runtime model and previews.
+- `docs/ai/javascript-modules.json`: exact extracted source-to-owner map, checked against app and worker loading.
 - `css/flowMap.css` and `css/flow-map/*.css`: Flow Map visual system.
 
 ## Runtime Core
+
+- `core/runtime/knowledge-runtime.js`: private Knowledge state, public API and factory wiring.
+- `core/runtime/knowledge/`: Knowledge persistence, diagnostics, document/chunk/embedding, dictionary/event/entity, structured/world, graph/search/reasoning and execution components.
 
 - `core/runtime/event-bus.js`
 - `core/runtime/channel-registry.js`

@@ -6,6 +6,12 @@ Last updated: 2026-09-26.
 
 ## Python packages (2026-09-26)
 
+### Combined Chat setup (2026-10-05)
+
+Chat now uses `desktop.customNodePackages.previewSetup/executeSetup` for both a prepared draft and an installed exact reference. One JSswift review shows immutable identity, declared permissions, full manifest/source/audit and the complete trusted Python/model plan when required. A single approval installs, registers the exact grants, installs/verifies that managed pack and activates the archive through existing managers; progress and outcome return automatically to the provider. `discardSetup` cancels an unexecuted plan. Manual management retains the individual lifecycle controls. The previous separate-approval UI description below applies to that manual path, not default Chat setup.
+
+Core owns one-use plans bound to trusted webContents; it revalidates current archive/manifest/consent/runtime/Python plan before effects and rechecks installed material before grants. Python plans now expose lockfile SHA-256 and the installer validates an expected approved plan before executing. Completed stages and all progress persist in `tl_ai_jobs` as `custom-node-setup`. A failed download retains installation/consent, blocks activation and returns a partial outcome; a freshly reviewed retry skips stages already complete. There is no rollback over downloads, automatic restart recovery, arbitrary package/model installation, Flow insertion or package execution. A JS network declaration still does not permit direct network access.
+
 Import preserves and validates `execution` using the shared node execution contract. Python requires matching `runtime.entry` / `execution.entry` pointing to `.py`, `execution.runtime: "python"`, and `execution.dependencies.python` with an explicit trusted `packId`, `environment`, exact `==x.y.z` requirements and managed install policy. A `.py` entry without this declaration is rejected instead of being misinterpreted as JavaScript. Legacy JavaScript manifests remain unchanged.
 
 Core resolves requirements against the existing Python pack catalog. Import/review and package details show Python requirements and current readiness; installation never downloads arbitrary manifest-provided dependencies. The new model-free `trackerslens.data.tabular` pack pins pandas 2.2.3 / numpy 2.2.6 and transitive dependencies in `runtimes/python/packs/data/requirements.lock`. Its installation uses the existing explicit Runtime Python e Modelli plan/consent flow. An incomplete environment remains installable until verification finishes. Package activation also checks pack readiness. Custom Nodes, Flow Map and Runtime Python invoke the global `TrackerLensPythonPackInstaller.open({ packId, onComplete })` from `js/tl-python-pack-installer.js`: the install button immediately opens the shared plan/consent/progress dialog without navigating away. Successful installation refreshes the caller; it never grants package permissions or activates a Custom Node.
@@ -75,6 +81,27 @@ export async function run({ input, config, tools, emit, log }) {
 ```
 
 ## Runtime and verification
+
+### Local AI capability (2026-10-05)
+
+Local setup: `CustomNodeLocalAi.discover` reads complete model catalogs from configured/user-supplied loopback bases plus documented default candidates ([LM Studio](https://lmstudio.ai/docs/developer/openai-compat/models), [Ollama](https://docs.ollama.com/api/tags)). Candidates are never treated as verified until a successful protocol response; no inference is performed. Chat's `configure_local_provider` reviews the exact verified base/model and an opaque owner-bound plan before saving. Existing matching profile IDs, credentials and unrelated fields are preserved; ambiguous matching profiles require an explicit ID. The internal-only `DesktopPersistence.commitLocalAiProfile` compares expected state and saves atomically in SQLite, with no generic renderer route. Cancellation/replay/stale plans cannot overwrite profiles.
+
+JavaScript `tools.ai.complete({messages})` is connected by `core/desktop/custom-node-local-ai.cjs` through the existing sender-bound broker and exact declared/granted `aiProvider` permission. Node configuration supplies `aiProviderId`, the ID of a persisted `tl_ai_providers` API profile. Core resolves the configured model/credential and allows only loopback LM Studio/OpenAI-compatible chat completions or Ollama chat. It rejects remote/invalid endpoints and redirects; the untrusted package cannot supply endpoint, model, authorization headers or tools. Direct sandbox `fetch` remains blocked. Python AI tools and memory handlers remain unavailable.
+
+Messages accept complete text with system/user/assistant roles, or one `prompt` string. Optional `maxTokens` and `temperature` come from explicit node/profile configuration; no implicit token cap is set. Result includes `text`, full `response`, `usage`, finish/incomplete metadata and provenance. Core persists complete requests/responses/errors to `tl_ai_logs`, removes credential echoes and aborts HTTP when the invocation closes/times out. Readiness describes configuration, not live model availability or guaranteed offline inference. No model/service is downloaded or started by this tool.
+
+Chat reads the credential-free readiness/contract using `tl.providers.listLocal`. For an existing fetch-based package it must read exact installed source and propose a new version with required string setting `aiProviderId` and `permissions.aiProvider=true`; setup and test/Flow confirmation remain required. Existing packages are not rewritten or automatically migrated. Example JavaScript:
+
+```js
+export async function run({ input, tools, emit }) {
+  const result = await tools.ai.complete({
+    messages: [{ role: 'user', content: input.input.text }]
+  });
+  await emit('output', result);
+}
+```
+
+Protocol references: [LM Studio Chat Completions](https://lmstudio.ai/docs/developer/openai-compat/chat-completions), [Ollama Chat](https://docs.ollama.com/api/chat). Tests use simulated responses, temporary SQLite and a real sandbox calling a loopback fixture, not a real LLM or anonymization acceptance test.
 
 The sandbox is implemented and previously user-verified end to end. Main launches a disposable Electron BrowserWindow with Chromium sandbox, context isolation, Node integration disabled, a dedicated session, denied navigation/popups/browser permissions and denied direct network access. Core revalidates archive hash and manifest identity before source loading. No hardcoded source-size cap overrides the complete package.
 

@@ -3,7 +3,19 @@
 Purpose: important decisions that should guide future work.
 Read when: a change might conflict with architecture or product direction.
 Do not read when: making narrow UI/code fixes.
-Last updated: 2026-08-25.
+Last updated: 2026-10-05.
+
+## JavaScript responsibility boundaries
+
+- 2026-10-10: preserve the existing classic-script entry points and public bindings while extracting Flow Map and Knowledge responsibilities into closure-scoped factories. Owners retain mutable state; explicit lazy getters preserve initialization order and live session replacements, with setters only for existing owner-variable assignments. Knowledge factories must load in both the app and runtime worker before its owner. `app.html` remains the authoritative app loader and verification checks every loaded source; `javascript-modules.json` records source ownership. This is structural separation, not an ES module migration, a second runtime/store or new consent authority. See `javascript-modularization.md` for scope and evidence.
+
+## Custom Node local AI broker
+
+- 2026-10-05: granted JavaScript `aiProvider` connects `tools.ai.complete` to Core using an explicit node `aiProviderId` and an existing configured loopback API profile. Core owns destination/model/credentials, forbids untrusted URL/header/model overrides and redirects, preserves full input/output/provenance in SQLite and cancels pending HTTP with the execution. Direct sandbox networking remains denied. This first broker supports LM Studio/OpenAI-compatible and Ollama text chat; remote profiles, Python AI tools, service/model startup/download and guarantees of offline inference or anonymization are outside its contract. Existing fetch-based packages require a reviewed new-version source repair rather than silent rewriting.
+
+## Custom Node setup approval
+
+- 2026-10-05: at the user's explicit request, Chat may consolidate installation, exact declared permission consent, required trusted Python/model downloads and activation into one review. This supersedes the requirement for separate user clicks in Chat, while preserving separate Core lifecycle records and existing management actions. A Core-owned, owner-bound one-use plan fixes package/version/archive hash, permissions and Python plan including lockfile SHA-256. Only the reviewed steps run through existing managers; setup does not insert Flow instances, run package code, change node configuration or provide arbitrary pip/URLs/network access. Execution is sequential with persistent partial outcomes, not an atomic transaction or crash-resumable installer. App restart loses active handles/plans and never automatically replays the operation.
 
 ## Desktop account
 

@@ -499,7 +499,84 @@
     syncReviewDialog();
   };
   window.TrackerLensViews = window.TrackerLensViews || {};
-  window.TrackerLensReviewChatNodeDraft = ({ manifest, source, baseReference } = {}) => new Promise((resolve) => {
+  let setupTask = null;
+  const setupPackage = async ({ importId, reference, source = "", onApproved = null, onProgress = null } = {}) => {
+    const plan = await api().previewSetup({ importId, reference });
+    if (plan.status === "ready" && !plan.actions.length) return { ok: true, status: "activated", reference: plan.reference, message: "Questa versione è già pronta. Nessuna installazione ripetuta." };
+    return new Promise(resolve => {
+      let submitted = false, settled = false;
+      const finish = value => { if (!settled) { settled = true; resolve(value); } };
+      const timeline = _.div({ class: "tl-custom-setup-progress", role: "status", "aria-live": "polite" });
+      const steps = { install: "Installa il pacchetto", permissions: "Registra i permessi dichiarati", python: "Installa e verifica Python e modelli", activate: "Attiva questa versione" };
+      const permissions = { aiProvider: "Provider AI", memory: "Memoria", runtimeGraph: "Grafo runtime", network: "Rete", filesystem: "File locali" };
+      const python = plan.pythonPlan;
+      const dialog = trackedDialog({
+        class: "tl-custom-setup-dialog", title: "Prepara Custom Node", icon: "deployed_code", size: "lg",
+        closeOnOutside: false, closeOnBackdrop: false,
+        content: () => _.div({ class: "tl-custom-setup" },
+          _.header(_.strong(plan.name || plan.reference.packageId), _.span(`v${plan.reference.version}`), _.code(plan.reference.packageId)),
+          _.p("Una sola conferma autorizza i passaggi elencati. TL li esegue in ordine e restituisce l’esito alla chat."),
+          _.ol({ class: "tl-custom-setup-steps" }, ...plan.actions.map(action => _.li(icon(action === "python" ? "download" : action === "activate" ? "play_circle" : "check_circle"), _.span(steps[action])))),
+          _.section(_.h3("Permessi runtime"), _.dl({ class: "tl-custom-facts" }, ...Object.entries(plan.permissions).flatMap(([key, value]) => [_.dt(permissions[key] || key), _.dd(value === true ? "Richiesto" : value === false || value === "none" ? "Nessun accesso" : String(value))])),
+            _.p({ class: "tl-custom-setup-note" }, "Rete e file locali sono dichiarazioni del manifest: non abilitano accesso diretto dal sandbox JavaScript.")),
+          python ? _.section(_.h3("Python e modelli"),
+            _.p(`${python.pack.id} · v${python.pack.version} · ambiente ${python.environment.id}`),
+            _.p(python.network.required ? "Saranno scaricati pacchetti e modelli dichiarati dal pack gestito." : "Non sono previsti download."),
+            _.ul(...python.requirements.map(item => _.li(`${item.name} ${item.version}`)), ...python.models.map(model => _.li(`${model.displayName || model.id} · ${model.revision}${model.estimatedDownloadBytes ? ` · circa ${(model.estimatedDownloadBytes / 1048576).toFixed(1)} MB` : ""}`))),
+            _.details(_.summary("Piano completo Python e download"), details(python))) : null,
+          ...(plan.limitations || []).map(message => _.p({ class: "tl-custom-notice is-error" }, message)),
+          _.details(_.summary("Manifest, hash e audit statico"), details({ reference: plan.reference, manifest: plan.manifest, staticAnalysis: plan.staticAnalysis, files: plan.files })),
+          source ? _.details(_.summary("Sorgente completo proposto"), _.pre({ class: "tl-custom-json" }, source)) : null,
+          timeline),
+        onClose: () => {
+          if (!submitted && plan.planId) void api().discardSetup({ planId: plan.planId }).catch(console.error);
+          finish({ ok: false, status: submitted ? "uncertain" : "denied", message: submitted ? "Operazione ancora in corso: rileggi lo stato prima di riprovare." : "Preparazione annullata." });
+        },
+        footer: () => [btn("Annulla", () => { if (!submitted) dialog.close(); }),
+          btn("Installa e attiva", async () => {
+            if (submitted || plan.status !== "ready") return;
+            submitted = true;
+            const buttons = document.querySelectorAll('.tl-custom-setup-dialog button');
+            buttons.forEach(button => { button.disabled = true; });
+            const progress = event => {
+              if (event.planId !== plan.planId) return;
+              timeline.append(_.p(event.message || event.phase));
+              onProgress?.(event);
+            };
+            const unsubscribe = api().onSetupProgress?.(progress) || (() => {});
+            try {
+              await onApproved?.(plan);
+              const result = await api().executeSetup({ planId: plan.planId, confirmed: true });
+              try { await reload(); } catch (failure) { result.refreshError = errorMessage(failure); }
+              finish(result);
+              dialog.close();
+              if (!result.ok) JSswift.notify?.error?.(result.message || "Preparazione non completata. I passaggi già eseguiti sono conservati.");
+            } catch (failure) {
+              finish({ ok: false, status: "uncertain", message: errorMessage(failure), reference: plan.reference });
+              dialog.close();
+            } finally { unsubscribe(); render(); }
+          }, plan.status !== "ready")],
+      });
+      activeDialog = dialog; dialog.open();
+    });
+  };
+  const startSetup = options => {
+    if (setupTask || busy || activeDialog) return Promise.resolve({ ok: false, status: "blocked", message: "Completa l’operazione Custom Node in corso." });
+    setupTask = setupPackage(options).finally(() => { setupTask = null; });
+    return setupTask;
+  };
+  let preparingChatPackage = false;
+  window.TrackerLensReviewChatNodeDraft = async ({ manifest, source, baseReference, reviewOnly = false, onApproved = null, onProgress = null } = {}) => {
+    if (!reviewOnly) {
+      if (preparingChatPackage || setupTask || busy || activeDialog) return { ok: false, status: "blocked", message: "Completa l’operazione Custom Node in corso." };
+      // Preparing an immutable archive has no installation/permission/runtime effects.
+      preparingChatPackage = true;
+      try {
+        const prepared = await api().prepareCreate({ manifest, source, baseReference });
+        return await startSetup({ importId: prepared.importId, source, onApproved, onProgress });
+      } finally { preparingChatPackage = false; }
+    }
+    return new Promise((resolve) => {
     if (!api()?.prepareCreate || busy || activeDialog) { resolve({ status: "blocked", message: "Chiudi l'operazione Custom Node in corso e riprova." }); return; }
     let settled = false;
     let preparing = false;
@@ -530,7 +607,8 @@
     });
     activeDialog = dialog;
     dialog.open();
-  });
+    });
+  };
   const activateExactPackage = async (reference = {}) => {
     const current = () => api().list().then(items => items.find(item => item.packageId === reference.packageId && item.version === reference.version && item.archive.sha256 === (reference.archiveSha256 || reference.archive?.sha256)));
     let pkg = await current();
@@ -553,7 +631,11 @@
     return new Promise(resolve => activationDialog(pkg, resolve));
   };
   let activationTask = null;
-  window.TrackerLensActivateCustomNode = (reference = {}) => {
+  window.TrackerLensActivateCustomNode = (reference = {}, options = {}) => {
+    if (preparingChatPackage) return Promise.resolve({ ok: false, status: "blocked", message: "Preparazione del pacchetto in corso." });
+    return startSetup({ reference, onApproved: options.onApproved, onProgress: options.onProgress });
+  };
+  window.TrackerLensActivateCustomNodeSeparate = (reference = {}) => {
     if (activationTask || activeDialog) return Promise.resolve({ status: "blocked", message: "Completa o chiudi il dialogo Custom Node aperto." });
     activationTask = activateExactPackage(reference).finally(() => { activationTask = null; });
     return activationTask;

@@ -5,7 +5,8 @@ const { spawn } = require('node:child_process');
 const { StringDecoder } = require('node:string_decoder');
 
 // Only this module owns child handles. Callers receive events, never a process API.
-async function runExternalAiChat(provider, prompt, { directory, images = [], signal, onEvent = () => {}, spawnProcess = spawn } = {}) {
+async function runExternalAiChat(provider, prompt, { directory, images = [], signal, onEvent = () => {}, spawnProcess = spawn, persistent = false, sessionId = '' } = {}) {
+  if (sessionId && (provider.id !== 'codex' || !persistent || !/^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/i.test(sessionId))) throw new Error('Invalid native session identity');
   if (!Array.isArray(images)) throw new Error('Invalid image attachments');
   const validatedImages = images.map(image => {
     if (!image || !['image/png', 'image/jpeg', 'image/webp', 'image/gif'].includes(image.mime)
@@ -34,7 +35,13 @@ async function runExternalAiChat(provider, prompt, { directory, images = [], sig
     throw error;
   }
   const args = provider.id === 'codex'
-    ? ['exec', '--json', '--sandbox', 'read-only', '--skip-git-repo-check', '--ephemeral', '--ignore-user-config', '--disable', 'shell_tool', '--disable', 'unified_exec', ...imagePaths.flatMap(filename => ['--image', filename]), ...(provider.model ? ['--model', provider.model] : []), ...(provider.reasoningEffort ? ['-c', `model_reasoning_effort=${JSON.stringify(provider.reasoningEffort)}`] : []), ...(provider.speed === 'fast' ? ['-c', 'service_tier="fast"'] : []), '-']
+    ? ['exec', '--sandbox', 'read-only', '--ignore-user-config', '--ignore-rules', '--disable', 'shell_tool', '--disable', 'unified_exec',
+      ...(persistent ? [] : ['--ephemeral']),
+      ...(provider.model ? ['--model', provider.model] : []),
+      ...(provider.reasoningEffort ? ['-c', `model_reasoning_effort=${JSON.stringify(provider.reasoningEffort)}`] : []),
+      ...(provider.speed === 'fast' ? ['-c', 'service_tier="fast"'] : []),
+      ...(sessionId ? ['resume'] : []), '--json', '--skip-git-repo-check',
+      ...imagePaths.flatMap(filename => ['--image', filename]), ...(sessionId ? [sessionId] : []), '-']
     : ['-p', ...(validatedImages.length ? ['--input-format', 'stream-json'] : []), '--output-format', 'stream-json', '--verbose', '--include-partial-messages', '--max-turns', '1', '--permission-mode', 'plan', '--safe-mode', '--tools', '', '--no-session-persistence', ...(provider.model ? ['--model', provider.model] : [])];
   return new Promise((resolve, reject) => {
     if (signal?.aborted) return reject(Object.assign(new Error('Generation cancelled'), { name: 'AbortError' }));
@@ -42,6 +49,7 @@ async function runExternalAiChat(provider, prompt, { directory, images = [], sig
     const decoder = new StringDecoder('utf8');
     const stderrDecoder = new StringDecoder('utf8');
     let pending = '', stderr = '', failure = null, terminal = null, settled = false, killTimer;
+    let nativeSessionId = sessionId;
     const events = [], messages = new Map();
     const stop = () => {
       child.kill('SIGTERM');
@@ -53,6 +61,10 @@ async function runExternalAiChat(provider, prompt, { directory, images = [], sig
       if (!line.trim() || failure) return;
       try {
         const event = JSON.parse(line);
+        if (provider.id === 'codex' && event.type === 'thread.started') {
+          if (!/^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/i.test(event.thread_id || '') || (nativeSessionId && nativeSessionId !== event.thread_id)) throw new Error('Provider returned a different native session');
+          nativeSessionId = event.thread_id;
+        }
         events.push(event);
         onEvent(event);
         if (provider.id === 'codex') {
@@ -77,7 +89,8 @@ async function runExternalAiChat(provider, prompt, { directory, images = [], sig
       clearTimeout(killTimer);
       signal?.removeEventListener('abort', abort);
       if (error) reject(error);
-      else resolve({ provider: provider.id, text: provider.id === 'codex' ? [...messages.values()].join('\n') : String(terminal.result || ''), raw: { events, usage: terminal.usage }, stderr, sandbox: 'isolated-read-only', transport: provider.id === 'codex' ? 'events' : 'streaming' });
+      else if (persistent && !nativeSessionId) reject(new Error('Provider completed without a native session identity'));
+      else resolve({ nativeSession: persistent ? { id: nativeSessionId, resumed: Boolean(sessionId) } : null, provider: provider.id, text: provider.id === 'codex' ? [...messages.values()].join('\n') : String(terminal.result || ''), raw: { events, usage: terminal.usage }, stderr, sandbox: 'isolated-read-only', transport: provider.id === 'codex' ? 'events' : 'streaming' });
     };
     child.once('error', finish);
     child.stdin.on('error', error => { failure ||= error; stop(); });

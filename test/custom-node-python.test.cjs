@@ -65,7 +65,7 @@ test("A model-free pack stays installable until dependency verification complete
   assert.equal((await catalog.getCatalog()).packs[0].state, "unavailable");
   ready = true;
   assert.equal((await catalog.getCatalog()).packs[0].state, "active");
-  const installer = new ManagedPythonPackInstaller({ packs: [pack], environments: [environment] });
+  const installer = new ManagedPythonPackInstaller({ packs: [{ ...pack, lockfilePath: path.resolve(__dirname, '../', pack.lockfile) }], environments: [environment] });
   const plan = await installer.getInstallPlan({ packId: pack.id });
   assert.deepEqual(plan.models, []);
   assert.equal(plan.requiresUserConsent, true);

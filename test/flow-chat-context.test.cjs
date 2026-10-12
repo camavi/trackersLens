@@ -22,16 +22,33 @@ function setup() {
     },
   });
   vm.runInContext(fs.readFileSync(require.resolve('../core/runtime/runtime-contract.js'), 'utf8'), context);
-  vm.runInContext(fs.readFileSync(require.resolve('../js/flow-map/flowMapPromptChat.js'), 'utf8'), context);
+  for (const match of fs.readFileSync(require.resolve('../app.html'), 'utf8').matchAll(/<script src="(js\/flow-map\/(?:chat\/flowMapChat[^"]+|flowMapPromptChat)\.js)(?:\?[^"]*)?"/g)) {
+    vm.runInContext(fs.readFileSync(require.resolve(`../${match[1]}`), 'utf8'), context, { filename: match[1] });
+  }
   vm.runInContext(`globalThis.api = { answer: flowPromptParseExternalAnswer, conversation: flowPromptConversationContext,
     external: flowPromptBuildExternalReply, local: flowPromptBuildLocalToolProtocolReply,
     observations: flowPromptTurnObservations, recover: flowPromptReplyWithContextRecovery,
     overflow: flowPromptIsContextOverflow, graphProposal: flowPromptGraphProposal,
     fingerprint: flowPromptGraphFingerprint, configUpdate: flowPromptValidConfigUpdate, constraints: flowPromptConfigConstraints, effectiveValue: flowPromptEffectiveNodeConfigValue,
     normalizePlan: flowPromptNormalizeAiPlan, recoveredActions: flowPromptRecoveredActions,
-    requestIdentity: flowPromptRequestIdentity, compatible: flowPromptCallOpenAiCompatible, atomic: flowPromptPrepareAtomicEdits, materialize: flowPromptMaterializePlan };`, context);
+    requestIdentity: flowPromptRequestIdentity, compatible: flowPromptCallOpenAiCompatible, atomic: flowPromptPrepareAtomicEdits, validateCreatedPalette: flowPromptValidateCreatedNodePalette, materialize: flowPromptMaterializePlan, checkCustomDraft: flowPromptCheckCustomDraftContext, palette: flowPromptPaletteContract };`, context);
   return { api: context.api, context, requests, payloads };
 }
+
+test('node catalog exposes complete creation requirements from the authoritative palette', () => {
+  const { api, context } = setup();
+  const settingsSchema = { endpoint: { type: 'string', required: true, defaultValue: '', description: 'Exact local endpoint' }, model: { type: 'string', required: true } };
+  const configRules = [{ kind: 'lessThanOrEqual', field: 'min', otherField: 'max' }];
+  context.flatPalette = () => [
+    { label: 'Local fixture', nodeType: 'processor', inputs: [], outputs: [], settingsSchema, configRules },
+    { label: 'Manifest fixture', nodeType: 'processor', inputs: [], outputs: [], manifest: { settingsSchema, configRules } },
+  ];
+  for (const node of api.palette()) {
+    assert.deepEqual(JSON.parse(JSON.stringify(node.settingsSchema)), settingsSchema);
+    assert.deepEqual(JSON.parse(JSON.stringify(node.configRules)), configRules);
+    assert.equal(node.settingsSchema.endpoint.defaultValue, '', 'catalog must not invent the missing endpoint');
+  }
+});
 
 test('chat validates declared choices, integer bounds and nested fields without rewriting values', () => {
   const { api } = setup();
@@ -409,4 +426,198 @@ test('custom creation chooses exact package version and rejects ambiguous labels
   assert.equal(created.metadata.customPackage.version,'2.0.0');
   assert.equal(created.metadata.customPackage.archive.sha256,'2.0.0');
   assert.equal(created.runtime.active,false);
+});
+
+test('custom draft requires current Flow and package reads and redirects an existing package to revision', () => {
+  const { api } = setup();
+  const manifest = { id: 'custom.local-pseudonymizer', name: 'Pseudonimizzatore locale', subtype: 'local-pseudonymizer' };
+  const flowIndex = [{ id: 'existing-node', label: manifest.name, subtype: manifest.subtype }];
+  const packages = [{ packageId: manifest.id, version: '1.0.0', archiveSha256: 'exact-hash' }];
+  assert.match(api.checkCustomDraft({ manifest }).message, /inspectFlow/);
+  assert.match(api.checkCustomDraft({ manifest, flowIndex }).message, /customNodes.list/);
+  const duplicate = api.checkCustomDraft({ manifest, flowIndex, packages });
+  assert.equal(duplicate.ok, false);
+  assert.equal(duplicate.matchingNodes[0].id, 'existing-node');
+  assert.match(duplicate.message, /baseReference/);
+  assert.equal(api.checkCustomDraft({ manifest, flowIndex, packages, baseReference: { packageId: manifest.id, version: '1.0.0', archiveSha256: 'exact-hash' } }).ok, true);
+  assert.equal(api.checkCustomDraft({ manifest, flowIndex: [], packages: [] }).ok, true);
+});
+
+function workApi() {
+  const context = vm.createContext({window: {TrackerLensAppRouter: {}}});
+  for (const match of fs.readFileSync(require.resolve('../app.html'), 'utf8').matchAll(/<script src="(js\/flow-map\/(?:chat\/flowMapChat[^"]+|flowMapPromptChat)\.js)(?:\?[^"]*)?"/g)) {
+    vm.runInContext(fs.readFileSync(require.resolve(`../${match[1]}`), 'utf8'), context, { filename: match[1] });
+  }
+  return vm.runInContext('({step: flowPromptWorkStep, files: flowPromptWorkFiles, duration: flowPromptWorkDuration})', context);
+}
+test('work timeline distinguishes active, denied, cached and duplicate events without inventing success', () => {
+  const api = workApi();
+  assert.equal(api.step({request: {action: 'edit_project_file', args: {relativePath: 'app.js'}}}).target, 'app.js');
+  assert.equal(api.step({request: {action: 'edit_project_file'}}).label, 'Modifica il file');
+  for (const [observation, expected] of [[undefined, 'active'], [{ok:true}, 'done'], [{cached:true}, 'cached'], [{status:'duplicate',ok:false}, 'duplicate'], [{status:'denied'}, 'denied'], [{status:'partial'}, 'attention']]) {
+    assert.equal(api.step({observation}).status, expected);
+  }
+  assert.equal(api.duration(382000), '6min 22s');
+  assert.ok(api.step({}).label);
+});
+test('work file evidence preserves full reviewed content and counts only confirmed applied files', () => {
+  const api = workApi();
+  const reviewedFiles = [{relativePath:'app.js',before:'old',after:'new'}, {relativePath:'same.js',before:'same',after:'same'}];
+  const files = api.files([{observation:{status:'completed', files:[{relativePath:'app.js',applied:true},{relativePath:'same.js',applied:false}], reviewedFiles}}, {observation:{status:'duplicate',reviewedFiles}}, {observation:{status:'partial',rollback:[{restored:false}],reviewedFiles}}]);
+  assert.equal(files.length, 4);
+  assert.equal(files.filter(file => file.applied).length, 1);
+  assert.equal(files[0].before, 'old'); assert.equal(files[0].after, 'new');
+  assert.equal(files[2].status, 'partial'); assert.equal(files[2].applied, false);
+});
+
+test('created Custom Node revalidation uses exact version/hash and canonical definition, not first matching label', () => {
+  const { api, context } = setup();
+  context.window.crypto = require('node:crypto').webcrypto;
+  context.flowCoordinate = value => value; context.safeRuntimeId = value => String(value); context.FLOW_NODE_DEFAULT_WIDTH = 200;
+  let palette = ['1.0.0', '1.0.1'].map(version => ({label:'Local LLM',nodeType:'custom',subtype:'fixture',inputs:['input'],outputs:['output'],settingsSchema:{model:{type:'string', defaultValue:'fixture'}},runtime:{language:'javascript',entry:'runtime.js'},customPackage:{packageId:'custom.fixture',version,archive:{sha256:version},runtimeExecution:'sandboxed'}}));
+  context.flatPalette = () => palette;
+  const edit = api.atomic([{operation:'create',newNodeId:'@llm',paletteLabel:'Local LLM',packageReference:{packageId:'custom.fixture',version:'1.0.1',archiveSha256:'1.0.1'}}], 'w').edits[0];
+  assert.equal(api.validateCreatedPalette(edit).customPackage.version,'1.0.1');
+  palette = palette.map(item => ({...item, runtime:{entry:'runtime.js',language:'javascript'}, settingsSchema:{model:{defaultValue:'fixture',type:'string'}}}));
+  assert.doesNotThrow(() => api.validateCreatedPalette(edit), 'key order is not a changed definition');
+  palette[1].runtime.entry = 'different.js';
+  assert.throws(() => api.validateCreatedPalette(edit), error => error.code === 'TL_PALETTE_CHANGED');
+  palette.pop();
+  assert.throws(() => api.validateCreatedPalette(edit), error => error.code === 'TL_PALETTE_CHANGED', 'never fall back to another package version');
+});
+
+test('one tool-loop readiness receipt survives transient repeated status failure without masking actual transport errors', async () => {
+  const { api, context, payloads } = setup();
+  let reads = 0;
+  context.window.trackers.desktop.externalAi.getStatus = async () => ++reads === 1 ? {installed:true,authenticated:true} : {installed:false,authenticated:false};
+  const providerReadiness = {};
+  await api.external('codex','first',{providerReadiness});
+  await api.external('codex','next tool result',{providerReadiness});
+  assert.equal(reads,1); assert.equal(payloads.length,2);
+  await assert.rejects(api.external('codex','new work',{providerReadiness:{}}), /non è installato/);
+  context.window.trackers.desktop.externalAi.sendMessage = async () => { throw new Error('actual authentication failure'); };
+  await assert.rejects(api.external('codex','continue',{providerReadiness}), /actual authentication failure/);
+});
+
+test('chat metadata modules run without app services and keep Python readiness facts separate', () => {
+  const context = vm.createContext({});
+  for (const file of ['flowMapChatCapabilities', 'flowMapChatPythonMetadata']) {
+    vm.runInContext(fs.readFileSync(require.resolve(`../js/flow-map/chat/${file}.js`), 'utf8'), context);
+  }
+  const { catalog, python } = vm.runInContext('({catalog: flowMapChatCapabilities, python: flowMapChatPythonMetadata})', context);
+  assert.equal(catalog.flowPromptCapabilityDetails('tl.python.getCatalog').permission, 'explicit user consent');
+  assert.equal(catalog.flowPromptCapabilityDetails('unknown'), null);
+  const input = { environments: [{ id: 'py', enabled: true, interpreterInstalled: true, runtime: { status: 'stopped' }, path: '/private/interpreter' }],
+    models: [{ id: 'model', environmentId: 'py', packIds: ['pack'], state: 'installed', path: '/private/model' }] };
+  const before = JSON.stringify(input);
+  const safe = python.flowPromptSafePythonCatalog(input);
+  assert.equal(JSON.stringify(safe).includes('/private/'), false);
+  const resolution = python.flowPromptSafePythonResolution({ status: 'ready', requirement: { environment: 'py', packId: 'pack' } }, { id: 'node' });
+  const result = python.flowPromptSafePythonNodeRuntimeStatus(safe, resolution);
+  assert.equal(result.statusSummary.requirementStatus, 'ready');
+  assert.equal(result.statusSummary.environmentStatus, 'ready');
+  assert.equal(result.statusSummary.modelStatus, 'ready');
+  assert.equal(result.statusSummary.runtimeStatus, 'stopped');
+  const plan = python.flowPromptSafePythonInstallPlan({ requiresUserConsent: true, lockfile: '/private/lock', models: [{ id: 'model', revision: 'pinned' }] });
+  assert.equal(plan.requiresUserConsent, true);
+  assert.equal(plan.models[0].revision, 'pinned');
+  assert.equal(JSON.stringify(plan).includes('/private/'), false);
+  assert.equal(JSON.stringify(input), before);
+});
+
+test('isolated conversation recovery accumulates explicit selections and preserves complete tool evidence', async () => {
+  const context = vm.createContext({});
+  vm.runInContext(fs.readFileSync(require.resolve('../js/flow-map/chat/flowMapChatConversation.js'), 'utf8'), context);
+  const create = vm.runInContext('createFlowMapChatConversation', context);
+  const api = create({ normalize: value => String(value).toLowerCase(), hasAny: (text, words) => words.some(word => text.includes(word)), attachmentContext: items => items });
+  const code = 'const text = "à\\n";\n'.repeat(10000);
+  const messages = [{ role: 'user', content: 'first' }, { role: 'assistant', content: code }, { role: 'user', content: 'current' }];
+  const conversation = api.flowPromptConversationContext(messages, 'current');
+  assert.equal(conversation.recent.length, 2);
+  assert.equal(conversation.recent[1].content, code);
+  assert.ok(api.flowPromptProviderHistory(conversation).includes(JSON.stringify(code)));
+  const observations = [{ request: { action: 'edit' }, observation: { status: 'applied', fullText: code } }];
+  const options = { conversationContext: { ...conversation, lastPlan: { nodes: ['old'] }, lastReport: { summary: 'old' } }, toolObservations: observations };
+  const selections = []; const requests = [];
+  const result = await api.flowPromptReplyWithContextRecovery({ options,
+    send: async request => { requests.push(request); if (requests.length < 3) throw new Error('context_length_exceeded'); return 'done'; },
+    chooseHistory: async history => { assert.equal(history.length, 2 - selections.length); return 1; },
+    onSelection: async selected => selections.push(selected),
+  });
+  assert.equal(result, 'done');
+  assert.equal(selections[1].historySelection.omittedMessages, 2);
+  assert.equal(selections[1].recent.length, 0);
+  assert.equal(selections[1].lastPlan, null);
+  assert.equal(selections[1].lastReport, null);
+  assert.ok(requests.every(request => request.toolObservations === observations));
+  assert.equal(options.conversationContext.recent.length, 2);
+  assert.equal(messages[1].content, code);
+  assert.match(api.flowPromptProviderHistory(selections[1]), /explicitly omitted 2/);
+});
+
+test('conversation recovery rejects invalid selections and does not resend after selection persistence fails', async () => {
+  const { api } = setup();
+  const options = { conversationContext: { recent: [{ role: 'user', content: 'previous' }] } };
+  for (const selection of [-1, 0, 2, 0.5, '1', undefined]) {
+    let sends = 0;
+    await assert.rejects(api.recover({ options,
+      send: async () => { sends++; throw new Error('context_length_exceeded'); },
+      chooseHistory: async () => selection,
+      onSelection: async () => { throw new Error('unexpected persistence'); },
+    }), /Selezione del contesto non valida/);
+    assert.equal(sends, 1);
+  }
+  let sends = 0;
+  await assert.rejects(api.recover({ options,
+    send: async () => { sends++; throw new Error('context_length_exceeded'); },
+    chooseHistory: async () => 1,
+    onSelection: async () => { throw new Error('selection persistence failed'); },
+  }), /selection persistence failed/);
+  assert.equal(sends, 1);
+});
+
+test('isolated protocol parsing preserves embedded tool arguments and leaves actions as proposals', () => {
+  const context = vm.createContext({});
+  vm.runInContext(fs.readFileSync(require.resolve('../js/flow-map/chat/flowMapChatProtocol.js'), 'utf8'), context);
+  const api = vm.runInContext('flowMapChatProtocol', context);
+  const request = { type: 'tool_request', tool: 'tl.project.searchText', args: { query: 'braces { "quoted" } and \\ paths', nested: { value: false } } };
+  for (const source of [JSON.stringify(request), JSON.stringify(JSON.stringify(request)), `Before\n\`\`\`json\n${JSON.stringify(request)}\n\`\`\`\nAfter`]) {
+    assert.deepEqual(JSON.parse(JSON.stringify(api.flowPromptParseExternalToolRequest(source))), { tool: request.tool, args: request.args });
+  }
+  assert.equal(api.flowPromptParseExternalToolRequest('Ordinary prose {unfinished'), null);
+  assert.equal(api.flowPromptParseExternalProposedAction('not JSON'), null);
+  const action = api.flowPromptParseExternalProposedAction(JSON.stringify({ type: 'proposed_action', action: 'edit_graph', args: { nodeId: 'a' } }));
+  assert.equal(action.action, 'edit_graph');
+  assert.equal(action.args.nodeId, 'a');
+  const plan = { nodes: [{ key: 'a', config: { source: 'full code\n'.repeat(1000) } }], edges: [] };
+  assert.deepEqual(JSON.parse(JSON.stringify(api.flowPromptParseExternalProposedPlan(`\`\`\`json\n${JSON.stringify({type:'proposed_plan',plan})}\n\`\`\``))), plan);
+  assert.equal(api.flowPromptParseExternalProposedPlan('{"type":"proposed_plan","plan":[]}'), null);
+  assert.equal(api.flowPromptParseExternalAnswer('{"type":"answer","message":"Ready"}'), 'Ready');
+});
+
+test('isolated attachment reader retains originals, complete text and extraction diagnostics', async () => {
+  const context = vm.createContext({ TextDecoder, Uint8Array });
+  vm.runInContext(fs.readFileSync(require.resolve('../js/flow-map/chat/flowMapChatAttachments.js'), 'utf8'), context);
+  const create = vm.runInContext('createFlowMapChatAttachments', context);
+  const dataUrl = 'data:application/octet-stream;base64,AAECAw==';
+  const text = 'const value = "à";\n'.repeat(10000);
+  const signal = new AbortController().signal;
+  const calls = [];
+  const api = create({ messageId: prefix => `${prefix}-fixture`, readDataUrl: async file => { calls.push(file.name); return dataUrl; },
+    extractDocument: async (bytes, extension, receivedSignal) => {
+      assert.equal(extension, 'pdf'); assert.equal(receivedSignal, signal); assert.equal(bytes.length, 4);
+      return { text, warnings: ['layout warning'] };
+    } });
+  const file = (name, type, bytes) => ({ name, type, arrayBuffer: async () => Uint8Array.from(bytes).buffer });
+  const document = await api.flowPromptReadAttachment(file('original.pdf', 'application/pdf', [0,1,2,3]), signal);
+  assert.equal(document.text, text); assert.equal(document.dataUrl, dataUrl);
+  assert.equal(document.warnings[0], 'layout warning');
+  const image = await api.flowPromptReadAttachment(file('original.png', 'image/png', [0,1,2,3]), signal);
+  assert.equal(image.kind, 'image'); assert.equal(image.dataUrl, dataUrl);
+  const source = await api.flowPromptReadAttachment(file('source.js', 'text/javascript', new TextEncoder().encode(text)), signal);
+  assert.equal(source.text, text); assert.equal(source.kind, 'text');
+  assert.deepEqual(calls, ['original.pdf', 'original.png']);
+  await assert.rejects(api.flowPromptReadAttachment(file('binary.bin', '', [0,1,255]), signal), /formato non supportato/);
+  const cancelled = create({ messageId: () => 'id', readDataUrl: async () => { throw new Error('must not read original after failure'); }, extractDocument: async () => { throw new Error('Lettura allegati annullata.'); } });
+  await assert.rejects(cancelled.flowPromptReadAttachment(file('cancelled.pdf', '', [1]), signal), /cancelled.pdf: Lettura allegati annullata/);
 });
