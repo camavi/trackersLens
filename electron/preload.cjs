@@ -1,6 +1,27 @@
 const { contextBridge, ipcRenderer } = require("electron");
 
-const request = (command, payload = {}) => ipcRenderer.invoke("trackers-core:request", command, payload);
+const pendingPersistence = new Set();
+const request = (command, payload = {}) => {
+  const pending = ipcRenderer.invoke("trackers-core:request", command, payload);
+  if (command.startsWith('desktop.persistence.') || command === 'desktop.flowChat.applyNodeEdits') {
+    pendingPersistence.add(pending);
+    pending.then(() => pendingPersistence.delete(pending), () => pendingPersistence.delete(pending));
+  }
+  return pending;
+};
+const flushPersistence = async () => {
+  while (pendingPersistence.size) await Promise.all([...pendingPersistence]);
+};
+let prepareProjectClose = null;
+ipcRenderer.on('trackers-core:prepare-project-close', async (_event, token) => {
+  let error = '';
+  try {
+    if (prepareProjectClose) await prepareProjectClose();
+    else throw new Error('Editor ancora in caricamento. Riprova tra poco.');
+    await flushPersistence();
+  } catch (failure) { error = failure.message || String(failure); }
+  await request('desktop.project.prepared', { token, error });
+});
 const pythonPocEnabled = process.argv.includes("--tl-python-poc=1");
 const pythonNlpEnabled = process.argv.includes("--tl-python-nlp=1");
 
@@ -71,6 +92,19 @@ const trackers = Object.freeze({
         ipcRenderer.on("trackers-core:project-script-event", handler);
         return () => ipcRenderer.removeListener("trackers-core:project-script-event", handler);
       },
+    }),
+    project: Object.freeze({
+      getStatus: () => request('desktop.project.getStatus'),
+      reveal: () => request('desktop.project.reveal'),
+      flushPersistence,
+      onPrepareClose: (listener) => {
+        if (typeof listener !== 'function') throw new TypeError('Invalid project close listener');
+        prepareProjectClose = listener;
+        return () => { if (prepareProjectClose === listener) prepareProjectClose = null; };
+      },
+      open: () => request('desktop.project.open'),
+      openRecent: (id) => request('desktop.project.openRecent', { id: String(id || '') }),
+      close: () => request('desktop.project.close')
     }),
     persistence: Object.freeze({
       getStatus: ({ verifyIntegrity = false } = {}) => request("desktop.persistence.getStatus", { verifyIntegrity: verifyIntegrity === true }),

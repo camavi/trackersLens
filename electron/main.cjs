@@ -83,6 +83,40 @@ let pythonPoc = null;
 let pythonNlp = null;
 let pythonGraphRelations = null;
 let persistence = null;
+let projectRuntime = null;
+let projectSession = null;
+let trustedSession = null;
+let projectTransition = false;
+const projectArgument = process.argv.find(value => value.startsWith('--tl-project='));
+const projectDirectory = projectArgument ? projectArgument.slice('--tl-project='.length) : '';
+const closePreparations = new Map();
+const prepareEditorClose = (window) => new Promise((resolve, reject) => {
+  const token = crypto.randomUUID();
+  const destroyed = () => { closePreparations.delete(token); reject(new Error('Editor chiuso prima della conferma del salvataggio.')); };
+  closePreparations.set(token, { ownerId: window.webContents.id, finish: (error = '') => {
+    window.webContents.removeListener('destroyed', destroyed);
+    closePreparations.delete(token);
+    error ? reject(new Error(error)) : resolve();
+  } });
+  window.webContents.once('destroyed', destroyed);
+  window.webContents.send('trackers-core:prepare-project-close', token);
+});
+const relaunchProject = async (directory = '') => {
+  if (projectTransition) throw new Error('Cambio progetto già in corso.');
+  if (pythonPackInstaller.installing.size) throw new Error('Attendi il completamento dell’installazione Python prima di cambiare progetto.');
+  projectTransition = true;
+  try {
+    await prepareProjectExit();
+    const args = process.argv.slice(1).filter(value => !value.startsWith('--tl-project='));
+    if (directory) args.push('--tl-project=' + directory);
+    app.relaunch({ args });
+    shutdownComplete = true;
+    app.quit();
+  } catch (error) {
+    projectTransition = false;
+    throw error;
+  }
+};
 let nativeWorkSessions = null;
 let chatProjectSessions = null;
 const terminalOwners = new Set();
@@ -324,10 +358,10 @@ const isAllowedLocalNavigation = (value) => {
 
 const configureSessionSecurity = () => {
   const jsSwiftSpriteUrl = pathToFileURL(path.join(projectRoot, "node_modules", "jsswift", "dist", "img", "svg", "tabler-icons-sprite.svg")).toString();
-  session.defaultSession.webRequest.onBeforeRequest({ urls: ["file:///jsswift-fe/img/svg/tabler-icons-sprite.svg*"] }, (details, callback) => {
+  trustedSession.webRequest.onBeforeRequest({ urls: ["file:///jsswift-fe/img/svg/tabler-icons-sprite.svg*"] }, (details, callback) => {
     callback({ redirectURL: jsSwiftSpriteUrl + (new URL(details.url).hash || "") });
   });
-  session.defaultSession.webRequest.onHeadersReceived((details, callback) => {
+  trustedSession.webRequest.onHeadersReceived((details, callback) => {
     callback({
       responseHeaders: {
         ...details.responseHeaders,
@@ -364,6 +398,7 @@ const createWindow = () => {
     icon: websiteLogoIconPath,
     webPreferences: {
       preload: preloadPath,
+      session: trustedSession,
       additionalArguments: [
         ...(pythonPocEnabled ? ["--tl-python-poc=1"] : []),
         "--tl-python-nlp=1"
@@ -375,6 +410,11 @@ const createWindow = () => {
     }
   });
 
+  window.on('close', event => {
+    if (!projectSession || shutdownComplete) return;
+    event.preventDefault();
+    if (!projectTransition) app.quit();
+  });
   window.once("ready-to-show", () => window.show());
   window.webContents.setWindowOpenHandler(({ url }) => {
     if (isSafeExternalUrl(url)) void shell.openExternal(url);
@@ -390,16 +430,47 @@ const createWindow = () => {
   window.webContents.setVisualZoomLevelLimits(1, 1).catch(() => {});
 
   if (allowDevTools) window.webContents.openDevTools({ mode: "detach" });
-  window.loadFile(entryPoint);
+  window.loadFile(projectSession ? entryPoint : path.join(projectRoot, 'home.html'));
   return window;
 };
 
 ipcMain.handle("trackers-core:request", (event, command, payload) => {
-  if (/^desktop\.(account|catalog|externalAi|flowChat|chatProject|customNodePackages)\./.test(String(command || ""))) {
-    if (event.senderFrame !== event.sender.mainFrame || !isAllowedLocalNavigation(event.senderFrame.url) || event.sender.session !== session.defaultSession) {
+  if (/^desktop\.(project|account|catalog|externalAi|flowChat|chatProject|customNodePackages)\./.test(String(command || ""))) {
+    if (event.senderFrame !== event.sender.mainFrame || !isAllowedLocalNavigation(event.senderFrame.url) || event.sender.session !== trustedSession) {
       throw new Error("Account requests require the trusted desktop shell.");
     }
   }
+  if (command === 'desktop.project.prepared') {
+    const preparation = closePreparations.get(String(payload?.token || ''));
+    if (!preparation || preparation.ownerId !== event.sender.id) throw new Error('Conferma salvataggio non valida.');
+    preparation.finish(String(payload?.error || ''));
+    return { accepted: true };
+  }
+  if (command === 'desktop.project.reveal') {
+    if (!projectSession) throw new Error('Nessun progetto aperto.');
+    return shell.openPath(projectSession.directory).then(error => { if (error) throw new Error(error); return { opened: true }; });
+  }
+  if (command === 'desktop.project.getStatus') return projectRuntime.status();
+  if (command === 'desktop.project.close') {
+    return relaunchProject().then(() => ({ closing: true }));
+  }
+  if (command === 'desktop.project.open' || command === 'desktop.project.openRecent') {
+    return (async () => {
+      let directory;
+      if (command === 'desktop.project.openRecent') directory = projectRuntime.resolveRecent(String(payload?.id || ''));
+      else {
+        const choice = await dialog.showOpenDialog(BrowserWindow.fromWebContents(event.sender), { title: 'Apri cartella progetto', properties: ['openDirectory', 'createDirectory'] });
+        if (choice.canceled) return { cancelled: true };
+        directory = choice.filePaths[0];
+      }
+      // Validate/create the selected project before scheduling the new session.
+      const selected = projectRuntime.open(directory, { activate: false });
+      await relaunchProject(selected.directory);
+      return { opening: true };
+    })();
+  }
+  if (!projectSession) throw new Error('Apri una cartella progetto dalla Home.');
+  if (projectTransition && !String(command).startsWith('desktop.persistence.') && !['desktop.externalAi.cancelMessage', 'desktop.chatProject.cancelScript'].includes(command)) throw new Error('Cambio progetto in corso.');
   if (['desktop.customNodePackages.discoverLocalAi', 'desktop.customNodePackages.previewLocalAiProfile', 'desktop.customNodePackages.applyLocalAiProfile', 'desktop.customNodePackages.discardLocalAiProfile', 'desktop.customNodePackages.previewSetup', 'desktop.customNodePackages.executeSetup', 'desktop.customNodePackages.discardSetup'].includes(command)) {
     const owner = event.sender;
     return tlCore.request(command, payload, { ownerId: owner.id, onProgress: progress => {
@@ -457,17 +528,38 @@ ipcMain.handle("trackers-custom-node-sandbox:tool", (event, message) => {
   return customNodeSandboxRunner.callTool({ senderId: event.sender.id, message: message && typeof message === "object" ? message : {} });
 });
 
+if (!app.requestSingleInstanceLock()) app.exit(0);
+app.on('second-instance', () => {
+  const window = BrowserWindow.getAllWindows().find(item => item.webContents.session === trustedSession);
+  if (window) { if (window.isMinimized()) window.restore(); window.focus(); }
+});
+
 app.whenReady().then(async () => {
-  persistence = new DesktopPersistence({ databasePath: path.join(app.getPath("userData"), "trackers-lens.sqlite") });
+  const { ProjectRuntime } = require('../core/desktop/project-runtime.cjs');
+  projectRuntime = new ProjectRuntime({ profileDirectory: path.join(app.getPath('userData'), 'profile') });
+  if (projectDirectory) {
+    try { projectSession = projectRuntime.open(projectDirectory); }
+    catch (error) { dialog.showErrorBox('Impossibile aprire il progetto', error.message); }
+  }
+  trustedSession = projectSession ? session.fromPath(path.join(projectSession.directory, '.tl', 'browser')) : session.defaultSession;
+  configureSessionSecurity();
+  if (!projectSession) {
+    createWindow();
+    app.on('activate', () => { if (!BrowserWindow.getAllWindows().length) createWindow(); });
+    return;
+  }
+  const profilePersistence = new DesktopPersistence({ databasePath: path.join(app.getPath('userData'), 'profile', 'profile.sqlite') });
+  profilePersistence.initialize();
+  persistence = new DesktopPersistence({ databasePath: projectSession.databasePath, profileId: projectSession.id, profilePersistence });
   const chatProject = new ChatProjectWorkspace({ persistence, selectDirectory: async () => {
     const result = await dialog.showOpenDialog({ title: "Scegli la cartella del progetto per la chat", properties: ["openDirectory"] });
     return result.canceled ? "" : String(result.filePaths?.[0] || "");
   } });
   chatProjectSessions = chatProject.terminals;
-  nativeWorkSessions = new ExternalAiWorkSessions({ persistence, directory: path.join(app.getPath("userData"), "ai-work-sessions"), runner: runChatProcess });
+  nativeWorkSessions = new ExternalAiWorkSessions({ persistence, directory: path.join(projectSession.directory, ".tl", "ai-work-sessions"), runner: runChatProcess });
   externalAiProviderBridge = new ExternalAiProviderBridge({ loginLauncher: launchExternalAiLogin, chatRunner: runExternalAiChat });
   customNodePackageManager = new CustomNodePackageManager({
-    packagesDirectory: path.join(app.getPath("userData"), "customNode"),
+    packagesDirectory: projectSession.packagesDirectory,
     persistence
   });
   const customNodeLocalAi = new CustomNodeLocalAi({ persistence });
@@ -610,7 +702,7 @@ app.whenReady().then(async () => {
       if (!archive.length || archive.toString("base64") !== String(archiveBase64) || crypto.createHash("sha256").update(archive).digest("hex") !== String(expectedHash).toLowerCase()) throw new Error("Hash archivio marketplace non valido.");
       const inspection = require("../core/desktop/custom-node-package-manager.cjs").inspectArchive(archive);
       const importId = crypto.randomUUID();
-      const directory = path.join(app.getPath("userData"), "customNode", ".drafts");
+      const directory = path.join(projectSession.packagesDirectory, ".drafts");
       await fs.promises.mkdir(directory, { recursive: true });
       const archivePath = path.join(directory, `${importId}.tl-node.zip`);
       await fs.promises.writeFile(archivePath, archive, { flag: "wx" });
@@ -634,7 +726,7 @@ app.whenReady().then(async () => {
         : zipStored({ "node.json": JSON.stringify(manifest), "runtime.js": String(source || "") });
       const inspection = inspectArchive(bytes);
       const importId = crypto.randomUUID();
-      const directory = path.join(app.getPath("userData"), "customNode", ".drafts");
+      const directory = path.join(projectSession.packagesDirectory, ".drafts");
       await fs.promises.mkdir(directory, { recursive: true });
       const archivePath = path.join(directory, `${importId}.tl-node.zip`);
       await fs.promises.writeFile(archivePath, bytes, { flag: "wx" });
@@ -695,8 +787,6 @@ app.whenReady().then(async () => {
     }
   });
   persistence.initialize();
-  if (fs.existsSync(path.join(app.getPath("userData"), "custom-node-packages"))) await customNodePackageManager.migrateLegacyDirectory(path.join(app.getPath("userData"), "custom-node-packages"));
-  configureSessionSecurity();
   createWindow();
   app.on("activate", () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
@@ -707,4 +797,38 @@ app.on("window-all-closed", () => {
   if (process.platform !== "darwin") app.quit();
 });
 
-app.on("before-quit", () => { customNodePythonRunner?.stop(); void pythonPoc?.stop?.(); void pythonNlp?.stop?.(); void pythonGraphRelations?.stop?.(); });
+let shutdownStarted = false;
+let shutdownComplete = false;
+const prepareProjectExit = async () => {
+  const windows = BrowserWindow.getAllWindows().filter(window => window.webContents.session === trustedSession);
+  for (const window of windows) {
+    externalChatRuns.cancelOwner(window.webContents.id);
+    projectScriptRuns.cancelOwner(window.webContents.id);
+    chatProjectSessions?.cancelOwner(window.webContents.id);
+  }
+  for (const executionId of customNodeSandboxRunner?.windows.keys() || []) customNodeSandboxRunner.close(executionId);
+  for (const run of externalAiLoginRuns.values()) run.child.kill();
+  const results = await Promise.allSettled([
+    customNodePythonRunner?.stop(), pythonPoc?.stop?.(), pythonNlp?.stop?.(), pythonGraphRelations?.stop?.(),
+    ...[...chatProjectSessions?.sessions.values() || []].map(item => item.pending)
+  ]);
+  results.filter(item => item.status === 'rejected').forEach(item => console.error('Runtime shutdown:', item.reason));
+  while (externalChatRuns.owners.size || projectScriptRuns.owners.size) await new Promise(resolve => setTimeout(resolve, 20));
+  if (projectSession) await Promise.all(windows.map(prepareEditorClose));
+  trustedSession?.flushStorageData();
+};
+app.on('before-quit', event => {
+  if (shutdownComplete) return;
+  event.preventDefault();
+  if (shutdownStarted || projectTransition) return;
+  shutdownStarted = true;
+  projectTransition = true;
+  void prepareProjectExit().then(() => {
+    shutdownComplete = true;
+    app.quit();
+  }, error => {
+    shutdownStarted = false;
+    projectTransition = false;
+    dialog.showErrorBox('Salvataggio progetto non completato', error.message);
+  });
+});

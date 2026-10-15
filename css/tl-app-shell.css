@@ -37,3 +37,6 @@
   min-height: 0;
   overflow: hidden;
 }
+.tl-project-switch { border: 0; border-radius: 0; padding: 0 16px; }
+.tl-project-switch .jss-btn-content { display: flex; align-items: center; gap: 10px; width: 100%; }
+.tl-project-switch .jss-btn-content > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

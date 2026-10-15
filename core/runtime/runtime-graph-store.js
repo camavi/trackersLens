@@ -392,20 +392,33 @@ window.TrackerLensRuntimeGraphStore = (() => {
     return saved;
   };
 
+  const pendingMutations = new Set();
+  let mutationQueue = Promise.resolve();
+  const trackMutation = (mutate) => (...args) => {
+    const operation = mutationQueue.then(() => mutate(...args));
+    mutationQueue = operation.catch(() => {});
+    pendingMutations.add(operation);
+    operation.then(() => pendingMutations.delete(operation), () => pendingMutations.delete(operation));
+    return operation;
+  };
+  const flush = async () => {
+    while (pendingMutations.size) await Promise.all([...pendingMutations]);
+  };
   return {
+    flush,
     STORES,
-    cleanupConnectionReferences,
-    createDraftNode,
-    deleteRuntimeNodeReferences,
+    cleanupConnectionReferences: trackMutation(cleanupConnectionReferences),
+    createDraftNode: trackMutation(createDraftNode),
+    deleteRuntimeNodeReferences: trackMutation(deleteRuntimeNodeReferences),
     ensureStores,
-    putRecords,
-    promoteDraftNode,
-    deleteRecords,
+    putRecords: trackMutation(putRecords),
+    promoteDraftNode: trackMutation(promoteDraftNode),
+    deleteRecords: trackMutation(deleteRecords),
     readAll,
-    syncWorkspaceGraph,
-    upsertDependency,
-    upsertRuntimeNode,
-    updateFlowNodePosition,
+    syncWorkspaceGraph: trackMutation(syncWorkspaceGraph),
+    upsertDependency: trackMutation(upsertDependency),
+    upsertRuntimeNode: trackMutation(upsertRuntimeNode),
+    updateFlowNodePosition: trackMutation(updateFlowNodePosition),
     usesDesktopSqlite,
   };
 })();

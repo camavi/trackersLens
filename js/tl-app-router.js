@@ -47,6 +47,14 @@ window.TrackerLensAppRouter = (() => {
     await previous.view.dispose?.({ outlet, location: previous.location });
   };
 
+  const rememberLocation = () => {
+    const location = currentLocation();
+    try {
+      const query = location.query.toString();
+      window.localStorage?.setItem('tl.project.lastRoute', `${location.path.slice(1)}${query ? '?' + query : ''}${location.hash}`);
+    } catch (_) { /* Route restoration is optional; project records use SQLite. */ }
+  };
+
   const render = async () => {
     if (!outlet) throw new Error("TrackerLensAppRouter requires an outlet before rendering.");
     const location = currentLocation();
@@ -57,6 +65,7 @@ window.TrackerLensAppRouter = (() => {
     try {
       await view.mount({ outlet, location });
       active = { view, location };
+      rememberLocation();
     } catch (error) {
       throw error;
     }
@@ -86,6 +95,17 @@ window.TrackerLensAppRouter = (() => {
     window.addEventListener("popstate", () => {
       void render();
     });
+    if (currentLocation().path === '/app.html') {
+      try {
+        const saved = window.localStorage?.getItem('tl.project.lastRoute');
+        if (saved) {
+          const target = new URL(saved, window.location.href);
+          if (target.origin === window.location.origin && resolve(target.pathname)) {
+            window.history.replaceState({}, '', shellUrlFor(target));
+          }
+        }
+      } catch (_) { /* Open Library if local route state is unavailable. */ }
+    }
     await render();
   };
 
@@ -97,6 +117,10 @@ window.TrackerLensAppRouter = (() => {
     registeredRoutes: Array.from(routes.keys()),
   });
 
-  const api = { register, navigate, start, render, resolve, currentLocation, status, canonicalize: shellUrlFor };
+  const api = { register, navigate, start, render, resolve, currentLocation, status, rememberLocation, prepareClose: async () => {
+    rememberLocation();
+    await active?.view.prepareClose?.({ outlet, location: active.location });
+    await disposeActive();
+  }, canonicalize: shellUrlFor };
   return api;
 })();

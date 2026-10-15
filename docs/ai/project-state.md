@@ -43,7 +43,7 @@ These page names are routes within `app.html`; legacy standalone entry files are
 - Processor, Action, Storage and AI Agent runtimes exist and are orchestrated by a runtime worker/controller when Flow Map/workspace is open.
 - Event logs, channel registry, dependency manager, time travel, package system, offline queue/cache and AI memory exist as usable foundations.
 - Some background persistence still depends on an open page; service worker/extension hardening remains future work.
-- Electron desktop starts TL Core-owned SQLite in the app-data directory before loading Flow Map.
+- Electron starts on a project Home. Opening a folder initializes Core-owned `.tl/workspace.sqlite` and project Custom Nodes/editor state; personal settings/provider credentials stay in separate profile SQLite. No global test-data migration runs. See `runtime/project-runtime.md`.
 - `core/desktop/tl-core.cjs` owns the allow-listed desktop persistence boundary; renderer code has no database handle or SQL capability.
 - The runtime manifest now carries a backward-compatible `execution` envelope via `tl-node-execution/v1`. JavaScript is the sole available execution runtime; Python is represented only as an unavailable future capability.
 - Runtime Manager base is active for Flow Map node execution. It registers JavaScript only and delegates to the existing node-controller task path, preserving current Worker/Event Bus behavior.

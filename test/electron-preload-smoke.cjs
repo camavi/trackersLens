@@ -13,6 +13,7 @@ let fixturePythonInstalled = false;
 const pythonExecutionFixture = { runtime: "python", entry: "runtime.py", dependencies: { python: { packId: "trackerslens.data.tabular", environment: "data", requirements: [{ name: "pandas", version: "==2.2.3" }] } } };
 
 ipcMain.handle("trackers-core:request", (_event, command, payload) => {
+  if (command === 'desktop.project.getStatus') return { active: { id: 'smoke', name: 'Smoke project' }, recent: [] };
   if (command === "runtime.pythonRuntime.getInstallPlan") return { pack: { id: payload.packId, version: "0.1.0" }, environment: { id: "data", action: "create" }, requirements: [{ name: "pandas", version: "2.2.3" }], models: [], network: { required: true }, integrity: { lockfile: "runtimes/python/packs/data/requirements.lock" } };
   if (command === "runtime.pythonRuntime.installPack") {
     assert.equal(payload.confirmed, true);

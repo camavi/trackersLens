@@ -5,6 +5,10 @@ Read when: changing desktop storage, SQLite, persistence bridge or repository AP
 Do not read when: changing browser-only compatibility code.
 Last updated: 2026-08-25.
 
+## Folder project authority (2026-10-15)
+
+Desktop Main now supplies `.tl/workspace.sqlite` from the selected project folder. The previous global `trackers-lens.sqlite` is never opened by production startup. The separate personal `profile/profile.sqlite` owns `tl_settings` and `tl_ai_providers`, including Core's atomic local-provider compare-and-save; generic collection operations route these stores to that authority, and AI summaries combine sanitized personal provider metadata with project observations. Project legacy-bundle imports are rejected. Historical migration descriptions below describe the underlying persistence service, not a startup migration path. See [project-runtime.md](project-runtime.md).
+
 ## Decision
 
 SQLite is the only persistent store for the Electron desktop application. TL Core is its sole owner.
@@ -15,7 +19,7 @@ The database belongs to TL Core. Electron Main supplies only the app-data path a
 Renderer repositories
         │ validated persistence requests
         ▼
-TL Core persistence service ──► SQLite file in Electron userData
+TL Core persistence service ──► SQLite file in selected project/.tl
                                        │
                                        └─ schema, migrations, audit
 ```

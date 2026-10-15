@@ -204,6 +204,12 @@ window.TrackerLensViews.flowMap = {
     window.TrackerLensAppShell?.setActive?.("flow");
     startFlowMapLifecycle({ root: outlet });
   },
+  async prepareClose() {
+    if (state.interaction?.moved) persistNodePositions(state.interaction);
+    saveViewport(state.filters.workspaceId);
+    if (state.testRun?.running) await stopFlowMapTestRun();
+    await window.TrackerLensRuntimeGraphStore?.flush?.();
+  },
   dispose() {
     window.TrackerLensLlmInspector?.closeAll();
     stopFlowMapLifecycle({ clearRoot: true });

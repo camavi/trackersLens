@@ -45,6 +45,13 @@ Flow Chat nonblocking stdin sessions (TASK-032, 2026-10-05): `start_project_term
 
 ## Active
 
+### TASK-041: Folder Projects and Project Runtime
+
+Status: Implemented and verified for single-session folder projects (2026-10-15); user acceptance pending.
+Scope: dedicated Home, native open/create directory, opaque recent-project references, versioned project manifest, folder-owned SQLite/Custom Nodes/editor session state and explicit project switching. Core keeps personal settings and AI provider profiles in personal SQLite, account cookies/provider authentication outside the project, and shared Python/model installations. No test-data migration or backward compatibility, as requested.
+Evidence: `core/desktop/project-runtime.cjs`, desktop persistence routing, Main/preload and Home/shell integration; `runtime/project-runtime.md`; four real temporary-folder/SQLite tests, three graph flush/concurrent-save tests and `npm run test:projects:desktop`. Integrated suite: 264 pass, two optional skips. The seven-process Electron workflow verifies folder isolation, last Flow route/node/config/position restoration, unawaited final edits, rejected save/recovery, window close, real terminal cancellation/output flush, synthetic provider cancellation/final renderer persistence and recent reopening. Project menu shows the folder/save location and offers native reveal/direct open/close; reveal/picker/relaunch use fixtures. No live-provider/model or manual OS file-manager acceptance claim. Hot switching and simultaneous project windows remain outside this scope.
+
+
 ### TASK-040: JavaScript Responsibility Modularization
 
 Status: Implemented and verified for the seven-owner cycle (2026-10-10).

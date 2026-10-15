@@ -10,10 +10,46 @@
   }));
   window.TrackerLensAppShell = { setActive };
   setActive("library");
+  const projectBridge = window.trackers?.desktop?.project;
+  const projectName = _.span('Trackers Lens');
+  const openProjectMenu = async () => {
+    const status = await projectBridge.getStatus();
+    const errorBox = _.p({ role: 'alert' });
+    let busy = false;
+    const run = async action => {
+      if (busy) return;
+      busy = true;
+      errorBox.textContent = '';
+      try { await action(); } catch (error) { errorBox.textContent = error.message; }
+      finally { busy = false; }
+    };
+    const dialog = _.Dialog({ title: status.active?.name || 'Progetto', size: 'sm', closeButton: true,
+      content: () => _.div(
+        _.p({ style: { overflowWrap: 'anywhere' } }, status.active?.locationLabel || ''),
+        _.p('Flow Map e dati salvati in .tl/workspace.sqlite'),
+        errorBox,
+        _.Button({ icon: 'folder_open', label: 'Mostra cartella', onClick: () => run(() => projectBridge.reveal()) }),
+        _.Button({ label: 'Apri un’altra cartella', onClick: () => run(() => projectBridge.open()) }),
+        _.Button({ label: 'Chiudi progetto', onClick: () => run(() => projectBridge.close()) })
+      ), footer: () => [_.Button({ label: 'Chiudi', onClick: () => dialog.close() })] });
+    dialog.open();
+  };
+  const brand = projectBridge ? _.Button({
+    class: 'tl-desktop-app-brand tl-project-switch',
+    title: 'Progetto e cartella di salvataggio',
+    onClick: async () => {
+      try { await openProjectMenu(); } catch (error) { window.alert(error.message); }
+    }
+  }, _.img({ src: 'icons/logo128.png', alt: '', width: 28, height: 28 }), projectName, _.Icon({ name: 'folder_open' })) : window.TrackerLensSidebar.renderBrand({ className: 'tl-desktop-app-brand', showChevron: true });
+  if (projectBridge) projectBridge.getStatus().then(status => {
+    projectName.textContent = status.active?.name || 'Trackers Lens';
+    if (status.active?.locationLabel) brand.title = status.active.locationLabel;
+    if (status.active) document.title = `${status.active.name} — Trackers Lens`;
+  }).catch(console.error);
   root.replaceChildren(
     _.div(
       { class: "tl-desktop-shell" },
-      window.TrackerLensSidebar.renderBrand({ className: "tl-desktop-app-brand", showChevron: true }),
+      brand,
       rail,
       outlet
     )

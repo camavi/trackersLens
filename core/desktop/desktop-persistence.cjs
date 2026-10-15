@@ -249,7 +249,8 @@ const createBackupManifest = (catalog = {}) => {
 };
 
 class DesktopPersistence {
-  constructor({ databasePath = "", profileId = "default" } = {}) {
+  constructor({ databasePath = "", profileId = "default", profilePersistence = null } = {}) {
+    this.profilePersistence = profilePersistence;
     this.databasePath = databasePath ? path.resolve(databasePath) : "";
     this.profileId = String(profileId || "default");
     this.mode = DEFAULT_MODE;
@@ -402,6 +403,7 @@ class DesktopPersistence {
   }
 
   importFixture(bundle = {}) {
+    if (this.profilePersistence) throw new Error("Import legacy non disponibile nei progetti su cartella.");
     const plan = createImportPlan(bundle);
     this.initialize();
     const runId = `fixture_${hash(`${plan.manifestHash}:${this.profileId}`).slice(0, 20)}`;
@@ -429,6 +431,7 @@ class DesktopPersistence {
   }
 
   importDevelopmentBundle(bundle = {}) {
+    if (this.profilePersistence) throw new Error("Import legacy non disponibile nei progetti su cartella.");
     const plan = createImportPlan(bundle);
     if (!plan.eligibleForImport) throw new Error("Development import requires a complete first-cohort bundle.");
     this.initialize();
@@ -501,6 +504,7 @@ class DesktopPersistence {
   }
 
   readDevelopmentRecords({ storeName = "", workspaceId = "" } = {}) {
+    if (this.profilePersistence && ["tl_settings", "tl_ai_providers"].includes(String(storeName))) return this.profilePersistence.readDevelopmentRecords(arguments[0]);
     const name = String(storeName || "");
     if (!isAllowedRepositoryStore(name)) throw new Error(`Unsupported persistence store: ${name}`);
     if (!this.databasePath || !fs.existsSync(this.databasePath)) throw new Error("SQLite development candidate does not exist.");
@@ -531,6 +535,7 @@ class DesktopPersistence {
   }
 
   readDevelopmentRecordPage({ storeName = "", workspaceId = "", offset = 0, limit = 25 } = {}) {
+    if (this.profilePersistence && ["tl_settings", "tl_ai_providers"].includes(String(storeName))) return this.profilePersistence.readDevelopmentRecordPage(arguments[0]);
     const name = String(storeName || "");
     if (!isAllowedRepositoryStore(name)) throw new Error(`Unsupported persistence store: ${name}`);
     if (!this.databasePath || !fs.existsSync(this.databasePath)) throw new Error("SQLite development candidate does not exist.");
@@ -559,6 +564,7 @@ class DesktopPersistence {
   }
 
   readDevelopmentRecordSummaryPage({ storeName = "", workspaceId = "", offset = 0, limit = 25 } = {}) {
+    if (this.profilePersistence && ["tl_settings", "tl_ai_providers"].includes(String(storeName))) return this.profilePersistence.readDevelopmentRecordSummaryPage(arguments[0]);
     const name = String(storeName || "");
     if (!isAllowedRepositoryStore(name)) throw new Error(`Unsupported persistence store: ${name}`);
     if (!this.databasePath || !fs.existsSync(this.databasePath)) throw new Error("SQLite development candidate does not exist.");
@@ -585,6 +591,7 @@ class DesktopPersistence {
   }
 
   readDevelopmentRecordById({ storeName = "", id = "" } = {}) {
+    if (this.profilePersistence && ["tl_settings", "tl_ai_providers"].includes(String(storeName))) return this.profilePersistence.readDevelopmentRecordById(arguments[0]);
     const name = String(storeName || "");
     const recordId = String(id || "");
     if (!isAllowedRepositoryStore(name)) throw new Error(`Unsupported persistence store: ${name}`);
@@ -600,6 +607,7 @@ class DesktopPersistence {
   }
 
   readDevelopmentRecordForWorkspace({ storeName = "", id = "", workspaceId = "" } = {}) {
+    if (this.profilePersistence && ["tl_settings", "tl_ai_providers"].includes(String(storeName))) return this.profilePersistence.readDevelopmentRecordForWorkspace(arguments[0]);
     const name = String(storeName || "");
     const recordId = String(id || "");
     const workspace = String(workspaceId || "");
@@ -725,6 +733,7 @@ class DesktopPersistence {
   }
 
   readLatestDevelopmentRecord({ storeName = "", nodeId = "", runId = "" } = {}) {
+    if (this.profilePersistence && ["tl_settings", "tl_ai_providers"].includes(String(storeName))) return this.profilePersistence.readLatestDevelopmentRecord(arguments[0]);
     const name = String(storeName || "");
     const targetNodeId = String(nodeId || "");
     const targetRunId = String(runId || "");
@@ -1016,7 +1025,7 @@ class DesktopPersistence {
           const content = recordContent(parseStoredJson(row.record_json));
           return { id: String(row.id || ""), name: String(content?.name || content?.title || content?.key || "Memory"), kind: String(content?.kind || content?.type || "memory"), scope: String(content?.scope || "workspace"), workspaceId: String(content?.workspaceId || "global"), status: String(content?.status || "active"), pinned: Boolean(content?.pinned), updatedAt: String(content?.updatedAt || row.updatedAt || ""), stored: true };
         });
-      return { providers, agents: count("tl_ai_agents") + count("tl_ai_runtime"), jobs: count("tl_ai_jobs"), memory, memoryPage: { total: totalMemory, offset: safeOffset, limit: safeLimit, hasMore: safeOffset + memory.length < totalMemory } };
+      return { providers: this.profilePersistence ? this.profilePersistence.readAiDevToolsSummary().providers : providers, agents: count("tl_ai_agents") + count("tl_ai_runtime"), jobs: count("tl_ai_jobs"), memory, memoryPage: { total: totalMemory, offset: safeOffset, limit: safeLimit, hasMore: safeOffset + memory.length < totalMemory } };
     } finally {
       database.close();
     }
@@ -1047,7 +1056,7 @@ class DesktopPersistence {
       const memory = readPage("tl_ai_memory", safeMemoryLimit, safeMemoryOffset).map(({ row, content }) => ({ id: String(row.id), storeName: "tl_ai_memory", name: String(content.name || content.title || content.key || "Memory"), meta: String(content.meta || content.description || content.summary || content.updatedAt || row.updatedAt || "Context locale"), count: Array.isArray(content.items) ? content.items.length : Number(content.count || content.itemsCount || 1), icon: String(content.icon || "database"), scope: String(content.scope || "workspace"), updatedAt: String(content.updatedAt || row.updatedAt || ""), stored: true }));
       const prompts = ["tl_ai_prompts", "tl_ai_prompt_flows"].flatMap((storeName) => read(storeName).map(({ row, content }) => ({ id: String(row.id), storeName, name: String(content.name || content.title || "Prompt"), description: String(content.description || content.summary || content.meta || "Prompt salvato"), category: String(content.category || content.group || content.type || "Generale"), icon: String(content.icon || "psychology"), tone: String(content.tone || content.color || "gold"), updatedAt: String(content.updatedAt || row.updatedAt || ""), stored: true })));
       const count = (storeName) => Number(database.prepare("SELECT COUNT(*) AS count FROM tl_records WHERE store_name = ?").get(storeName)?.count) || 0;
-      return { providers, agents: [...agentSummary("tl_ai_agents", "template"), ...agentSummary("tl_ai_runtime", "runtime")], jobs, jobsPage: { total: totalJobs, offset: safeJobsOffset, limit: safeJobsLimit, hasMore: safeJobsOffset + jobs.length < totalJobs }, logs, logsPage: { total: totalLogs, offset: safeLogsOffset, limit: safeLogsLimit, hasMore: safeLogsOffset + logs.length < totalLogs }, memory, memoryPage: { total: totalMemory, offset: safeMemoryOffset, limit: safeMemoryLimit, hasMore: safeMemoryOffset + memory.length < totalMemory }, promptFlows: prompts, pages: [], connections: [], widgets: [], stores: ["tl_ai_providers", "tl_ai_agents", "tl_ai_runtime", "tl_ai_jobs", "tl_ai_logs", "tl_ai_memory", "tl_ai_prompts", "tl_ai_prompt_flows"], counts: { metrics: count("tl_ai_metrics"), globalChats: count("tl_ai_global_chats") } };
+      return { providers: this.profilePersistence ? this.profilePersistence.readAiRuntimeCenterSummary().providers : providers, agents: [...agentSummary("tl_ai_agents", "template"), ...agentSummary("tl_ai_runtime", "runtime")], jobs, jobsPage: { total: totalJobs, offset: safeJobsOffset, limit: safeJobsLimit, hasMore: safeJobsOffset + jobs.length < totalJobs }, logs, logsPage: { total: totalLogs, offset: safeLogsOffset, limit: safeLogsLimit, hasMore: safeLogsOffset + logs.length < totalLogs }, memory, memoryPage: { total: totalMemory, offset: safeMemoryOffset, limit: safeMemoryLimit, hasMore: safeMemoryOffset + memory.length < totalMemory }, promptFlows: prompts, pages: [], connections: [], widgets: [], stores: ["tl_ai_providers", "tl_ai_agents", "tl_ai_runtime", "tl_ai_jobs", "tl_ai_logs", "tl_ai_memory", "tl_ai_prompts", "tl_ai_prompt_flows"], counts: { metrics: count("tl_ai_metrics"), globalChats: count("tl_ai_global_chats") } };
     } finally {
       database.close();
     }
@@ -1125,6 +1134,7 @@ class DesktopPersistence {
   }
 
   deleteDevelopmentRecordsByWorkspace({ storeName = "", workspaceId = "", includeRecordId = true } = {}) {
+    if (this.profilePersistence && ["tl_settings", "tl_ai_providers"].includes(String(storeName))) return this.profilePersistence.deleteDevelopmentRecordsByWorkspace(arguments[0]);
     const name = String(storeName || "");
     const workspace = String(workspaceId || "");
     if (!isAllowedRepositoryStore(name)) throw new Error(`Unsupported persistence store: ${name}`);
@@ -1305,6 +1315,7 @@ class DesktopPersistence {
 
   // Internal Core-only exact-profile compare-and-save; no renderer IPC route.
   commitLocalAiProfile({ expected = null, next } = {}) {
+    if (this.profilePersistence) return this.profilePersistence.commitLocalAiProfile({ expected, next });
     if (!next?.id) throw new Error('Identità del profilo richiesta.');
     const database = new DatabaseSync(this.databasePath);
     try {
@@ -1322,6 +1333,7 @@ class DesktopPersistence {
   }
 
   writeDevelopmentRecords({ storeName = "", records = [] } = {}) {
+    if (this.profilePersistence && ["tl_settings", "tl_ai_providers"].includes(String(storeName))) return this.profilePersistence.writeDevelopmentRecords(arguments[0]);
     const name = String(storeName || "");
     if (!isAllowedRepositoryStore(name)) throw new Error(`Unsupported persistence store: ${name}`);
     if (!Array.isArray(records)) throw new Error("Development records must be an array.");
@@ -1349,6 +1361,7 @@ class DesktopPersistence {
   }
 
   deleteDevelopmentRecords({ storeName = "", ids = [] } = {}) {
+    if (this.profilePersistence && ["tl_settings", "tl_ai_providers"].includes(String(storeName))) return this.profilePersistence.deleteDevelopmentRecords(arguments[0]);
     const name = String(storeName || "");
     if (!isAllowedRepositoryStore(name)) throw new Error(`Unsupported persistence store: ${name}`);
     if (!Array.isArray(ids)) throw new Error("Development record ids must be an array.");

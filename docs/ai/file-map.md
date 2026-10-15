@@ -78,6 +78,11 @@ Last updated: 2026-10-10.
 
 ## Electron Desktop Shell
 
+- `core/desktop/project-runtime.cjs`: selected-folder manifest, filesystem layout, recent-project registry and safe project metadata.
+- `home.html`, `js/project-home.js`, `css/project-home.css`: dedicated project Home with native open/create-folder and recent-project actions.
+- `docs/ai/runtime/project-runtime.md`: folder project/profile separation and session lifecycle.
+- `js/tl-project-session.js`: renderer close preparation and graph/IPC draining; Main owns close acknowledgment and process shutdown.
+
 - `package.json`: Electron scripts and development dependency.
 - `electron/main.cjs`: desktop lifecycle, secure BrowserWindow, CSP, validated IPC and navigation policy.
 - `electron/preload.cjs`: minimal renderer bridge; it must not expose Node.js, filesystem or unrestricted IPC.

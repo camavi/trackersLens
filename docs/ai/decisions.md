@@ -5,6 +5,10 @@ Read when: a change might conflict with architecture or product direction.
 Do not read when: making narrow UI/code fixes.
 Last updated: 2026-10-05.
 
+## Folder projects
+
+- 2026-10-15: replace the monolithic desktop project with one folder per application session. A new `workspace.tl.json` identifies the project; `.tl/workspace.sqlite` owns all project collections and `custom-nodes/` owns package archives/drafts. Chromium editor state and Core work-session directories also live under `.tl/`. `tl_pages` still identifies internal pages/Flows; project identity is an outer filesystem scope, not a new `tl_workspaces` collection. Personal settings and complete AI provider profiles belong to separate profile SQLite; account cookies and CLI login remain personal. Shared Python environments/models retain their existing managed owner. No old test-data migration or legacy package auto-import is performed. Initially switching uses app relaunch, draining attached commands/provider work, shutting down Python/sandbox runners and awaiting an owner-bound renderer graph/IPC flush acknowledgment; no hot-switch or multi-project window guarantee is made.
+
 ## JavaScript responsibility boundaries
 
 - 2026-10-10: preserve the existing classic-script entry points and public bindings while extracting Flow Map and Knowledge responsibilities into closure-scoped factories. Owners retain mutable state; explicit lazy getters preserve initialization order and live session replacements, with setters only for existing owner-variable assignments. Knowledge factories must load in both the app and runtime worker before its owner. `app.html` remains the authoritative app loader and verification checks every loaded source; `javascript-modules.json` records source ownership. This is structural separation, not an ES module migration, a second runtime/store or new consent authority. See `javascript-modularization.md` for scope and evidence.

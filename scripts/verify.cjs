@@ -4,6 +4,8 @@ const { spawnSync } = require('node:child_process');
 
 const syntaxFiles = [
   'electron/main.cjs',
+  'core/desktop/project-runtime.cjs',
+  'js/project-home.js',
   'electron/preload.cjs',
   'core/desktop/account-client.cjs',
   'core/desktop/catalog-client.cjs',
@@ -34,6 +36,8 @@ const syntaxFiles = [
 ];
 
 const tests = [
+  'test/project-runtime.test.cjs',
+  'test/project-graph-persistence.test.cjs',
   'test/node-edit-plan.test.cjs',
   'test/flow-chat-context.test.cjs',
   'test/javascript-modules.test.cjs',
