@@ -525,7 +525,7 @@ const createFlowMapPayloadEditor = (moduleDependencies) => {
               ?.style?.setProperty?.("--set-color", draft.iconColor);
             event.currentTarget
               ?.closest?.(".tl-flow-payload-item-dialog-body")
-              ?.querySelectorAll?.(".tl-flow-payload-icon-select .cms-addon .cms-icon")
+              ?.querySelectorAll?.(".tl-flow-payload-icon-select .jss-addon .jss-icon")
               ?.forEach?.((node) => {
                 node.style.color = draft.iconColor;
               });

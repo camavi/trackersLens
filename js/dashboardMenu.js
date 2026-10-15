@@ -9,13 +9,13 @@ class DashboardMenu {
     const menuLeft = _.div({ class: 'menu-left' });
     document.body.appendChild(menuLeft);
 
-    const btnSearchWidget = _.button(_.i({ class: 'cms-icon search' }));
+    const btnSearchWidget = _.button(_.i({ class: 'jss-icon search' }));
     menuLeft.appendChild(btnSearchWidget);
     btnSearchWidget.onclick = () => {
       this.searchWidget();
     };
 
-    const btnCreateWidget = _.button(_.i({ class: 'cms-icon plus' }));
+    const btnCreateWidget = _.button(_.i({ class: 'jss-icon plus' }));
     menuLeft.appendChild(btnCreateWidget);
     btnCreateWidget.onclick = () => {
       this.createNewWidget();

@@ -101,7 +101,7 @@ app.whenReady().then(async () => {
             const bounds = button.getBoundingClientRect();
             const label = button.querySelector('.tl-db-store-name');
             return { name: label.textContent, visible: label.getBoundingClientRect().width > 50,
-              contained: [...button.querySelector('.cms-btn-content').children].every(child => {
+              contained: [...button.querySelector('.jss-btn-content').children].every(child => {
                 const rect = child.getBoundingClientRect();
                 return rect.left >= bounds.left && rect.right <= bounds.right;
               }) };
@@ -144,7 +144,7 @@ app.whenReady().then(async () => {
         const filters = await window.webContents.executeJavaScript(`(() => {
           const buttons = [...document.querySelectorAll('.tl-link-type, .tl-link-filter-btn')];
           return buttons.map(button => {
-            const content = button.querySelector('.cms-btn-content');
+            const content = button.querySelector('.jss-btn-content');
             const label = content.children[1];
             const bounds = button.getBoundingClientRect();
             return { text: label.textContent, visible: label.getBoundingClientRect().width > 50,
@@ -252,7 +252,7 @@ app.whenReady().then(async () => {
         assert.equal(await window.webContents.executeJavaScript(`Boolean(document.querySelector('.tl-custom-review-dialog'))`), false);
         const chatDraft = await window.webContents.executeJavaScript(`(async () => {
           const draft = { manifest: {id:'custom.chat',name:'Chat draft',version:'1.0.0',publisher:'fixture',inputs:['input'],outputs:['output'],permissions:{},runtime:{entry:'runtime.js',mode:'sandboxed'}}, source:'export async function run({input,emit}) { await emit("output", input); }' };
-          const pending = window.TrackerLensReviewChatNodeDraft(draft);
+          const pending = window.TrackerLensReviewChatNodeDraft({ ...draft, reviewOnly: true });
           const source = document.querySelector('[aria-label="Script proposto"]');
           if (!source) throw new Error('Missing Chat source editor');
           source.value += '\\n// user revision';
@@ -264,7 +264,7 @@ app.whenReady().then(async () => {
           document.querySelector('.tl-custom-review-dialog [aria-label="Annulla"]').click();
           const result = await pending;
           await new Promise(resolve => setTimeout(resolve, 200));
-          const cancelled = window.TrackerLensReviewChatNodeDraft(draft);
+          const cancelled = window.TrackerLensReviewChatNodeDraft({ ...draft, reviewOnly: true });
           Array.from(document.querySelectorAll('[aria-label="Annulla"]')).at(-1).click();
           return { status: result.status, edited: result.source.includes('user revision'), review, cancelled: (await cancelled).status };
         })()`);
@@ -351,7 +351,7 @@ app.whenReady().then(async () => {
           const effort = form.querySelector('[data-reasoning-field]');
           const tabPanel = form.querySelector('.tl-ai-agent-tabs');
           const navTabs = Array.from(tabPanel?.querySelectorAll('[role="tab"]') || []);
-          const result = { reasoningSelect: effort?.querySelector('[name="reasoningEffort"]')?.type === 'hidden', reasoningLevels: effort?.textContent.includes('Medio') && effort?.textContent.includes('Ultra') && effort?.textContent.includes('Massimo'), apiFieldsHidden: temperature?.style.display === 'none', hiddenType: type?.type === 'hidden', type: type?.value, modelInput: host?.querySelector('[name="model"]')?.type, catalog: host?.textContent.includes('fixture-model'), select: Boolean(host?.querySelector('[role="combobox"], select, .jss-select')), iconTabs: navTabs.length > 0 && navTabs.every(tab => Boolean(tab.querySelector('.cms-tabpanel-tab-icon')) && Boolean(tab.getAttribute('aria-label')) && Boolean(tab.closest('.cms-tabpanel-nav-btn')?.title)) };
+          const result = { reasoningSelect: effort?.querySelector('[name="reasoningEffort"]')?.type === 'hidden', reasoningLevels: effort?.textContent.includes('Medio') && effort?.textContent.includes('Ultra') && effort?.textContent.includes('Massimo'), apiFieldsHidden: temperature?.style.display === 'none', hiddenType: type?.type === 'hidden', type: type?.value, modelInput: host?.querySelector('[name="model"]')?.type, catalog: host?.textContent.includes('fixture-model'), select: Boolean(host?.querySelector('[role="combobox"], select, .jss-select')), iconTabs: navTabs.length > 0 && navTabs.every(tab => Boolean(tab.querySelector('.jss-tabpanel-tab-icon')) && Boolean(tab.getAttribute('aria-label')) && Boolean(tab.closest('.jss-tabpanel-nav-btn')?.title)) };
           dialog.close();
           return result;
         })()`);

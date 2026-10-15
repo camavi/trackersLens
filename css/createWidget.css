@@ -15,7 +15,7 @@ pre {
 .ce-content .tab-content {
   min-height: calc(var(--ce-popup-h) - 80px);
   overflow: auto;
-  background-color: var(--cms-color-bg-3);
+  background-color: var(--jss-color-bg-3);
   padding: 20px;
   box-sizing: border-box;
   height: calc(100% - 110px);
@@ -39,8 +39,8 @@ pre {
 
 .ce-content .tab-bar-content .btn-title.active {
   border: 0;
-  background-color: var(--cms-color-bg-3);
-  color: var(--cms-color-01);
+  background-color: var(--jss-color-bg-3);
+  color: var(--jss-color-01);
 }
 
 .ce-content .tab-content .item-content {
@@ -61,15 +61,15 @@ pre {
   height: 100%;
 }
 
-.ce-content .cms-placeholder {
+.ce-content .jss-placeholder {
   padding: 2px 12px;
   border-radius: 4px;
   font-weight: 100;
   height: 30px;
   box-sizing: border-box;
-  background-color: var(--cms-color-input-bg);
-  border: 1px solid var(--cms-color-input-border);
-  color: var(--cms-color-input-text);
+  background-color: var(--jss-color-input-bg);
+  border: 1px solid var(--jss-color-input-border);
+  color: var(--jss-color-input-text);
   position: relative;
 }
 
@@ -77,16 +77,16 @@ pre {
   padding: 2px 12px;
   border-radius: 4px;
   box-sizing: border-box;
-  background-color: var(--cms-color-input-bg);
-  border: 1px solid var(--cms-color-input-border);
-  color: var(--cms-color-input-text);
+  background-color: var(--jss-color-input-bg);
+  border: 1px solid var(--jss-color-input-border);
+  color: var(--jss-color-input-text);
 }
 
-.ce-content .cms-placeholder-label {
+.ce-content .jss-placeholder-label {
   line-height: 100%;
 }
 
-.ce-content .cms-placeholder:focus-visible,
+.ce-content .jss-placeholder:focus-visible,
 .ce-content .item-textarea:focus-visible {
   outline: none;
 }
@@ -95,10 +95,10 @@ pre {
   opacity: .2;
 }
 
-.cms-select-content .category {
+.jss-select-content .category {
   color: #ffffff;
 }
 
-.cms-select-content .widget {
+.jss-select-content .widget {
   margin-left: 15px;
 }

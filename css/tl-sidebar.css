@@ -29,7 +29,7 @@ body .tl-brand-lockup .tl-brand-title span {
   color: var(--tl-accent);
 }
 
-body .tl-brand-lockup .cms-icon {
+body .tl-brand-lockup .jss-icon {
   flex: 0 0 auto;
 }
 
@@ -52,8 +52,8 @@ body .tl-brand-lockup .cms-icon {
   gap: 20px;
 }
 
-.tl-view-side-btn.cms-btn,
-.tl-view-profile.cms-btn {
+.tl-view-side-btn.jss-btn,
+.tl-view-profile.jss-btn {
   width: 44px;
   min-width: 44px;
   color: rgba(245, 247, 250, 0.86);
@@ -63,7 +63,7 @@ body .tl-brand-lockup .cms-icon {
   padding: 0;
 }
 
-.tl-view-side-btn.is-active.cms-btn {
+.tl-view-side-btn.is-active.jss-btn {
   color: #fff;
   background: linear-gradient(180deg, #d99a00, #7a5200);
   box-shadow: 0 14px 28px rgba(255, 199, 44, 0.24);
@@ -82,7 +82,7 @@ body .tl-brand-lockup .cms-icon {
   gap: 8px;
 }
 
-.tl-view-profile.cms-btn {
+.tl-view-profile.jss-btn {
   position: relative;
   width: 48px;
   min-width: 48px;
@@ -94,7 +94,7 @@ body .tl-brand-lockup .cms-icon {
   background: rgba(9, 20, 31, 0.72);
 }
 
-.tl-view-profile.is-active.cms-btn {
+.tl-view-profile.is-active.jss-btn {
   border-color: rgba(255, 199, 44, 0.62);
   box-shadow: 0 0 28px rgba(255, 199, 44, 0.28);
 }

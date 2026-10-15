@@ -192,16 +192,16 @@ body {
   cursor: pointer;
 }
 
-.cms-popup.popup-tl>.content {
+.jss-popup.popup-tl>.content {
   background: #0000006e;
   width: 80vw;
 }
 
-.cms-popup.pc-create-container {
+.jss-popup.pc-create-container {
   padding-top: 0;
 }
 
-.cms-popup.pc-create-container>.content {
+.jss-popup.pc-create-container>.content {
   border: 0;
   background: #0000006e;
   height: 100vh;
@@ -210,7 +210,7 @@ body {
   background: linear-gradient(to bottom, rgba(0, 0, 0, 1) 0%, rgb(0 0 0 / 10%) 100%);
 }
 
-.cms-popup.pc-create-container .content .close {
+.jss-popup.pc-create-container .content .close {
   opacity: 1;
   top: 10px;
   right: 10px;

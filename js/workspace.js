@@ -537,7 +537,7 @@ const setActiveTool = (toolId) => {
 const renderAssetCard = (asset) =>
   _.div(
     {
-      class: `tl-asset-card cms-card${workspaceState.selectedAssetId === asset.id ? " is-selected" : ""}`,
+      class: `tl-asset-card jss-card${workspaceState.selectedAssetId === asset.id ? " is-selected" : ""}`,
       draggable: true,
       "data-asset-id": asset.id,
       onclick: () => {
@@ -558,7 +558,7 @@ const renderAssetCard = (asset) =>
       },
     },
     _.div(
-      { class: "cms-card-body" },
+      { class: "jss-card-body" },
       _.span({ class: "tl-asset-icon", style: { "--asset-color": asset.color } }, icon(asset.icon, "sm")),
       _.div(_.div({ class: "tl-asset-name" }, asset.name), _.div({ class: "tl-asset-type" }, asset.category || asset.note || asset.type)),
       asset.isTemplate
@@ -2144,7 +2144,7 @@ const redoWorkspace = () => {
 const handleWorkspaceKeys = (event) => {
   if (
     event.target?.matches?.("input, textarea, select, [contenteditable='true']") ||
-    event.target?.closest?.(".cms-dialog, .cm-editor, .cm-content")
+    event.target?.closest?.(".jss-dialog, .cm-editor, .cm-content")
   ) return;
   const key = event.key.toLowerCase();
   if ((event.metaKey || event.ctrlKey) && key === "s") {

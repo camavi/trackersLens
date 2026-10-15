@@ -22,7 +22,7 @@
   box-shadow: 0 0 14px rgba(255, 199, 44, 0.85);
 }
 
-.tl-ai-agent-runtime-panel.cms-dialog,
+.tl-ai-agent-runtime-panel.jss-dialog,
 .tl-ai-agent-runtime-panel {
   width: min(1180px, calc(100vw - 72px));
   color: var(--tl-text);
@@ -32,7 +32,7 @@
   box-shadow: 0 28px 90px rgba(0, 0, 0, 0.48), 0 0 42px rgba(255, 199, 44, 0.12);
 }
 
-.tl-ai-agent-runtime-panel .cms-dialog-head {
+.tl-ai-agent-runtime-panel .jss-dialog-head {
   min-height: 104px;
   align-items: center;
   padding: 16px 24px 16px 28px;
@@ -42,12 +42,12 @@
     linear-gradient(135deg, rgba(255, 255, 255, 0.035), rgba(255, 255, 255, 0.01));
 }
 
-.tl-ai-agent-runtime-panel .cms-dialog-head-main {
+.tl-ai-agent-runtime-panel .jss-dialog-head-main {
   min-width: 0;
   gap: 5px;
 }
 
-.tl-ai-agent-runtime-panel .cms-dialog-icon {
+.tl-ai-agent-runtime-panel .jss-dialog-icon {
   width: 64px;
   height: 64px;
   flex: 0 0 64px;
@@ -60,12 +60,12 @@
   box-shadow: inset 0 0 28px rgba(255, 199, 44, 0.08), 0 0 24px rgba(255, 199, 44, 0.14);
 }
 
-.tl-ai-agent-runtime-panel .cms-dialog-icon .cms-icon,
-.tl-ai-agent-runtime-panel .cms-dialog-icon .material-symbols-outlined {
+.tl-ai-agent-runtime-panel .jss-dialog-icon .jss-icon,
+.tl-ai-agent-runtime-panel .jss-dialog-icon .material-symbols-outlined {
   color: #ffe27a !important;
 }
 
-.tl-ai-agent-runtime-panel .cms-dialog-title {
+.tl-ai-agent-runtime-panel .jss-dialog-title {
   color: #f7fafc;
   font-size: 22px;
   font-weight: 900;
@@ -73,7 +73,7 @@
   letter-spacing: 0;
 }
 
-.tl-ai-agent-runtime-panel .cms-dialog-subtitle {
+.tl-ai-agent-runtime-panel .jss-dialog-subtitle {
   max-width: min(720px, 70vw);
   overflow: hidden;
   color: var(--tl-text-muted);
@@ -84,7 +84,7 @@
   white-space: nowrap;
 }
 
-.tl-ai-agent-runtime-panel .cms-dialog-close {
+.tl-ai-agent-runtime-panel .jss-dialog-close {
   width: 54px;
   height: 54px;
   border-color: rgba(214, 226, 235, 0.22);
@@ -107,11 +107,11 @@
   gap: 8px;
 }
 
-.tl-ai-agent-tabs.cms-tabpanel {
+.tl-ai-agent-tabs.jss-tabpanel {
   min-height: 560px;
 }
 
-.tl-ai-agent-tabs .cms-tabpanel-nav {
+.tl-ai-agent-tabs .jss-tabpanel-nav {
   overflow-x: auto;
   padding: 4px;
   border: 1px solid rgba(214, 226, 235, 0.1);
@@ -119,18 +119,18 @@
   background: rgba(3, 9, 14, 0.58);
 }
 
-.tl-ai-agent-tabs .cms-tabpanel-tab.active.cms-btn {
+.tl-ai-agent-tabs .jss-tabpanel-tab.active.jss-btn {
   color: #161000;
   background: linear-gradient(180deg, #ffd84f, #d99a00);
 }
 
-.cms-tabpanel.horizontal.tl-ai-agent-tabs>.cms-tabpanel-nav>.cms-tabpanel-nav-btn .tab-indicator {
+.jss-tabpanel.horizontal.tl-ai-agent-tabs>.jss-tabpanel-nav>.jss-tabpanel-nav-btn .tab-indicator {
   background-color: #e6ca84;
   width: 90%;
   margin: 0 5%;
 }
 
-.tl-ai-agent-tabs .cms-tabpanel-panels {
+.tl-ai-agent-tabs .jss-tabpanel-panels {
   min-height: 470px;
   margin-top: 12px;
   padding: 14px;
@@ -157,16 +157,16 @@
   gap: 6px;
 }
 
-.tl-ai-agent-runtime-editor .cms-select .cms-mid,
-.tl-ai-agent-runtime-editor .tl-ai-agent-field .cms-mid {
+.tl-ai-agent-runtime-editor .jss-select .jss-mid,
+.tl-ai-agent-runtime-editor .tl-ai-agent-field .jss-mid {
   min-width: 0;
   min-height: 30px;
   display: flex;
   align-items: center;
 }
 
-.tl-ai-agent-runtime-editor .cms-select .cms-float-label,
-.tl-ai-agent-runtime-editor .tl-ai-agent-field .cms-float-label {
+.tl-ai-agent-runtime-editor .jss-select .jss-float-label,
+.tl-ai-agent-runtime-editor .tl-ai-agent-field .jss-float-label {
   top: 6px;
   transform: none;
   max-width: calc(100% - 34px);
@@ -178,8 +178,8 @@
   white-space: nowrap;
 }
 
-.tl-ai-agent-runtime-editor .cms-select [class*="value"],
-.tl-ai-agent-runtime-editor .cms-select [class*="label"],
+.tl-ai-agent-runtime-editor .jss-select [class*="value"],
+.tl-ai-agent-runtime-editor .jss-select [class*="label"],
 .tl-ai-agent-runtime-editor .tl-ai-agent-field [class*="value"] {
   min-width: 0;
   overflow: hidden;
@@ -516,7 +516,7 @@
   color: var(--tl-text);
   border: 1px solid rgba(214, 226, 235, 0.13);
   border-radius: 8px;
-  background-color: var(--cms-panel);
+  background-color: var(--jss-panel);
   font: 12px/1.45 ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
 }
 
@@ -556,23 +556,23 @@
 
 @media (max-width: 860px) {
 
-  .tl-ai-agent-runtime-panel.cms-dialog,
+  .tl-ai-agent-runtime-panel.jss-dialog,
   .tl-ai-agent-runtime-panel {
     width: calc(100vw - 24px);
   }
 
-  .tl-ai-agent-runtime-panel .cms-dialog-head {
+  .tl-ai-agent-runtime-panel .jss-dialog-head {
     min-height: 88px;
     padding: 14px 16px;
   }
 
-  .tl-ai-agent-runtime-panel .cms-dialog-icon {
+  .tl-ai-agent-runtime-panel .jss-dialog-icon {
     width: 48px;
     height: 48px;
     flex-basis: 48px;
   }
 
-  .tl-ai-agent-runtime-panel .cms-dialog-subtitle {
+  .tl-ai-agent-runtime-panel .jss-dialog-subtitle {
     max-width: 54vw;
   }
 
@@ -583,35 +583,35 @@
   }
 }
 /* Compact node settings navigation; names remain available to assistive tech. */
-.tl-ai-agent-tabs > .cms-tabpanel-nav .cms-tabpanel-tab-copy {
+.tl-ai-agent-tabs > .jss-tabpanel-nav .jss-tabpanel-tab-copy {
   display: none;
 }
 
-.tl-ai-agent-tabs > .cms-tabpanel-nav .cms-tabpanel-tab-icon,
-.tl-ai-agent-tabs > .cms-tabpanel-nav .cms-tabpanel-tab-icon .cms-icon {
+.tl-ai-agent-tabs > .jss-tabpanel-nav .jss-tabpanel-tab-icon,
+.tl-ai-agent-tabs > .jss-tabpanel-nav .jss-tabpanel-tab-icon .jss-icon {
   display: inline-flex;
   color: #d9e7f1;
   opacity: 1;
   visibility: visible;
 }
 
-.tl-ai-agent-tabs > .cms-tabpanel-nav .cms-tabpanel-tab.active .cms-tabpanel-tab-icon,
-.tl-ai-agent-tabs > .cms-tabpanel-nav .cms-tabpanel-tab.active .cms-tabpanel-tab-icon .cms-icon {
+.tl-ai-agent-tabs > .jss-tabpanel-nav .jss-tabpanel-tab.active .jss-tabpanel-tab-icon,
+.tl-ai-agent-tabs > .jss-tabpanel-nav .jss-tabpanel-tab.active .jss-tabpanel-tab-icon .jss-icon {
   color: #171000;
 }
 
-.tl-ai-agent-tabs > .cms-tabpanel-nav > .cms-tabpanel-nav-btn {
+.tl-ai-agent-tabs > .jss-tabpanel-nav > .jss-tabpanel-nav-btn {
   flex: 0 0 auto;
 }
 
-.tl-ai-agent-tabs > .cms-tabpanel-nav [role="tab"] {
+.tl-ai-agent-tabs > .jss-tabpanel-nav [role="tab"] {
   width: 44px;
   min-width: 44px;
   height: 44px;
   padding: 10px;
 }
 
-.tl-ai-agent-tabs > .cms-tabpanel-nav .cms-tabpanel-tab-inner {
+.tl-ai-agent-tabs > .jss-tabpanel-nav .jss-tabpanel-tab-inner {
   justify-content: center;
   gap: 0;
 }

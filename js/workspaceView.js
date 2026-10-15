@@ -1028,7 +1028,7 @@ const refreshTrackerRow = (boxId) => {
   if (!row) return;
 
   const stat = trackerStat(box);
-  row.className = `tl-monitor-row cms-card is-${stat.status}${workspaceViewState.expandedTrackers.has(boxId) ? " is-expanded" : ""}`;
+  row.className = `tl-monitor-row jss-card is-${stat.status}${workspaceViewState.expandedTrackers.has(boxId) ? " is-expanded" : ""}`;
   setTrackerRowClass(row.querySelector(`[data-tracker-row-status="${safeCssQueryId(boxId)}"]`), "tl-monitor-status", stat.status);
   setTrackerRowClass(row.querySelector(".tl-monitor-signal"), "tl-monitor-signal", stat.status);
   setTrackerRowText(`[data-tracker-row-status="${safeCssQueryId(boxId)}"]`, monitorStatusLabel(stat.status));

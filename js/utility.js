@@ -63,7 +63,7 @@ class Utility {
         item = cms.view.addInput({
           name: config.name,
           placeholder: config.label,
-          class: 'cms-w-100',
+          class: 'jss-w-100',
           inputAttr: {
             autocomplete: 'off',
             spellcheck: 'false'
@@ -75,7 +75,7 @@ class Utility {
         item = cms.view.addInput({
           name: config.name,
           placeholder: config.label,
-          class: 'cms-w-100',
+          class: 'jss-w-100',
           inputAttr: {
             autocomplete: 'off',
             spellcheck: 'false',
@@ -86,7 +86,7 @@ class Utility {
         break;
       case 'textarea':
         item = _.textarea({
-          class: 'item-textarea cms-w-100',
+          class: 'item-textarea jss-w-100',
           placeholder: config.label,
           rows: 5
         });
@@ -96,7 +96,7 @@ class Utility {
         item = cms.view.addSelect({
           name: config.name,
           placeholder: config.label,
-          class: 'cms-w-100',
+          class: 'jss-w-100',
           options: config.options,
           maxHeight: config.maxHeight ?? null,
           inputAttr: {
@@ -111,7 +111,7 @@ class Utility {
         break;
     }
     if (content) {
-      content.appendChild(_.div({ class: 'cms-m-10' }, item));
+      content.appendChild(_.div({ class: 'jss-m-10' }, item));
     }
     return item;
   }

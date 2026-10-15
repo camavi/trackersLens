@@ -602,8 +602,8 @@ app.whenReady().then(async () => {
     await js(`document.querySelector('[aria-label="Lavoro della chat"]').click()`);
     await waitFor(`[...document.querySelectorAll('button')].some(b=>b.textContent==='Input terminale')`, 'manual terminal input control');
     await js(`[...document.querySelectorAll('button')].find(b=>b.textContent==='Input terminale').click()`);
-    await waitFor(`document.querySelector('.cms-textarea')`, 'manual JSswift input field');
-    await js(`document.querySelector('.cms-textarea').value=${JSON.stringify('user supplied\n')}`);
+    await waitFor(`document.querySelector('.jss-textarea')`, 'manual JSswift input field');
+    await js(`document.querySelector('.jss-textarea').value=${JSON.stringify('user supplied\n')}`);
     await js(`[...document.querySelectorAll('button')].find(b=>b.textContent==='Invia input').click()`);
     await waitFor(`![...document.querySelectorAll('button')].some(b=>b.textContent==='Invia input')`, 'manual input review closed');
     const manualSessionId = record().terminalSessions[0].sessionId;

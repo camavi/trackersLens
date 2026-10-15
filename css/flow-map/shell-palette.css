@@ -108,17 +108,17 @@ body {
   flex-wrap: nowrap;
 }
 
-.tl-flow-top-menu-trigger.cms-btn {
+.tl-flow-top-menu-trigger.jss-btn {
   gap: 6px;
   white-space: nowrap;
 }
 
-.tl-flow-top-menu-trigger.cms-btn .cms-icon:last-child {
+.tl-flow-top-menu-trigger.jss-btn .jss-icon:last-child {
   margin-left: -2px;
   opacity: 0.72;
 }
 
-.tl-flow-top-actions .cms-btn.is-running {
+.tl-flow-top-actions .jss-btn.is-running {
   border-color: rgba(34, 197, 94, 0.46);
   background: rgba(34, 197, 94, 0.12);
   box-shadow: 0 0 22px rgba(34, 197, 94, 0.16);
@@ -282,7 +282,7 @@ body {
   min-width: 0;
 }
 
-.tl-agent-runtime-mode-row .cms-btn {
+.tl-agent-runtime-mode-row .jss-btn {
   min-height: 30px;
   padding: 0 10px;
   font-size: 11px;
@@ -349,7 +349,7 @@ body {
   min-width: 0;
 }
 
-.tl-agent-runtime-step-actions .cms-btn {
+.tl-agent-runtime-step-actions .jss-btn {
   min-height: 28px;
   padding: 0 9px;
   font-size: 11px;
@@ -488,7 +488,7 @@ body {
   min-width: 0;
 }
 
-.tl-agent-runtime-fix-actions .cms-btn {
+.tl-agent-runtime-fix-actions .jss-btn {
   min-height: 30px;
   padding: 0 10px;
   font-size: 11px;
@@ -502,7 +502,7 @@ body {
   background: rgba(10, 35, 22, 0.52);
 }
 
-.tl-agent-runtime-fix-result .cms-btn {
+.tl-agent-runtime-fix-result .jss-btn {
   min-height: 28px;
   padding: 0 9px;
   font-size: 11px;
@@ -550,13 +550,13 @@ body {
   border-top: 1px solid rgba(214, 226, 235, 0.08);
 }
 
-.tl-flow-events .cms-btn.is-compact {
+.tl-flow-events .jss-btn.is-compact {
   min-height: 28px;
   padding: 0 10px;
   font-size: 11px;
 }
 
-.tl-flow-events .cms-btn.is-ghost {
+.tl-flow-events .jss-btn.is-ghost {
   color: var(--tl-text-muted);
   border-color: rgba(214, 226, 235, 0.12);
   background: rgba(255, 255, 255, 0.025);

@@ -19,7 +19,7 @@ class TopBar {
     const keyPage = tlConfig.keyPage;
     topBar.appendChild(_.div({ class: 'key' }, _.b('KEY: '), keyPage));
 
-    const btnSettingPage = _.button({ class: 'btn-setting-page' }, _.i({ class: 'cms-icon setting-fill' }));
+    const btnSettingPage = _.button({ class: 'btn-setting-page' }, _.i({ class: 'jss-icon setting-fill' }));
     topBar.appendChild(btnSettingPage);
 
     btnSettingPage.onclick = function () {
@@ -30,7 +30,7 @@ class TopBar {
     const topBar = _.div({ class: 'top-bar' });
     document.body.appendChild(topBar);
 
-    const btnSettingPage = _.button({ class: 'btn-setting-page' }, _.i({ class: 'cms-icon setting-fill' }));
+    const btnSettingPage = _.button({ class: 'btn-setting-page' }, _.i({ class: 'jss-icon setting-fill' }));
     topBar.appendChild(btnSettingPage);
 
     btnSettingPage.onclick = () => {

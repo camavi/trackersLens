@@ -928,7 +928,7 @@ const openNodeBuilderDialog = (options = {}) => {
   const saveBuilderTemplateAction = (root) => {
     readBuilderGeneral(root);
     saveNodeBuilderTemplate(nodeBuilderStateToTemplate(builder));
-    const button = root?.closest?.(".cms-dialog")?.querySelector?.("[data-node-builder-save-template]");
+    const button = root?.closest?.(".jss-dialog")?.querySelector?.("[data-node-builder-save-template]");
     if (button) {
       button.classList.add("is-saved");
       button.textContent = "Saved";

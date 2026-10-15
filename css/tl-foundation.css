@@ -59,9 +59,9 @@ textarea {
   font: inherit;
 }
 
-button.cms-btn.st-btn-primary,
-.cms-btn.st-btn-primary,
-.st-btn-primary.cms-btn,
+button.jss-btn.st-btn-primary,
+.jss-btn.st-btn-primary,
+.st-btn-primary.jss-btn,
 .st-btn-primary {
   min-width: 92px;
   color: #161000;
@@ -70,16 +70,16 @@ button.cms-btn.st-btn-primary,
   font-weight: 800;
 }
 
-button.cms-btn.st-btn-primary *,
-.cms-btn.st-btn-primary *,
-.st-btn-primary.cms-btn *,
+button.jss-btn.st-btn-primary *,
+.jss-btn.st-btn-primary *,
+.st-btn-primary.jss-btn *,
 .st-btn-primary * {
   color: inherit;
 }
 
-button.cms-btn.st-btn-primary:hover:not(:disabled),
-.cms-btn.st-btn-primary:hover:not(:disabled),
-.st-btn-primary.cms-btn:hover:not(:disabled),
+button.jss-btn.st-btn-primary:hover:not(:disabled),
+.jss-btn.st-btn-primary:hover:not(:disabled),
+.st-btn-primary.jss-btn:hover:not(:disabled),
 .st-btn-primary:hover:not(:disabled) {
   color: #161000;
   border-color: rgba(255, 216, 79, 0.72);

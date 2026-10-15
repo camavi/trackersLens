@@ -2,9 +2,9 @@ window.TrackerLensAiAgentEditor = (() => {
   const _ = window.JSswift || window._;
   const iconTabPanel = (props) => {
     const panel = _.TabPanel(props);
-    panel.querySelectorAll('.cms-tabpanel-nav-btn').forEach((wrapper) => {
+    panel.querySelectorAll('.jss-tabpanel-nav-btn').forEach((wrapper) => {
       const button = wrapper.querySelector('[role="tab"]');
-      const label = button?.querySelector('.cms-tabpanel-tab-label')?.textContent?.trim() || "Tab";
+      const label = button?.querySelector('.jss-tabpanel-tab-label')?.textContent?.trim() || "Tab";
       wrapper.title = label;
       button?.setAttribute("aria-label", label);
     });

@@ -1226,7 +1226,7 @@ window.TrackerLensBoxEditorDialog = (() => {
     };
 
     const makeDialog = () => _.Dialog({
-      class: `tl-box-editor-dialog ${state.advanced ? "is-advanced" : ""} ${type === "boxTracker" ? "is-tracker" : "is-lens"} cms-dialog-xl sticky-head sticky-actions scrollable`,
+      class: `tl-box-editor-dialog ${state.advanced ? "is-advanced" : ""} ${type === "boxTracker" ? "is-tracker" : "is-lens"} jss-dialog-xl sticky-head sticky-actions scrollable`,
       panelClass: "tl-box-editor-dialog-panel",
       icon: type === "boxTracker" ? "cloud_queue" : "dashboard",
       title: id ? (type === "boxTracker" ? "Modifica boxTracker" : "Modifica boxLens") : (type === "boxTracker" ? "Crea boxTracker" : "Crea boxLens"),

@@ -275,7 +275,7 @@
   justify-content: flex-end;
 }
 
-.tl-flow-node-builder-head-actions .cms-btn {
+.tl-flow-node-builder-head-actions .jss-btn {
   min-height: 28px;
   padding: 0 9px;
   font-size: 11px;
@@ -304,11 +304,11 @@
 }
 
 .tl-flow-node-builder-general-control,
-.tl-flow-node-builder-general-control.cms-field {
+.tl-flow-node-builder-general-control.jss-field {
   min-width: 0;
 }
 
-.tl-flow-node-builder-general-control .cms-label,
+.tl-flow-node-builder-general-control .jss-label,
 .tl-flow-node-builder-general-control label,
 .tl-flow-node-builder-general-control>label {
   color: rgba(214, 226, 235, 0.62);
@@ -490,7 +490,7 @@
   text-transform: uppercase;
 }
 
-.tl-flow-node-builder-ports h4 .cms-btn {
+.tl-flow-node-builder-ports h4 .jss-btn {
   width: 22px;
   min-width: 22px;
   height: 22px;
@@ -498,9 +498,9 @@
   padding: 0;
 }
 
-.tl-flow-node-builder-row .cms-btn,
-.tl-flow-node-builder-layout-head .cms-btn,
-.tl-flow-node-builder-port-row .cms-btn {
+.tl-flow-node-builder-row .jss-btn,
+.tl-flow-node-builder-layout-head .jss-btn,
+.tl-flow-node-builder-port-row .jss-btn {
   width: 26px;
   min-width: 26px;
   height: 26px;
@@ -508,14 +508,14 @@
   padding: 0;
 }
 
-.tl-flow-node-builder-row .cms-btn:disabled,
-.tl-flow-node-builder-layout-head .cms-btn:disabled,
-.tl-flow-node-builder-port-row .cms-btn:disabled {
+.tl-flow-node-builder-row .jss-btn:disabled,
+.tl-flow-node-builder-layout-head .jss-btn:disabled,
+.tl-flow-node-builder-port-row .jss-btn:disabled {
   opacity: 0.35;
   cursor: not-allowed;
 }
 
-.tl-flow-node-builder-dialog .cms-btn.is-saved {
+.tl-flow-node-builder-dialog .jss-btn.is-saved {
   color: #86efac;
   border-color: rgba(34, 197, 94, 0.42);
 }
@@ -524,7 +524,7 @@
   gap: 14px;
 }
 
-.tl-flow-node-builder-dialog .tl-flow-node-builder-action.cms-btn {
+.tl-flow-node-builder-dialog .tl-flow-node-builder-action.jss-btn {
   min-width: 160px;
   height: 46px;
   justify-content: center;
@@ -548,7 +548,7 @@
   text-shadow: 0 0 12px rgba(56, 189, 248, 0.35);
 }
 
-.tl-flow-node-builder-dialog .tl-flow-node-builder-action.is-template .cms-icon {
+.tl-flow-node-builder-dialog .tl-flow-node-builder-action.is-template .jss-icon {
   color: #78d7ff;
 }
 
@@ -736,7 +736,7 @@
 }
 
 .tl-flow-node-builder-live-field label,
-.tl-flow-node-builder-live-field .cms-label {
+.tl-flow-node-builder-live-field .jss-label {
   font-size: 9px;
 }
 
@@ -858,6 +858,6 @@
   align-items: center;
 }
 
-.tl-flow-panel-title.is-hero>.cms-btn {
+.tl-flow-panel-title.is-hero>.jss-btn {
   flex: 0 0 auto;
 }

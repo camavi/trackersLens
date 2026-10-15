@@ -7,7 +7,7 @@ class CreateWidget {
   tabBar = _.div({ class: 'tab-bar-content' });
   tabContent = _.div({ class: 'tab-content' });
   content = _.div({ class: 'ce-content' },
-    this.tabBar, this.tabContent, _.div({ class: 'cms-t-a-right cms-p-6' }, this.btnSave)
+    this.tabBar, this.tabContent, _.div({ class: 'jss-t-a-right jss-p-6' }, this.btnSave)
   );
   dataSave = [];
   codeMirrorDefaultSetting = {
@@ -137,12 +137,12 @@ class CreateWidget {
 
   }
   manifestContent() {
-    const contentManifest = _.div({ class: 'content-manifest cms-col-10' },
+    const contentManifest = _.div({ class: 'content-manifest jss-col-10' },
       _.div({ class: 'key_temp' }, _.b('Key Temp: '), _.span({ rod: this.key }))
     );
-    const contentDescription = _.div({ class: 'content-manifest-description cms-col-10' }
+    const contentDescription = _.div({ class: 'content-manifest-description jss-col-10' }
     );
-    const contentPopup = _.div({ class: 'cms-row cms-p-10' }, contentManifest, contentDescription);
+    const contentPopup = _.div({ class: 'jss-row jss-p-10' }, contentManifest, contentDescription);
     this.createTab('Manifest', contentPopup, true);
     this.manifest.forEach(row => {
       utility.addRow(row, contentManifest);
@@ -164,7 +164,7 @@ class CreateWidget {
       label: 'Category',
       type: 'select',
       name: 'category',
-      class: 'cms-w-100',
+      class: 'jss-w-100',
       maxHeight: '300px',
       options: listOptions,
     };
@@ -192,16 +192,16 @@ class CreateWidget {
     };
     devicesMobile.input = _.input(devicesMobile);
     contentDescription.appendChild(
-      _.div({ class: 'cms-row cms-m-10' },
-        _.div({ class: 'cms-col-20 cms-p-10' }, "Devices supported"),
-        _.div({ class: 'cms-col-20 cms-row cms-p-10' },
-          _.div({ class: 'cms-col-6.66 cms-p-2' },
+      _.div({ class: 'jss-row jss-m-10' },
+        _.div({ class: 'jss-col-20 jss-p-10' }, "Devices supported"),
+        _.div({ class: 'jss-col-20 jss-row jss-p-10' },
+          _.div({ class: 'jss-col-6.66 jss-p-2' },
             _.b('Desktop: '), devicesDesktop.input
           ),
-          _.div({ class: 'cms-col-6.66 cms-p-2' },
+          _.div({ class: 'jss-col-6.66 jss-p-2' },
             _.b('Tablet: '), devicesTablet.input
           ),
-          _.div({ class: 'cms-col-6.66 cms-p-2' },
+          _.div({ class: 'jss-col-6.66 jss-p-2' },
             _.b('Mobile: '), devicesMobile.input
           )
         )
@@ -228,18 +228,18 @@ class CreateWidget {
       name: 'MaxY',
     };
     contentDescription.appendChild(
-      _.div({ class: 'cms-row cms-m-10' },
-        _.div({ class: 'cms-col-20 cms-p-10' }, "Minimum and maximum blocks"),
-        _.div({ class: 'cms-row cms-m-4' },
-          _.div({ class: 'cms-col-10 cms-p-r-4' },
+      _.div({ class: 'jss-row jss-m-10' },
+        _.div({ class: 'jss-col-20 jss-p-10' }, "Minimum and maximum blocks"),
+        _.div({ class: 'jss-row jss-m-4' },
+          _.div({ class: 'jss-col-10 jss-p-r-4' },
             utility.addRow(dataMinX)),
-          _.div({ class: 'cms-col-10 cms-p-r-4' },
+          _.div({ class: 'jss-col-10 jss-p-r-4' },
             utility.addRow(dataMaxX))
         ),
-        _.div({ class: 'cms-row cms-m-4' },
-          _.div({ class: 'cms-col-10 cms-p-r-4' },
+        _.div({ class: 'jss-row jss-m-4' },
+          _.div({ class: 'jss-col-10 jss-p-r-4' },
             utility.addRow(dataMinY)),
-          _.div({ class: 'cms-col-10 cms-p-r-4' },
+          _.div({ class: 'jss-col-10 jss-p-r-4' },
             utility.addRow(dataMaxY))
         )
       )
@@ -248,25 +248,25 @@ class CreateWidget {
   }
 
   linksExternalContent() {
-    const contentLinks = _.div({ class: 'content-links cms-row' });
-    const btnAddLink = _.button({ class: 'cms-btn-default' }, 'Add Link');
+    const contentLinks = _.div({ class: 'content-links jss-row' });
+    const btnAddLink = _.button({ class: 'jss-btn-default' }, 'Add Link');
     const content = _.div({ class: 'content-manifest' }, contentLinks,
-      _.div({ class: 'cms-t-a-center' }, btnAddLink));
+      _.div({ class: 'jss-t-a-center' }, btnAddLink));
     const addRow = (config) => {
       const key = this.utility.key();
       const input = cms.view.addInput({
         name: config.name,
         label: config.label ?? config.name,
         placeholder: config.placeholder,
-        class: 'cms-w-100 ' + config.class,
+        class: 'jss-w-100 ' + config.class,
         autocomplete: 'off',
         spellcheck: false
       });
       this.links[key] = input.input;
-      const del = _.button({ class: 'cms-btn-delete' }, _.i({ class: 'cms-icon trash' }));
-      const item = _.div({ class: 'cms-m-6 cms-w-100 cms-row' },
-        _.div({ class: 'cms-col-19' }, input),
-        _.div({ class: 'cms-col-1' }, del)
+      const del = _.button({ class: 'jss-btn-delete' }, _.i({ class: 'jss-icon trash' }));
+      const item = _.div({ class: 'jss-m-6 jss-w-100 jss-row' },
+        _.div({ class: 'jss-col-19' }, input),
+        _.div({ class: 'jss-col-1' }, del)
       );
       contentLinks.appendChild(item);
       del.onclick = () => {

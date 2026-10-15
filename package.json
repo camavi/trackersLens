@@ -16,7 +16,7 @@
     "electron": "^44.0.0"
   },
   "dependencies": {
-    "jsswift": "^1.0.43",
+    "jsswift": "^2.2.0",
     "officeparser": "8.1.0"
   }
 }

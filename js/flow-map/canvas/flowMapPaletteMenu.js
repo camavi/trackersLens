@@ -111,7 +111,7 @@ const createFlowMapPaletteMenu = (moduleDependencies) => {
       section.classList.toggle("is-collapsed", collapsed);
       const toggle = section.querySelector(".tl-flow-node-menu-section-toggle");
       toggle?.setAttribute?.("aria-expanded", String(!collapsed));
-      const toggleIcon = toggle?.querySelector?.(".cms-icon");
+      const toggleIcon = toggle?.querySelector?.(".jss-icon");
       if (toggleIcon) toggleIcon.textContent = collapsed ? "chevron_right" : "expand_more";
       if (visibleItems) visibleSections += 1;
     });
@@ -205,7 +205,7 @@ const createFlowMapPaletteMenu = (moduleDependencies) => {
                     const section = event.currentTarget?.closest?.(".tl-flow-node-menu-section");
                     section?.classList?.toggle?.("is-collapsed", nextCollapsed);
                     event.currentTarget?.setAttribute?.("aria-expanded", String(!nextCollapsed));
-                    const toggleIcon = event.currentTarget?.querySelector?.(".cms-icon");
+                    const toggleIcon = event.currentTarget?.querySelector?.(".jss-icon");
                     if (toggleIcon) toggleIcon.textContent = nextCollapsed ? "chevron_right" : "expand_more";
                   },
                 }, _.span(title), _.em(String(items.filter((item) => paletteItemMatchesSearch(item, title)).length)), flowMapIcon(collapsed ? "chevron_right" : "expand_more", "sm")),

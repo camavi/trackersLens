@@ -41,7 +41,7 @@
   white-space: nowrap;
 }
 
-.tl-flow-minimap-toggle.cms-btn {
+.tl-flow-minimap-toggle.jss-btn {
   width: 24px;
   min-width: 24px;
   height: 24px;
@@ -683,7 +683,7 @@
   white-space: nowrap;
 }
 
-.tl-flow-error-close.cms-btn {
+.tl-flow-error-close.jss-btn {
   display: inline-grid;
   width: 28px;
   min-width: 28px;
@@ -698,7 +698,7 @@
   cursor: pointer;
 }
 
-.tl-flow-error-close.cms-btn:hover {
+.tl-flow-error-close.jss-btn:hover {
   color: #fff;
   border-color: rgba(254, 202, 202, 0.46);
   background: rgba(127, 29, 29, 0.58);
