@@ -82,6 +82,7 @@
   router.register("/database.html", databaseView);
   router.register("/libraryFlowmap.html", flowLibraryView);
   router.register("/editorWorkspace.html", workspaceView);
+  router.register("/workspace.html", window.TrackerLensViews.workspaceViewer);
   router.register("/flowMap.html", flowMapView);
 
   void router.start(outlet);

@@ -59,6 +59,15 @@ textarea {
   font: inherit;
 }
 
+/* Toolbars are layout containers in TL. Page-specific surfaces can override
+   this baseline; JSswift's neutral panel must not introduce gray rectangles. */
+.jss-toolbar {
+  color: var(--tl-text);
+  background: transparent;
+  border: 0;
+  box-shadow: none;
+}
+
 button.jss-btn.st-btn-primary,
 .jss-btn.st-btn-primary,
 .st-btn-primary.jss-btn,

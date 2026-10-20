@@ -170,3 +170,12 @@
 .tl-custom-setup-dialog .jss-dialog-actions { background: #111b27; }
 .tl-custom-setup-dialog .tl-custom-button { display: inline-flex; align-items: center; gap: 8px; padding: 10px 16px; border: 1px solid #2b3b49; border-radius: 9px; background: #101b24; color: #c3d1dc; }
 .tl-custom-setup-dialog .tl-custom-button.is-primary { background: linear-gradient(180deg, #ffe05a, #efbd08); color: #231c00; border-color: #e7bd22; }
+
+/* Layout toolbars use the page surface rather than JSswift's neutral panel. */
+.tl-custom-topbar > .tl-custom-actions.jss-toolbar,
+.tl-custom-results-toolbar.jss-toolbar {
+  color: var(--tl-text);
+  background: transparent;
+  border: 0;
+  box-shadow: none;
+}

@@ -1280,3 +1280,124 @@ body.is-dragging-workspace-asset .tl-canvas {
 .tl-fixed-navigator .tl-navigator {
   height: 112px;
 }
+
+/* Workspace toolbars provide layout; TL owns their surface and Btn colors. */
+.tl-header-actions.jss-toolbar,
+.tl-canvas-toolbar.jss-toolbar {
+  color: var(--tl-text);
+  background: transparent;
+  border: 0;
+  box-shadow: none;
+}
+
+.tl-header-actions .tl-top-icon.jss-btn {
+  background: rgba(255, 255, 255, 0.035);
+  border-color: var(--tl-border-soft);
+}
+
+.tl-header-actions .tl-top-icon.is-active.jss-btn {
+  background: rgba(255, 199, 44, 0.12);
+  border-color: rgba(255, 199, 44, 0.38);
+}
+
+.tl-device-btn.jss-btn,
+.tl-grid-select.jss-btn {
+  color: var(--tl-text-muted);
+}
+
+.tl-device-btn.is-active.jss-btn {
+  color: var(--tl-text);
+}
+
+/* Reserve the actual toolbar height; JSswift controls must not overlap canvas. */
+.tl-canvas-area {
+  display: flex;
+  flex-direction: column;
+}
+
+.tl-canvas-toolbar.jss-toolbar {
+  height: auto;
+  min-height: 42px;
+  flex: 0 0 auto;
+  flex-wrap: nowrap;
+  padding: 0 0 8px;
+}
+
+.tl-canvas-area > .tl-canvas {
+  height: auto;
+  flex: 1 1 0;
+  min-height: 0;
+}
+
+.tl-device-switch,
+.tl-grid-controls {
+  flex-wrap: nowrap;
+}
+
+/* Btn now wraps its icon/label in .jss-btn-content. Keep all tools in one row. */
+.tl-toolbox.jss-card {
+  width: max-content;
+  max-width: 100%;
+}
+
+.tl-toolbox > .jss-card-body {
+  overflow-x: auto;
+  overflow-y: hidden;
+}
+
+.tl-toolbox-row {
+  flex-wrap: nowrap;
+  width: max-content;
+  min-width: 100%;
+}
+
+.tl-toolbox-row > * {
+  flex-shrink: 0;
+}
+
+.tl-tool-btn.jss-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 4px 8px;
+  min-height: 50px;
+  white-space: nowrap;
+}
+
+.tl-tool-btn > .jss-btn-content {
+  flex-direction: column;
+  gap: 4px;
+}
+
+.tl-header-actions.jss-toolbar {
+  --jss-toolbar-gap: 8px !important;
+  flex-wrap: nowrap;
+}
+
+.tl-header-actions .tl-top-icon.jss-btn {
+  width: 36px;
+  min-width: 36px;
+  height: 36px;
+  padding: 0;
+}
+
+.tl-workspace-title {
+  min-width: 0;
+}
+
+.tl-save-state {
+  white-space: nowrap;
+}
+
+/* Section grid belongs to Btn's content wrapper, after the loading slot. */
+.tl-box-section-toggle.jss-btn {
+  display: block;
+}
+
+.tl-box-section-toggle > .jss-btn-content {
+  display: grid;
+  grid-template-columns: 8px minmax(0, 1fr) auto 18px;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+}

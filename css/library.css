@@ -127,6 +127,15 @@ body {
   justify-self: end;
 }
 
+/* These toolbars are layout containers over the TL canvas, not gray panels. */
+.tl-library-actions.jss-toolbar,
+.tl-library-toolbar.jss-toolbar {
+  color: var(--tl-text);
+  background: transparent;
+  border: 0;
+  box-shadow: none;
+}
+
 .tl-library-menu.jss-btn {
   width: 42px;
   min-width: 42px;

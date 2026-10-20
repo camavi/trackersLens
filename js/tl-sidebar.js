@@ -22,7 +22,7 @@ window.TrackerLensSidebar = (() => {
         return true;
       }
     }
-    const internalRoute = [...defaultItems.map((item) => item.url), "profile.html", "editorWorkspace.html", "flowMap.html"]
+    const internalRoute = [...defaultItems.map((item) => item.url), "profile.html", "editorWorkspace.html", "workspace.html", "flowMap.html"]
       .includes(target.pathname.split("/").pop());
     if (target.protocol === "file:" && internalRoute) {
       const shellUrl = new URL("app.html", target);

@@ -1,3 +1,6 @@
+(function () {
+let workspaceViewRoot = null;
+let workspaceViewEmbedded = false;
 const workspaceViewData = window.TrackerLensWorkspaceData;
 
 const workspaceViewState = {
@@ -219,10 +222,10 @@ const renderBrand = () => window.TrackerLensSidebar.renderBrand({ className: "tl
 const renderTopbar = () =>
   _.header(
     { class: "tl-view-topbar" },
-    renderBrand(),
+    workspaceViewEmbedded ? null : renderBrand(),
     _.Search({
       class: "tl-view-search-input",
-      label: "Cerca workspace...",
+      placeholder: "Cerca workspace...",
       value: "",
       "aria-label": "Cerca workspace",
     }),
@@ -230,8 +233,8 @@ const renderTopbar = () =>
       { class: "tl-view-actions", align: "center", gap: 16 },
       btn({ class: "tl-view-monitor", onclick: openTrackerMonitorDialog }, icon("monitoring", "sm"), "Monitor"),
       btn({ class: "tl-view-edit", onclick: openEditor }, icon("edit", "sm"), "Edit"),
-      btn({ onclick: () => window.TrackerLensCatalogRuntime.openImportDialog({ kind: 'workspace' }) }, icon('travel_explore', 'sm'), 'Online'),
-      btn({ onclick: () => window.TrackerLensCatalogRuntime.openPublishDialog({ kind: 'workspace', workspaceId: workspaceViewState.workspace.id, title: workspaceViewState.workspace.name }) }, icon('cloud_upload', 'sm'), 'Pubblica'),
+      btn({ class: 'tl-view-secondary', onclick: () => window.TrackerLensCatalogRuntime.openImportDialog({ kind: 'workspace' }) }, icon('travel_explore', 'sm'), 'Online'),
+      btn({ class: 'tl-view-secondary', onclick: () => window.TrackerLensCatalogRuntime.openPublishDialog({ kind: 'workspace', workspaceId: workspaceViewState.workspace.id, title: workspaceViewState.workspace.name }) }, icon('cloud_upload', 'sm'), 'Pubblica'),
       btn({ class: "tl-view-menu", "aria-label": "Menu workspace" }, icon("more_vert"))
     )
   );
@@ -1915,17 +1918,18 @@ const startBackgroundGraphRuntime = () => {
 };
 
 const mountWorkspaceView = () => {
-  const root = document.getElementById("tl-workspace-view-root");
+  const root = workspaceViewRoot || document.getElementById("tl-workspace-view-root");
+  if (!root) return;
   cleanupWorkspaceRuntime();
   root.replaceChildren(
     _.div(
-      { class: "tl-view-shell" },
+      { class: `tl-view-shell${workspaceViewEmbedded ? " is-embedded" : ""}` },
       renderTopbar(),
-      _.div({ class: "tl-view-body" }, renderSidebar(), renderWorkspaceGrid())
+      _.div({ class: "tl-view-body" }, workspaceViewEmbedded ? null : renderSidebar(), renderWorkspaceGrid())
     )
   );
 
-  const searchInput = root.querySelector(".tl-view-search input");
+  const searchInput = root.querySelector(".tl-view-search-input input");
   if (searchInput) {
     searchInput.placeholder = "Cerca workspace...";
     searchInput.setAttribute("aria-label", "Cerca workspace");
@@ -1975,4 +1979,34 @@ const loadWorkspaceView = async () => {
   mountWorkspaceView();
 };
 
-JSswift.ready(loadWorkspaceView);
+window.TrackerLensViews = window.TrackerLensViews || {};
+window.TrackerLensViews.workspaceViewer = {
+  async mount({ outlet }) {
+    workspaceViewRoot = outlet;
+    workspaceViewEmbedded = true;
+    workspaceViewState.workspace = { ...workspaceViewData.workspace };
+    workspaceViewState.boxes = [];
+    workspaceViewState.connections = [];
+    workspaceViewState.loading = true;
+    workspaceViewState.error = "";
+    workspaceViewState.trackerStats.clear();
+    workspaceViewState.boxPerformanceStats.clear();
+    workspaceViewState.trackerLog = [];
+    workspaceViewState.trackerLogSeq = 0;
+    workspaceViewState.trackerLogPaused = false;
+    workspaceViewState.trackerLogPending = 0;
+    workspaceViewState.expandedTrackers.clear();
+    workspaceViewState.pausedTrackers.clear();
+    window.TrackerLensAppShell?.setActive?.("library");
+    await loadWorkspaceView();
+  },
+  dispose() {
+    cleanupWorkspaceRuntime();
+    window.TrackerLensRuntimeWorker?.stop?.(workspaceViewState.workspace.id || "workspace_global");
+    workspaceViewRoot?.replaceChildren();
+    workspaceViewRoot = null;
+    workspaceViewEmbedded = false;
+  },
+};
+if (!window.TrackerLensAppRouter) JSswift.ready(loadWorkspaceView);
+})();
