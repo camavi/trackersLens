@@ -1,6 +1,6 @@
 window.TrackerLensSidebar = (() => {
   const defaultItems = [
-    { id: "library", icon: "folder_open", label: "Asset", url: "library.html" },
+    { id: "library", icon: "folder_open", label: "Workspace", url: "library.html" },
     { id: "flow", icon: "account_tree", label: "Flow Map", url: "libraryFlowmap.html" },
     { id: "custom-nodes", icon: "extension", label: "Custom Nodes", url: "customNodes.html" },
     { id: "links", icon: "link", label: "Collegamenti", url: "connections.html" },

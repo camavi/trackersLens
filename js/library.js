@@ -11,7 +11,7 @@ const libraryState = {
   favoriteIds: new Set(),
   favoritesOnly: false,
   query: "",
-  type: "all",
+  type: "workspace",
   category: "Tutti",
   sort: "recent",
   view: "grid",
@@ -64,7 +64,7 @@ const openUniversalBoxEditor = (options = {}) => {
   });
 };
 
-const openCreateBox = () => openUniversalBoxEditor({ type: "boxLens" });
+const openCreateWorkspace = () => openChromePage("editorWorkspace.html");
 
 const openBoxEditor = (box) => {
   if (box.type === "workspace") {
@@ -210,7 +210,7 @@ const importPortableFile = () => {
     if (!file) return;
     try {
       const result = await window.TrackerLensPortableRuntime.importFile(file);
-      libraryState.type = result.kind === "workspace" ? "workspace" : "all";
+      libraryState.type = "workspace";
       await loadLibrary();
     } catch (error) {
       libraryState.error = error?.message || "Import non riuscito.";
@@ -410,7 +410,7 @@ const renderTopbar = () =>
       btn({ class: "tl-library-menu tl-library-import", onclick: importPortableFile }, icon("upload_file", "sm"), "Import"),
       btn({ class: 'tl-library-menu tl-library-import', onclick: () => window.TrackerLensCatalogRuntime.openImportDialog({ kind: 'workspace', onImported: () => loadLibrary() }) }, icon('travel_explore', 'sm'), 'Workspace online'),
       btn({ class: "tl-library-menu tl-library-verify", onclick: scanMarketplaceTrust }, icon("verified_user", "sm"), libraryState.verifying ? "Scan" : "Verify"),
-      btn({ class: "st-btn-primary", onclick: openCreateBox }, icon("edit", "sm"), "Crea nuovo box"),
+      btn({ class: "st-btn-primary", onclick: openCreateWorkspace }, icon("edit", "sm"), "Crea workspace"),
       btn({ class: "tl-library-menu", "aria-label": "Menu libreria" }, icon("more_vert"))
     )
   );
@@ -493,7 +493,7 @@ const renderFilterPanel = () => {
     { class: "tl-library-panel", "aria-label": "Filtri libreria" },
     _.Row(
       { class: "tl-library-panel-head", align: "center", justify: "space-between", gap: 14 },
-      _.h2({ class: "tl-library-title" }, "Libreria"),
+      _.h2({ class: "tl-library-title" }, "Workspace"),
       btn(
         {
           class: `tl-library-star${libraryState.favoritesOnly ? " is-active" : ""}`,
@@ -503,7 +503,6 @@ const renderFilterPanel = () => {
         icon(libraryState.favoritesOnly ? "star" : "star_outline", "sm")
       )
     ),
-    renderTabs(),
     _.section(
       { class: "tl-category-section" },
       _.h3({ class: "tl-section-label" }, "Categorie"),
@@ -671,8 +670,8 @@ const renderEmptyState = () =>
       { class: "tl-empty-card" },
       _.div({ class: "tl-empty-icon" }, icon(libraryState.favoritesOnly ? "star_outline" : "inventory_2", "md")),
       _.h2(libraryState.favoritesOnly ? "Nessun preferito salvato" : libraryState.type === "workspace" ? "Nessun workspace salvato" : "Nessun elemento in libreria"),
-      _.p(libraryState.favoritesOnly ? "Aggiungi una stella a workspace, boxLens o boxTracker per ritrovarli qui." : "Workspace, boxLens e boxTracker salvati in locale appariranno in questa libreria."),
-      btn({ class: "st-btn-primary", onclick: openCreateBox }, icon("add", "sm"), "Crea nuovo box")
+      _.p(libraryState.favoritesOnly ? "Aggiungi una stella ai workspace per ritrovarli qui." : "I workspace salvati in locale appariranno in questa libreria."),
+      btn({ class: "st-btn-primary", onclick: openCreateWorkspace }, icon("add", "sm"), "Crea workspace")
     )
   );
 

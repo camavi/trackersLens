@@ -100,11 +100,14 @@ window.TrackerLensAppRouter = (() => {
         const saved = window.localStorage?.getItem('tl.project.lastRoute');
         if (saved) {
           const target = new URL(saved, window.location.href);
+          if (normalizePath(target.pathname) === "/libraryFlowmap.html") {
+            target.pathname = target.pathname.replace(/libraryFlowmap\.html$/, "library.html");
+          }
           if (target.origin === window.location.origin && resolve(target.pathname)) {
             window.history.replaceState({}, '', shellUrlFor(target));
           }
         }
-      } catch (_) { /* Open Library if local route state is unavailable. */ }
+      } catch (_) { /* Open the workspace library if local route state is unavailable. */ }
     }
     await render();
   };

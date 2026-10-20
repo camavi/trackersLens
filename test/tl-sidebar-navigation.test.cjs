@@ -84,3 +84,49 @@ test("retired desktop entries cannot become document-navigation fallbacks again"
   }
   assert.equal(fs.existsSync(path.join(__dirname, "..", "js", "tl-legacy-route-redirect.js")), false);
 });
+
+test("startup restores the workspace library and preserves active Flows", async () => {
+  for (const saved of [null, 'library.html', 'libraryFlowmap.html', 'app.html', 'flowMap.html?workspaceId=demo']) {
+    class Element {}
+    const storage = new Map(saved ? [['tl.project.lastRoute', saved]] : []);
+    let mounted = '';
+    const window = {
+      location: new URL('file:///example/app.html'),
+      localStorage: { getItem: key => storage.get(key), setItem: (key, value) => storage.set(key, value) },
+      addEventListener() {},
+      history: { replaceState(_state, _title, url) { window.location = new URL(url, window.location); } },
+    };
+    const context = vm.createContext({ window, URL, URLSearchParams, Element });
+    vm.runInContext(fs.readFileSync(path.join(__dirname, '..', 'js', 'tl-app-router.js'), 'utf8'), context);
+    const router = window.TrackerLensAppRouter;
+    const library = { mount() { mounted = 'library'; } };
+    router.register('/app.html', library);
+    router.register('/library.html', library);
+    router.register('/libraryFlowmap.html', library);
+    router.register('/flowMap.html', { mount({ location }) { mounted = location.query.get('workspaceId'); } });
+    await router.start(new Element());
+    assert.equal(mounted, saved?.startsWith('flowMap.html') ? 'demo' : 'library');
+    if (saved === 'library.html' || saved === 'libraryFlowmap.html') {
+      assert.equal(router.status().activePath, '/library.html');
+      assert.equal(storage.get('tl.project.lastRoute'), 'library.html');
+    }
+  }
+});
+
+test("workspace card editing and opening use distinct editor and view destinations", () => {
+  const destinations = [];
+  const window = {
+    TrackerLensAppRouter: {},
+    TrackerLensSidebar: { navigate(url) { destinations.push(url); return true; } },
+  };
+  const context = vm.createContext({ window });
+  const source = fs.readFileSync(path.join(__dirname, '..', 'js', 'library.js'), 'utf8');
+  vm.runInContext(source.replace(/\}\)\(\);\s*$/, 'window.testWorkspaceNavigation = { openBoxEditor, openWorkspaceView };})();'), context);
+  window.testWorkspaceNavigation.openBoxEditor({ type: 'workspace', id: 'demo workspace' });
+  window.testWorkspaceNavigation.openWorkspaceView('demo workspace');
+  assert.deepEqual(destinations, [
+    'editorWorkspace.html?workspaceId=demo%20workspace',
+    'workspace.html?workspaceId=demo%20workspace',
+  ]);
+  assert.equal(fs.existsSync(path.join(__dirname, '..', 'workspace.html')), true);
+});
