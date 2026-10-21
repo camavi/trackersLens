@@ -90,6 +90,9 @@ let pythonPoc = null;
 let pythonNlp = null;
 let pythonGraphRelations = null;
 let persistence = null;
+let tlMcpService = null;
+let mcpMutationInProgress = false;
+const mcpReviews = new Map();
 let projectRuntime = null;
 let projectSession = null;
 let trustedSession = null;
@@ -108,8 +111,40 @@ const prepareEditorClose = (window) => new Promise((resolve, reject) => {
   window.webContents.once('destroyed', destroyed);
   window.webContents.send('trackers-core:prepare-project-close', token);
 });
+const reviewMcpEdit = (plan,signal) => new Promise((resolve,reject)=>{
+  const window=BrowserWindow.getAllWindows().find(w=>w.webContents.session===trustedSession&&!w.isDestroyed());
+  if(!window)return reject(new Error('Apri TL per confermare la modifica MCP.'));
+  const token=crypto.randomUUID(),destroyed=()=>finish(false);
+  const cancel=()=>{if(!window.isDestroyed())window.webContents.send('trackers-core:mcp-review-cancel',token);finish(false);};
+  const finish=approved=>{signal?.removeEventListener('abort',cancel);mcpReviews.delete(token);window.webContents.removeListener('destroyed',destroyed);resolve(approved);};
+  if(signal?.aborted)return resolve(false);signal?.addEventListener('abort',cancel,{once:true});
+  mcpReviews.set(token,{ownerId:window.webContents.id,finish});window.webContents.once('destroyed',destroyed);
+  window.webContents.send('trackers-core:mcp-review',{token,workspaceId:plan.workspaceId,operationId:plan.operationId,before:plan.plan.before,after:plan.plan.after,edits:plan.edits});
+});
+const withMcpEditorPaused = async apply => {
+  if(projectTransition||mcpMutationInProgress)throw new Error('Transizione progetto o modifica MCP in corso.');
+  mcpMutationInProgress=true;
+  const windows=BrowserWindow.getAllWindows().filter(w=>w.webContents.session===trustedSession&&!w.isDestroyed());
+  const suspended=[];let committed=null;
+  try{
+    if(!windows.length)throw new Error('Editor TL non disponibile.');
+    const ensureIdle=()=>{
+      const {busy}=require('../core/desktop/node-edit-plan.cjs');
+      if(persistence.readDevelopmentRecords({storeName:'tl_runtime_nodes'}).some(busy)||persistence.readDevelopmentRecords({storeName:'tl_ai_jobs'}).some(job=>['running','working','queued','pending'].includes(job.status))||externalChatRuns.owners.size||projectScriptRuns.owners.size||customNodeSandboxRunner?.windows.size)throw new Error('Ferma le esecuzioni attive prima di applicare una modifica MCP con ricaricamento editor.');
+    };ensureIdle();
+    for(const window of windows){await prepareEditorClose(window);suspended.push(window);await window.loadFile(path.join(projectRoot,'mcp-edit-pending.html'));}
+    ensureIdle();
+    committed=await apply();
+    return {...committed,reconciliation:'editor-reloaded'};
+  }finally{
+    let reloadError;
+    for(const window of suspended)if(!window.isDestroyed())try{await window.loadFile(entryPoint);}catch(error){reloadError=error;}
+    mcpMutationInProgress=false;
+    if(reloadError)throw new Error('Ricaricamento editor fallito. Consulta la ricevuta MCP prima di riprovare: '+reloadError.message);
+  }
+};
 const relaunchProject = async (directory = '') => {
-  if (projectTransition) throw new Error('Cambio progetto già in corso.');
+  if (projectTransition||mcpMutationInProgress) throw new Error('Cambio progetto o modifica MCP già in corso.');
   if (pythonPackInstaller.installing.size) throw new Error('Attendi il completamento dell’installazione Python prima di cambiare progetto.');
   projectTransition = true;
   try {
@@ -450,10 +485,14 @@ const createWindow = () => {
 };
 
 ipcMain.handle("trackers-core:request", (event, command, payload) => {
-  if (/^desktop\.(project|account|catalog|externalAi|flowChat|chatProject|chatBrowser|chatSkills|chatGit|chatLsp|chatDebugger|chatTests|mcp|customNodePackages)\./.test(String(command || ""))) {
+  if (/^desktop\.(project|mcpServer|account|catalog|externalAi|flowChat|chatProject|chatBrowser|chatSkills|chatGit|chatLsp|chatDebugger|chatTests|mcp|customNodePackages)\./.test(String(command || ""))) {
     if (event.senderFrame !== event.sender.mainFrame || !isAllowedLocalNavigation(event.senderFrame.url) || event.sender.session !== trustedSession) {
       throw new Error("Account requests require the trusted desktop shell.");
     }
+  }
+  if(command==='desktop.mcpServer.reviewResponse'){
+    const review=mcpReviews.get(String(payload?.token||''));if(!review||review.ownerId!==event.sender.id)throw new Error('Conferma MCP non valida.');
+    review.finish(payload?.approved===true);return {accepted:true};
   }
   if (command === 'desktop.project.prepared') {
     const preparation = closePreparations.get(String(payload?.token || ''));
@@ -486,6 +525,10 @@ ipcMain.handle("trackers-core:request", (event, command, payload) => {
   }
   if (!projectSession) throw new Error('Apri una cartella progetto dalla Home.');
   if (projectTransition && !String(command).startsWith('desktop.persistence.') && !['desktop.externalAi.cancelMessage', 'desktop.chatProject.cancelScript', 'desktop.mcp.cancelChat', 'desktop.mcp.disconnect'].includes(command)) throw new Error('Cambio progetto in corso.');
+  if (['desktop.mcpServer.status','desktop.mcpServer.start','desktop.mcpServer.stop'].includes(command)) {
+    tlMcpService ||= new (require('../core/mcp/local-service.cjs').LocalMcpService)({projectDirectory:projectSession.directory,project:projectSession,persistence,cliPath:path.join(projectRoot,'scripts','tl-mcp.cjs'),nodeEdits:new (require('../core/mcp/node-edits.cjs').McpNodeEdits)({core:tlCore,persistence,review:reviewMcpEdit,withEditorPaused:withMcpEditorPaused})});
+    const operation=command.split('.').pop();return tlMcpService[operation]();
+  }
   if (['desktop.customNodePackages.discoverLocalAi', 'desktop.customNodePackages.previewLocalAiProfile', 'desktop.customNodePackages.applyLocalAiProfile', 'desktop.customNodePackages.discardLocalAiProfile', 'desktop.customNodePackages.previewSetup', 'desktop.customNodePackages.executeSetup', 'desktop.customNodePackages.discardSetup'].includes(command)) {
     const owner = event.sender;
     return tlCore.request(command, payload, { ownerId: owner.id, onProgress: progress => {
@@ -833,6 +876,9 @@ app.on("window-all-closed", () => {
 let shutdownStarted = false;
 let shutdownComplete = false;
 const prepareProjectExit = async () => {
+  if(mcpMutationInProgress)throw new Error('Attendi la modifica MCP prima di chiudere il progetto.');
+  for(const review of mcpReviews.values())review.finish(false);
+  await tlMcpService?.stop();
   const windows = BrowserWindow.getAllWindows().filter(window => window.webContents.session === trustedSession);
   for (const window of windows) {
     externalChatRuns.cancelOwner(window.webContents.id);

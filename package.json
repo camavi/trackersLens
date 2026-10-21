@@ -12,12 +12,14 @@
     "test:custom-node-chat:desktop": "env -u ELECTRON_RUN_AS_NODE electron test/custom-node-chat-electron.cjs",
     "test:projects:desktop": "node test/project-workflow-desktop.cjs",
     "test:chat:desktop": "env -u ELECTRON_RUN_AS_NODE electron test/flow-chat-electron.cjs",
-    "test:browser:desktop": "env -u ELECTRON_RUN_AS_NODE electron test/chat-browser-electron.cjs"
+    "test:browser:desktop": "env -u ELECTRON_RUN_AS_NODE electron test/chat-browser-electron.cjs",
+    "mcp": "node scripts/tl-mcp.cjs"
   },
   "devDependencies": {
     "electron": "^44.0.0"
   },
   "dependencies": {
+    "@modelcontextprotocol/sdk": "1.32.1",
     "jsswift": "^2.2.0",
     "officeparser": "8.1.0"
   }

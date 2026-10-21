@@ -41,3 +41,5 @@ Last updated: 2026-06-11.
 - `archive/summary-2026-06.md`: compact recent summary.
 
 Archive is optional. Do not read it unless history is needed.
+
+External client → TL MCP server: [runtime/mcp-server.md](runtime/mcp-server.md). The existing TL → external MCP client is documented separately in [runtime/chat-desktop-capabilities.md](runtime/chat-desktop-capabilities.md).

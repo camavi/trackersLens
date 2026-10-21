@@ -12,6 +12,20 @@
   setActive("library");
   const projectBridge = window.trackers?.desktop?.project;
   const projectName = _.span('Trackers Lens');
+  const openMcpSettings = async () => {
+    const bridge=window.trackers?.desktop?.mcpServer;if(!bridge)throw new Error('MCP non disponibile.');
+    let status=await bridge.status(),busy=false;
+    const state=_.p(),error=_.p({role:'alert'}),configuration=_.pre({style:{whiteSpace:'pre-wrap',overflowWrap:'anywhere'}});
+    const controls=_.div();
+    const render=()=>{
+      state.textContent=status.running?(status.readOnly?'MCP locale attivo · sola lettura':'MCP locale attivo · modifiche con conferma'):'MCP locale disattivato';configuration.textContent=JSON.stringify(status.configuration,null,2);
+      controls.replaceChildren(_.Button({label:status.running?'Disattiva MCP':'Attiva MCP',disabled:busy,onClick:async()=>{
+        if(busy)return;busy=true;render();error.textContent='';
+        try{status=await (status.running?bridge.stop():bridge.start());}catch(failure){error.textContent=failure.message;}finally{busy=false;render();}
+      }}));
+    };render();
+    const dialog=_.Dialog({title:'MCP del progetto',class:'tl-mcp-settings',size:'lg',closeButton:true,content:()=>_.div(state,_.p('Consente ai client locali del tuo utente di leggere grafi, configurazioni, output e log di questo progetto. Le modifiche ai nodi richiedono anteprima e conferma in TL.'),controls,error,_.p('Configurazione del client MCP'),configuration),footer:()=>[_.Button({label:'Chiudi',onClick:()=>dialog.close()})]});dialog.open();
+  };
   const openProjectMenu = async () => {
     const status = await projectBridge.getStatus();
     const errorBox = _.p({ role: 'alert' });
@@ -30,6 +44,7 @@
         errorBox,
         _.Button({ icon: 'folder_open', label: 'Mostra cartella', onClick: () => run(() => projectBridge.reveal()) }),
         _.Button({ label: 'Apri un’altra cartella', onClick: () => run(() => projectBridge.open()) }),
+        _.Button({ label: 'MCP del progetto', onClick: () => run(openMcpSettings) }),
         _.Button({ label: 'Chiudi progetto', onClick: () => run(() => projectBridge.close()) })
       ), footer: () => [_.Button({ label: 'Chiudi', onClick: () => dialog.close() })] });
     dialog.open();

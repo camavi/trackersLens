@@ -76,9 +76,9 @@ for(const kind of ['completion','codeAction'])test(`LSP ${kind} proposals resolv
  const f=await fixture(t),session=await f.start();
  const args={sessionId:session.sessionId,relativePath:'source.js',expectedSha256:f.read('source.js').sha256,languageId:'javascript',kind,position:{line:0,character:6},range:{start:{line:0,character:0},end:{line:0,character:6}}};
  await f.request('inspectFile',args);
- const response=await f.request('proposalsFor',args);assert.equal(response.proposals.length,kind==='completion'?2:4);
+ const response=await f.request('proposalsFor',args);assert.equal(response.proposals.length,kind==='completion'?3:4);
  if(kind==='completion')assert.equal(response.result.isIncomplete,true);
- const blocked=await f.request('prepareProposal',{proposalId:response.proposals[1].proposalId});assert.equal(blocked.applicable,false);assert.match(blocked.reasons.join(' '),kind==='completion'?/Snippet/:/Command/);
+ const blocked=await f.request('prepareProposal',{proposalId:response.proposals[kind==='completion'?2:1].proposalId});assert.equal(blocked.applicable,false);assert.match(blocked.reasons.join(' '),kind==='completion'?/transformations/:/Command/);
  await assert.rejects(f.request('previewRename',{renameId:blocked.renameId}),/not applicable/);
  if(kind==='codeAction'){const disabled=await f.request('prepareProposal',{proposalId:response.proposals[2].proposalId});assert.equal(disabled.applicable,false);assert.match(disabled.reasons.join(' '),/Disabled/);}
  await assert.rejects(f.lsp.prepareProposal({...f.scope,proposalId:response.proposals[0].proposalId},{ownerId:2}),/outside/);
@@ -116,4 +116,23 @@ test('TypeScript refactor adapter rejects mismatched/extra command input before 
  for(const args of [{...valid,endOffset:6},{...valid,file:'/outside.ts'},{...valid,extra:'ignored?'},{...valid,refactor:''}])await assert.rejects(prepareTypeScriptRefactor({workspace,session,proposal:{uri,range},item:{command:{command:'_typescript.applyRefactoring',arguments:[args]}}}));
  await assert.rejects(prepareTypeScriptRefactor({workspace,session,proposal:{uri,range},item:{edit:{changes:{}},command:{command:'_typescript.applyRefactoring',arguments:[valid]}}}),/Combined/);
  assert.equal(await prepareTypeScriptRefactor({workspace,session,proposal:{uri,range},item:{command:{command:'arbitrary.execute',arguments:[valid]}}}),null);assert.equal(calls,0);
+});
+
+test('snippet expansion preserves mirrored/nested UTF-16 fields, choices, escapes and explicit variables',()=>{
+ const {expandSnippet}=require('../core/desktop/chat-lsp-snippets.cjs');
+ const expanded=expandSnippet('$1 = ${1:${2:🐺}}; ${3|left,right|}; $0');assert.equal(expanded.text,'🐺 = 🐺; left; ');assert.equal(expanded.tabstops.filter(s=>s.index===1).length,2);assert.equal(expanded.tabstops.filter(s=>s.index===2).length,2);assert.equal(expanded.tabstops[0].end,2);
+ const chosen=expandSnippet('${1|left,right|} $1 ${NAME:default} $NAME',{values:{1:'right'},variables:{NAME:'value'}});assert.equal(chosen.text,'right right value value');assert.equal(chosen.tabstops[0].source,'explicit');
+ assert.equal(expandSnippet('\\$1 \\} \\\\ ${1|one\\,two,three\\|four|}').text,'$1 } \\ one,two');
+ assert.equal(expandSnippet('${NAME:fallback}').text,'fallback');
+ for(const text of ['${1/foo/bar/}','${NAME/foo/bar/}','${1:unclosed','${1:$1}','${1:a}${1:b}'])assert.throws(()=>expandSnippet(text));
+ assert.throws(()=>expandSnippet('$NAME'),/Explicit snippet variable/);assert.throws(()=>expandSnippet('${1|a,b|}',{values:{1:'c'}}),/offered choice/);assert.throws(()=>expandSnippet('$1',{values:{2:'c'}}),/Unknown/);
+});
+test('Chat snippet completion reviews exact expansion and explicit field values before grouped writes',async t=>{
+ const f=await fixture(t),session=await f.start();assert.equal(f.lsp.sessions.get(session.sessionId).server.capabilities.completionProvider.resolveProvider,true);
+ const args={sessionId:session.sessionId,relativePath:'source.js',expectedSha256:f.read('source.js').sha256,languageId:'javascript',kind:'completion',position:{line:0,character:6}};
+ await f.request('inspectFile',args);const proposals=await f.request('proposalsFor',args),proposalId=proposals.proposals[1].proposalId;
+ const defaultPlan=await f.request('prepareProposal',{proposalId});assert.equal(defaultPlan.applicable,true);assert.equal(defaultPlan.result.snippet.text,'value');
+ const plan=await f.request('prepareProposal',{proposalId,snippetValues:{1:'answer'}});assert.equal(plan.applicable,true);assert.equal(plan.result.snippet.text,'answer');assert.equal(plan.result.snippet.tabstops[0].source,'explicit');assert.equal(f.read('source.js').text,'BROKEN');
+ const preview=await f.request('previewRename',{renameId:plan.renameId});assert.match(preview.files[0].diff,/answer/);assert.equal(preview.result.snippet.raw,'${1:value}');
+ await f.request('applyRename',{renameId:plan.renameId,previewToken:preview.previewToken,confirmed:true});assert.equal(f.read('source.js').text,'answer');
 });

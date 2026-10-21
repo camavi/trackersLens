@@ -117,3 +117,9 @@ Last updated: 2026-10-10.
 LSP completion/code-action proposals: `core/desktop/chat-lsp.cjs` owns synchronized queries, opaque proposal resolution and reviewed edit plans; `test/chat-lsp-proposals-real.cjs` exercises actual TypeScript completion/import organization/tsc. Chat catalog/read/action modules retain the standard Core boundary.
 
 TypeScript refactoring calculations: `core/desktop/chat-lsp-typescript.cjs` validates opaque server commands and converts getEditsForRefactor results into reviewed WorkspaceEdits; integrated through `ChatLsp.prepareProposal`, never generic renderer command execution.
+
+Chat LSP snippet expansion: `core/desktop/chat-lsp-snippets.cjs` parses static tabstops/defaults/choices/explicit variables; `ChatLsp.prepareProposal` materializes the primary completion edit and preserves expansion metadata before existing grouped review.
+
+External TL MCP server: `core/mcp/tl-tools.cjs` owns schemas and Core read/preview dispatch; `local-service.cjs` owns project sockets/lifecycle; `local-client.cjs` connects the external SDK stdio entry `scripts/tl-mcp.cjs`. Main/preload and `js/tl-app-shell.js` own opt-in project controls. Contract: `runtime/mcp-server.md`.
+
+MCP mutation plans: `core/mcp/node-edits.cjs` owns connection scope/review/apply/receipts. Main owns approval tokens and save/unload/commit/reload lifecycle; `js/tl-project-session.js` and preload render/answer/cancel the local JSswift review. `mcp-edit-pending.html` is script-free during commit.

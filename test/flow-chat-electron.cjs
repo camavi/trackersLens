@@ -146,13 +146,13 @@ const core = createTlCore({ adapters: { chatTests, chatDebugger, chatLsp, chatGi
       return {text:steps[atomicStep]?JSON.stringify(steps[atomicStep++]):'Debugger verified'};
     }
     if(mode.startsWith('lsp-proposal-')) {
-      const selection=mode.slice('lsp-proposal-'.length),kind=selection==='refactor'?'codeAction':selection,chat=persistence.readDevelopmentRecordById({storeName:'tl_flow_prompt_chats',id:'chat-restart'});
+      const selection=mode.slice('lsp-proposal-'.length),kind=selection==='refactor'?'codeAction':selection==='snippet'?'completion':selection,chat=persistence.readDevelopmentRecordById({storeName:'tl_flow_prompt_chats',id:'chat-restart'});
       const file=chat?.agentRun?.observations?.findLast(entry=>entry.request?.tool==='tl.project.readTextFile'&&entry.request.args.relativePath==='source.js')?.observation;
       const proposals=chat?.agentRun?.observations?.findLast(entry=>entry.request?.tool==='tl.lsp.proposalsFor')?.observation;
       const plan=chat?.agentRun?.observations?.findLast(entry=>entry.request?.tool==='tl.lsp.prepareProposal')?.observation;
       const sessionId=[...chatLsp.sessions.keys()].at(-1)||'',read=(tool,args={})=>({type:'tool_request',tool,args}),action=(action,args)=>({type:'proposed_action',action,args});
       const sourceArgs={sessionId,relativePath:'source.js',expectedSha256:file?.sha256};
-      const steps=[read('tl.catalog.listDomains'),read('tl.catalog.listTools',{domain:'lsp'}),...['tl.lsp.list','tl.lsp.inspectFile','tl.lsp.proposalsFor','tl.lsp.prepareProposal'].map(name=>read('tl.catalog.getCapabilityDetails',{name})),read('tl.project.chooseFolder'),read('tl.project.listDirectory'),read('tl.project.readTextFile',{relativePath:'lsp.json'}),action('start_language_server',{configPath:'lsp.json',serverName:'fixture',expectedSha256:crypto.createHash('sha256').update(lspConfig).digest('hex')}),read('tl.lsp.list'),read('tl.project.readTextFile',{relativePath:'source.js'}),read('tl.lsp.inspectFile',{...sourceArgs,languageId:'javascript'}),read('tl.lsp.proposalsFor',{...sourceArgs,kind,position:{line:0,character:6},range:{start:{line:0,character:0},end:{line:0,character:6}}}),read('tl.lsp.prepareProposal',{proposalId:proposals?.proposals?.[selection==='refactor'?3:0]?.proposalId}),action('apply_lsp_edit',{renameId:plan?.renameId}),read('tl.lsp.list'),action('stop_language_server',{sessionId})];
+      const steps=[read('tl.catalog.listDomains'),read('tl.catalog.listTools',{domain:'lsp'}),...['tl.lsp.list','tl.lsp.inspectFile','tl.lsp.proposalsFor','tl.lsp.prepareProposal'].map(name=>read('tl.catalog.getCapabilityDetails',{name})),read('tl.project.chooseFolder'),read('tl.project.listDirectory'),read('tl.project.readTextFile',{relativePath:'lsp.json'}),action('start_language_server',{configPath:'lsp.json',serverName:'fixture',expectedSha256:crypto.createHash('sha256').update(lspConfig).digest('hex')}),read('tl.lsp.list'),read('tl.project.readTextFile',{relativePath:'source.js'}),read('tl.lsp.inspectFile',{...sourceArgs,languageId:'javascript'}),read('tl.lsp.proposalsFor',{...sourceArgs,kind,position:{line:0,character:6},range:{start:{line:0,character:0},end:{line:0,character:6}}}),read('tl.lsp.prepareProposal',{proposalId:proposals?.proposals?.[selection==='refactor'?3:selection==='snippet'?1:0]?.proposalId,...(selection==='snippet'?{snippetValues:{1:'answer'}}:{})}),action('apply_lsp_edit',{renameId:plan?.renameId}),read('tl.lsp.list'),action('stop_language_server',{sessionId})];
       return {text:steps[atomicStep]?JSON.stringify(steps[atomicStep++]):'LSP proposal verified'};
     }
     if(mode==='lsp-rename') {
@@ -880,13 +880,14 @@ app.whenReady().then(async () => {
       await waitFor(()=>[...chatDebugger.sessions.values()].at(-1).status==='stopped', 'Python UI stopped');
       await js(`document.querySelector('.tl-flow-prompt-debugger').closest('.jss-dialog').querySelector('[aria-label="Chiudi dialog"]').click()`);
     }
-    for(const kind of ['completion','codeAction','refactor']) {
+    for(const kind of ['completion','codeAction','refactor','snippet']) {
       fs.writeFileSync(path.join(projectFolder,'source.js'),'BROKEN');
       await completeCapability('lsp-proposal-'+kind,['Consenti tutte le letture per questa chat','Consenti una volta','Avvia language server','Applica modifica LSP']);
       const applied=record().agentRun.observations.find(entry=>entry.request?.action==='apply_lsp_edit')?.observation;
-      assert.equal(applied?.status,'completed');assert.equal(fs.readFileSync(path.join(projectFolder,'source.js'),'utf8'),'FIXED');
+      assert.equal(applied?.status,'completed');assert.equal(fs.readFileSync(path.join(projectFolder,'source.js'),'utf8'),kind==='snippet'?'answer':'FIXED');
       const result=record().agentRun.observations.find(entry=>entry.request?.tool==='tl.lsp.prepareProposal').observation.result;assert.ok(result.resolved);
       if(kind==='refactor')assert.equal(result.adapter.request.arguments[0],'getEditsForRefactor');
+      if(kind==='snippet'){assert.equal(result.snippet.text,'answer');assert.equal(result.snippet.tabstops[0].source,'explicit');}
     }
     fs.writeFileSync(path.join(projectFolder,'source.js'),'export const oldName=2;\n');
     fs.writeFileSync(path.join(projectFolder,'use.js'),'console.log(oldName,oldName);\n');

@@ -3,6 +3,7 @@ const path = require('node:path');
 const { pathToFileURL } = require('node:url');
 const { spawn } = require('node:child_process');
 const crypto = require('node:crypto');
+const { expandSnippet } = require('./chat-lsp-snippets.cjs');
 const { prepareTypeScriptRefactor } = require('./chat-lsp-typescript.cjs');
 const { positionOffset, projectLocation, normalizeWorkspaceEdit } = require('./chat-lsp-edits.cjs');
 const { ReviewedChatCapability, fingerprint } = require('./chat-capability-scope.cjs');
@@ -70,7 +71,7 @@ class ChatLsp extends ReviewedChatCapability {
   previewStart(args,lifecycle){const config=this.config(args);return this.preview(args,lifecycle,{serverName:args.serverName,...config,configHash:fingerprint(config),policy:'Local server runs with user permissions and may inspect project files; no implicit edits or downloads are granted.'});}
   async start(args,lifecycle){const plan=this.consume(args,lifecycle),config=this.config(args);if(fingerprint(config)!==plan.detail.configHash)throw new Error('Language server launch changed.');
     const {root}=this.workspace.resolve({...args,relativePath:''});const server=new LspProcess(config,root),session={...plan.scope,sessionId:crypto.randomUUID(),serverName:args.serverName,folderId:args.folderId,root,server};this.sessions.set(session.sessionId,session);
-    try {const result=await server.request('initialize',{processId:process.pid,rootUri:pathToFileURL(root).href,capabilities:{general:{positionEncodings:['utf-16']},textDocument:{publishDiagnostics:{versionSupport:true},diagnostic:{},documentSymbol:{hierarchicalDocumentSymbolSupport:true},definition:{linkSupport:true},references:{},completion:{completionItem:{snippetSupport:false,resolveSupport:{properties:["documentation","detail","additionalTextEdits"]}}},codeAction:{codeActionLiteralSupport:{codeActionKind:{valueSet:["","quickfix","refactor","refactor.extract","refactor.inline","refactor.rewrite","source","source.organizeImports","source.fixAll"]}},resolveSupport:{properties:["edit"]},disabledSupport:true},rename:{prepareSupport:true,honorsChangeAnnotations:true}},workspace:{applyEdit:false,workspaceEdit:{documentChanges:true,resourceOperations:[],changeAnnotationSupport:{groupsOnLabel:false}}}},workspaceFolders:[{uri:pathToFileURL(root).href,name:path.basename(root)}]});
+    try {const result=await server.request('initialize',{processId:process.pid,rootUri:pathToFileURL(root).href,capabilities:{general:{positionEncodings:['utf-16']},textDocument:{publishDiagnostics:{versionSupport:true},diagnostic:{},documentSymbol:{hierarchicalDocumentSymbolSupport:true},definition:{linkSupport:true},references:{},completion:{completionItem:{snippetSupport:true,resolveSupport:{properties:["documentation","detail","additionalTextEdits"]}}},codeAction:{codeActionLiteralSupport:{codeActionKind:{valueSet:["","quickfix","refactor","refactor.extract","refactor.inline","refactor.rewrite","source","source.organizeImports","source.fixAll"]}},resolveSupport:{properties:["edit"]},disabledSupport:true},rename:{prepareSupport:true,honorsChangeAnnotations:true}},workspace:{applyEdit:false,workspaceEdit:{documentChanges:true,resourceOperations:[],changeAnnotationSupport:{groupsOnLabel:false}}}},workspaceFolders:[{uri:pathToFileURL(root).href,name:path.basename(root)}]});
       if(result?.capabilities?.positionEncoding&&result.capabilities.positionEncoding!=='utf-16')throw new Error('Server requires unsupported position encoding.');
       server.capabilities=result?.capabilities||{};server.notify('initialized',{});return this.describe(session);
     }catch(error){await server.close();throw error;}}
@@ -166,7 +167,7 @@ class ChatLsp extends ReviewedChatCapability {
       const proposalId=crypto.randomUUID();this.proposals.set(proposalId,{...this.scope(args,lifecycle),sessionId:session.sessionId,kind,item,snapshot,uri,document:source.document,defaults:result?.itemDefaults,range:args.range,source:{relativePath:source.file.relativePath,sha256:source.file.sha256,version:source.document.version,position:args.position}});
       return {proposalId,item};
     });
-    return {sessionId:session.sessionId,kind,result,proposals,limitations:['Proposals are untrusted evidence, not applied edits. Completion without an explicit server or caller text range, snippets and arbitrary commands remain inspectable only; server-owned TypeScript refactors may use the fixed getEditsForRefactor calculation adapter. Code-action diagnostics are supplied only for an exact versioned report.']};
+    return {sessionId:session.sessionId,kind,result,proposals,limitations:['Proposals are untrusted evidence, not applied edits. Completion without an explicit server or caller text range, unsupported snippet transformations and arbitrary commands remain inspectable only; server-owned TypeScript refactors may use the fixed getEditsForRefactor calculation adapter. Code-action diagnostics are supplied only for an exact versioned report.']};
   }
   async prepareProposal(args,lifecycle) {
     const proposal=this.proposals.get(args.proposalId);
@@ -177,7 +178,7 @@ class ChatLsp extends ReviewedChatCapability {
     const provider=session.server.capabilities[proposal.kind==='completion'?'completionProvider':'codeActionProvider'];
     if(provider?.resolveProvider)item=await session.server.request(proposal.kind==='completion'?'completionItem/resolve':'codeAction/resolve',item);
     this.checkSnapshot(session,proposal.snapshot);
-    let edit=null,adapter=null;const reasons=[];
+    let edit=null,adapter=null,snippet=null;const reasons=[];
     if(!item||typeof item!=='object')reasons.push('Malformed resolved proposal.');
     else if(proposal.kind==='codeAction'){
       if(item.disabled)reasons.push('Disabled action: '+item.disabled.reason);
@@ -191,7 +192,7 @@ class ChatLsp extends ReviewedChatCapability {
       const defaults=proposal.defaults||{};
       if(Object.keys(defaults).some(key=>!['editRange','insertTextFormat','insertTextMode','data'].includes(key)))reasons.push('Unsupported completion item defaults; no partial insertion.');
       const format=item.insertTextFormat??defaults.insertTextFormat??1;
-      if(format!==1)reasons.push('Snippet insertion is unsupported.');
+      if(![1,2].includes(format))reasons.push('Unsupported completion insertion format.');
       if(item.command)reasons.push('Completion commands are unsupported.');
       let primary=item.textEdit;
       if(!primary&&defaults.editRange)primary={range:defaults.editRange,newText:item.textEditText??item.insertText??item.label};
@@ -199,12 +200,13 @@ class ChatLsp extends ReviewedChatCapability {
       if((item.insertTextMode??defaults.insertTextMode??1)!==1)reasons.push('Indentation-adjusted insertion is unsupported.');
       if(!primary?.range)reasons.push('An explicit server replacement range is required; insert/replace choices are not guessed.');
       if(defaults.data!==undefined&&!Object.hasOwn(proposal.item,'data'))reasons.push('Unsupported completion itemDefaults.data resolution.');
+      if(format===2&&primary){try{snippet=expandSnippet(primary.newText,{values:args.snippetValues,variables:args.snippetVariables});primary={...primary,newText:snippet.text};}catch(error){reasons.push(error.message);}}
       edit={changes:{[proposal.uri]:[...(primary?[primary]:[]),...(item.additionalTextEdits||[])]}};
     }
     this.checkSnapshot(session,proposal.snapshot);
     const normalized=normalizeWorkspaceEdit({workspace:this.workspace,session,snapshot:proposal.snapshot,edit});
     normalized.reasons.unshift(...reasons);
-    const renameId=crypto.randomUUID(),plan={...this.scope(args,lifecycle),sessionId:session.sessionId,renameId,source:proposal.source,newName:item?.label||item?.title||proposal.kind,result:{kind:proposal.kind,original:proposal.item,resolved:item,edit,...(adapter?{adapter:adapter.evidence}:{})},...normalized};
+    const renameId=crypto.randomUUID(),plan={...this.scope(args,lifecycle),sessionId:session.sessionId,renameId,source:proposal.source,newName:item?.label||item?.title||proposal.kind,result:{kind:proposal.kind,original:proposal.item,resolved:item,edit,...(adapter?{adapter:adapter.evidence}:{}),...(snippet?{snippet}:{})},...normalized};
     plan.snapshot=proposal.snapshot;
     plan.applicable=!plan.reasons.length&&plan.files.some(file=>file.content!==this.workspace.readTextFile({chatId:args.chatId,folderId:session.folderId,relativePath:file.relativePath}).text);
     if(!plan.applicable&&!plan.reasons.length)plan.reasons.push('Server returned no effective changes.');

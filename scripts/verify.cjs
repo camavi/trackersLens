@@ -3,6 +3,12 @@
 const { spawnSync } = require('node:child_process');
 
 const syntaxFiles = [
+  'core/mcp/tl-tools.cjs',
+  'core/mcp/node-edits.cjs',
+  'core/mcp/local-service.cjs',
+  'core/mcp/local-client.cjs',
+  'scripts/tl-mcp.cjs',
+  'test/tl-mcp-electron.cjs',
   'electron/main.cjs',
   'core/desktop/project-runtime.cjs',
   'js/project-home.js',
@@ -21,6 +27,7 @@ const syntaxFiles = [
   'core/desktop/chat-lsp.cjs',
   'core/desktop/chat-lsp-edits.cjs',
   'core/desktop/chat-lsp-typescript.cjs',
+  'core/desktop/chat-lsp-snippets.cjs',
   'test/chat-lsp-navigation-real.cjs',
   'test/chat-lsp-proposals-real.cjs',
   'core/desktop/chat-tests.cjs',
@@ -65,6 +72,7 @@ const tests = [
   'test/chat-pty-process.test.cjs',
   'test/chat-skills.test.cjs',
   'test/chat-git.test.cjs',
+  'test/tl-mcp-server.test.cjs',
   'test/chat-lsp.test.cjs',
   'test/chat-tests.test.cjs',
   'test/chat-debugger.test.cjs',

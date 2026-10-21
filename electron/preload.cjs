@@ -22,11 +22,25 @@ ipcRenderer.on('trackers-core:prepare-project-close', async (_event, token) => {
   } catch (failure) { error = failure.message || String(failure); }
   await request('desktop.project.prepared', { token, error });
 });
+let mcpReviewListener=null,mcpReviewCancelListener=null;
+ipcRenderer.on('trackers-core:mcp-review-cancel',(_event,token)=>mcpReviewCancelListener?.(token));
+ipcRenderer.on('trackers-core:mcp-review',(_event,review)=>{
+  if(mcpReviewListener)mcpReviewListener(review);
+  else void request('desktop.mcpServer.reviewResponse',{token:review.token,approved:false});
+});
 const pythonPocEnabled = process.argv.includes("--tl-python-poc=1");
 const pythonNlpEnabled = process.argv.includes("--tl-python-nlp=1");
 
 const trackers = Object.freeze({
   desktop: Object.freeze({
+    mcpServer: Object.freeze({
+      onReviewCancel: listener => { mcpReviewCancelListener=listener; },
+      onReview: listener => { if(typeof listener!=='function')throw new TypeError('Invalid MCP review listener');mcpReviewListener=listener;return ()=>{if(mcpReviewListener===listener)mcpReviewListener=null;}; },
+      respond: (token,approved) => request('desktop.mcpServer.reviewResponse',{token,approved:approved===true}),
+      status: () => request('desktop.mcpServer.status'),
+      start: () => request('desktop.mcpServer.start'),
+      stop: () => request('desktop.mcpServer.stop'),
+    }),
     flowChat: Object.freeze({
       applyNodeEdits: ({ workspaceId, edits, expected, confirmed = false, restoreSnapshotId = "", operationId = "" } = {}) => request("desktop.flowChat.applyNodeEdits", { workspaceId, edits, expected, confirmed: confirmed === true, restoreSnapshotId, operationId }),
       getNodeEditReceipt: ({ workspaceId, operationId } = {}) => request("desktop.flowChat.getNodeEditReceipt", { workspaceId, operationId }),
