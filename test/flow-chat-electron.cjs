@@ -9,6 +9,9 @@ const { DesktopPersistence } = require('../core/desktop/desktop-persistence.cjs'
 const { ExternalAiChatRuns } = require('../core/desktop/external-ai-chat-runner.cjs');
 const { ExternalAiWorkSessions } = require('../core/desktop/external-ai-work-sessions.cjs');
 const { ChatBrowser, createChatBrowserWindow } = require('../core/desktop/chat-browser.cjs');
+const { ChatDebugger } = require('../core/desktop/chat-debugger.cjs');
+const { ChatLsp } = require('../core/desktop/chat-lsp.cjs');
+const { ChatGit } = require('../core/desktop/chat-git.cjs');
 const { ChatSkills } = require('../core/desktop/chat-skills.cjs');
 const { ChatMcpClient } = require('../core/desktop/chat-mcp-client.cjs');
 const { ChatProjectWorkspace } = require('../core/desktop/chat-project-workspace.cjs');
@@ -46,6 +49,9 @@ const atomicEdits = [{ operation: 'config', nodeId: 'atomic-node', field: 'min',
 ];
 const chatProject = new ChatProjectWorkspace({ persistence, selectDirectory: async () => projectFolder });
 const mcp = new ChatMcpClient({ workspace: chatProject });
+const chatDebugger = new ChatDebugger({ workspace: chatProject });
+const chatLsp = new ChatLsp({ workspace: chatProject });
+const chatGit = new ChatGit({ workspace: chatProject });
 const chatSkills = new ChatSkills({ workspace: chatProject });
 const chatBrowser = new ChatBrowser({ createWindow: () => createChatBrowserWindow({ BrowserWindow, session, show: false }) });
 let browserFixtureUrl = '';
@@ -55,10 +61,14 @@ fs.writeFileSync(path.join(projectFolder, 'skill-source/SKILL.md'), skillContent
 fs.writeFileSync(path.join(projectFolder, 'skill-source/scripts/helper.py'), 'raise Exception("never execute implicitly")');
 const skillSourceHash = crypto.createHash('sha256').update(skillContent).digest('hex');
 const testNodePath = require('node:child_process').execFileSync('/usr/bin/which', ['node'], { encoding: 'utf8' }).trim();
+const lspConfig = JSON.stringify({languageServers:{fixture:{command:testNodePath,args:[path.join(__dirname,'fixtures/lsp-server.cjs')],requestTimeoutMs:5000}}});
+fs.writeFileSync(path.join(projectFolder,'lsp.json'),lspConfig);
+const debugSource='function sum(a,b){\n const result=a+b;\n console.log(result);\n return result;\n}\nconsole.log("DONE",sum(2,3));\n';
+fs.writeFileSync(path.join(projectFolder,'debug.cjs'),debugSource);
 const mcpConfig = JSON.stringify({ mcpServers: { fixture: { command: testNodePath, args: [path.join(__dirname, 'fixtures/mcp-stdio-server.cjs')], requestTimeoutMs: 5000 } } });
 fs.writeFileSync(path.join(projectFolder, '.mcp.json'), mcpConfig);
 const mcpHash = crypto.createHash('sha256').update(mcpConfig).digest('hex');
-const core = createTlCore({ adapters: { chatBrowser, chatSkills, mcp, persistence, nativeWorkSessions: nativeSessions, externalAi: {
+const core = createTlCore({ adapters: { chatDebugger, chatLsp, chatGit, chatBrowser, chatSkills, mcp, persistence, nativeWorkSessions: nativeSessions, externalAi: {
   getStatus: async ({ provider }) => ({ provider, installed: !(mode === "atomic" && atomicStep > 0), authenticated: !(mode === "atomic" && atomicStep > 0) }),
   listModels: async () => ({ models: [], source: 'fixture' }),
   sendMessage: async (payload, { signal, onEvent }) => {
@@ -107,6 +117,41 @@ const core = createTlCore({ adapters: { chatBrowser, chatSkills, mcp, persistenc
         read('tl.mcp.listConnections'), read('tl.mcp.diagnostics', { sessionId }),
       ];
       return { text: steps[atomicStep] ? JSON.stringify(steps[atomicStep++]) : 'MCP workflow verified' };
+    }
+    if (mode === 'debugger') {
+      const chat=persistence.readDevelopmentRecordById({storeName:'tl_flow_prompt_chats',id:'chat-restart'});
+      const state=chat?.agentRun?.observations?.findLast(entry=>entry.request?.tool==='tl.debug.state')?.observation;
+      const sessionId=[...chatDebugger.sessions.keys()].at(-1)||'';
+      if ([11,19,23].includes(atomicStep)) { const end=Date.now()+5000;while(Date.now()<end){const session=chatDebugger.sessions.get(sessionId);if(session?.status==='paused')break;await new Promise(resolve=>setTimeout(resolve,10));} }
+      const read=(tool,args={})=>({type:'tool_request',tool,args});
+      const action=(operation,extra={})=>({type:'proposed_action',action:'debug_action',args:{sessionId,operation,expectedRevision:state?.revision,pauseId:state?.pauseId,...extra}});
+      const local=state?.frames?.[0]?.scopeChain?.find(scope=>scope.type==='local');
+      const steps=[read('tl.catalog.listDomains'),read('tl.catalog.listTools',{domain:'debug'}),...['tl.debug.list','tl.debug.state','tl.debug.variables'].map(name=>read('tl.catalog.getCapabilityDetails',{name})),read('tl.project.chooseFolder'),read('tl.project.listDirectory'),read('tl.project.readTextFile',{relativePath:'debug.cjs'}),{type:'proposed_action',action:'start_debug_session',args:{relativePath:'debug.cjs',expectedSha256:crypto.createHash('sha256').update(debugSource).digest('hex'),arguments:[]}},read('tl.debug.list'),read('tl.debug.state',{sessionId}),read('tl.debug.state',{sessionId}),read('tl.project.listDirectory'),read('tl.project.readTextFile',{relativePath:'debug.cjs'}),action('set_breakpoint',{relativePath:'debug.cjs',expectedSha256:crypto.createHash('sha256').update(debugSource).digest('hex'),line:2}),read('tl.debug.list'),read('tl.debug.state',{sessionId}),action('resume'),read('tl.debug.list'),read('tl.debug.state',{sessionId}),read('tl.debug.variables',{sessionId,pauseId:state?.pauseId,objectId:local?.object?.objectId}),action('step_over'),read('tl.debug.list'),read('tl.debug.state',{sessionId}),action('stop')];
+      return {text:steps[atomicStep]?JSON.stringify(steps[atomicStep++]):'Debugger verified'};
+    }
+    if (mode === 'lsp') {
+      const chat=persistence.readDevelopmentRecordById({storeName:'tl_flow_prompt_chats',id:'chat-restart'});
+      const file=chat?.agentRun?.observations?.findLast(entry=>entry.request?.tool==='tl.project.readTextFile'&&entry.request.args.relativePath==='example.js')?.observation;
+      const sessionId=[...chatLsp.sessions.keys()].at(-1)||'';
+      const read=(tool,args={})=>({type:'tool_request',tool,args});
+      const steps=[read('tl.catalog.listDomains'),read('tl.catalog.listTools',{domain:'lsp'}),...['tl.lsp.list','tl.lsp.inspectFile','tl.lsp.diagnostics'].map(name=>read('tl.catalog.getCapabilityDetails',{name})),read('tl.project.chooseFolder'),read('tl.project.listDirectory'),read('tl.project.readTextFile',{relativePath:'lsp.json'}),{type:'proposed_action',action:'start_language_server',args:{configPath:'lsp.json',serverName:'fixture',expectedSha256:crypto.createHash('sha256').update(lspConfig).digest('hex')}},read('tl.lsp.list'),read('tl.project.readTextFile',{relativePath:'example.js'}),read('tl.lsp.inspectFile',{sessionId,relativePath:'example.js',expectedSha256:file?.sha256,languageId:'javascript'}),read('tl.lsp.diagnostics',{sessionId}),{type:'proposed_action',action:'stop_language_server',args:{sessionId}}];
+      return {text:steps[atomicStep]?JSON.stringify(steps[atomicStep++]):'Language diagnostics verified'};
+    }
+    if (mode === 'git-stage') {
+      const chat = persistence.readDevelopmentRecordById({storeName:'tl_flow_prompt_chats',id:'chat-restart'});
+      const state = chat?.agentRun?.observations?.findLast(entry=>entry.request?.tool==='tl.git.status')?.observation;
+      const read=(tool,args={})=>({type:'tool_request',tool,args});
+      const steps=[read('tl.catalog.listDomains'),read('tl.catalog.listTools',{domain:'git'}),read('tl.catalog.getCapabilityDetails',{name:'tl.git.status'}),read('tl.project.chooseFolder'),read('tl.git.status'),{type:'proposed_action',action:'git_action',args:{operation:'stage',paths:['example.js'],expectedStateHash:state?.stateHash}},read('tl.git.status')];
+      return {text:steps[atomicStep]?JSON.stringify(steps[atomicStep++]):'Git stage verified'};
+    }
+    if (mode === 'project-patch') {
+      const steps = [
+        { type: 'tool_request', tool: 'tl.project.chooseFolder', args: {} },
+        { type: 'tool_request', tool: 'tl.project.listDirectory', args: {} },
+        { type: 'tool_request', tool: 'tl.project.readTextFile', args: { relativePath: 'example.js' } },
+        { type: 'proposed_action', action: 'patch_project_files', args: { edits: [{ relativePath: 'example.js', expectedSha256: crypto.createHash('sha256').update('export const example = 42;\n').digest('hex'), replacements: [{ oldText: '42', newText: '420' }] }] } },
+      ];
+      return { text: steps[atomicStep] ? JSON.stringify(steps[atomicStep++]) : 'Patch verified' };
     }
     if (mode === 'project-read-recovery') {
       const steps = [
@@ -301,7 +346,7 @@ const core = createTlCore({ adapters: { chatBrowser, chatSkills, mcp, persistenc
 ipcMain.handle('trackers-core:request', (event, command, payload) => {
   if(mode==='project-read-recovery' && command==='desktop.chatProject.chooseFolder')projectFolderChoices++;
   if(mode==='project-read-recovery' && command==='desktop.chatProject.listDirectory' && !failedDirectoryRead){failedDirectoryRead=true;throw new Error('Project folder grant is missing or expired. Select the folder again.');}
-  if (/^desktop\.(mcp|chatBrowser|chatSkills)\./.test(command)) return core.request(command, payload, { ownerId: event.sender.id });
+  if (/^desktop\.(mcp|chatBrowser|chatSkills|chatGit|chatLsp|chatDebugger)\./.test(command)) return core.request(command, payload, { ownerId: event.sender.id });
   if (command === 'desktop.project.getStatus') return {active:{id:'chat-fixture',name:'Chat fixture'},recent:[]};
   if (command === 'desktop.flowChat.applyNodeEdits' && payload.confirmed === true) atomicCommits++;
   if (/^desktop\.chatProject\.(startTerminal|writeTerminal|resizeTerminal|stopTerminal)$/.test(command)) return core.request(command, payload, { ownerId: event.sender.id });
@@ -704,6 +749,77 @@ app.whenReady().then(async () => {
     await waitFor(()=>persistence.readDevelopmentRecordById({storeName:'tl_ai_jobs',id:terminalId}).status==='completed', 'PTY completion');
     const ptyRecord = persistence.readDevelopmentRecordById({storeName:'tl_ai_jobs',id:terminalId});
     assert.equal(ptyRecord.transport, 'pty'); assert.match(ptyRecord.stdout, /40 100/); assert.match(ptyRecord.stdout, /PTY:ciao/);
+    await completeCapability('project-patch', ['Consenti tutte le letture per questa chat','Consenti una volta','Applica modifiche ai file']);
+    const patchResult = record().agentRun.observations.find(entry=>entry.request?.action==='patch_project_files').observation;
+    assert.equal(patchResult.ok, true);
+    assert.match(patchResult.reviewedFiles[0].diff, /\+export const example = 420/);
+    assert.equal(fs.readFileSync(path.join(projectFolder, 'example.js'), 'utf8'), 'export const example = 420;\n');
+    fs.writeFileSync(path.join(projectFolder, 'example.js'), 'export const example = 42;\n');
+    await completeCapability('debugger',['Consenti tutte le letture per questa chat','Consenti una volta','Avvia debugger','Esegui azione debugger']);
+    const debuggerVars=record().agentRun.observations.find(entry=>entry.request?.tool==='tl.debug.variables').observation;
+    assert.ok(debuggerVars.properties, JSON.stringify(record().agentRun.observations));
+    assert.equal(debuggerVars.properties.find(item=>item.name==='result').value.value,5);
+    assert.equal([...chatDebugger.sessions.values()].at(-1).status,'stopped');
+    await js(`document.querySelector('[aria-label="Debugger"]').click()`);
+    await waitFor(`document.querySelector('.tl-flow-prompt-debugger')?.textContent.includes('debug.cjs')`, 'debugger panel sessions');
+    await consent('Nuova sessione');
+    await waitFor(`document.querySelector('input[name="debugEntry"]')`, 'debugger launch form');
+    await js(`document.querySelector('input[name="debugEntry"]').value='debug.cjs'`);
+    await js(`[...document.querySelectorAll('.jss-dialog button')].findLast(button=>button.textContent==='Avvia debugger').click()`);
+    await waitFor(`[...document.querySelectorAll('.jss-dialog button')].some(button=>button.textContent==='Conferma debugger')`, 'manual debugger launch review');
+    await consent('Conferma debugger');
+    await waitFor(`document.querySelector('.tl-flow-prompt-debugger')?.textContent.includes('Scope') || [...document.querySelectorAll('.tl-flow-prompt-debugger button')].some(button=>button.textContent==='local')`, 'debugger paused stack');
+    await consent('Apri sorgente');
+    await waitFor(`document.querySelector('.tl-flow-prompt-debugger')?.textContent.includes('clicca il numero')`, 'debugger source editor');
+    await js(`(() => {const detail=[...document.querySelectorAll('.tl-flow-prompt-debugger details')].find(node=>node.querySelector('summary')?.textContent.includes('clicca il numero'));[...detail.querySelectorAll('button')].find(button=>button.textContent==='3').click();})()`);
+    await waitFor(`[...document.querySelectorAll('.jss-dialog button')].some(button=>button.textContent==='Conferma debugger')`, 'source breakpoint review');
+    await consent('Conferma debugger');
+    await waitFor(()=>[...chatDebugger.sessions.values()].at(-1).breakpoints.size===1, 'source breakpoint installed');
+    await consent('Riprendi');
+    await waitFor(`[...document.querySelectorAll('.jss-dialog button')].some(button=>button.textContent==='Conferma debugger')`, 'manual resume review');
+    await consent('Conferma debugger');
+    await waitFor(`document.querySelector('.tl-flow-prompt-debugger')?.textContent.includes('sum ·')`, 'manual breakpoint stack');
+    await waitFor(`document.querySelector('.tl-flow-prompt-debugger .is-current-debug-line')`, 'paused source line highlighted');
+    await consent('sum');
+    await waitFor(`document.querySelector('.tl-flow-prompt-debugger')?.textContent.includes('"value": 5')`, 'manual debugger local values');
+    for (const width of [1200,480]) {
+      win.setSize(width,850);await new Promise(resolve=>setTimeout(resolve,120));
+      const bounds=await js(`(() => {const panel=document.querySelector('.tl-flow-prompt-debugger').closest('.jss-dialog');const r=panel.getBoundingClientRect();return {width:r.width,height:r.height,viewportWidth:innerWidth,viewportHeight:innerHeight};})()`);
+      assert.ok(bounds.width<=bounds.viewportWidth&&bounds.height<=bounds.viewportHeight,JSON.stringify(bounds));
+      fs.writeFileSync(`/private/tmp/tl-debugger-panel-${width}.png`,(await win.webContents.capturePage()).toPNG());
+    }
+    win.setSize(1200,850);
+    await consent('Arresta');
+    await waitFor(`[...document.querySelectorAll('.jss-dialog button')].some(button=>button.textContent==='Conferma debugger')`, 'manual stop review');
+    await consent('Conferma debugger');
+    await waitFor(()=>[...chatDebugger.sessions.values()].at(-1).status==='stopped', 'manual debugger stopped');
+    await js(`document.querySelector('.tl-flow-prompt-debugger').closest('.jss-dialog').querySelector('[aria-label="Chiudi dialog"]').click()`);
+    await waitFor(`!document.querySelector('.tl-flow-prompt-debugger')`, 'manual debugger dialog closed');
+    if (process.env.TL_TEST_DEBUG_PYTHON) {
+      fs.writeFileSync(path.join(projectFolder,'main.py'),'answer = 2 + 3\nprint("DONE", answer)\n');
+      await js(`document.querySelector('[aria-label="Debugger"]').click()`);
+      await waitFor(`document.querySelector('.tl-flow-prompt-debugger')`, 'Python debugger panel');
+      await consent('Nuova sessione');
+      await js(`document.querySelector('input[name="debugEntry"]').value='main.py';document.querySelector('input[name="debugPythonCommand"]').value=${JSON.stringify(process.env.TL_TEST_DEBUG_PYTHON)}`);
+      await js(`[...document.querySelectorAll('.jss-dialog button')].findLast(button=>button.textContent==='Avvia debugger').click()`);
+      await waitFor(`[...document.querySelectorAll('.jss-dialog button')].some(button=>button.textContent==='Conferma debugger')`, 'Python launch review');
+      await consent('Conferma debugger');
+      await waitFor(`document.querySelector('.tl-flow-prompt-debugger')?.textContent.includes('python · main.py · paused')`, 'Python UI paused');
+      await waitFor(`[...document.querySelectorAll('.tl-flow-prompt-debugger button')].some(button=>button.textContent==='Locals')`, 'Python UI scopes');
+      await consent('Arresta');
+      await waitFor(`[...document.querySelectorAll('.jss-dialog button')].some(button=>button.textContent==='Conferma debugger')`, 'Python UI stop review');
+      await consent('Conferma debugger');
+      await waitFor(()=>[...chatDebugger.sessions.values()].at(-1).status==='stopped', 'Python UI stopped');
+      await js(`document.querySelector('.tl-flow-prompt-debugger').closest('.jss-dialog').querySelector('[aria-label="Chiudi dialog"]').click()`);
+    }
+    await completeCapability('lsp',['Consenti tutte le letture per questa chat','Consenti una volta','Avvia language server']);
+    const lspResult=record().agentRun.observations.find(entry=>entry.request?.tool==='tl.lsp.inspectFile').observation;
+    assert.equal(lspResult.symbols[0].name,'é_symbol');assert.equal(lspResult.diagnosticReport.items.length,0);
+    assert.equal([...chatLsp.sessions.values()].at(-1).server.closed,true);
+    require('node:child_process').execFileSync('git',['init','-q'],{cwd:projectFolder});
+    await completeCapability('git-stage', ['Consenti tutte le letture per questa chat','Consenti una volta','Esegui operazione Git']);
+    assert.equal(record().agentRun.observations.find(entry=>entry.request?.action==='git_action').observation.ok,true);
+    assert.match(record().agentRun.observations.findLast(entry=>entry.request?.tool==='tl.git.status').observation.staged,/export const example/);
     await seed(false); mode = 'project-edit'; atomicStep = 0; await load(); await open(); await resume();
     await waitFor(`[...document.querySelectorAll('button')].some(b=>b.textContent==='Consenti tutte le letture per questa chat')`, 'project edit directory consent');
     await consent('Consenti tutte le letture per questa chat');
@@ -995,11 +1111,13 @@ app.whenReady().then(async () => {
     console.log('Flow Chat Electron: SQLite restart/resume, uncertain-action guard, CLI live trace and cancellation passed.');
     console.log('Flow Chat Electron: atomic config/create/duplicate/connect, delete denial/apply, retained outputs and scoped restore passed.');
     console.log('Flow Chat Electron: repeated proposals/reads return feedback, denied/completed actions run at most once, failed preflight recovers after fresh reads.');
+    console.log('Flow Chat Electron: debugger source/breakpoint controls, stack/locals, desktop/mobile layout and optional real Python launch passed.');
     console.log('Flow Chat Electron: isolated browser/actions/images, installed/activated/reloaded/deactivated skills and PTY input/resize passed.');
     console.log('Flow Chat Electron: real stdio MCP launch/call/deny/duplicate/disconnect and active-call Stop passed.');
     console.log('Flow Chat Electron: project reads, reviewed edits/creation, real npm verification and live process cancellation passed.');
     console.log('Flow Chat Electron: manual batch atomic Apply, lost-reply receipt recovery, hidden-chat route continuation and deferred consent passed.');
   } finally {
+    await chatDebugger.cancelOwner(win.webContents.id);
     win.destroy(); fs.rmSync(directory, { recursive: true, force: true });
   }
 }).then(() => app.quit(), error => { console.error(error); app.exit(1); });

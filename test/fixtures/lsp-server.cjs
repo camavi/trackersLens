@@ -1,0 +1,9 @@
+let buffer=Buffer.alloc(0);const docs=new Map();
+const send=message=>{const body=Buffer.from(JSON.stringify(message));const frame=Buffer.concat([Buffer.from(`Content-Length: ${body.length}\r\n\r\n`),body]);const split=frame.indexOf(Buffer.from('é'))+1;process.stdout.write(frame.subarray(0,split));process.stdout.write(frame.subarray(split));};
+const reply=(id,result)=>send({jsonrpc:'2.0',id,result});
+process.stdin.on('data',chunk=>{buffer=Buffer.concat([buffer,chunk]);while(true){const end=buffer.indexOf('\r\n\r\n');if(end<0)return;const n=Number(/Content-Length: (\d+)/i.exec(buffer.subarray(0,end).toString())[1]);if(buffer.length<end+4+n)return;const m=JSON.parse(buffer.subarray(end+4,end+4+n));buffer=buffer.subarray(end+4+n);
+if(m.method==='initialize')reply(m.id,{capabilities:{positionEncoding:'utf-16',textDocumentSync:1,documentSymbolProvider:true,diagnosticProvider:{interFileDependencies:false,workspaceDiagnostics:false}}});
+else if(m.method==='textDocument/didOpen'||m.method==='textDocument/didChange'){const d=m.params.textDocument;const text=d.text??m.params.contentChanges[0].text;docs.set(d.uri,{text,version:d.version});send({jsonrpc:'2.0',method:'textDocument/publishDiagnostics',params:{uri:d.uri,...(process.argv.includes('--versionless')?{}:{version:d.version}),diagnostics:text.includes('BROKEN')?[{range:{start:{line:0,character:0},end:{line:0,character:6}},severity:1,source:'fixture',code:'QA1',message:'é invalid'}]:[]}});}
+else if(m.method==='textDocument/documentSymbol')reply(m.id,[{name:'é_symbol',kind:12,range:{start:{line:0,character:0},end:{line:0,character:6}},selectionRange:{start:{line:0,character:0},end:{line:0,character:6}}}]);
+else if(m.method==='textDocument/diagnostic')reply(m.id,{kind:'full',items:docs.get(m.params.textDocument.uri).text.includes('BROKEN')?[{message:'é invalid',severity:1,range:{start:{line:0,character:0},end:{line:0,character:6}}}]:[]});
+}});

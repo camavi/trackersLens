@@ -1333,6 +1333,8 @@ const openFlowPromptChatDialog = async (options = {}) => {
     get refresh() { return refresh; },
   });
 
+  const { openDebugger, closeDebugger } = createFlowMapChatDebuggerView({ draft });
+
   function renderWorkStatus() {
     return _.div(
       draft.activeChat.agentRun ? _.div({ class: "tl-flow-prompt-run-status", role: "status" },
@@ -1343,6 +1345,8 @@ const openFlowPromptChatDialog = async (options = {}) => {
           draft.stopRequested = true;
           void window.trackers?.desktop?.mcp?.cancelChat({ chatId: draft.activeChat.id, workspaceId: draft.workspaceId })?.catch(error => console.error("MCP stop:", error));
           void window.trackers?.desktop?.chatBrowser?.cancelChat({ chatId: draft.activeChat.id, workspaceId: draft.workspaceId })?.catch(error => console.error("Browser stop:", error));
+          void window.trackers?.desktop?.chatLsp?.cancelChat({chatId:draft.activeChat.id,workspaceId:draft.workspaceId})?.catch(error=>console.error("LSP stop:",error));
+          void window.trackers?.desktop?.chatDebugger?.cancelChat({chatId:draft.activeChat.id,workspaceId:draft.workspaceId})?.catch(error=>console.error("Debug stop:",error));
           if (draft.projectScriptRequestId) window.trackers?.desktop?.chatProject?.cancelScript({ requestId: draft.projectScriptRequestId });
           window.TrackerLensLlmObservation?.cancel({ workspaceId: draft.workspaceId, nodeId: draft.activeChat.id, jobId: draft.activeChat.agentRun.observationJobId });
           refresh();
@@ -1391,6 +1395,7 @@ const openFlowPromptChatDialog = async (options = {}) => {
 
   const closeAside = () => {
     workDialog?.close();
+    closeDebugger();
     if (!aside) return;
     if (draft.busy) {
       flowPromptSaveOpenState(false, draft.workspaceId);
@@ -1433,6 +1438,7 @@ const openFlowPromptChatDialog = async (options = {}) => {
           title: "Impostazioni chat: provider, modello e permessi",
           onclick: openChatSettingsDialog,
         }, flowMapIcon("tune", "sm")),
+        _.Button({ class: "is-ghost is-icon-only", "aria-label": "Debugger", title: "Debugger", onClick: openDebugger }, flowMapIcon("bug_report", "sm")),
         flowMapBtn({
           class: "is-ghost is-icon-only",
           "aria-label": "Lavoro della chat",

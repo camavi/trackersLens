@@ -16,6 +16,9 @@ const { CustomNodeLocalAi } = require("../core/desktop/custom-node-local-ai.cjs"
 const { DesktopPersistence } = require("../core/desktop/desktop-persistence.cjs");
 const { ExternalAiProviderBridge } = require("../core/desktop/external-ai-provider-bridge.cjs");
 const { ChatBrowser, createChatBrowserWindow } = require("../core/desktop/chat-browser.cjs");
+const { ChatDebugger } = require("../core/desktop/chat-debugger.cjs");
+const { ChatLsp } = require("../core/desktop/chat-lsp.cjs");
+const { ChatGit } = require("../core/desktop/chat-git.cjs");
 const { ChatSkills } = require("../core/desktop/chat-skills.cjs");
 const { ChatMcpClient } = require("../core/desktop/chat-mcp-client.cjs");
 const { ChatProjectWorkspace } = require("../core/desktop/chat-project-workspace.cjs");
@@ -125,6 +128,9 @@ let chatProjectSessions = null;
 let chatMcpClient = null;
 let chatBrowser = null;
 let chatSkills = null;
+let chatGit = null;
+let chatLsp = null;
+let chatDebugger = null;
 const mcpOwners = new Set();
 const terminalOwners = new Set();
 let customNodePackageManager = null;
@@ -442,7 +448,7 @@ const createWindow = () => {
 };
 
 ipcMain.handle("trackers-core:request", (event, command, payload) => {
-  if (/^desktop\.(project|account|catalog|externalAi|flowChat|chatProject|chatBrowser|chatSkills|mcp|customNodePackages)\./.test(String(command || ""))) {
+  if (/^desktop\.(project|account|catalog|externalAi|flowChat|chatProject|chatBrowser|chatSkills|chatGit|chatLsp|chatDebugger|mcp|customNodePackages)\./.test(String(command || ""))) {
     if (event.senderFrame !== event.sender.mainFrame || !isAllowedLocalNavigation(event.senderFrame.url) || event.sender.session !== trustedSession) {
       throw new Error("Account requests require the trusted desktop shell.");
     }
@@ -494,12 +500,12 @@ ipcMain.handle("trackers-core:request", (event, command, payload) => {
     }
     return tlCore.request(command, payload, { ownerId: owner.id });
   }
-  if (/^desktop\.(mcp|chatBrowser|chatSkills)\./.test(String(command))) {
+  if (/^desktop\.(mcp|chatBrowser|chatSkills|chatGit|chatLsp|chatDebugger)\./.test(String(command))) {
     const owner = event.sender;
     if (!mcpOwners.has(owner.id)) {
       mcpOwners.add(owner.id);
-      owner.once("destroyed", () => { void chatMcpClient?.cancelOwner(owner.id); chatBrowser?.cancelOwner(owner.id); chatSkills?.forgetOwner(owner.id); mcpOwners.delete(owner.id); });
-      owner.on("did-start-navigation", (_event, _url, _inPlace, mainFrame) => { if (mainFrame) { void chatMcpClient?.cancelOwner(owner.id); chatBrowser?.cancelOwner(owner.id); chatSkills?.forgetOwner(owner.id); } });
+      owner.once("destroyed", () => { void chatMcpClient?.cancelOwner(owner.id); chatBrowser?.cancelOwner(owner.id); chatSkills?.forgetOwner(owner.id); chatGit?.forgetOwner(owner.id); void chatLsp?.cancelOwner(owner.id); void chatDebugger?.cancelOwner(owner.id); mcpOwners.delete(owner.id); });
+      owner.on("did-start-navigation", (_event, _url, _inPlace, mainFrame) => { if (mainFrame) { void chatMcpClient?.cancelOwner(owner.id); chatBrowser?.cancelOwner(owner.id); chatSkills?.forgetOwner(owner.id); chatGit?.forgetOwner(owner.id); void chatLsp?.cancelOwner(owner.id); void chatDebugger?.cancelOwner(owner.id); } });
     }
     return tlCore.request(command, payload, { ownerId: owner.id });
   }
@@ -573,6 +579,9 @@ app.whenReady().then(async () => {
   } });
   chatProjectSessions = chatProject.terminals;
   chatMcpClient = new ChatMcpClient({ workspace: chatProject });
+  chatDebugger = new ChatDebugger({ workspace: chatProject });
+  chatLsp = new ChatLsp({ workspace: chatProject });
+  chatGit = new ChatGit({ workspace: chatProject });
   chatSkills = new ChatSkills({ workspace: chatProject });
   chatBrowser = new ChatBrowser({ createWindow: () => createChatBrowserWindow({ BrowserWindow, session }) });
   nativeWorkSessions = new ExternalAiWorkSessions({ persistence, directory: path.join(projectSession.directory, ".tl", "ai-work-sessions"), runner: runChatProcess });
@@ -801,7 +810,7 @@ app.whenReady().then(async () => {
       externalAi: externalAiProviderBridge,
       chatProject,
       mcp: chatMcpClient,
-      chatBrowser, chatSkills,
+      chatBrowser, chatSkills, chatGit, chatLsp, chatDebugger,
       nativeWorkSessions,
       account, catalog,
       persistence
@@ -828,11 +837,14 @@ const prepareProjectExit = async () => {
     chatProjectSessions?.cancelOwner(window.webContents.id);
     chatBrowser?.cancelOwner(window.webContents.id);
     chatSkills?.forgetOwner(window.webContents.id);
+    chatGit?.forgetOwner(window.webContents.id);
   }
   for (const executionId of customNodeSandboxRunner?.windows.keys() || []) customNodeSandboxRunner.close(executionId);
   for (const run of externalAiLoginRuns.values()) run.child.kill();
   const results = await Promise.allSettled([
     ...windows.map(window => chatMcpClient?.cancelOwner(window.webContents.id)),
+    ...windows.map(window => chatLsp?.cancelOwner(window.webContents.id)),
+    ...windows.map(window => chatDebugger?.cancelOwner(window.webContents.id)),
     customNodePythonRunner?.stop(), pythonPoc?.stop?.(), pythonNlp?.stop?.(), pythonGraphRelations?.stop?.(),
     ...[...chatProjectSessions?.sessions.values() || []].map(item => item.pending)
   ]);

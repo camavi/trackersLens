@@ -2,6 +2,30 @@ const crypto = require('node:crypto');
 const fs = require('node:fs');
 const path = require('node:path');
 
+// Exact, simultaneous replacements against the original file: no fuzzy matching.
+function patchText(before, replacements) {
+  if (!Array.isArray(replacements) || !replacements.length) throw new Error('A patch requires non-empty replacements.');
+  const ranges = replacements.map(replacement => {
+    if (typeof replacement?.oldText !== 'string' || !replacement.oldText || typeof replacement.newText !== 'string') throw new Error('Each replacement requires non-empty oldText and string newText.');
+    const start = before.indexOf(replacement.oldText);
+    if (start < 0) throw new Error('Patch conflict: oldText does not match the original file. Read it again.');
+    if (before.indexOf(replacement.oldText, start + 1) >= 0) throw new Error('Patch conflict: oldText is ambiguous. Include more surrounding context.');
+    return { start, end: start + replacement.oldText.length, oldText: replacement.oldText, newText: replacement.newText };
+  }).sort((a, b) => a.start - b.start);
+  for (let index = 1; index < ranges.length; index++) if (ranges[index].start < ranges[index - 1].end) throw new Error('Patch conflict: replacements overlap.');
+  let result = before;
+  for (const range of ranges.reverse()) result = result.slice(0, range.start) + range.newText + result.slice(range.end);
+  return result;
+}
+function reviewDiff(before, after) {
+  const left = before.split('\n'), right = after.split('\n');
+  let prefix = 0, suffix = 0;
+  while (prefix < left.length && prefix < right.length && left[prefix] === right[prefix]) prefix++;
+  while (suffix < left.length - prefix && suffix < right.length - prefix && left[left.length - suffix - 1] === right[right.length - suffix - 1]) suffix++;
+  if (prefix === left.length && prefix === right.length) return '';
+  return [`@@ -${prefix + 1},${left.length - prefix - suffix} +${prefix + 1},${right.length - prefix - suffix} @@`, ...left.slice(prefix, left.length - suffix).map(line => '-' + line), ...right.slice(prefix, right.length - suffix).map(line => '+' + line)].join('\n');
+}
+
 // Multi-file filesystem commits are sequential, not SQLite transactions.
 // Stage everything first; recover only files still matching our own writes.
 class ChatProjectEdits {
@@ -12,10 +36,19 @@ class ChatProjectEdits {
     return args.edits.map(edit => {
       if (!edit || typeof edit.relativePath !== 'string' || paths.has(edit.relativePath)) throw new Error('Each file must appear exactly once.');
       paths.add(edit.relativePath);
-      const { previewToken, ...preview } = this.workspace.previewTextEdit({ chatId: args.chatId, folderId: args.folderId, ...edit });
+      const patching = edit.replacements !== undefined;
+      if (patching && edit.content !== undefined) throw new Error('Use replacements or full content, not both.');
+      let content = edit.content;
+      if (patching) {
+        if (edit.expectedSha256 === 'absent') throw new Error('Patches require an existing file.');
+        const current = this.workspace.readTextFile({ chatId: args.chatId, folderId: args.folderId, relativePath: edit.relativePath });
+        if (current.sha256 !== edit.expectedSha256) throw new Error('Patch conflict: project file changed. Read it again.');
+        content = patchText(current.text, edit.replacements);
+      }
+      const { previewToken, ...preview } = this.workspace.previewTextEdit({ chatId: args.chatId, folderId: args.folderId, relativePath: edit.relativePath, expectedSha256: edit.expectedSha256, content });
       this.workspace.previews.delete(previewToken);
       if (preview.relativePath !== edit.relativePath) throw new Error("Use each file’s actual relative path, without aliases.");
-      return preview;
+      return { ...preview, diff: reviewDiff(preview.before, preview.after), patching };
     });
   }
   identity(args) { return JSON.stringify([args.chatId, args.folderId, args.edits]); }
@@ -76,4 +109,4 @@ class ChatProjectEdits {
     }
   }
 }
-module.exports = { ChatProjectEdits };
+module.exports = { ChatProjectEdits, patchText, reviewDiff };

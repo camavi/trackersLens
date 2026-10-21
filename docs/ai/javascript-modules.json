@@ -1,6 +1,7 @@
 {
   "version": 1,
   "modules": [
+    {"file": "js/flow-map/chat/flowMapChatDebuggerView.js", "owner": "js/flow-map/flowMapPromptChat.js"},
     {"file": "js/flow-map/chat/flowMapChatProviderTransport.js", "owner": "js/flow-map/flowMapPromptChat.js"},
     {"file": "js/flow-map/chat/flowMapChatWorkEvidence.js", "owner": "js/flow-map/flowMapPromptChat.js"},
     {"file": "js/flow-map/chat/flowMapChatLayoutPreferences.js", "owner": "js/flow-map/flowMapPromptChat.js"},

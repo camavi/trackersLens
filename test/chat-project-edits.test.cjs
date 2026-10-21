@@ -68,3 +68,42 @@ test('commit failure restores our committed files and preserves concurrent edits
     assert.deepEqual(fs.readdirSync(root).sort(), ['first.js', 'second.js']);
   }
 });
+
+test('precise patches preserve untouched bytes and review diff before scoped group apply', async context => {
+  const { root, workspace, core, args } = await fixture(context);
+  const content = '\ufefffirst\r\nconst sum = (a, b) => a - b;\r\nlast\r\n';
+  fs.writeFileSync(path.join(root, 'first.js'), content);
+  const patch = { chatId: args.chatId, folderId: args.folderId, edits: [{ relativePath: 'first.js', expectedSha256: workspace.readTextFile({ ...args, relativePath: 'first.js' }).sha256, replacements: [{ oldText: 'a - b', newText: 'a + b' }] }] };
+  const preview = await core.request('desktop.chatProject.previewFileEdits', patch);
+  assert.match(preview.files[0].diff, /-const sum/);
+  assert.equal(fs.readFileSync(path.join(root, 'first.js'), 'utf8'), content);
+  const result = await core.request('desktop.chatProject.applyFileEdits', { ...patch, previewToken: preview.previewToken, confirmed: true });
+  assert.equal(result.status, 'completed');
+  assert.equal(fs.readFileSync(path.join(root, 'first.js'), 'utf8'), content.replace('a - b', 'a + b'));
+});
+
+test('patch conflicts reject the whole group without touching any file', async context => {
+  const { root, workspace, core, args } = await fixture(context);
+  for (const replacements of [
+    [{ oldText: 'missing', newText: 'x' }],
+    [{ oldText: 'f', newText: 'x' }],
+    [{ oldText: 'first', newText: 'x' }, { oldText: 'first before', newText: 'y' }],
+  ]) {
+    const edits = [{ ...args.edits[1] }, { relativePath: 'first.js', expectedSha256: args.edits[0].expectedSha256, replacements }];
+    await assert.rejects(core.request('desktop.chatProject.previewFileEdits', { ...args, edits }), /conflict/);
+    assert.equal(fs.readFileSync(path.join(root, 'second.js'), 'utf8'), 'second before');
+  }
+  const patch = { ...args, edits: [{ relativePath: 'first.js', expectedSha256: args.edits[0].expectedSha256, replacements: [{ oldText: 'first', newText: 'patched' }] }] };
+  const preview = await core.request('desktop.chatProject.previewFileEdits', patch);
+  fs.writeFileSync(path.join(root, 'first.js'), 'user change');
+  await assert.rejects(core.request('desktop.chatProject.applyFileEdits', { ...patch, previewToken: preview.previewToken, confirmed: true }), /conflict/);
+  assert.equal(workspace.readTextFile({ ...args, relativePath: 'first.js' }).text, 'user change');
+});
+
+test('patches are simultaneous, reject ambiguous contexts and never mix full-content overrides', () => {
+  const { patchText } = require('../core/desktop/chat-project-edits.cjs');
+  assert.equal(patchText('abc', [{ oldText: 'b', newText: 'X', start: 0, end: 3 }]), 'aXc');
+  assert.equal(patchText('alpha beta', [{ oldText: 'alpha', newText: 'beta' }, { oldText: 'beta', newText: 'gamma' }]), 'beta gamma');
+  assert.throws(() => patchText('aaa', [{ oldText: 'aa', newText: '' }]), /ambiguous/);
+  assert.throws(() => patchText('abc', [{ oldText: '', newText: 'x' }]), /non-empty/);
+});

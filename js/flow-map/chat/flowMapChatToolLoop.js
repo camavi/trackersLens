@@ -185,6 +185,80 @@ const createFlowMapChatToolLoop = (moduleDependencies) => {
           reply = await buildProtocolReply({ ...baseReplyOptions, toolObservation: entry, toolObservations: observedToolResults, toolProtocolProgress: (0, moduleDependencies.providerToolProtocolProgress)() });
           rounds += 1; continue;
         }
+        if (["start_debug_session","debug_action"].includes(proposedAction?.action)) {
+          const args=proposedAction.args||{};let observation;
+          try {
+            const bridge=window.trackers.desktop.chatDebugger,starting=proposedAction.action==="start_debug_session";
+            if(starting&&(!args.expectedSha256||moduleDependencies.providerToolDiscovery.projectFiles.get(args.relativePath)!==args.expectedSha256))throw new Error("Leggi il file di avvio in questo turno prima del debug.");
+            if(!starting&&![...moduleDependencies.providerToolDiscovery.completedReadRequests.values()].some(item=>item.tool==="tl.debug.state"&&item.args.sessionId===args.sessionId))throw new Error("Leggi lo stato debugger corrente prima di controllare l’esecuzione.");
+            if(args.operation==="set_breakpoint"&&moduleDependencies.providerToolDiscovery.projectFiles.get(args.relativePath)!==args.expectedSha256)throw new Error("Leggi il sorgente esatto del breakpoint.");
+            const scope={chatId:moduleDependencies.draft.activeChat.id,workspaceId:moduleDependencies.draft.workspaceId};
+            const request={...args,...scope,...(starting?{folderId:moduleDependencies.draft.activeChat.projectFolder.folderId}:{})};
+            const key=`debug:${(0,moduleDependencies.flowPromptRequestIdentity)(request)}`;
+            if(moduleDependencies.providerToolDiscovery.proposedActionKeys.has(key))throw new Error("Azione debugger già esaminata in questo turno.");
+            const preview=await bridge[starting?"previewStart":"previewAction"](request);moduleDependencies.providerToolDiscovery.proposedActionKeys.add(key);
+            await checkpoint({status:"waiting-approval",pendingAction:proposedAction});moduleDependencies.workDialog?.close();
+            const approved=await new Promise(resolve=>{const dialog=_.Dialog({title:starting?"Avvia debugger":"Controlla debugger",size:"lg",closeButton:true,onClose:()=>resolve(false),content:()=>_.div(_.p(starting?"Lo script e le dipendenze verranno eseguiti con i tuoi permessi locali. Può modificare file e usare la rete.":"Controlla l’azione e lo stato della pausa prima di proseguire."),_.pre(JSON.stringify(preview,null,2))),actions:({close})=>_.Toolbar({align:"end",gap:8},flowMapBtn({onclick:()=>{resolve(false);close();}},"Annulla"),flowMapBtn({onclick:()=>{resolve(true);close();}},starting?"Avvia debugger":"Esegui azione debugger"))});dialog.open();});
+            if(!approved)observation={ok:false,status:"denied"};
+            else{await checkpoint({status:"executing",pendingAction:proposedAction});moduleDependencies.draft.extensionActiveRequest=true;(0,moduleDependencies.refresh)();try{observation={ok:true,...await bridge[starting?"start":"applyAction"]({...request,previewToken:preview.previewToken,confirmed:true})};}finally{moduleDependencies.draft.extensionActiveRequest=false;}}
+            observedRequests.clear();moduleDependencies.providerToolDiscovery.completedReadRequests.clear();moduleDependencies.providerToolDiscovery.projectFiles.clear();moduleDependencies.providerToolDiscovery.projectDirectories.clear();
+          }catch(error){if(moduleDependencies.draft.activeChat.agentRun?.status==="executing"&&moduleDependencies.draft.activeChat.agentRun?.pendingAction)throw error;observation={ok:false,status:"blocked",limitations:[error.message]};}
+          const entry={request:proposedAction,observation};toolTrace.push(entry);observedToolResults.push(entry);await checkpoint({pendingAction:null,observations:observedToolResults});reply=await buildProtocolReply({...baseReplyOptions,toolObservations:observedToolResults,toolProtocolProgress:(0,moduleDependencies.providerToolProtocolProgress)()});rounds+=1;continue;
+        }
+        if (["start_language_server", "stop_language_server"].includes(proposedAction?.action)) {
+          const args = proposedAction.args || {}; let observation;
+          try {
+            const lsp = window.trackers.desktop.chatLsp;
+            const starting = proposedAction.action === "start_language_server";
+            if (starting && (!args.expectedSha256 || moduleDependencies.providerToolDiscovery.projectFiles.get(args.configPath) !== args.expectedSha256)) throw new Error("Leggi prima la configurazione esatta del language server.");
+            const scope = { chatId: moduleDependencies.draft.activeChat.id, workspaceId: moduleDependencies.draft.workspaceId };
+            if (!starting) observation = { ok: true, ...await lsp.stop({ ...args, ...scope }) };
+            else {
+              const request = { ...args, ...scope, folderId: moduleDependencies.draft.activeChat.projectFolder.folderId };
+              const preview = await lsp.previewStart(request);
+              const key = `lsp:${(0, moduleDependencies.flowPromptRequestIdentity)(request)}`;
+              if (moduleDependencies.providerToolDiscovery.proposedActionKeys.has(key)) throw new Error("Avvio già esaminato in questo turno.");
+              moduleDependencies.providerToolDiscovery.proposedActionKeys.add(key);
+              await checkpoint({ status: "waiting-approval", pendingAction: proposedAction }); moduleDependencies.workDialog?.close();
+              const approved = await new Promise(resolve => {
+                const dialog = _.Dialog({ title: "Avvia language server", size: "lg", closeButton: true, onClose: () => resolve(false), content: () => _.div(_.p("Il server viene avviato con i tuoi permessi e può leggere o modificare file e usare la rete. Nessuna installazione viene eseguita da TL."), _.pre(JSON.stringify(preview,null,2))), actions: ({close}) => _.Toolbar({align:"end",gap:8},flowMapBtn({onclick:()=>{resolve(false);close();}},"Annulla"),flowMapBtn({onclick:()=>{resolve(true);close();}},"Avvia language server")) }); dialog.open();
+              });
+              if (!approved) observation = {ok:false,status:"denied"};
+              else { await checkpoint({status:"executing",pendingAction:proposedAction}); moduleDependencies.draft.extensionActiveRequest=true; (0,moduleDependencies.refresh)(); try {observation={ok:true,...await lsp.start({...request,previewToken:preview.previewToken,confirmed:true})};} finally {moduleDependencies.draft.extensionActiveRequest=false;} }
+            }
+            observedRequests.clear(); moduleDependencies.providerToolDiscovery.completedReadRequests.clear();
+          } catch(error) { if(moduleDependencies.draft.activeChat.agentRun?.status==="executing"&&moduleDependencies.draft.activeChat.agentRun?.pendingAction)throw error; observation={ok:false,status:"blocked",limitations:[error.message]}; }
+          const entry={request:proposedAction,observation};toolTrace.push(entry);observedToolResults.push(entry);await checkpoint({pendingAction:null,observations:observedToolResults});reply=await buildProtocolReply({...baseReplyOptions,toolObservations:observedToolResults,toolProtocolProgress:(0,moduleDependencies.providerToolProtocolProgress)()});rounds+=1;continue;
+        }
+        if (proposedAction?.action === "git_action") {
+          const args = proposedAction.args || {}; let observation;
+          try {
+            if (!args.expectedStateHash || args.expectedStateHash !== moduleDependencies.draft.gitStateHash || ![...moduleDependencies.providerToolDiscovery.completedReadRequests.values()].some(item => item.tool === "tl.git.status")) throw new Error("Leggi lo stato Git in questo turno prima della proposta.");
+            const git = window.trackers.desktop.chatGit;
+            const request = { ...args, chatId: moduleDependencies.draft.activeChat.id, workspaceId: moduleDependencies.draft.workspaceId, folderId: moduleDependencies.draft.activeChat.projectFolder.folderId };
+            const proposalKey = `git:${(0, moduleDependencies.flowPromptRequestIdentity)(request)}`;
+            if (moduleDependencies.providerToolDiscovery.proposedActionKeys.has(proposalKey)) throw new Error("Questa operazione Git è già stata esaminata in questo turno.");
+            const preview = await git.previewAction(request);
+            moduleDependencies.providerToolDiscovery.proposedActionKeys.add(proposalKey);
+            await checkpoint({ status: "waiting-approval", pendingAction: proposedAction }); moduleDependencies.workDialog?.close();
+            const approved = await new Promise(resolve => {
+              const dialog = _.Dialog({ title: "Operazione Git", size: "lg", closeButton: true, onClose: () => resolve(false),
+                content: () => _.div(_.p("Controlla comando e modifiche. Hook e firma commit sono disattivati; nessun push viene eseguito."), _.pre(JSON.stringify(preview, null, 2))),
+                actions: ({ close }) => _.Toolbar({ align: "end", gap: 8 }, flowMapBtn({ onclick: () => { resolve(false); close(); } }, "Annulla"), flowMapBtn({ onclick: () => { resolve(true); close(); } }, "Esegui operazione Git")),
+              }); dialog.open();
+            });
+            if (!approved) observation = { ok: false, status: "denied" };
+            else { await checkpoint({ status: "executing", pendingAction: proposedAction }); observation = await git.applyAction({ ...request, previewToken: preview.previewToken, confirmed: true }); }
+            moduleDependencies.draft.gitStateHash = null;
+            observedRequests.clear(); moduleDependencies.providerToolDiscovery.completedReadRequests.clear();
+          } catch (error) {
+            if (moduleDependencies.draft.activeChat.agentRun?.status === "executing" && moduleDependencies.draft.activeChat.agentRun?.pendingAction) throw error;
+            observation = { ok: false, status: "blocked", limitations: [error.message] };
+          }
+          const entry = { request: proposedAction, observation }; toolTrace.push(entry); observedToolResults.push(entry);
+          await checkpoint({ pendingAction: null, observations: observedToolResults });
+          reply = await buildProtocolReply({ ...baseReplyOptions, toolObservations: observedToolResults, toolProtocolProgress: (0, moduleDependencies.providerToolProtocolProgress)() }); rounds += 1; continue;
+        }
         if (["browser_action", "install_skill", "activate_skill", "deactivate_skill"].includes(proposedAction?.action)) {
           const args = proposedAction.args || {}; let observation;
           try {
@@ -427,7 +501,7 @@ const createFlowMapChatToolLoop = (moduleDependencies) => {
           reply = await buildProtocolReply({ ...baseReplyOptions, toolObservations: observedToolResults, toolProtocolProgress: (0, moduleDependencies.providerToolProtocolProgress)() });
           rounds += 1; continue;
         }
-        if (["edit_project_file", "create_project_file", "edit_project_files"].includes(proposedAction?.action)) {
+        if (["edit_project_file", "create_project_file", "edit_project_files", "patch_project_files"].includes(proposedAction?.action)) {
           const args = proposedAction.args || {};
           const relativePath = String(args.relativePath || "");
           const expectedSha256 = String(args.expectedSha256 || "");
@@ -436,14 +510,15 @@ const createFlowMapChatToolLoop = (moduleDependencies) => {
           try {
             if (moduleDependencies.providerToolDiscovery.proposedActionKeys.has(proposalKey)) throw new Error("Questa modifica al file è già stata esaminata in questo turno.");
             moduleDependencies.providerToolDiscovery.proposedActionKeys.add(proposalKey);
-            const batch = proposedAction.action === "edit_project_files";
+            const patching = proposedAction.action === "patch_project_files";
+            const batch = patching || proposedAction.action === "edit_project_files";
             const edits = batch ? args.edits : [{ relativePath, expectedSha256, content: args.content }];
             if (!Array.isArray(edits) || !edits.length || !moduleDependencies.draft.activeChat?.projectFolder?.folderId) throw new Error("Seleziona il progetto e proponi file con contenuto completo.");
             for (const edit of edits) {
               const name = String(edit?.relativePath || "");
               const creatingFile = edit?.expectedSha256 === "absent";
               const parentPath = name.includes("/") ? name.slice(0, name.lastIndexOf("/")) : "";
-              if (!name || typeof edit?.content !== "string") throw new Error("Ogni file richiede un percorso e contenuto completo.");
+              if (!name || (patching ? !Array.isArray(edit?.replacements) || !edit.replacements.length || edit.content !== undefined || creatingFile : typeof edit?.content !== "string")) throw new Error("Ogni file richiede un percorso e contenuto completo.");
               if (creatingFile ? !moduleDependencies.providerToolDiscovery.projectDirectories.has(parentPath) || moduleDependencies.providerToolDiscovery.projectFiles.has(name) : !edit.expectedSha256 || moduleDependencies.providerToolDiscovery.projectFiles.get(name) !== edit.expectedSha256) throw new Error(creatingFile ? "Elenca prima la directory di destinazione e scegli un nome che non esiste." : "Leggi ogni file esatto in questo turno e usa il suo hash prima di proporre modifiche.");
             }
             const creating = !batch && proposedAction.action === "create_project_file";
@@ -464,6 +539,7 @@ const createFlowMapChatToolLoop = (moduleDependencies) => {
                   _.p(`Progetto: ${moduleDependencies.draft.activeChat.projectFolder.label}. Controlla il contenuto completo prima di applicare.`),
                   batch ? _.p("I file vengono preparati insieme e applicati in sequenza. In caso di errore TL tenta il ripristino dei file già applicati e mostra eventuali esiti parziali.") : null,
                   ...reviewFiles.map(file => _.div(_.strong(file.relativePath),
+                    file.diff ? _.details({ open: true }, _.summary("Diff"), _.pre(file.diff)) : null,
                     _.details({ open: true }, _.summary(file.creating ? "Prima · file assente" : "Prima"), _.pre(file.before)),
                     _.details({ open: true }, _.summary("Dopo"), _.pre(file.after))))),
                 actions: ({ close }) => _.Toolbar({ align: "end", gap: 8 },
@@ -476,7 +552,7 @@ const createFlowMapChatToolLoop = (moduleDependencies) => {
             else {
               await checkpoint({ status: "executing", pendingAction: proposedAction });
               const result = await project[applyMethod]({ ...request, previewToken: preview.previewToken, confirmed: true });
-              observation = { ok: batch ? result.status === "completed" : true, status: result.applied ? "completed" : "not-needed", ...result, reviewedFiles: reviewFiles.map(({ relativePath, before, after, creating }) => ({ relativePath, before, after, creating })) };
+              observation = { ok: batch ? result.status === "completed" : true, status: result.applied ? "completed" : "not-needed", ...result, reviewedFiles: reviewFiles.map(({ relativePath, before, after, creating, diff }) => ({ relativePath, before, after, creating, diff })) };
               // A corrected file permits a new confirmed verification using
               // the same package script, even when package.json is unchanged.
               if (result.applied || result.files?.some(file => file.applied)) for (const key of moduleDependencies.providerToolDiscovery.proposedActionKeys) {
@@ -766,7 +842,7 @@ const createFlowMapChatToolLoop = (moduleDependencies) => {
         break;
       }
       const requestKey = `${request.tool}:${JSON.stringify(request.args || {})}`;
-      const cachedObservation = (( (["tl.project.listTerminals", "tl.project.pollTerminal", 'tl.providers.discoverLocal'].includes(request.tool) || /^tl\.(mcp|browser|skills)\./.test(request.tool)) && observedRequests.get(requestKey)?.status !== 'denied') || (request.tool === "tl.project.chooseFolder" && observedRequests.get(requestKey)?.ok === true)) ? null : observedRequests.get(requestKey);
+      const cachedObservation = (( (["tl.project.listTerminals", "tl.project.pollTerminal", 'tl.providers.discoverLocal'].includes(request.tool) || /^tl\.(mcp|browser|skills|git|lsp|debug)\./.test(request.tool)) && observedRequests.get(requestKey)?.status !== 'denied') || (request.tool === "tl.project.chooseFolder" && observedRequests.get(requestKey)?.ok === true)) ? null : observedRequests.get(requestKey);
       (0, moduleDependencies.setActivity)({ label: "Operazione TL in corso", detail: (0, moduleDependencies.flowPromptWorkStep)({ request }).label, calls: [...toolTrace, { request }] });
       let observation;
       try {

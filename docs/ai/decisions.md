@@ -5,6 +5,10 @@ Read when: a change might conflict with architecture or product direction.
 Do not read when: making narrow UI/code fixes.
 Last updated: 2026-10-21.
 
+## Chat debugger ownership
+
+- 2026-10-21: keep Node Inspector and Python debugpy DAP behind one named Core debugger API and one JSswift inspector. Python uses an explicitly reviewed local interpreter and private stdio adapter, not renderer-accessible DAP/CDP or arbitrary attachment. Preserve virtualenv executable paths and disclose Python repr/property side effects; Node descriptor inspection retains its no-getter behavior. Unchanged entry hashes bind Python breakpoints until a reliable multi-file loaded-source contract exists.
+
 ## Chat desktop capability ownership
 
 - 2026-10-21: extend the named Main/Core boundary for remote MCP, browser, project skills and Unix PTY rather than grant native provider identity unrestricted renderer/OS tools. MCP auth values remain Main-owned; HTTP redirects/session replay are explicit. Browser control uses visible sandboxed windows in ephemeral partitions and fixed isolated-world operations, never provider-supplied evaluation or the app preload. Project skills are file packages with reviewed installation and separate frozen instruction activation on a chat; scripts are not auto-executed and replaced files remain backed up. PTY uses a short-lived standard-library Python host to avoid an Electron ABI-dependent native addon, retaining existing session persistence/audit and user-local command consent. This is independent of managed sandboxed Python nodes. See `runtime/chat-desktop-capabilities.md` for actual support and remaining limits.

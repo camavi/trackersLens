@@ -85,6 +85,11 @@ Last updated: 2026-10-10.
 
 - `package.json`: Electron scripts and development dependency.
 - `electron/main.cjs`: desktop lifecycle, secure BrowserWindow, CSP, validated IPC and navigation policy.
+- `core/desktop/chat-debugger.cjs`: shared owned Node/Python debugger sessions, reviewed breakpoint/execution control and current-pause stack/variable reads.
+- `core/desktop/chat-debugger-python.cjs`: Core-only debugpy DAP framing, lifecycle, stack/scopes and normalized variable/control adapter.
+- `js/flow-map/chat/flowMapChatDebuggerView.js`: JSswift Chat debugger dialog and reviewed manual session/source/breakpoint controls.
+- `core/desktop/chat-lsp.cjs`: reviewed local LSP process sessions, document synchronization, symbols and version/disk-aware diagnostics.
+- `core/desktop/chat-git.cjs`: scoped Git reads and reviewed local stage/commit/branch operations.
 - `core/desktop/chat-browser.cjs`, `chat-skills.cjs`, `chat-capability-scope.cjs`, `chat-pty-process.cjs`: scoped browser/skill reviews and Unix PTY host adapter; see `runtime/chat-desktop-capabilities.md`.
 - `core/desktop/chat-mcp-http.cjs`: remote Streamable HTTP transport with private environment-backed auth, JSON/SSE and session cancellation.
 - `core/desktop/chat-mcp-client.cjs`: Core-owned reviewed stdio MCP connections, handshake, discovery, calls, complete diagnostics and owner/chat/workspace lifecycle.

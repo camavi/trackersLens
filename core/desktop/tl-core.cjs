@@ -81,6 +81,49 @@ const createTlCore = ({ appVersion = "0.0.0", platform = "unknown", mode = "prod
         return customNodeSetup.execute({ planId: String(payload?.planId || ''), confirmed: payload?.confirmed === true }, lifecycle);
       case 'desktop.customNodePackages.discardSetup':
         return customNodeSetup.discard({ planId: String(payload?.planId || '') }, lifecycle);
+      case "desktop.chatDebugger.previewStart":
+      case "desktop.chatDebugger.start":
+      case "desktop.chatDebugger.list":
+      case "desktop.chatDebugger.state":
+      case "desktop.chatDebugger.variables":
+      case "desktop.chatDebugger.previewAction":
+      case "desktop.chatDebugger.applyAction":
+      case "desktop.chatDebugger.cancelChat": {
+        const method = command.slice("desktop.chatDebugger.".length);
+        if (!adapters.chatDebugger?.[method]) throw errorWithCode("Debugger unavailable", "CHAT_DEBUGGER_UNAVAILABLE");
+        const args = { chatId: String(payload?.chatId || ""), workspaceId: String(payload?.workspaceId || "") };
+        const fields = ["previewStart", "start"].includes(method) ? ["folderId","relativePath","expectedSha256","arguments","runtime","pythonCommand"] : method === "variables" ? ["sessionId","pauseId","objectId"] : ["previewAction","applyAction"].includes(method) ? ["sessionId","operation","expectedRevision","pauseId","relativePath","expectedSha256","line","breakpointId"] : ["list","cancelChat"].includes(method) ? [] : ["sessionId"];
+        for (const key of fields) if (payload?.[key] !== undefined) args[key] = clone(payload[key]);
+        if (["start","applyAction"].includes(method)) { args.confirmed = payload?.confirmed === true; args.previewToken = String(payload?.previewToken || ""); }
+        return adapters.chatDebugger[method](args,lifecycle);
+      }
+      case "desktop.chatLsp.previewStart":
+      case "desktop.chatLsp.start":
+      case "desktop.chatLsp.list":
+      case "desktop.chatLsp.inspectFile":
+      case "desktop.chatLsp.diagnostics":
+      case "desktop.chatLsp.stop":
+      case "desktop.chatLsp.cancelChat": {
+        const method = command.slice("desktop.chatLsp.".length);
+        if (!adapters.chatLsp?.[method]) throw errorWithCode("LSP unavailable", "CHAT_LSP_UNAVAILABLE");
+        const args = { chatId: String(payload?.chatId || ""), workspaceId: String(payload?.workspaceId || "") };
+        const fields = ["previewStart", "start"].includes(method) ? ["folderId", "configPath", "expectedSha256", "serverName"] : method === "inspectFile" ? ["sessionId", "relativePath", "expectedSha256", "languageId"] : ["list", "cancelChat"].includes(method) ? [] : ["sessionId"];
+        for (const key of fields) args[key] = String(payload?.[key] || "");
+        if (method === "start") { args.confirmed = payload?.confirmed === true; args.previewToken = String(payload?.previewToken || ""); }
+        return adapters.chatLsp[method](args, lifecycle);
+      }
+      case "desktop.chatGit.status":
+      case "desktop.chatGit.diff":
+      case "desktop.chatGit.log":
+      case "desktop.chatGit.previewAction":
+      case "desktop.chatGit.applyAction": {
+        const method = command.slice("desktop.chatGit.".length);
+        if (!adapters.chatGit?.[method]) throw errorWithCode("Git unavailable", "CHAT_GIT_UNAVAILABLE");
+        const args = { chatId: String(payload?.chatId || ""), workspaceId: String(payload?.workspaceId || ""), folderId: String(payload?.folderId || "") };
+        if (["previewAction", "applyAction"].includes(method)) for (const key of ["operation", "expectedStateHash", "paths", "message", "branch"]) if (payload?.[key] !== undefined) args[key] = clone(payload[key]);
+        if (method === "applyAction") { args.confirmed = payload?.confirmed === true; args.previewToken = String(payload?.previewToken || ""); }
+        return adapters.chatGit[method](args, lifecycle);
+      }
       case "desktop.chatBrowser.listTabs": {
         if (!adapters.chatBrowser?.listTabs) throw errorWithCode("Capability unavailable", "CHAT_CAPABILITY_UNAVAILABLE");
         const args = { chatId: String(payload?.chatId || ""), workspaceId: String(payload?.workspaceId || "") };
@@ -220,7 +263,7 @@ const createTlCore = ({ appVersion = "0.0.0", platform = "unknown", mode = "prod
       case "desktop.chatProject.applyFileEdits": {
         const method = command.endsWith("previewFileEdits") ? "previewFileEdits" : "applyFileEdits";
         if (!adapters.chatProject?.[method]) throw errorWithCode("Project editor is unavailable", "CHAT_PROJECT_UNAVAILABLE");
-        return adapters.chatProject[method]({ chatId: String(payload?.chatId || ""), folderId: String(payload?.folderId || ""), edits: Array.isArray(payload?.edits) ? payload.edits.map(edit => ({ relativePath: edit?.relativePath, expectedSha256: edit?.expectedSha256, content: edit?.content })) : null, previewToken: String(payload?.previewToken || ""), confirmed: payload?.confirmed === true });
+        return adapters.chatProject[method]({ chatId: String(payload?.chatId || ""), folderId: String(payload?.folderId || ""), edits: Array.isArray(payload?.edits) ? payload.edits.map(edit => ({ relativePath: edit?.relativePath, expectedSha256: edit?.expectedSha256, content: edit?.content, replacements: edit?.replacements })) : null, previewToken: String(payload?.previewToken || ""), confirmed: payload?.confirmed === true });
       }
       case "desktop.chatProject.previewTextEdit":
       case "desktop.chatProject.applyTextEdit": {

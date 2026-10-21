@@ -42,6 +42,8 @@ const createFlowMapChatHistoryActions = (moduleDependencies) => {
     try {
       await window.trackers?.desktop?.mcp?.cancelChat({ chatId: chat.id, workspaceId: moduleDependencies.draft.workspaceId });
       await window.trackers?.desktop?.chatBrowser?.cancelChat({ chatId: chat.id, workspaceId: moduleDependencies.draft.workspaceId });
+      await window.trackers?.desktop?.chatLsp?.cancelChat({chatId:chat.id,workspaceId:moduleDependencies.draft.workspaceId});
+      await window.trackers?.desktop?.chatDebugger?.cancelChat({chatId:chat.id,workspaceId:moduleDependencies.draft.workspaceId});
       await (0, moduleDependencies.flowPromptDeleteChat)(chat.id);
       moduleDependencies.draft.chats = moduleDependencies.draft.chats.filter((item) => item.id !== chat.id);
       if (moduleDependencies.draft.activeChat?.id === chat.id) {

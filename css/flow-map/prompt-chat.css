@@ -3710,3 +3710,31 @@
 .tl-flow-provider-live small { display: block; color: #9aafbc; margin-top: 12px; }
 .tl-flow-provider-live pre { white-space: pre-wrap; overflow-wrap: anywhere; padding: 12px; background: #070f16; color: #cbdce7; }
 .tl-flow-provider-live summary { cursor: pointer; padding: 10px 0; }
+
+.tl-flow-prompt-debugger { display: grid; gap: 12px; min-width: 0; }
+.tl-flow-prompt-debugger .jss-toolbar { flex-wrap: wrap; background: transparent; border: 0; box-shadow: none; }
+.tl-flow-prompt-debugger details { min-width: 0; overflow-x: auto; }
+.tl-flow-prompt-debugger pre { white-space: pre-wrap; overflow-wrap: anywhere; }
+.tl-flow-prompt-debugger strong { overflow-wrap: anywhere; }
+.jss-dialog.tl-flow-debugger-dialog {
+  --jss-dialog-min-width: 0px;
+  --jss-dialog-max-width: calc(100vw - 32px);
+  --jss-dialog-max-height: calc(100dvh - 32px);
+  --jss-dialog-body-max-height: calc(100dvh - 170px);
+  color: #dce6ee;
+  background: #0e151f;
+  border: 1px solid #2b3b49;
+}
+.tl-flow-debugger-dialog .jss-dialog-body { overflow: auto; min-height: 0; }
+.tl-flow-debugger-dialog .jss-btn {
+  min-height: 32px; padding: 6px 10px; font-size: 13px;
+  color: #b8d9e9; background: #10212c; border: 1px solid #2b4a5d;
+}
+.tl-flow-debugger-dialog .jss-btn:hover:not(:disabled) { background: #17384a; border-color: #38bdf8; }
+.tl-flow-debugger-dialog .jss-btn.is-primary { color: #071219; background: #38bdf8; border-color: #7dd3fc; }
+.tl-flow-debugger-dialog .jss-btn.is-danger { color: #fda4af; background: #341c29; border-color: #7f3549; }
+.tl-flow-debugger-dialog .jss-btn:disabled { opacity: .45; }
+.tl-flow-prompt-debugger .jss-toolbar { padding: 0; }
+.tl-flow-prompt-debugger pre { margin: 4px 0; font-size: 12px; }
+.tl-flow-prompt-debugger summary { cursor: pointer; overflow-wrap: anywhere; font-size: 13px; }
+.tl-flow-prompt-debugger .is-current-debug-line { background: #143d50; border-left: 3px solid #38bdf8; }

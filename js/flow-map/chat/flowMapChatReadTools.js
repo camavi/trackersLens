@@ -257,6 +257,34 @@ const createFlowMapChatReadTools = (moduleDependencies) => {
         return { ok: true, tool, ...result };
       } finally { moduleDependencies.draft.extensionActiveRequest = false; }
     }
+    if (tool.startsWith("tl.debug.")) {
+      const debuggerBridge = window.trackers?.desktop?.chatDebugger;
+      if (!debuggerBridge) return denied("Debugger non disponibile.");
+      const scope = {chatId:moduleDependencies.draft.activeChat.id,workspaceId:moduleDependencies.draft.workspaceId};
+      if(tool === "tl.debug.list") return {ok:true,tool,sessions:await debuggerBridge.list(scope)};
+      if(![...moduleDependencies.providerToolDiscovery.completedReadRequests.values()].some(item=>item.tool==="tl.debug.list"))return denied("Elenca prima le sessioni debugger della chat.");
+      moduleDependencies.draft.extensionActiveRequest=true;(0,moduleDependencies.refresh)();
+      try {return {ok:true,tool,...await debuggerBridge[tool==="tl.debug.state"?"state":"variables"]({...args,...scope})};}
+      finally{moduleDependencies.draft.extensionActiveRequest=false;}
+    }
+    if (tool.startsWith("tl.lsp.")) {
+      const lsp = window.trackers?.desktop?.chatLsp;
+      if (!lsp) return denied("Language server non disponibile.");
+      const scope = { chatId: moduleDependencies.draft.activeChat.id, workspaceId: moduleDependencies.draft.workspaceId };
+      if (tool === "tl.lsp.list") return { ok: true, tool, sessions: await lsp.list(scope) };
+      if (![...moduleDependencies.providerToolDiscovery.completedReadRequests.values()].some(item => item.tool === "tl.lsp.list")) return denied("Elenca prima i language server della chat.");
+      if (tool === "tl.lsp.inspectFile" && (!args.expectedSha256 || moduleDependencies.providerToolDiscovery.projectFiles.get(args.relativePath) !== args.expectedSha256)) return denied("Leggi il file esatto in questo turno prima di analizzarlo.");
+      moduleDependencies.draft.extensionActiveRequest = true; (0, moduleDependencies.refresh)();
+      try { return { ok: true, tool, ...await lsp[tool === "tl.lsp.inspectFile" ? "inspectFile" : "diagnostics"]({ ...args, ...scope }) }; }
+      finally { moduleDependencies.draft.extensionActiveRequest = false; }
+    }
+    if (tool.startsWith("tl.git.")) {
+      const git = window.trackers?.desktop?.chatGit, folderId = moduleDependencies.draft.activeChat?.projectFolder?.folderId;
+      if (!git || !folderId) return denied("Seleziona prima la cartella radice del repository Git.");
+      const result = await git[tool.slice("tl.git.".length)]({ chatId: moduleDependencies.draft.activeChat.id, workspaceId: moduleDependencies.draft.workspaceId, folderId });
+      if (result.stateHash) moduleDependencies.draft.gitStateHash = result.stateHash;
+      return { ok: true, tool, ...result };
+    }
     if (tool.startsWith("tl.skills.")) {
       const skills = window.trackers?.desktop?.chatSkills;
       const folderId = moduleDependencies.draft.activeChat?.projectFolder?.folderId;

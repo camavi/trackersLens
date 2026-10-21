@@ -21,13 +21,19 @@ def emit(value):
     sys.stdout.write(json.dumps(value) + '\n')
     sys.stdout.flush()
 
+ready_read, ready_write = os.pipe()
 pid, master = pty.fork()
 if pid == 0:
-    resize(0, config['cols'], config['rows'])
+    os.close(ready_write)
+    os.read(ready_read, 1)
+    os.close(ready_read)
     os.environ['TERM'] = 'xterm-256color'
     os.execv('/bin/sh', ['/bin/sh', '-c', config['command']])
 
+os.close(ready_read)
 resize(master, config['cols'], config['rows'])
+os.write(ready_write, b'1')
+os.close(ready_write)
 selector = selectors.DefaultSelector()
 selector.register(master, selectors.EVENT_READ, 'pty')
 selector.register(0, selectors.EVENT_READ, 'control')
