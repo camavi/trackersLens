@@ -22,8 +22,9 @@ const mutationDefinitions=[
  {name:'tl_get_edit_receipt',description:'Read the durable result for an MCP operationId returned by preview; scoped to the exact workspace.',inputSchema:schema({workspaceId:text,operationId:text},['workspaceId','operationId']),annotations:{readOnlyHint:true,destructiveHint:false,idempotentHint:true,openWorldHint:false}}
 ];
 const runtimeDefinitions=[
+ ['tl_preview_run_flow','Prepare a linear persisted Flow chain from an actual root. Requires installed sandboxed Custom Nodes, exact ports and no branching/join/cycles. Complete local TL review before execution.',schema({workspaceId:text,startNodeId:text,inputs:{type:'object'}},['workspaceId','startNodeId','inputs']),true],
  ['tl_preview_run_node','Prepare a one-shot installed sandboxed Custom Node run with exact inputs and persisted config. No execution until local TL review.',schema({workspaceId:text,nodeId:text,inputs:{type:'object'}},['workspaceId','nodeId','inputs']),true],
- ['tl_start_node_run','Consume one connection-owned execution plan, ask local TL approval and start the real sandbox. Never automatically replay.',schema({planId:text},['planId']),false],
+ ['tl_start_node_run','Consume one connection-owned node or linear Flow execution plan, ask local TL approval and start the real sandbox. Never automatically replay.',schema({planId:text},['planId']),false],
  ['tl_get_node_run','Read complete persisted result and live sandbox trace for an MCP runId, including output, diagnostics and timings.',schema({runId:text},['runId']),true],
  ['tl_stop_node_run','Cancel an execution owned by this connection and wait for sandbox termination. Does not undo produced side effects.',schema({runId:text},['runId']),false]
 ].map(([name,description,inputSchema,readOnlyHint])=>({name,description,inputSchema,annotations:{readOnlyHint,destructiveHint:false,idempotentHint:readOnlyHint,openWorldHint:!readOnlyHint}}));
@@ -35,6 +36,7 @@ class TlMcpTools {
  async call(name,args={},owner){
   const validate=this.validators.get(name);if(!validate)throw new Error('Unknown TL MCP tool.');const checked=validate(args);if(!checked.valid)throw new Error(checked.errorMessage);
   if(args.workspaceId==='all')throw new Error('An exact workspaceId is required.');
+  if(name==='tl_preview_run_flow')return this.runtimeRuns.previewFlow(args,owner);
   if(name==='tl_preview_run_node')return this.runtimeRuns.preview(args,owner);
   if(name==='tl_start_node_run')return this.runtimeRuns.start(args,owner);
   if(name==='tl_get_node_run')return this.runtimeRuns.get(args);
@@ -45,7 +47,7 @@ class TlMcpTools {
   if(name==='tl_preview_node_edits'&&this.nodeEdits)return this.nodeEdits.preview(args,owner);
   let data;
   switch(name){
-   case 'tl_get_project':data={project:{id:this.project.id,name:this.project.name},capabilities:{readOnly:!this.nodeEdits,previewNodeEdits:true,applyNodeEdits:Boolean(this.nodeEdits),graphEdits:this.nodeEdits?['connect','disconnect','duplicate']:[],runtimeExecution:this.runtimeRuns?'single-custom-node-sandbox':false},limitations:['Only persisted TL state is exposed. Pending renderer/worker output may not yet be saved. This MCP server does not track external editor changes.']};break;
+   case 'tl_get_project':data={project:{id:this.project.id,name:this.project.name},capabilities:{readOnly:!this.nodeEdits,previewNodeEdits:true,applyNodeEdits:Boolean(this.nodeEdits),graphEdits:this.nodeEdits?['connect','disconnect','duplicate']:[],runtimeExecution:this.runtimeRuns?'sandbox-node-and-linear-chain':false},limitations:['Only persisted TL state is exposed. Pending renderer/worker output may not yet be saved. This MCP server does not track external editor changes.']};break;
    case 'tl_list_flows':data={flows:this.persistence.readFlowMapLibraryIndex()};break;
    case 'tl_inspect_workspace':data={workspaceId:args.workspaceId,document:this.persistence.readDevelopmentRecordById({storeName:'tl_pages',id:args.workspaceId}),graph:Object.fromEntries(['tl_runtime_nodes','tl_runtime_dependencies','tl_connections','tl_channels','tl_flows'].map(store=>[store,this.read(store,args.workspaceId)]))};break;
    case 'tl_inspect_node':data={node:this.exact('tl_runtime_nodes',args.nodeId,args.workspaceId),dependencies:this.read('tl_runtime_dependencies',args.workspaceId).filter(row=>row.sourceNodeId===args.nodeId||row.targetNodeId===args.nodeId),connections:this.read('tl_connections',args.workspaceId).filter(row=>[row.sourceNodeId,row.targetNodeId,row.sourceRef,row.targetRef,row.fromBoxId,row.toBoxId].includes(args.nodeId))};break;

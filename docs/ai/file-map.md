@@ -127,3 +127,5 @@ MCP mutation plans: `core/mcp/node-edits.cjs` owns connection scope/review/apply
 MCP exact topology/duplicate schemas are in `core/mcp/tl-tools.cjs`; `McpNodeEdits.previewGraph` owns generated identities and forwards normalized plans to existing Core graph transactions. Tests extend the same SDK process and production Electron fixtures.
 
 MCP one-shot runtime: `core/mcp/runtime-runs.cjs` owns connection plans, run records and cancellation; Main adapts the existing Custom Node sandbox runner with AbortSignal/onExecution. Tests: `test/tl-mcp-runtime.test.cjs`, `test/tl-mcp-runtime-electron.cjs`. Full Flow propagation remains separate.
+
+MCP linear Flow: `core/runtime/sandbox-flow-plan.cjs` validates persisted chain shape; `core/mcp/runtime-runs.cjs` schedules existing sandbox invocations with RuntimeContract mapping and complete step/delivery evidence. `test/tl-mcp-flow-electron.cjs` covers real chain execution and correction through production MCP.
