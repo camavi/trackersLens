@@ -145,6 +145,28 @@ const core = createTlCore({ adapters: { chatTests, chatDebugger, chatLsp, chatGi
       const steps=[read('tl.catalog.listDomains'),read('tl.catalog.listTools',{domain:'debug'}),...['tl.debug.list','tl.debug.state','tl.debug.variables'].map(name=>read('tl.catalog.getCapabilityDetails',{name})),read('tl.project.chooseFolder'),read('tl.project.listDirectory'),read('tl.project.readTextFile',{relativePath:'debug.cjs'}),{type:'proposed_action',action:'start_debug_session',args:{relativePath:'debug.cjs',expectedSha256:crypto.createHash('sha256').update(debugSource).digest('hex'),arguments:[]}},read('tl.debug.list'),read('tl.debug.state',{sessionId}),read('tl.debug.state',{sessionId}),read('tl.project.listDirectory'),read('tl.project.readTextFile',{relativePath:'debug.cjs'}),action('set_breakpoint',{relativePath:'debug.cjs',expectedSha256:crypto.createHash('sha256').update(debugSource).digest('hex'),line:2}),read('tl.debug.list'),read('tl.debug.state',{sessionId}),action('resume'),read('tl.debug.list'),read('tl.debug.state',{sessionId}),read('tl.debug.variables',{sessionId,pauseId:state?.pauseId,objectId:local?.object?.objectId}),action('step_over'),read('tl.debug.list'),read('tl.debug.state',{sessionId}),action('stop')];
       return {text:steps[atomicStep]?JSON.stringify(steps[atomicStep++]):'Debugger verified'};
     }
+    if(mode.startsWith('lsp-proposal-')) {
+      const kind=mode.slice('lsp-proposal-'.length),chat=persistence.readDevelopmentRecordById({storeName:'tl_flow_prompt_chats',id:'chat-restart'});
+      const file=chat?.agentRun?.observations?.findLast(entry=>entry.request?.tool==='tl.project.readTextFile'&&entry.request.args.relativePath==='source.js')?.observation;
+      const proposals=chat?.agentRun?.observations?.findLast(entry=>entry.request?.tool==='tl.lsp.proposalsFor')?.observation;
+      const plan=chat?.agentRun?.observations?.findLast(entry=>entry.request?.tool==='tl.lsp.prepareProposal')?.observation;
+      const sessionId=[...chatLsp.sessions.keys()].at(-1)||'',read=(tool,args={})=>({type:'tool_request',tool,args}),action=(action,args)=>({type:'proposed_action',action,args});
+      const sourceArgs={sessionId,relativePath:'source.js',expectedSha256:file?.sha256};
+      const steps=[read('tl.catalog.listDomains'),read('tl.catalog.listTools',{domain:'lsp'}),...['tl.lsp.list','tl.lsp.inspectFile','tl.lsp.proposalsFor','tl.lsp.prepareProposal'].map(name=>read('tl.catalog.getCapabilityDetails',{name})),read('tl.project.chooseFolder'),read('tl.project.listDirectory'),read('tl.project.readTextFile',{relativePath:'lsp.json'}),action('start_language_server',{configPath:'lsp.json',serverName:'fixture',expectedSha256:crypto.createHash('sha256').update(lspConfig).digest('hex')}),read('tl.lsp.list'),read('tl.project.readTextFile',{relativePath:'source.js'}),read('tl.lsp.inspectFile',{...sourceArgs,languageId:'javascript'}),read('tl.lsp.proposalsFor',{...sourceArgs,kind,position:{line:0,character:6},range:{start:{line:0,character:0},end:{line:0,character:6}}}),read('tl.lsp.prepareProposal',{proposalId:proposals?.proposals?.[0]?.proposalId}),action('apply_lsp_edit',{renameId:plan?.renameId}),read('tl.lsp.list'),action('stop_language_server',{sessionId})];
+      return {text:steps[atomicStep]?JSON.stringify(steps[atomicStep++]):'LSP proposal verified'};
+    }
+    if(mode==='lsp-rename') {
+      const chat=persistence.readDevelopmentRecordById({storeName:'tl_flow_prompt_chats',id:'chat-restart'});
+      const source=chat?.agentRun?.observations?.findLast(entry=>entry.request?.tool==='tl.project.readTextFile'&&entry.request.args.relativePath==='source.js')?.observation;
+      const use=chat?.agentRun?.observations?.findLast(entry=>entry.request?.tool==='tl.project.readTextFile'&&entry.request.args.relativePath==='use.js')?.observation;
+      const plan=chat?.agentRun?.observations?.findLast(entry=>entry.request?.tool==='tl.lsp.prepareRename')?.observation;
+      const sessionId=[...chatLsp.sessions.keys()].at(-1)||'';
+      const read=(tool,args={})=>({type:'tool_request',tool,args});
+      const action=(action,args)=>({type:'proposed_action',action,args});
+      const sourceArgs={sessionId,relativePath:'source.js',expectedSha256:source?.sha256,position:{line:0,character:14}};
+      const steps=[read('tl.catalog.listDomains'),read('tl.catalog.listTools',{domain:'lsp'}),...['tl.lsp.list','tl.lsp.inspectFile','tl.lsp.navigate','tl.lsp.prepareRename'].map(name=>read('tl.catalog.getCapabilityDetails',{name})),read('tl.project.chooseFolder'),read('tl.project.listDirectory'),read('tl.project.readTextFile',{relativePath:'lsp.json'}),action('start_language_server',{configPath:'lsp.json',serverName:'fixture',expectedSha256:crypto.createHash('sha256').update(lspConfig).digest('hex')}),read('tl.lsp.list'),read('tl.project.readTextFile',{relativePath:'source.js'}),read('tl.lsp.inspectFile',{...sourceArgs,languageId:'javascript'}),read('tl.project.readTextFile',{relativePath:'use.js'}),read('tl.lsp.inspectFile',{sessionId,relativePath:'use.js',expectedSha256:use?.sha256,languageId:'javascript'}),read('tl.lsp.navigate',{...sourceArgs,operation:'definition'}),read('tl.lsp.navigate',{...sourceArgs,operation:'references',includeDeclaration:true}),read('tl.lsp.prepareRename',{...sourceArgs,newName:'nextName'}),action('rename_symbol',{renameId:plan?.renameId}),read('tl.lsp.list'),read('tl.project.listDirectory'),read('tl.project.readTextFile',{relativePath:'source.js'}),read('tl.lsp.inspectFile',{...sourceArgs,languageId:'javascript'}),read('tl.project.readTextFile',{relativePath:'use.js'}),read('tl.lsp.inspectFile',{sessionId,relativePath:'use.js',expectedSha256:use?.sha256,languageId:'javascript'}),action('stop_language_server',{sessionId})];
+      return {text:steps[atomicStep]?JSON.stringify(steps[atomicStep++]):'Multi-file rename verified'};
+    }
     if (mode === 'lsp') {
       const chat=persistence.readDevelopmentRecordById({storeName:'tl_flow_prompt_chats',id:'chat-restart'});
       const file=chat?.agentRun?.observations?.findLast(entry=>entry.request?.tool==='tl.project.readTextFile'&&entry.request.args.relativePath==='example.js')?.observation;
@@ -740,6 +762,11 @@ app.whenReady().then(async () => {
       const end = Date.now() + 20000;
       while (Date.now() < end && record().agentRun.status !== 'completed') {
         const label = await js(`[...document.querySelectorAll('.jss-dialog button')].filter(b=>b.getClientRects().length&&!b.disabled).map(b=>b.textContent).find(text=>${JSON.stringify(approvals)}.includes(text))`);
+        if(label==='Applica rinomina') {
+          const text=await js(`[...document.querySelectorAll('.jss-dialog')].find(node=>node.querySelector('.tl-flow-lsp-rename'))?.textContent`);assert.match(text,/source.js/);assert.match(text,/use.js/);
+          for(const width of [1200,480]) {win.setSize(width,850);await new Promise(resolve=>setTimeout(resolve,100));const geometry=await js(`(()=>{const r=document.querySelector('.tl-flow-lsp-rename').closest('.jss-dialog').getBoundingClientRect();return {width:r.width,height:r.height,viewportWidth:innerWidth,viewportHeight:innerHeight};})()`);assert.ok(geometry.width<=geometry.viewportWidth&&geometry.height<=geometry.viewportHeight,JSON.stringify(geometry));fs.writeFileSync(`/private/tmp/tl-lsp-rename-${width}.png`,(await win.webContents.capturePage()).toPNG());}
+          win.setSize(1200,850);
+        }
         if (label) await consent(label); else await new Promise(resolve => setTimeout(resolve, 50));
       }
       assert.equal(record().agentRun.status, 'completed', JSON.stringify(record().agentRun));
@@ -853,6 +880,21 @@ app.whenReady().then(async () => {
       await waitFor(()=>[...chatDebugger.sessions.values()].at(-1).status==='stopped', 'Python UI stopped');
       await js(`document.querySelector('.tl-flow-prompt-debugger').closest('.jss-dialog').querySelector('[aria-label="Chiudi dialog"]').click()`);
     }
+    for(const kind of ['completion','codeAction']) {
+      fs.writeFileSync(path.join(projectFolder,'source.js'),'BROKEN');
+      await completeCapability('lsp-proposal-'+kind,['Consenti tutte le letture per questa chat','Consenti una volta','Avvia language server','Applica modifica LSP']);
+      const applied=record().agentRun.observations.find(entry=>entry.request?.action==='apply_lsp_edit')?.observation;
+      assert.equal(applied?.status,'completed');assert.equal(fs.readFileSync(path.join(projectFolder,'source.js'),'utf8'),'FIXED');
+      assert.ok(record().agentRun.observations.find(entry=>entry.request?.tool==='tl.lsp.prepareProposal').observation.result.resolved);
+    }
+    fs.writeFileSync(path.join(projectFolder,'source.js'),'export const oldName=2;\n');
+    fs.writeFileSync(path.join(projectFolder,'use.js'),'console.log(oldName,oldName);\n');
+    await completeCapability('lsp-rename',['Consenti tutte le letture per questa chat','Consenti una volta','Avvia language server','Applica rinomina']);
+    const renamed=record().agentRun.observations.find(entry=>entry.request?.action==='rename_symbol').observation;
+    assert.equal(renamed.status,'completed');assert.equal(renamed.files.length,2);
+    assert.equal(fs.readFileSync(path.join(projectFolder,'source.js'),'utf8'),'export const nextName=2;\n');
+    assert.equal(fs.readFileSync(path.join(projectFolder,'use.js'),'utf8'),'console.log(nextName,nextName);\n');
+    assert.ok(record().agentRun.observations.find(entry=>entry.request?.tool==='tl.lsp.navigate').observation.locations.some(item=>!item.insideProject));
     await completeCapability('lsp',['Consenti tutte le letture per questa chat','Consenti una volta','Avvia language server']);
     const lspResult=record().agentRun.observations.find(entry=>entry.request?.tool==='tl.lsp.inspectFile').observation;
     assert.equal(lspResult.symbols[0].name,'é_symbol');assert.equal(lspResult.diagnosticReport.items.length,0);
@@ -1152,6 +1194,7 @@ app.whenReady().then(async () => {
     console.log('Flow Chat Electron: SQLite restart/resume, uncertain-action guard, CLI live trace and cancellation passed.');
     console.log('Flow Chat Electron: atomic config/create/duplicate/connect, delete denial/apply, retained outputs and scoped restore passed.');
     console.log('Flow Chat Electron: repeated proposals/reads return feedback, denied/completed actions run at most once, failed preflight recovers after fresh reads.');
+    console.log('Flow Chat Electron: completion/code-action resolve and reviewed apply, definition/reference evidence and multi-file LSP rename with responsive preview passed.');
     console.log('Flow Chat Electron: structured Node fail/patch/rerun, complete case reports and responsive manual testing panel passed.');
     console.log('Flow Chat Electron: debugger source/breakpoint controls, stack/locals, desktop/mobile layout and optional real Python launch passed.');
     console.log('Flow Chat Electron: isolated browser/actions/images, installed/activated/reloaded/deactivated skills and PTY input/resize passed.');

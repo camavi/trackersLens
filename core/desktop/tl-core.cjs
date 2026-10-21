@@ -117,15 +117,21 @@ const createTlCore = ({ appVersion = "0.0.0", platform = "unknown", mode = "prod
       case "desktop.chatLsp.start":
       case "desktop.chatLsp.list":
       case "desktop.chatLsp.inspectFile":
+      case "desktop.chatLsp.navigate":
+      case "desktop.chatLsp.proposalsFor":
+      case "desktop.chatLsp.prepareProposal":
+      case "desktop.chatLsp.prepareRename":
+      case "desktop.chatLsp.previewRename":
+      case "desktop.chatLsp.applyRename":
       case "desktop.chatLsp.diagnostics":
       case "desktop.chatLsp.stop":
       case "desktop.chatLsp.cancelChat": {
         const method = command.slice("desktop.chatLsp.".length);
         if (!adapters.chatLsp?.[method]) throw errorWithCode("LSP unavailable", "CHAT_LSP_UNAVAILABLE");
         const args = { chatId: String(payload?.chatId || ""), workspaceId: String(payload?.workspaceId || "") };
-        const fields = ["previewStart", "start"].includes(method) ? ["folderId", "configPath", "expectedSha256", "serverName"] : method === "inspectFile" ? ["sessionId", "relativePath", "expectedSha256", "languageId"] : ["list", "cancelChat"].includes(method) ? [] : ["sessionId"];
-        for (const key of fields) args[key] = String(payload?.[key] || "");
-        if (method === "start") { args.confirmed = payload?.confirmed === true; args.previewToken = String(payload?.previewToken || ""); }
+        const fields = ["previewStart", "start"].includes(method) ? ["folderId", "configPath", "expectedSha256", "serverName"] : method === "inspectFile" ? ["sessionId", "relativePath", "expectedSha256", "languageId"] : ["navigate","prepareRename","proposalsFor"].includes(method) ? ["sessionId","relativePath","expectedSha256","position","operation","includeDeclaration","newName","kind","range","only"] : method === "prepareProposal" ? ["proposalId"] : ["previewRename","applyRename"].includes(method) ? ["renameId"] : ["list", "cancelChat"].includes(method) ? [] : ["sessionId"];
+        for (const key of fields) if(payload?.[key]!==undefined) args[key] = clone(payload[key]);
+        if (["start","applyRename"].includes(method)) { args.confirmed = payload?.confirmed === true; args.previewToken = String(payload?.previewToken || ""); }
         return adapters.chatLsp[method](args, lifecycle);
       }
       case "desktop.chatGit.status":

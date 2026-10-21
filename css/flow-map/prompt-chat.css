@@ -3743,3 +3743,6 @@
 .tl-flow-prompt-tests details { min-width: 0; overflow-x: auto; }
 .tl-flow-prompt-tests pre { white-space: pre-wrap; overflow-wrap: anywhere; font-size: 12px; }
 .tl-flow-prompt-tests summary, .tl-flow-prompt-tests code { overflow-wrap: anywhere; }
+.tl-flow-lsp-rename { display: grid; gap: 12px; min-width: 0; }
+.tl-flow-lsp-rename details { min-width: 0; }
+.tl-flow-lsp-rename pre { white-space: pre-wrap; overflow-wrap: anywhere; }

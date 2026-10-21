@@ -289,9 +289,14 @@ const createFlowMapChatReadTools = (moduleDependencies) => {
       const scope = { chatId: moduleDependencies.draft.activeChat.id, workspaceId: moduleDependencies.draft.workspaceId };
       if (tool === "tl.lsp.list") return { ok: true, tool, sessions: await lsp.list(scope) };
       if (![...moduleDependencies.providerToolDiscovery.completedReadRequests.values()].some(item => item.tool === "tl.lsp.list")) return denied("Elenca prima i language server della chat.");
-      if (tool === "tl.lsp.inspectFile" && (!args.expectedSha256 || moduleDependencies.providerToolDiscovery.projectFiles.get(args.relativePath) !== args.expectedSha256)) return denied("Leggi il file esatto in questo turno prima di analizzarlo.");
+      if (["tl.lsp.inspectFile","tl.lsp.navigate","tl.lsp.prepareRename","tl.lsp.proposalsFor"].includes(tool) && (!args.expectedSha256 || moduleDependencies.providerToolDiscovery.projectFiles.get(args.relativePath) !== args.expectedSha256)) return denied("Leggi il file esatto in questo turno prima di analizzarlo.");
       moduleDependencies.draft.extensionActiveRequest = true; (0, moduleDependencies.refresh)();
-      try { return { ok: true, tool, ...await lsp[tool === "tl.lsp.inspectFile" ? "inspectFile" : "diagnostics"]({ ...args, ...scope }) }; }
+      try {
+        const method={"tl.lsp.inspectFile":"inspectFile","tl.lsp.diagnostics":"diagnostics","tl.lsp.navigate":"navigate","tl.lsp.prepareRename":"prepareRename","tl.lsp.proposalsFor":"proposalsFor","tl.lsp.prepareProposal":"prepareProposal"}[tool];
+        const result=await lsp[method]({...args,...scope});
+        if(["tl.lsp.prepareRename","tl.lsp.prepareProposal"].includes(tool)&&result.renameId){moduleDependencies.providerToolDiscovery.renamePlans ||= new Map();moduleDependencies.providerToolDiscovery.renamePlans.set(result.renameId,result);}
+        return {ok:true,tool,...result};
+      }
       finally { moduleDependencies.draft.extensionActiveRequest = false; }
     }
     if (tool.startsWith("tl.git.")) {

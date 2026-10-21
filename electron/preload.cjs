@@ -94,6 +94,13 @@ const trackers = Object.freeze({
       cancelChat: (args = {}) => request("desktop.chatDebugger.cancelChat", args),
     }),
     chatLsp: Object.freeze({
+      navigate: (args = {}) => request("desktop.chatLsp.navigate", args),
+      proposalsFor: (args = {}) => request("desktop.chatLsp.proposalsFor", args),
+      prepareProposal: (args = {}) => request("desktop.chatLsp.prepareProposal", args),
+      prepareRename: (args = {}) => request("desktop.chatLsp.prepareRename", args),
+      previewRename: (args = {}) => request("desktop.chatLsp.previewRename", args),
+      applyRename: (args = {}) => request("desktop.chatLsp.applyRename", args),
+
       previewStart: (args = {}) => request("desktop.chatLsp.previewStart", args),
       start: (args = {}) => request("desktop.chatLsp.start", args),
       list: (args = {}) => request("desktop.chatLsp.list", args),

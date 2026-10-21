@@ -5,6 +5,10 @@ Read when: a change might conflict with architecture or product direction.
 Do not read when: making narrow UI/code fixes.
 Last updated: 2026-10-21.
 
+## LSP symbol rename ownership
+
+- 2026-10-21: treat language-server WorkspaceEdits as untrusted inspectable proposals, never implicit workspace.applyEdit. Require all edited sources to be synchronized before a writable rename plan, preserve raw rejected operations and fail the whole plan when any operation is unsupported/stale/outside-project. Convert exact UTF-16 ranges to full-file proposals and reuse the existing Core grouped edit/rollback owner for user-reviewed writes; do not perform lexical search/replace as a semantic rename fallback.
+
 ## Structured test ownership
 
 - 2026-10-21: structured project tests use fixed Core-owned Node/unittest reporters rather than parse arbitrary terminal text or execute guessed package scripts. File discovery is non-executing; Python case collection imports user code and therefore needs execution review. Keep producer events/output and normalized cases together in existing SQLite jobs, with explicit report completeness, empty selection and source freshness. Reports are evidence from user-local code, not signed attestations; dependency freshness and other frameworks are not inferred.
@@ -107,3 +111,5 @@ Last updated: 2026-10-21.
 - 2026-09-23 Custom Node version application uses a Core-owned registered migration executor with opaque review tokens and a SQLite transaction for snapshot plus node writes. No renderer-supplied node patches or migration scripts are accepted. Scoped migration snapshots require the dedicated checked restore, never whole-store Time Travel replacement.
 
 - 2026-09-26 Python Custom Nodes reuse the existing package catalog, hash-bound consent/activation, Python pack resolver/installer and sandbox broker. Imported Python source must never enter the shared built-in Python worker: each invocation uses an OS-isolated disposable process and a minimal environment. The initial macOS Seatbelt adapter fails closed on unsupported hosts; `-I` alone is not isolation. Requirements select only Core-trusted packs, never manifest-provided pip commands. The first example uses the model-free pandas/numpy data pack. Multi-file imports, brokered Python tools and cross-platform sandbox adapters are separate follow-ups.
+
+LSP proposal application (2026-10-21): completion and code-action queries/resolve remain Core-owned and return complete server evidence. Existing reviewed grouped edit plans are reused (legacy renameId field) for apply_lsp_edit. Explicit replacement ranges avoid lexical guessing; unsupported snippet/command/resource semantics block whole proposals without partial writes. TypeScript command-based extraction is deliberately recorded as remaining work.

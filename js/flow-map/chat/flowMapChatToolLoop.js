@@ -185,6 +185,23 @@ const createFlowMapChatToolLoop = (moduleDependencies) => {
           reply = await buildProtocolReply({ ...baseReplyOptions, toolObservation: entry, toolObservations: observedToolResults, toolProtocolProgress: (0, moduleDependencies.providerToolProtocolProgress)() });
           rounds += 1; continue;
         }
+        if(["rename_symbol","apply_lsp_edit"].includes(proposedAction?.action)) {
+          let observation;
+          try {
+            const renameId=proposedAction.args?.renameId;
+            if(!moduleDependencies.providerToolDiscovery.renamePlans?.get(renameId)?.applicable)throw new Error("Prepara un piano LSP applicabile in questo turno; leggi e sincronizza tutti i file richiesti.");
+            const request={chatId:moduleDependencies.draft.activeChat.id,workspaceId:moduleDependencies.draft.workspaceId,renameId};
+            const key=`rename:${renameId}`;
+            if(moduleDependencies.providerToolDiscovery.proposedActionKeys.has(key))throw new Error("Questa modifica LSP è già stata esaminata. Prepara un nuovo piano.");
+            const bridge=window.trackers.desktop.chatLsp,preview=await bridge.previewRename(request);
+            moduleDependencies.providerToolDiscovery.proposedActionKeys.add(key);await checkpoint({status:"waiting-approval",pendingAction:proposedAction});moduleDependencies.workDialog?.close();
+            const approved=await new Promise(resolve=>{const dialog=_.Dialog({title:proposedAction.action==="rename_symbol"?"Rinomina simbolo":"Modifica LSP",class:"tl-flow-debugger-dialog",size:"lg",closeButton:true,onClose:()=>resolve(false),content:()=>_.div({class:"tl-flow-lsp-rename"},_.p(preview.newName),...preview.files.map(file=>_.details({open:true},_.summary(file.relativePath),_.pre(file.diff),_.details(_.summary("Prima e dopo completi"),_.pre(file.before),_.pre(file.after)))),_.details(_.summary("Proposta LSP completa"),_.pre(JSON.stringify(preview.result,null,2)))),actions:({close})=>_.Toolbar({align:"end",gap:8},flowMapBtn({onclick:()=>{resolve(false);close();}},"Annulla"),flowMapBtn({onclick:()=>{resolve(true);close();}},proposedAction.action==="rename_symbol"?"Applica rinomina":"Applica modifica LSP"))});dialog.open();});
+            if(!approved)observation={ok:false,status:"denied"};
+            else{await checkpoint({status:"executing",pendingAction:proposedAction});observation={ok:true,...await bridge.applyRename({...request,previewToken:preview.previewToken,confirmed:true})};}
+            observedRequests.clear();moduleDependencies.providerToolDiscovery.completedReadRequests.clear();moduleDependencies.providerToolDiscovery.projectFiles.clear();moduleDependencies.providerToolDiscovery.projectDirectories.clear();moduleDependencies.providerToolDiscovery.renamePlans?.clear();
+          }catch(error){if(moduleDependencies.draft.activeChat.agentRun?.status==="executing"&&moduleDependencies.draft.activeChat.agentRun?.pendingAction)throw error;observation={ok:false,status:"blocked",limitations:[error.message]};}
+          const entry={request:proposedAction,observation};toolTrace.push(entry);observedToolResults.push(entry);await checkpoint({pendingAction:null,observations:observedToolResults});reply=await buildProtocolReply({...baseReplyOptions,toolObservations:observedToolResults,toolProtocolProgress:(0,moduleDependencies.providerToolProtocolProgress)()});rounds+=1;continue;
+        }
         if(proposedAction?.action==="test_action") {
           const args=proposedAction.args||{};let observation;
           try {

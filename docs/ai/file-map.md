@@ -90,7 +90,8 @@ Last updated: 2026-10-10.
 - `core/desktop/chat-debugger.cjs`: shared owned Node/Python debugger sessions, reviewed breakpoint/execution control and current-pause stack/variable reads.
 - `core/desktop/chat-debugger-python.cjs`: Core-only debugpy DAP framing, lifecycle, stack/scopes and normalized variable/control adapter.
 - `js/flow-map/chat/flowMapChatDebuggerView.js`: JSswift Chat debugger dialog and reviewed manual session/source/breakpoint controls.
-- `core/desktop/chat-lsp.cjs`: reviewed local LSP process sessions, document synchronization, symbols and version/disk-aware diagnostics.
+- `core/desktop/chat-lsp.cjs`: reviewed LSP sessions, synchronized diagnostics/symbols, definition/reference navigation and scoped semantic rename lifecycle.
+- `core/desktop/chat-lsp-edits.cjs`: exact UTF-16 position/TextEdit normalization and fail-whole-plan WorkspaceEdit projection into existing project file edits.
 - `core/desktop/chat-git.cjs`: scoped Git reads and reviewed local stage/commit/branch operations.
 - `core/desktop/chat-browser.cjs`, `chat-skills.cjs`, `chat-capability-scope.cjs`, `chat-pty-process.cjs`: scoped browser/skill reviews and Unix PTY host adapter; see `runtime/chat-desktop-capabilities.md`.
 - `core/desktop/chat-mcp-http.cjs`: remote Streamable HTTP transport with private environment-backed auth, JSON/SSE and session cancellation.
@@ -112,3 +113,5 @@ Last updated: 2026-10-10.
 - `test/python-poc.test.cjs`: Python POC protocol tests.
 - `test/python-nlp-pack.test.cjs`: optional offline local NLP-pack embedding integration test.
 - `docs/ai/runtime/desktop-persistence.md`: SQLite-only desktop persistence contract.
+
+LSP completion/code-action proposals: `core/desktop/chat-lsp.cjs` owns synchronized queries, opaque proposal resolution and reviewed edit plans; `test/chat-lsp-proposals-real.cjs` exercises actual TypeScript completion/import organization/tsc. Chat catalog/read/action modules retain the standard Core boundary.
