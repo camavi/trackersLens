@@ -5,6 +5,10 @@ Read when: a change might conflict with architecture or product direction.
 Do not read when: making narrow UI/code fixes.
 Last updated: 2026-10-21.
 
+## Structured test ownership
+
+- 2026-10-21: structured project tests use fixed Core-owned Node/unittest reporters rather than parse arbitrary terminal text or execute guessed package scripts. File discovery is non-executing; Python case collection imports user code and therefore needs execution review. Keep producer events/output and normalized cases together in existing SQLite jobs, with explicit report completeness, empty selection and source freshness. Reports are evidence from user-local code, not signed attestations; dependency freshness and other frameworks are not inferred.
+
 ## Chat debugger ownership
 
 - 2026-10-21: keep Node Inspector and Python debugpy DAP behind one named Core debugger API and one JSswift inspector. Python uses an explicitly reviewed local interpreter and private stdio adapter, not renderer-accessible DAP/CDP or arbitrary attachment. Preserve virtualenv executable paths and disclose Python repr/property side effects; Node descriptor inspection retains its no-getter behavior. Unchanged entry hashes bind Python breakpoints until a reliable multi-file loaded-source contract exists.

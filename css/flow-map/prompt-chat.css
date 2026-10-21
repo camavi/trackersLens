@@ -3738,3 +3738,8 @@
 .tl-flow-prompt-debugger pre { margin: 4px 0; font-size: 12px; }
 .tl-flow-prompt-debugger summary { cursor: pointer; overflow-wrap: anywhere; font-size: 13px; }
 .tl-flow-prompt-debugger .is-current-debug-line { background: #143d50; border-left: 3px solid #38bdf8; }
+.tl-flow-prompt-tests { display: grid; gap: 12px; min-width: 0; }
+.tl-flow-prompt-tests .jss-toolbar { flex-wrap: wrap; padding: 0; background: transparent; border: 0; box-shadow: none; }
+.tl-flow-prompt-tests details { min-width: 0; overflow-x: auto; }
+.tl-flow-prompt-tests pre { white-space: pre-wrap; overflow-wrap: anywhere; font-size: 12px; }
+.tl-flow-prompt-tests summary, .tl-flow-prompt-tests code { overflow-wrap: anywhere; }

@@ -81,6 +81,22 @@ const createTlCore = ({ appVersion = "0.0.0", platform = "unknown", mode = "prod
         return customNodeSetup.execute({ planId: String(payload?.planId || ''), confirmed: payload?.confirmed === true }, lifecycle);
       case 'desktop.customNodePackages.discardSetup':
         return customNodeSetup.discard({ planId: String(payload?.planId || '') }, lifecycle);
+      case "desktop.chatTests.discover":
+      case "desktop.chatTests.previewRun":
+      case "desktop.chatTests.start":
+      case "desktop.chatTests.list":
+      case "desktop.chatTests.report":
+      case "desktop.chatTests.stop":
+      case "desktop.chatTests.cancelChat": {
+        const method=command.slice("desktop.chatTests.".length);
+        if(!adapters.chatTests?.[method])throw errorWithCode("Structured tests unavailable","CHAT_TESTS_UNAVAILABLE");
+        const args={chatId:String(payload?.chatId||""),workspaceId:String(payload?.workspaceId||"")};
+        const fields=method==="discover"?["folderId","runner","paths"]:["previewRun","start"].includes(method)?["discoveryId","operation","files","caseNames","executable"]:["report","stop"].includes(method)?["runId"]:[];
+        for(const key of fields)if(payload?.[key]!==undefined)args[key]=clone(payload[key]);
+        if(["start","stop"].includes(method))args.confirmed=payload?.confirmed===true;
+        if(method==="start")args.previewToken=String(payload?.previewToken||"");
+        return adapters.chatTests[method](args,lifecycle);
+      }
       case "desktop.chatDebugger.previewStart":
       case "desktop.chatDebugger.start":
       case "desktop.chatDebugger.list":

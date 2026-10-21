@@ -17,6 +17,7 @@ const { DesktopPersistence } = require("../core/desktop/desktop-persistence.cjs"
 const { ExternalAiProviderBridge } = require("../core/desktop/external-ai-provider-bridge.cjs");
 const { ChatBrowser, createChatBrowserWindow } = require("../core/desktop/chat-browser.cjs");
 const { ChatDebugger } = require("../core/desktop/chat-debugger.cjs");
+const { ChatTests } = require('../core/desktop/chat-tests.cjs');
 const { ChatLsp } = require("../core/desktop/chat-lsp.cjs");
 const { ChatGit } = require("../core/desktop/chat-git.cjs");
 const { ChatSkills } = require("../core/desktop/chat-skills.cjs");
@@ -131,6 +132,7 @@ let chatSkills = null;
 let chatGit = null;
 let chatLsp = null;
 let chatDebugger = null;
+let chatTests = null;
 const mcpOwners = new Set();
 const terminalOwners = new Set();
 let customNodePackageManager = null;
@@ -448,7 +450,7 @@ const createWindow = () => {
 };
 
 ipcMain.handle("trackers-core:request", (event, command, payload) => {
-  if (/^desktop\.(project|account|catalog|externalAi|flowChat|chatProject|chatBrowser|chatSkills|chatGit|chatLsp|chatDebugger|mcp|customNodePackages)\./.test(String(command || ""))) {
+  if (/^desktop\.(project|account|catalog|externalAi|flowChat|chatProject|chatBrowser|chatSkills|chatGit|chatLsp|chatDebugger|chatTests|mcp|customNodePackages)\./.test(String(command || ""))) {
     if (event.senderFrame !== event.sender.mainFrame || !isAllowedLocalNavigation(event.senderFrame.url) || event.sender.session !== trustedSession) {
       throw new Error("Account requests require the trusted desktop shell.");
     }
@@ -500,12 +502,12 @@ ipcMain.handle("trackers-core:request", (event, command, payload) => {
     }
     return tlCore.request(command, payload, { ownerId: owner.id });
   }
-  if (/^desktop\.(mcp|chatBrowser|chatSkills|chatGit|chatLsp|chatDebugger)\./.test(String(command))) {
+  if (/^desktop\.(mcp|chatBrowser|chatSkills|chatGit|chatLsp|chatDebugger|chatTests)\./.test(String(command))) {
     const owner = event.sender;
     if (!mcpOwners.has(owner.id)) {
       mcpOwners.add(owner.id);
-      owner.once("destroyed", () => { void chatMcpClient?.cancelOwner(owner.id); chatBrowser?.cancelOwner(owner.id); chatSkills?.forgetOwner(owner.id); chatGit?.forgetOwner(owner.id); void chatLsp?.cancelOwner(owner.id); void chatDebugger?.cancelOwner(owner.id); mcpOwners.delete(owner.id); });
-      owner.on("did-start-navigation", (_event, _url, _inPlace, mainFrame) => { if (mainFrame) { void chatMcpClient?.cancelOwner(owner.id); chatBrowser?.cancelOwner(owner.id); chatSkills?.forgetOwner(owner.id); chatGit?.forgetOwner(owner.id); void chatLsp?.cancelOwner(owner.id); void chatDebugger?.cancelOwner(owner.id); } });
+      owner.once("destroyed", () => { void chatMcpClient?.cancelOwner(owner.id); chatBrowser?.cancelOwner(owner.id); chatSkills?.forgetOwner(owner.id); chatGit?.forgetOwner(owner.id); void chatLsp?.cancelOwner(owner.id); void chatDebugger?.cancelOwner(owner.id); void chatTests?.cancelOwner(owner.id); mcpOwners.delete(owner.id); });
+      owner.on("did-start-navigation", (_event, _url, _inPlace, mainFrame) => { if (mainFrame) { void chatMcpClient?.cancelOwner(owner.id); chatBrowser?.cancelOwner(owner.id); chatSkills?.forgetOwner(owner.id); chatGit?.forgetOwner(owner.id); void chatLsp?.cancelOwner(owner.id); void chatDebugger?.cancelOwner(owner.id); void chatTests?.cancelOwner(owner.id); } });
     }
     return tlCore.request(command, payload, { ownerId: owner.id });
   }
@@ -580,6 +582,7 @@ app.whenReady().then(async () => {
   chatProjectSessions = chatProject.terminals;
   chatMcpClient = new ChatMcpClient({ workspace: chatProject });
   chatDebugger = new ChatDebugger({ workspace: chatProject });
+  chatTests = new ChatTests({ workspace: chatProject, persistence });
   chatLsp = new ChatLsp({ workspace: chatProject });
   chatGit = new ChatGit({ workspace: chatProject });
   chatSkills = new ChatSkills({ workspace: chatProject });
@@ -810,7 +813,7 @@ app.whenReady().then(async () => {
       externalAi: externalAiProviderBridge,
       chatProject,
       mcp: chatMcpClient,
-      chatBrowser, chatSkills, chatGit, chatLsp, chatDebugger,
+      chatBrowser, chatSkills, chatGit, chatLsp, chatDebugger, chatTests,
       nativeWorkSessions,
       account, catalog,
       persistence
@@ -845,6 +848,7 @@ const prepareProjectExit = async () => {
     ...windows.map(window => chatMcpClient?.cancelOwner(window.webContents.id)),
     ...windows.map(window => chatLsp?.cancelOwner(window.webContents.id)),
     ...windows.map(window => chatDebugger?.cancelOwner(window.webContents.id)),
+    ...windows.map(window => chatTests?.cancelOwner(window.webContents.id)),
     customNodePythonRunner?.stop(), pythonPoc?.stop?.(), pythonNlp?.stop?.(), pythonGraphRelations?.stop?.(),
     ...[...chatProjectSessions?.sessions.values() || []].map(item => item.pending)
   ]);

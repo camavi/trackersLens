@@ -85,6 +85,8 @@ Last updated: 2026-10-10.
 
 - `package.json`: Electron scripts and development dependency.
 - `electron/main.cjs`: desktop lifecycle, secure BrowserWindow, CSP, validated IPC and navigation policy.
+- `core/desktop/chat-tests.cjs`, `runtimes/testing/`: scoped structured native Node/unittest discovery, reviewed execution, full reports and process lifecycle.
+- `js/flow-map/chat/flowMapChatTestsView.js`: JSswift Chat test discovery, execution and result inspector.
 - `core/desktop/chat-debugger.cjs`: shared owned Node/Python debugger sessions, reviewed breakpoint/execution control and current-pause stack/variable reads.
 - `core/desktop/chat-debugger-python.cjs`: Core-only debugpy DAP framing, lifecycle, stack/scopes and normalized variable/control adapter.
 - `js/flow-map/chat/flowMapChatDebuggerView.js`: JSswift Chat debugger dialog and reviewed manual session/source/breakpoint controls.

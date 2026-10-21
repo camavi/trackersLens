@@ -9,6 +9,7 @@ const { DesktopPersistence } = require('../core/desktop/desktop-persistence.cjs'
 const { ExternalAiChatRuns } = require('../core/desktop/external-ai-chat-runner.cjs');
 const { ExternalAiWorkSessions } = require('../core/desktop/external-ai-work-sessions.cjs');
 const { ChatBrowser, createChatBrowserWindow } = require('../core/desktop/chat-browser.cjs');
+const { ChatTests } = require('../core/desktop/chat-tests.cjs');
 const { ChatDebugger } = require('../core/desktop/chat-debugger.cjs');
 const { ChatLsp } = require('../core/desktop/chat-lsp.cjs');
 const { ChatGit } = require('../core/desktop/chat-git.cjs');
@@ -50,6 +51,10 @@ const atomicEdits = [{ operation: 'config', nodeId: 'atomic-node', field: 'min',
 const chatProject = new ChatProjectWorkspace({ persistence, selectDirectory: async () => projectFolder });
 const mcp = new ChatMcpClient({ workspace: chatProject });
 const chatDebugger = new ChatDebugger({ workspace: chatProject });
+const chatTests = new ChatTests({ workspace: chatProject, persistence });
+const structuredSource="const {test}=require('node:test');const assert=require('node:assert/strict');const {sum}=require('./sum.cjs');test('sum values',()=>{console.log('STRUCTURED OUTPUT 🐺');assert.equal(sum(2,3),5)});test.skip('skip case',()=>{});\n";
+fs.writeFileSync(path.join(projectFolder,'sum.cjs'),'exports.sum=(a,b)=>a-b;\n');
+fs.writeFileSync(path.join(projectFolder,'native.test.cjs'),structuredSource);
 const chatLsp = new ChatLsp({ workspace: chatProject });
 const chatGit = new ChatGit({ workspace: chatProject });
 const chatSkills = new ChatSkills({ workspace: chatProject });
@@ -68,7 +73,7 @@ fs.writeFileSync(path.join(projectFolder,'debug.cjs'),debugSource);
 const mcpConfig = JSON.stringify({ mcpServers: { fixture: { command: testNodePath, args: [path.join(__dirname, 'fixtures/mcp-stdio-server.cjs')], requestTimeoutMs: 5000 } } });
 fs.writeFileSync(path.join(projectFolder, '.mcp.json'), mcpConfig);
 const mcpHash = crypto.createHash('sha256').update(mcpConfig).digest('hex');
-const core = createTlCore({ adapters: { chatDebugger, chatLsp, chatGit, chatBrowser, chatSkills, mcp, persistence, nativeWorkSessions: nativeSessions, externalAi: {
+const core = createTlCore({ adapters: { chatTests, chatDebugger, chatLsp, chatGit, chatBrowser, chatSkills, mcp, persistence, nativeWorkSessions: nativeSessions, externalAi: {
   getStatus: async ({ provider }) => ({ provider, installed: !(mode === "atomic" && atomicStep > 0), authenticated: !(mode === "atomic" && atomicStep > 0) }),
   listModels: async () => ({ models: [], source: 'fixture' }),
   sendMessage: async (payload, { signal, onEvent }) => {
@@ -117,6 +122,17 @@ const core = createTlCore({ adapters: { chatDebugger, chatLsp, chatGit, chatBrow
         read('tl.mcp.listConnections'), read('tl.mcp.diagnostics', { sessionId }),
       ];
       return { text: steps[atomicStep] ? JSON.stringify(steps[atomicStep++]) : 'MCP workflow verified' };
+    }
+    if(mode==='structured-tests') {
+      const chat=persistence.readDevelopmentRecordById({storeName:'tl_flow_prompt_chats',id:'chat-restart'});
+      const found=chat?.agentRun?.observations?.findLast(entry=>entry.request?.tool==='tl.tests.discover')?.observation;
+      const runId=[...chatTests.runs.keys()].at(-1)||'';
+      if([9,17].includes(atomicStep))await chatTests.runs.get(runId)?.done;
+      const read=(tool,args={})=>({type:'tool_request',tool,args});
+      const action=(action,args)=>({type:'proposed_action',action,args});
+      const steps=[read('tl.catalog.listDomains'),read('tl.catalog.listTools',{domain:'tests'}),...['tl.tests.discover','tl.tests.list','tl.tests.report'].map(name=>read('tl.catalog.getCapabilityDetails',{name})),read('tl.project.chooseFolder'),read('tl.tests.discover',{runner:'node',paths:['native.test.cjs']}),action('test_action',{operation:'run',discoveryId:found?.discoveryId}),read('tl.tests.list'),read('tl.tests.report',{runId}),read('tl.project.listDirectory'),read('tl.project.readTextFile',{relativePath:'sum.cjs'}),action('patch_project_files',{edits:[{relativePath:'sum.cjs',expectedSha256:crypto.createHash('sha256').update('exports.sum=(a,b)=>a-b;\n').digest('hex'),replacements:[{oldText:'a-b',newText:'a+b'}]}]}),read('tl.tests.discover',{runner:'node',paths:['native.test.cjs']}),action('test_action',{operation:'run',discoveryId:found?.discoveryId}),read('tl.tests.list'),read('tl.tests.report',{runId})];
+      if(atomicStep===16)await chatTests.runs.get(runId)?.done;
+      return {text:steps[atomicStep]?JSON.stringify(steps[atomicStep++]):'Structured tests repaired and verified'};
     }
     if (mode === 'debugger') {
       const chat=persistence.readDevelopmentRecordById({storeName:'tl_flow_prompt_chats',id:'chat-restart'});
@@ -346,7 +362,7 @@ const core = createTlCore({ adapters: { chatDebugger, chatLsp, chatGit, chatBrow
 ipcMain.handle('trackers-core:request', (event, command, payload) => {
   if(mode==='project-read-recovery' && command==='desktop.chatProject.chooseFolder')projectFolderChoices++;
   if(mode==='project-read-recovery' && command==='desktop.chatProject.listDirectory' && !failedDirectoryRead){failedDirectoryRead=true;throw new Error('Project folder grant is missing or expired. Select the folder again.');}
-  if (/^desktop\.(mcp|chatBrowser|chatSkills|chatGit|chatLsp|chatDebugger)\./.test(command)) return core.request(command, payload, { ownerId: event.sender.id });
+  if (/^desktop\.(mcp|chatBrowser|chatSkills|chatGit|chatLsp|chatDebugger|chatTests)\./.test(command)) return core.request(command, payload, { ownerId: event.sender.id });
   if (command === 'desktop.project.getStatus') return {active:{id:'chat-fixture',name:'Chat fixture'},recent:[]};
   if (command === 'desktop.flowChat.applyNodeEdits' && payload.confirmed === true) atomicCommits++;
   if (/^desktop\.chatProject\.(startTerminal|writeTerminal|resizeTerminal|stopTerminal)$/.test(command)) return core.request(command, payload, { ownerId: event.sender.id });
@@ -755,6 +771,31 @@ app.whenReady().then(async () => {
     assert.match(patchResult.reviewedFiles[0].diff, /\+export const example = 420/);
     assert.equal(fs.readFileSync(path.join(projectFolder, 'example.js'), 'utf8'), 'export const example = 420;\n');
     fs.writeFileSync(path.join(projectFolder, 'example.js'), 'export const example = 42;\n');
+    await completeCapability('structured-tests',['Consenti tutte le letture per questa chat','Consenti una volta','Avvia test','Applica modifiche ai file']);
+    const testReports=record().agentRun.observations.filter(entry=>entry.request?.tool==='tl.tests.report').map(entry=>entry.observation);
+    assert.equal(testReports[0].status,'failed');assert.equal(testReports[0].cases.find(item=>item.name==='sum values').status,'failed');
+    assert.equal(testReports.at(-1).status,'completed');assert.equal(testReports.at(-1).reportComplete,true);assert.equal(testReports.at(-1).exitCode,0);
+    assert.equal(fs.readFileSync(path.join(projectFolder,'native.test.cjs'),'utf8'),structuredSource);
+    await js(`document.querySelector('[aria-label="Test del progetto"]').click()`);
+    await waitFor(`document.querySelector('.tl-flow-prompt-tests')?.textContent.includes('sum values')`,'structured test results panel');
+    await consent('Scopri test');
+    await js(`(()=>{const field=document.querySelector('textarea[name="testPaths"]');field.value='native.test.cjs';field.dispatchEvent(new Event('input',{bubbles:true}));})()`);
+    await consent('Scopri file');
+    await waitFor(`document.querySelector('.tl-flow-prompt-tests')?.textContent.includes('1 file test')`,'static test discovery panel');
+    await consent('Esegui tutti');
+    await waitFor(`[...document.querySelectorAll('.jss-dialog button')].some(button=>button.textContent==='Conferma test')`,'manual test run review');
+    await consent('Conferma test');
+    await waitFor(()=>[...chatTests.runs.values()].at(-1).record.status==='completed','manual test run complete');
+    await waitFor(`document.querySelector('.tl-flow-prompt-tests')?.textContent.includes('passed · sum values')`,'manual case results');
+    for(const width of [1200,480]){
+      win.setSize(width,850);await new Promise(resolve=>setTimeout(resolve,120));
+      const geometry=await js(`(()=>{const r=document.querySelector('.tl-flow-prompt-tests').closest('.jss-dialog').getBoundingClientRect();return {width:r.width,height:r.height,viewportWidth:innerWidth,viewportHeight:innerHeight};})()`);
+      assert.ok(geometry.width<=geometry.viewportWidth&&geometry.height<=geometry.viewportHeight,JSON.stringify(geometry));
+      fs.writeFileSync(`/private/tmp/tl-tests-panel-${width}.png`,(await win.webContents.capturePage()).toPNG());
+    }
+    win.setSize(1200,850);
+    await js(`document.querySelector('.tl-flow-prompt-tests').closest('.jss-dialog').querySelector('[aria-label="Chiudi dialog"]').click()`);
+    await waitFor(`!document.querySelector('.tl-flow-prompt-tests')`,'test panel closed');
     await completeCapability('debugger',['Consenti tutte le letture per questa chat','Consenti una volta','Avvia debugger','Esegui azione debugger']);
     const debuggerVars=record().agentRun.observations.find(entry=>entry.request?.tool==='tl.debug.variables').observation;
     assert.ok(debuggerVars.properties, JSON.stringify(record().agentRun.observations));
@@ -1111,12 +1152,14 @@ app.whenReady().then(async () => {
     console.log('Flow Chat Electron: SQLite restart/resume, uncertain-action guard, CLI live trace and cancellation passed.');
     console.log('Flow Chat Electron: atomic config/create/duplicate/connect, delete denial/apply, retained outputs and scoped restore passed.');
     console.log('Flow Chat Electron: repeated proposals/reads return feedback, denied/completed actions run at most once, failed preflight recovers after fresh reads.');
+    console.log('Flow Chat Electron: structured Node fail/patch/rerun, complete case reports and responsive manual testing panel passed.');
     console.log('Flow Chat Electron: debugger source/breakpoint controls, stack/locals, desktop/mobile layout and optional real Python launch passed.');
     console.log('Flow Chat Electron: isolated browser/actions/images, installed/activated/reloaded/deactivated skills and PTY input/resize passed.');
     console.log('Flow Chat Electron: real stdio MCP launch/call/deny/duplicate/disconnect and active-call Stop passed.');
     console.log('Flow Chat Electron: project reads, reviewed edits/creation, real npm verification and live process cancellation passed.');
     console.log('Flow Chat Electron: manual batch atomic Apply, lost-reply receipt recovery, hidden-chat route continuation and deferred consent passed.');
   } finally {
+    await chatTests.cancelOwner(win.webContents.id);
     await chatDebugger.cancelOwner(win.webContents.id);
     win.destroy(); fs.rmSync(directory, { recursive: true, force: true });
   }

@@ -74,6 +74,15 @@ const trackers = Object.freeze({
       applyAction: (args = {}) => request("desktop.chatBrowser.applyAction", args),
       cancelChat: (args = {}) => request("desktop.chatBrowser.cancelChat", args),
     }),
+    chatTests: Object.freeze({
+      discover: (args = {}) => request("desktop.chatTests.discover", args),
+      previewRun: (args = {}) => request("desktop.chatTests.previewRun", args),
+      start: (args = {}) => request("desktop.chatTests.start", args),
+      list: (args = {}) => request("desktop.chatTests.list", args),
+      report: (args = {}) => request("desktop.chatTests.report", args),
+      stop: (args = {}) => request("desktop.chatTests.stop", args),
+      cancelChat: (args = {}) => request("desktop.chatTests.cancelChat", args),
+    }),
     chatDebugger: Object.freeze({
       previewStart: (args = {}) => request("desktop.chatDebugger.previewStart", args),
       start: (args = {}) => request("desktop.chatDebugger.start", args),

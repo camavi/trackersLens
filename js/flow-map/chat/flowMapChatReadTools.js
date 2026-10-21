@@ -257,6 +257,22 @@ const createFlowMapChatReadTools = (moduleDependencies) => {
         return { ok: true, tool, ...result };
       } finally { moduleDependencies.draft.extensionActiveRequest = false; }
     }
+    if(tool.startsWith("tl.tests.")) {
+      const tests=window.trackers?.desktop?.chatTests;
+      if(!tests)return denied("Test strutturati non disponibili.");
+      const scope={chatId:moduleDependencies.draft.activeChat.id,workspaceId:moduleDependencies.draft.workspaceId};
+      if(tool==="tl.tests.discover") {
+        const folderId=moduleDependencies.draft.activeChat.projectFolder?.folderId;
+        if(!folderId)return denied("Seleziona prima la cartella del progetto.");
+        const result=await tests.discover({...args,...scope,folderId});
+        moduleDependencies.providerToolDiscovery.testDiscoveries ||= new Map();
+        moduleDependencies.providerToolDiscovery.testDiscoveries.set(result.discoveryId,result);
+        return {ok:true,tool,...result};
+      }
+      if(tool==="tl.tests.list")return {ok:true,tool,runs:await tests.list(scope)};
+      if(![...moduleDependencies.providerToolDiscovery.completedReadRequests.values()].some(item=>item.tool==="tl.tests.list"))return denied("Elenca prima le esecuzioni test di questa chat.");
+      return {ok:true,tool,...await tests.report({...args,...scope})};
+    }
     if (tool.startsWith("tl.debug.")) {
       const debuggerBridge = window.trackers?.desktop?.chatDebugger;
       if (!debuggerBridge) return denied("Debugger non disponibile.");
