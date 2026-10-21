@@ -49,7 +49,7 @@ class ChatProjectTerminal {
     const id = `terminal_${crypto.randomUUID()}`;
     const controller = new AbortController();
     const record = { id, kind: 'flow-chat-terminal', workspaceId: args.workspaceId, chatId: args.chatId, workId: args.workId,
-      commandText: args.commandText, relativePath: args.relativePath || '', status: 'starting', stdout: '', stderr: '', inputs: [], createdAt: new Date().toISOString() };
+      commandText: args.commandText, relativePath: args.relativePath || '', transport: args.transport || 'stdin-pipes', cols: args.cols || 80, rows: args.rows || 24, status: 'starting', stdout: '', stderr: '', inputs: [], createdAt: new Date().toISOString() };
     const session = { record, ownerId, controller, child: null, timer: null, saveError: null };
     this.sessions.set(id, session);
     let ready, failReady;
@@ -79,7 +79,7 @@ class ChatProjectTerminal {
       session.child = null;
     });
     await started;
-    return { sessionId: id, status: record.status, commandText: record.commandText, relativePath: record.relativePath, transport: 'stdin-pipes' };
+    return { sessionId: id, status: record.status, commandText: record.commandText, relativePath: record.relativePath, transport: args.transport || 'stdin-pipes', cols: args.cols || 80, rows: args.rows || 24 };
   }
   async write(args, { ownerId } = {}) {
     this.validateWork(args);
@@ -100,6 +100,15 @@ class ChatProjectTerminal {
       input.status = 'uncertain'; input.error = error.message; this.save(active); throw error;
     }
     return { sessionId: record.id, submitted: true, endInput: args.endInput };
+  }
+  resize(args, { ownerId } = {}) {
+    this.validateWork(args);
+    const { active, record } = this.record(args);
+    if (args.confirmed !== true || active?.ownerId !== ownerId || record.status !== 'running' || typeof active.child?.resize !== 'function') throw new Error('An owned, running PTY and confirmed dimensions are required.');
+    require('./chat-pty-process.cjs').dimensions(args.cols, args.rows);
+    active.child.resize(args.cols, args.rows);
+    record.cols = args.cols; record.rows = args.rows; this.save(active);
+    return { sessionId: record.id, cols: record.cols, rows: record.rows };
   }
   stop(args, { ownerId } = {}) {
     this.validateWork(args);

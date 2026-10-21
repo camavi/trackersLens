@@ -16,7 +16,9 @@ class CustomNodeMigration {
   async readState() {
     return Object.fromEntries(await Promise.all(STORES.map(async (name) => [name, await this.persistence.readDevelopmentRecords({ storeName: name })])));
   }
-  async build({ source, target }) {
+  async build({ source, target, workspaceId, nodeIds }) {
+    if (workspaceId !== undefined && (typeof workspaceId !== "string" || !workspaceId.trim())) throw fail("Workspace migrazione non valido.");
+    if (nodeIds !== undefined && (!Array.isArray(nodeIds) || !nodeIds.length || nodeIds.some(id => typeof id !== "string" || !id.trim()) || new Set(nodeIds).size !== nodeIds.length)) throw fail("Seleziona ID nodo distinti e non vuoti.");
     if (this.isRunning()) throw fail("Attendi la conclusione delle esecuzioni Custom Node.");
     const previous = await this.manager.resolvePackage(source), next = await this.manager.resolvePackage(target);
     if (previous.packageId !== next.packageId || equal(reference(previous), reference(next))) throw fail("Seleziona due pacchetti distinti dello stesso nodo.");
@@ -28,7 +30,10 @@ class CustomNodeMigration {
     }
     const expected = await this.readState();
     if (!equal(expected.tl_packages.find((r) => r.id === previous.id), previous) || !equal(expected.tl_packages.find((r) => r.id === next.id), next)) throw fail("Catalogo modificato durante la verifica. Riprova.");
-    const nodes = expected.tl_runtime_nodes.filter((node) => matches(node, source));
+    const nodes = expected.tl_runtime_nodes.filter(node => matches(node, source)
+      && (workspaceId === undefined || node.workspaceId === workspaceId)
+      && (nodeIds === undefined || nodeIds.includes(node.id)));
+    if (nodeIds && nodes.length !== nodeIds.length) throw fail("Uno dei nodi selezionati non usa la versione sorgente nel workspace richiesto.");
     if (!nodes.length) throw fail("Nessun nodo usa questa esatta versione.");
     const after = nodes.map((node) => {
       if (["running", "working", "processing", "queued"].includes(node.runtime?.status)) throw fail(`Il nodo ${node.label || node.id} è in esecuzione.`);
@@ -45,7 +50,7 @@ class CustomNodeMigration {
         runtime: { ...node.runtime, status: "idle" }
       };
     });
-    return { expected, nodes, after, source, target };
+    return { expected, nodes, after, source, target, ...(workspaceId !== undefined ? { workspaceId } : {}), ...(nodeIds !== undefined ? { nodeIds } : {}) };
   }
   async preview(payload) {
     const plan = await this.build(payload);
@@ -62,7 +67,7 @@ class CustomNodeMigration {
     const fresh = await this.build(plan);
     if (!equal(plan.expected, fresh.expected)) throw fail("Lo stato è cambiato dopo l’anteprima. Verifica un nuovo piano.");
     const snapshotId = `tt_custom_${crypto.randomUUID()}`;
-    const snapshot = { id: snapshotId, schemaVersion: "1.0.0", workspaceId: "global", reason: TOOL.name, label: `${plan.source.version} → ${plan.target.version}`, createdAt: new Date().toISOString(), restoreMode: "custom-node-migration", state: { runtimeNodes: plan.nodes }, migration: { source: plan.source, target: plan.target, after: plan.after, topology: Object.fromEntries(["tl_runtime_dependencies", "tl_connections", "tl_channels"].map((key) => [key, plan.expected[key]])) } };
+    const snapshot = { id: snapshotId, schemaVersion: "1.0.0", workspaceId: plan.workspaceId || "global", reason: TOOL.name, label: `${plan.source.version} → ${plan.target.version}`, createdAt: new Date().toISOString(), restoreMode: "custom-node-migration", state: { runtimeNodes: plan.nodes }, migration: { source: plan.source, target: plan.target, after: plan.after, topology: Object.fromEntries(["tl_runtime_dependencies", "tl_connections", "tl_channels"].map((key) => [key, plan.expected[key]])) } };
     if (this.isRunning()) throw fail("Attendi la conclusione delle esecuzioni Custom Node.");
     this.persistence.commitCustomNodeMigration({ expected: plan.expected, records: plan.after, snapshot });
     this.plans.delete(planId);

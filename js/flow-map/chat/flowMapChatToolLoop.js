@@ -10,7 +10,7 @@ const createFlowMapChatToolLoop = (moduleDependencies) => {
         throw new Error(`${(0, moduleDependencies.flowPromptExternalProviderLabel)((0, moduleDependencies.selectedProviderId)())} non è pronto. Seleziona il provider e completa l'accesso ufficiale.`);
       }
     }
-    moduleDependencies.providerToolDiscovery = { domainsListed: false, indexedDomains: new Set(), detailedTools: new Set(), declaredNodeTools: new Set(), resolvedNodeIds: new Set(), inspectedNodeIds: new Set(), pythonResolutions: new Map(), nodeConfigReads: new Map(), proposedActionKeys: new Set(), completedReadRequests: new Map(), flowIndex: null, packageInventory: null, sqliteStores: new Set(), sqliteRecordIds: new Map(), projectFiles: new Map(), projectDirectories: new Set(), terminalSessions: new Map() };
+    moduleDependencies.providerToolDiscovery = { domainsListed: false, indexedDomains: new Set(), detailedTools: new Set(), declaredNodeTools: new Set(), resolvedNodeIds: new Set(), inspectedNodeIds: new Set(), pythonResolutions: new Map(), nodeConfigReads: new Map(), proposedActionKeys: new Set(), completedReadRequests: new Map(), flowIndex: null, packageInventory: null, sqliteStores: new Set(), sqliteRecordIds: new Map(), projectFiles: new Map(), projectDirectories: new Set(), terminalSessions: new Map(), mcpSessions: new Map(), browserTabs: new Map(), skills: new Map() };
     moduleDependencies.providerPackageReads = new Map();
     const toolCatalog = await (0, moduleDependencies.providerReadToolCatalog)();
     const providerReadiness = {};
@@ -108,12 +108,11 @@ const createFlowMapChatToolLoop = (moduleDependencies) => {
       reasoningEffort: externalProvider ? "" : moduleDependencies.draft.activeChat?.providerReasoningEffort || "medium",
       speed: externalProvider ? "" : moduleDependencies.draft.activeChat?.providerSpeed || "standard",
       shareFlowSummary: Boolean(moduleDependencies.draft.activeChat?.permissions?.flowSummary),
-      sessionContext: { ...(0, moduleDependencies.flowPromptActiveSessionContext)({ chatWorkspaceId: moduleDependencies.draft.workspaceId }), projectFolder: moduleDependencies.draft.activeChat?.projectFolder?.label || null },
+      sessionContext: { ...(0, moduleDependencies.flowPromptActiveSessionContext)({ chatWorkspaceId: moduleDependencies.draft.workspaceId }), projectFolder: moduleDependencies.draft.activeChat?.projectFolder?.label || null, activeSkills: moduleDependencies.draft.activeChat.activeSkills || [] },
       toolCatalog,
       onNativeSession: session => checkpoint({ nativeSession: { provider: "codex", ...session } }),
       observationContext: moduleDependencies.draft.activeChat.agentRun ? { workspaceId: moduleDependencies.draft.workspaceId, nodeId: moduleDependencies.draft.activeChat.id, jobId: moduleDependencies.draft.activeChat.agentRun.observationJobId, runId: moduleDependencies.draft.activeChat.agentRun.id } : null,
     };
-    const expectsPlanProposal = (0, moduleDependencies.flowPromptIsExplicitCreationRequest)(prompt);
     let reply = await buildProtocolReply(baseReplyOptions);
     const configuredToolRounds = Number(moduleDependencies.draft.activeChat?.maxToolRounds);
     // Only an explicit chat setting limits valid tool rounds. Repeated invalid
@@ -186,6 +185,126 @@ const createFlowMapChatToolLoop = (moduleDependencies) => {
           reply = await buildProtocolReply({ ...baseReplyOptions, toolObservation: entry, toolObservations: observedToolResults, toolProtocolProgress: (0, moduleDependencies.providerToolProtocolProgress)() });
           rounds += 1; continue;
         }
+        if (["browser_action", "install_skill", "activate_skill", "deactivate_skill"].includes(proposedAction?.action)) {
+          const args = proposedAction.args || {}; let observation;
+          try {
+            const browserAction = proposedAction.action === "browser_action";
+            const installing = proposedAction.action === "install_skill", deactivating = proposedAction.action === "deactivate_skill";
+            const scope = { chatId: moduleDependencies.draft.activeChat.id, workspaceId: moduleDependencies.draft.workspaceId };
+            const bridge = window.trackers?.desktop?.[browserAction ? "chatBrowser" : "chatSkills"];
+            if (!bridge) throw new Error("Capability desktop non disponibile.");
+            if (browserAction && args.operation !== "open") {
+              const tab = moduleDependencies.providerToolDiscovery.browserTabs.get(args.tabId);
+              if (!tab) throw new Error("Elenca prima le pagine del browser.");
+              if (["click", "type", "select"].includes(args.operation) && (tab.snapshotId !== args.snapshotId || !tab.elements?.some(item => item.elementId === args.elementId))) throw new Error("Ispeziona il browser e usa un elemento dello snapshot corrente.");
+            }
+            const folderId = moduleDependencies.draft.activeChat?.projectFolder?.folderId;
+            const skill = moduleDependencies.providerToolDiscovery.skills.get(args.skillId);
+            if (!browserAction && !folderId) throw new Error("Seleziona prima il progetto delle skill.");
+            if (installing) {
+              const entry = args.sourceDirectory ? `${args.sourceDirectory}/SKILL.md` : "SKILL.md";
+              if (!args.expectedSha256 || moduleDependencies.providerToolDiscovery.projectFiles.get(entry) !== args.expectedSha256 || !moduleDependencies.providerToolDiscovery.projectDirectories.has(String(args.sourceDirectory || ""))) throw new Error("Elenca la directory sorgente e leggi il suo SKILL.md in questo turno.");
+              if (!moduleDependencies.providerToolDiscovery.completedReadRequests.size || ![...moduleDependencies.providerToolDiscovery.completedReadRequests.values()].some(item => item.tool === "tl.skills.list") || args.expectedInstalledSha256 !== (skill?.packageSha256 || "absent")) throw new Error("Elenca le skill installate e usa l'hash esatto o absent.");
+            } else if (!browserAction && !deactivating && (!skill?.inspected || skill.packageSha256 !== args.packageSha256)) throw new Error("Leggi la skill esatta prima di attivarla.");
+            const key = `extension:${proposedAction.action}:${(0, moduleDependencies.flowPromptRequestIdentity)(args)}`;
+            if (moduleDependencies.providerToolDiscovery.proposedActionKeys.has(key)) throw new Error("Questa azione è già stata esaminata in questo turno.");
+            const request = browserAction ? { ...args, ...scope } : { ...args, ...scope, folderId };
+            const previewMethod = browserAction ? "previewAction" : installing ? "previewInstall" : "previewActivate";
+            const applyMethod = browserAction ? "applyAction" : installing ? "applyInstall" : "applyActivate";
+            const preview = deactivating ? { skillId: args.skillId, operation: "deactivate" } : await bridge[previewMethod](request);
+            moduleDependencies.providerToolDiscovery.proposedActionKeys.add(key);
+            await checkpoint({ status: "waiting-approval", pendingAction: proposedAction }); moduleDependencies.workDialog?.close();
+            const approved = await new Promise(resolve => {
+              const dialog = _.Dialog({ title: browserAction ? "Azione browser" : installing ? "Installa skill" : deactivating ? "Disattiva skill" : "Attiva skill", size: "lg", closeButton: true, onClose: () => resolve(false),
+                content: () => _.div({ class: "tl-flow-plan-review" }, _.p(browserAction ? "Controlla la pagina e l'azione. Interagire con siti può inviare dati o modificare contenuti remoti." : installing ? "I file della skill verranno copiati nel progetto. L'installazione non esegue script e non attiva le istruzioni." : deactivating ? "Le istruzioni verranno rimosse dal contesto della chat; i file restano nel progetto." : "Queste istruzioni entreranno nel contesto della chat. Non concedono nuovi permessi né eseguono automaticamente gli script allegati."), _.pre(JSON.stringify(preview, null, 2))),
+                actions: ({ close }) => _.Toolbar({ align: "end", gap: 8 }, flowMapBtn({ onclick: () => { resolve(false); close(); } }, "Annulla"), flowMapBtn({ onclick: () => { resolve(true); close(); } }, browserAction ? "Esegui azione browser" : installing ? "Installa skill" : deactivating ? "Disattiva skill" : "Attiva skill")),
+              }); dialog.open();
+            });
+            if (!approved) observation = { ok: false, status: "denied", code: "TL_USER_DENIED" };
+            else {
+              await checkpoint({ status: "executing", pendingAction: proposedAction });
+              moduleDependencies.draft.extensionActiveRequest = true; (0, moduleDependencies.refresh)();
+              try {
+                if (deactivating) { moduleDependencies.draft.activeChat.activeSkills = (moduleDependencies.draft.activeChat.activeSkills || []).filter(item => item.skillId !== args.skillId); observation = { ok: true, status: "deactivated", skillId: args.skillId }; }
+                else {
+                  const result = await bridge[applyMethod]({ ...request, previewToken: preview.previewToken, confirmed: true });
+                  observation = { ok: true, ...result };
+                  if (!browserAction && !installing) moduleDependencies.draft.activeChat.activeSkills = [...(moduleDependencies.draft.activeChat.activeSkills || []).filter(item => item.skillId !== args.skillId), result.skill];
+                }
+              } finally { moduleDependencies.draft.extensionActiveRequest = false; }
+            }
+            baseReplyOptions.sessionContext.activeSkills = moduleDependencies.draft.activeChat.activeSkills || [];
+            moduleDependencies.providerToolDiscovery.browserTabs.clear(); moduleDependencies.providerToolDiscovery.skills.clear();
+            moduleDependencies.providerToolDiscovery.projectFiles.clear(); moduleDependencies.providerToolDiscovery.projectDirectories.clear();
+            observedRequests.clear(); moduleDependencies.providerToolDiscovery.completedReadRequests.clear();
+          } catch (error) {
+            if (moduleDependencies.draft.activeChat.agentRun?.status === "executing" && moduleDependencies.draft.activeChat.agentRun?.pendingAction) throw error;
+            observation = { ok: false, status: "blocked", limitations: [error.message] };
+          }
+          const entry = { request: proposedAction, observation }; toolTrace.push(entry); observedToolResults.push(entry);
+          await checkpoint({ pendingAction: null, observations: observedToolResults });
+          reply = await buildProtocolReply({ ...baseReplyOptions, toolObservations: observedToolResults, toolProtocolProgress: (0, moduleDependencies.providerToolProtocolProgress)() });
+          rounds += 1; continue;
+        }
+        if (["connect_mcp_server", "call_mcp_tool", "disconnect_mcp_server"].includes(proposedAction?.action)) {
+          const args = proposedAction.args || {};
+          let observation;
+          try {
+            const mcp = window.trackers?.desktop?.mcp;
+            if (!mcp) throw new Error("Client MCP non disponibile.");
+            const connecting = proposedAction.action === "connect_mcp_server";
+            const disconnecting = proposedAction.action === "disconnect_mcp_server";
+            const scope = { chatId: moduleDependencies.draft.activeChat.id, workspaceId: moduleDependencies.draft.workspaceId };
+            if (connecting && (!moduleDependencies.draft.activeChat?.projectFolder?.folderId || !args.expectedSha256 || moduleDependencies.providerToolDiscovery.projectFiles.get(args.configPath) !== args.expectedSha256)) throw new Error("Seleziona il progetto e leggi il file di configurazione MCP esatto in questo turno.");
+            const session = moduleDependencies.providerToolDiscovery.mcpSessions.get(String(args.sessionId || ""));
+            if (!connecting && !session) throw new Error("Elenca prima le connessioni MCP di questa chat.");
+            if (!connecting && !disconnecting && !session.tools?.some(tool => tool.name === args.toolName)) throw new Error("Leggi prima i tool MCP e scegli un nome dichiarato dal server.");
+            const proposalKey = `mcp:${proposedAction.action}:${(0, moduleDependencies.flowPromptRequestIdentity)(args)}`;
+            if (moduleDependencies.providerToolDiscovery.proposedActionKeys.has(proposalKey)) throw new Error("Questa azione MCP è già stata esaminata in questo turno.");
+            const request = connecting ? { ...scope, folderId: moduleDependencies.draft.activeChat.projectFolder.folderId, configPath: args.configPath, serverName: args.serverName, expectedSha256: args.expectedSha256 } : { ...scope, sessionId: args.sessionId, ...(!disconnecting ? { toolName: args.toolName, arguments: args.arguments } : {}) };
+            if (disconnecting) {
+              observation = { ok: true, ...await mcp.disconnect(request) };
+            } else {
+              const preview = await mcp[connecting ? "previewConnect" : "previewCall"](request);
+              moduleDependencies.providerToolDiscovery.proposedActionKeys.add(proposalKey);
+              await checkpoint({ status: "waiting-approval", pendingAction: proposedAction });
+              moduleDependencies.workDialog?.close();
+              const approved = await new Promise(resolve => {
+                const dialog = _.Dialog({ title: connecting ? "Collega server MCP" : "Esegui tool MCP", size: "lg", closeButton: true, onClose: () => resolve(false),
+                  content: () => _.div({ class: "tl-flow-plan-review" },
+                    _.p(connecting ? (preview.transport === "streamable-http" ? "TL si collegherà al server remoto indicato. Le chiamate possono trasmettere dati a questo servizio; i valori dei segreti restano in Core." : "Il programma locale viene avviato con i tuoi permessi: può accedere a file e rete. L'avvio non autorizza le successive chiamate ai tool.") : "La chiamata può leggere o modificare dati locali o remoti. Gli effetti del server esterno non sono ripristinabili da Time Travel di TL.") ,
+                    _.pre(JSON.stringify(connecting ? { serverName: preview.serverName, transport: preview.transport, url: preview.url, headerNames: preview.headerNames, command: preview.command, args: preview.args, requestTimeoutMs: preview.requestTimeoutMs } : { serverName: preview.serverName, tool: preview.tool, arguments: preview.arguments }, null, 2))),
+                  actions: ({ close }) => _.Toolbar({ align: "end", gap: 8 },
+                    flowMapBtn({ onclick: () => { resolve(false); close(); } }, "Annulla"),
+                    flowMapBtn({ onclick: () => { resolve(true); close(); } }, connecting ? "Collega server" : "Esegui tool MCP")),
+                }); dialog.open();
+              });
+              if (!approved) observation = { ok: false, status: "denied", code: "TL_USER_DENIED" };
+              else {
+                await checkpoint({ status: "executing", pendingAction: proposedAction });
+                moduleDependencies.draft.mcpActiveRequest = true;
+                (0, moduleDependencies.refresh)();
+                try { observation = { ok: true, ...await mcp[connecting ? "connect" : "call"]({ ...request, previewToken: preview.previewToken, confirmed: true }) }; }
+                finally { moduleDependencies.draft.mcpActiveRequest = false; }
+              }
+            }
+            moduleDependencies.providerToolDiscovery.mcpSessions.clear();
+            // External servers run with user privileges; invalidate all stale file/runtime reads.
+            invalidatePackageState();
+            moduleDependencies.providerToolDiscovery.sqliteStores.clear(); moduleDependencies.providerToolDiscovery.sqliteRecordIds.clear();
+            moduleDependencies.providerToolDiscovery.pythonResolutions.clear();
+            observedRequests.clear(); moduleDependencies.providerToolDiscovery.completedReadRequests.clear();
+            moduleDependencies.providerToolDiscovery.projectFiles.clear(); moduleDependencies.providerToolDiscovery.projectDirectories.clear();
+          } catch (error) {
+            if (moduleDependencies.draft.activeChat.agentRun?.status === "executing" && moduleDependencies.draft.activeChat.agentRun?.pendingAction) throw error;
+            observation = { ok: false, status: "blocked", limitations: [error.message] };
+          }
+          const entry = { request: proposedAction, observation };
+          toolTrace.push(entry); observedToolResults.push(entry);
+          await checkpoint({ pendingAction: null, observations: observedToolResults });
+          reply = await buildProtocolReply({ ...baseReplyOptions, toolObservations: observedToolResults, toolProtocolProgress: (0, moduleDependencies.providerToolProtocolProgress)() });
+          rounds += 1; continue;
+        }
         if (["run_project_script", "run_project_command", "start_project_terminal"].includes(proposedAction?.action)) {
           const args = proposedAction.args || {};
           let observation;
@@ -202,7 +321,7 @@ const createFlowMapChatToolLoop = (moduleDependencies) => {
             const previewMethod = sessionStart ? "previewTerminal" : terminalCommand ? "previewCommand" : "previewPackageScript";
             const runMethod = sessionStart ? "startTerminal" : terminalCommand ? "runCommand" : "runPackageScript";
             if (typeof project?.[runMethod] !== "function") throw new Error("Esecuzione script non disponibile.");
-            const request = { chatId: moduleDependencies.draft.activeChat.id, ...(sessionStart ? { workspaceId: moduleDependencies.draft.workspaceId, workId: moduleDependencies.draft.activeChat.agentRun.id } : {}), folderId: moduleDependencies.draft.activeChat.projectFolder.folderId, ...(terminalCommand ? { commandText: args.commandText, relativePath: String(args.relativePath || "") } : { scriptName: args.scriptName, expectedSha256: args.expectedSha256 }) };
+            const request = { chatId: moduleDependencies.draft.activeChat.id, ...(sessionStart ? { workspaceId: moduleDependencies.draft.workspaceId, workId: moduleDependencies.draft.activeChat.agentRun.id, transport: args.transport === "pty" ? "pty" : "stdin-pipes", cols: args.cols || 80, rows: args.rows || 24 } : {}), folderId: moduleDependencies.draft.activeChat.projectFolder.folderId, ...(terminalCommand ? { commandText: args.commandText, relativePath: String(args.relativePath || "") } : { scriptName: args.scriptName, expectedSha256: args.expectedSha256 }) };
             const preview = await project[previewMethod](request);
             await checkpoint({ status: "waiting-approval", pendingAction: proposedAction });
             moduleDependencies.workDialog?.close();
@@ -268,31 +387,33 @@ const createFlowMapChatToolLoop = (moduleDependencies) => {
           reply = await buildProtocolReply({ ...baseReplyOptions, toolObservations: observedToolResults, toolProtocolProgress: (0, moduleDependencies.providerToolProtocolProgress)() });
           rounds += 1; continue;
         }
-        if (["write_project_terminal", "stop_project_terminal"].includes(proposedAction?.action)) {
+        if (["write_project_terminal", "stop_project_terminal", "resize_project_terminal"].includes(proposedAction?.action)) {
           const args = proposedAction.args || {};
           let observation;
           try {
             const known = moduleDependencies.providerToolDiscovery.terminalSessions.get(String(args.sessionId || ""));
             if (!known?.inspected || known.status !== "running") throw new Error("Leggi prima lo stato attuale della sessione terminale in questo turno.");
             const writing = proposedAction.action === "write_project_terminal";
+            const resizing = proposedAction.action === "resize_project_terminal";
+            if (resizing && (known.transport !== "pty" || !Number.isSafeInteger(args.cols) || !Number.isSafeInteger(args.rows) || args.cols <= 0 || args.rows <= 0 || args.cols > 65535 || args.rows > 65535)) throw new Error("Indica dimensioni PTY positive e rappresentabili (1–65535).");
             if (writing && (typeof args.text !== "string" || typeof args.endInput !== "boolean")) throw new Error("Indica l’input completo e se chiudere stdin.");
             await checkpoint({ status: "waiting-approval", pendingAction: proposedAction });
             moduleDependencies.workDialog?.close();
             const approved = await new Promise(resolve => {
-              const dialog = _.Dialog({ title: writing ? "Invia input al terminale" : "Interrompi terminale", size: "lg", closeButton: true, onClose: () => resolve(false),
-                content: () => _.div(_.p(known.commandText), writing ? _.pre(args.text) : null,
-                  _.p(writing ? args.endInput ? "Invia questo input e chiudi stdin (EOF)." : "Invia questo input mantenendo stdin aperto." : "Il processo e il suo gruppo verranno interrotti.")),
+              const dialog = _.Dialog({ title: resizing ? "Ridimensiona terminale PTY" : writing ? "Invia input al terminale" : "Interrompi terminale", size: "lg", closeButton: true, onClose: () => resolve(false),
+                content: () => _.div(_.p(known.commandText), resizing ? _.pre(JSON.stringify({ cols: args.cols, rows: args.rows })) : null, writing ? _.pre(args.text) : null,
+                  _.p(resizing ? "Il terminale userà le dimensioni indicate; il processo resta in esecuzione." : writing ? args.endInput ? known.transport === "pty" ? "Invia questo input e il carattere terminale EOF (Ctrl-D)." : "Invia questo input e chiudi stdin (EOF)." : "Invia questo input mantenendo stdin aperto." : "Il processo e il suo gruppo verranno interrotti.")),
                 actions: ({ close }) => _.Toolbar({ align: "end", gap: 8 },
                   flowMapBtn({ onclick: () => { resolve(false); close(); } }, "Annulla"),
-                  flowMapBtn({ onclick: () => { resolve(true); close(); } }, writing ? "Invia input" : "Interrompi processo")),
+                  flowMapBtn({ onclick: () => { resolve(true); close(); } }, resizing ? "Ridimensiona terminale" : writing ? "Invia input" : "Interrompi processo")),
               }); dialog.open();
             });
             if (!approved) observation = { ok: false, status: "denied", sessionId: args.sessionId };
             else {
               await checkpoint({ status: "executing", pendingAction: proposedAction });
               const project = window.trackers.desktop.chatProject;
-              const request = { workspaceId: moduleDependencies.draft.workspaceId, chatId: moduleDependencies.draft.activeChat.id, workId: moduleDependencies.draft.activeChat.agentRun.id, sessionId: args.sessionId, text: args.text, endInput: args.endInput, confirmed: true };
-              const result = await project[writing ? "writeTerminal" : "stopTerminal"](request);
+              const request = { workspaceId: moduleDependencies.draft.workspaceId, chatId: moduleDependencies.draft.activeChat.id, workId: moduleDependencies.draft.activeChat.agentRun.id, sessionId: args.sessionId, cols: args.cols, rows: args.rows, text: args.text, endInput: args.endInput, confirmed: true };
+              const result = await project[resizing ? "resizeTerminal" : writing ? "writeTerminal" : "stopTerminal"](request);
               observation = { ok: true, ...result };
               moduleDependencies.providerToolDiscovery.terminalSessions.set(args.sessionId, { ...known, inspected: false });
               moduleDependencies.providerToolDiscovery.projectFiles.clear(); moduleDependencies.providerToolDiscovery.projectDirectories.clear(); observedRequests.clear(); moduleDependencies.providerToolDiscovery.completedReadRequests.clear();
@@ -469,6 +590,52 @@ const createFlowMapChatToolLoop = (moduleDependencies) => {
           rounds += 1;
           continue;
         }
+        if (proposedAction?.action === "migrate_custom_node") {
+          let observation;
+          let applying = false;
+          try {
+            const args = proposedAction.args || {};
+            const nodeIds = args.nodeIds;
+            if (!Array.isArray(nodeIds) || !nodeIds.length || nodeIds.some(id => !moduleDependencies.providerToolDiscovery.resolvedNodeIds.has(id) || !moduleDependencies.providerToolDiscovery.inspectedNodeIds.has(id))) throw new Error("Risolvi e ispeziona ogni nodo da aggiornare in questo turno.");
+            for (const reference of [args.source, args.target]) if (!moduleDependencies.providerPackageReads.has((0, moduleDependencies.flowPromptPackageKey)(reference))) throw new Error("Elenca entrambe le versioni del pacchetto in questo turno.");
+            const workspaceId = moduleDependencies.draft.workspaceId;
+            const assertWorkspace = () => {
+              if ((0, moduleDependencies.flowPromptActiveSessionContext)({ chatWorkspaceId: workspaceId }).flowMapScope !== workspaceId) throw new Error("Il Flow attivo è cambiato: torna al Flow della chat prima di aggiornare i nodi.");
+            };
+            assertWorkspace();
+            const api = window.trackers.desktop.customNodePackages;
+            const preview = await api.previewMigration({ source: args.source, target: args.target, workspaceId, nodeIds });
+            if (preview.nodes.length !== nodeIds.length || preview.nodes.some(node => node.workspaceId !== workspaceId || !nodeIds.includes(node.id))) throw new Error("L’anteprima include nodi fuori dalla selezione approvabile.");
+            await checkpoint({ status: "waiting-approval", pendingAction: proposedAction });
+            const approved = await new Promise(resolve => {
+              const dialog = _.Dialog({ title: "Aggiorna versione Custom Node", class: "tl-flow-plan-review-dialog", size: "lg", closeButton: true, onClose: () => resolve(false),
+                content: () => _.div(_.p(`${args.source.version} → ${args.target.version}`), _.p(preview.message),
+                  _.pre(JSON.stringify({ source: preview.source, target: preview.target, nodes: preview.nodes }, null, 2))),
+                actions: ({ close }) => _.Toolbar({ gap: 10 },
+                  flowMapBtn({ onclick: () => { resolve(false); close(); } }, "Annulla"),
+                  flowMapBtn({ color: "primary", onclick: () => { resolve(true); close(); } }, "Aggiorna versione nodi")) });
+              dialog.open();
+            });
+            if (approved) {
+              assertWorkspace();
+              await checkpoint({ status: "executing", pendingAction: proposedAction });
+              applying = true;
+              const result = await api.applyMigration({ planId: preview.planId, confirmed: true });
+              observation = { ok: true, status: "completed", ...result, nodeIds, source: args.source, target: args.target };
+              await checkpoint({ pendingAction: null, observations: [...observedToolResults, { request: proposedAction, observation }] });
+              invalidatePackageState();
+              for (const id of nodeIds) { moduleDependencies.providerToolDiscovery.inspectedNodeIds.delete(id); moduleDependencies.providerToolDiscovery.nodeConfigReads.delete(id); }
+              await loadRuntime({ force: true }); mount({ preserveScroll: true });
+            } else observation = { ok: false, status: "denied" };
+          } catch (error) {
+            if (applying) throw error;
+            observation = { ok: false, status: "blocked", message: error.message };
+          }
+          const entry = { request: proposedAction, observation }; toolTrace.push(entry); observedToolResults.push(entry);
+          await (0, moduleDependencies.appendMessage)({ role: "assistant", kind: "package-activity", compactNatural: true, content: observation.ok ? `Versione aggiornata · ${observation.updated} nodi` : observation.message || `Aggiornamento: ${observation.status}`, artifact: observation });
+          reply = await buildProtocolReply({ ...baseReplyOptions, toolObservations: observedToolResults, toolProtocolProgress: (0, moduleDependencies.providerToolProtocolProgress)() });
+          rounds += 1; continue;
+        }
         if (proposedAction?.action === "install_python_pack") {
           const nodeId = String(proposedAction.args?.nodeId || "").trim();
           const resolution = moduleDependencies.providerToolDiscovery.pythonResolutions.get(nodeId);
@@ -595,32 +762,35 @@ const createFlowMapChatToolLoop = (moduleDependencies) => {
           });
           continue;
         }
-        if (expectsPlanProposal && protocolRepairs < 1) {
-          protocolRepairs += 1;
-          reply = await buildProtocolReply({
-            ...baseReplyOptions,
-            toolObservations: observedToolResults,
-            toolProtocolProgress: (0, moduleDependencies.providerToolProtocolProgress)(),
-            requirePlanProposal: true,
-          });
-          continue;
-        }
+
         break;
       }
       const requestKey = `${request.tool}:${JSON.stringify(request.args || {})}`;
-      const cachedObservation = ["tl.project.listTerminals", "tl.project.pollTerminal", 'tl.providers.discoverLocal'].includes(request.tool) && observedRequests.get(requestKey)?.status !== 'denied' ? null : observedRequests.get(requestKey);
+      const cachedObservation = (( (["tl.project.listTerminals", "tl.project.pollTerminal", 'tl.providers.discoverLocal'].includes(request.tool) || /^tl\.(mcp|browser|skills)\./.test(request.tool)) && observedRequests.get(requestKey)?.status !== 'denied') || (request.tool === "tl.project.chooseFolder" && observedRequests.get(requestKey)?.ok === true)) ? null : observedRequests.get(requestKey);
       (0, moduleDependencies.setActivity)({ label: "Operazione TL in corso", detail: (0, moduleDependencies.flowPromptWorkStep)({ request }).label, calls: [...toolTrace, { request }] });
-      const observation = cachedObservation
-        ? { ...cachedObservation, status: "cached", cached: true, limitations: [...(cachedObservation.limitations || []), "Lettura identica già eseguita in questo turno: viene riutilizzato il risultato precedente, senza una nuova chiamata a TL."] }
-        : await (0, moduleDependencies.runProviderReadTool)(request);
+      let observation;
+      try {
+        observation = cachedObservation
+          ? { ...cachedObservation, status: "cached", cached: true, limitations: [...(cachedObservation.limitations || []), "Lettura identica già eseguita in questo turno: viene riutilizzato il risultato precedente, senza una nuova chiamata a TL."] }
+          : await (0, moduleDependencies.runProviderReadTool)(request);
+      } catch (error) {
+        if (error?.name === "AbortError" || moduleDependencies.draft.stopRequested) throw error;
+        observation = { ok: false, tool: request.tool, status: "failed", code: error?.code || "TL_TOOL_READ_FAILED", message: error?.message || String(error), limitations: [error?.message || String(error)], retryAfterFreshReads: true };
+      }
+      if (request.tool === "tl.project.chooseFolder" && observation.ok) {
+        for (const [key, value] of observedRequests) if (key.startsWith("tl.project.") && value?.ok !== false) {
+          observedRequests.delete(key);
+          moduleDependencies.providerToolDiscovery.completedReadRequests.delete(key);
+        }
+      }
       // A protocol denial is transitional: a provider may legitimately obtain
       // the missing catalog detail/manifests and retry the exact tool in the
       // same turn. User denials remain cached to avoid another consent dialog.
-      const protocolDenied = observation?.status === "denied" && (observation?.limitations || []).some((reason) =>
+      const protocolDenied = observation?.status === "denied" && (observation.retryAfterFreshReads === true || (observation?.limitations || []).some((reason) =>
         /Prima scopri il tool|Prima risolvi il nodo|Prima risolvi il requisito Python|Questo tool del nodo non è stato dichiarato/i.test(String(reason || ""))
-      );
+      ));
       if (!cachedObservation) {
-        if (!protocolDenied) observedRequests.set(requestKey, observation);
+        if (!protocolDenied && observation?.status !== "failed") observedRequests.set(requestKey, observation);
         if (!protocolDenied && observation?.ok !== false) {
           moduleDependencies.providerToolDiscovery.completedReadRequests.set(requestKey, {
             tool: request.tool,

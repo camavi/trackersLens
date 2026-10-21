@@ -482,6 +482,22 @@ test("Custom Node migration commits snapshot and nodes atomically, rejects stale
   assert.deepEqual(node.metadata.config, { retained: "yes" });
   assert.equal(persistence.readDevelopmentRecordById({ storeName: "tl_runtime_nodes", id: "unrelated" }).label, "Keep");
   await assert.rejects(migration.restore({ snapshotId: applied.snapshotId, confirmed: true }), /non disponibile/);
+  const sibling = { ...original, id: "node-sibling" };
+  const otherFlow = { ...original, id: "node-other-flow", workspaceId: "flow-b" };
+  persistence.writeDevelopmentRecords({ storeName: "tl_runtime_nodes", records: [sibling, otherFlow] });
+  await assert.rejects(migration.preview({ source: refs[0], target: refs[1], workspaceId: "flow-a", nodeIds: [otherFlow.id] }), /workspace/);
+  await assert.rejects(migration.preview({ source: refs[0], target: refs[1], workspaceId: "flow-a", nodeIds: [] }), /ID nodo/);
+  await assert.rejects(migration.preview({ source: refs[0], target: refs[1], workspaceId: "flow-a", nodeIds: [original.id, original.id] }), /ID nodo/);
+  const scoped = await migration.preview({ source: refs[0], target: refs[1], workspaceId: "flow-a", nodeIds: [original.id] });
+  assert.deepEqual(scoped.nodes.map(node => node.id), [original.id]);
+  const scopedResult = await migration.apply({ planId: scoped.planId, confirmed: true });
+  assert.equal(scopedResult.updated, 1);
+  assert.equal(persistence.readDevelopmentRecordById({ storeName: "tl_runtime_nodes", id: original.id }).metadata.customPackage.version, "2.0.0");
+  for (const id of [sibling.id, otherFlow.id]) assert.equal(persistence.readDevelopmentRecordById({ storeName: "tl_runtime_nodes", id }).metadata.customPackage.version, "1.0.0");
+  assert.equal(persistence.readDevelopmentRecordById({ storeName: "tl_time_travel_snapshots", id: scopedResult.snapshotId }).workspaceId, "flow-a");
+  await migration.restore({ snapshotId: scopedResult.snapshotId, confirmed: true });
+  assert.equal(persistence.readDevelopmentRecordById({ storeName: "tl_runtime_nodes", id: original.id }).metadata.customPackage.version, "1.0.0");
+
 });
 
 test("AI package review requires explicit consent and exact local provider; never dispatches tools", async () => {

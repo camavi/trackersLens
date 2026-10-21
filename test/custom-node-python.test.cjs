@@ -4,7 +4,7 @@ const os = require("node:os");
 const path = require("node:path");
 const test = require("node:test");
 const { inspectArchive, CustomNodePackageManager } = require("../core/desktop/custom-node-package-manager.cjs");
-const { zipStored } = require("../core/desktop/custom-node-archive.cjs");
+const { zipStored, createCustomNodeArchive } = require("../core/desktop/custom-node-archive.cjs");
 const { PythonPackResolver } = require("../core/runtime/python-pack-resolver.cjs");
 const { CustomNodePythonRunner } = require("../core/desktop/custom-node-python-runner.cjs");
 const { CustomNodeSandboxBroker } = require("../core/desktop/custom-node-sandbox-broker.cjs");
@@ -142,4 +142,24 @@ test("Imported pandas/numpy package runs from a verified archive and retains ful
   assert.equal(output.numpy, "2.2.6");
   await manager.deactivate({ ...reference, confirmed: true });
   await assert.rejects(manager.loadSandboxRuntime(reference), { code: "CUSTOM_NODE_RUNTIME_BLOCKED" });
+});
+
+
+test("new authored packages retain the declared Python or JavaScript source entry", async t => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "tl-authored-entry-"));
+  t.after(() => fs.rmSync(directory, { recursive: true, force: true }));
+  const manager = new CustomNodePackageManager({ packagesDirectory: directory });
+  for (const value of [manifest, { ...manifest, runtime: { entry: "runtime.js", mode: "sandboxed" }, execution: undefined }]) {
+    const source = value.runtime.entry.endsWith(".py") ? "def run(**args): raise RuntimeError('not evaluated during authoring')" : "throw new Error('not evaluated during authoring')";
+    const bytes = createCustomNodeArchive({ manifest: value, source });
+    const result = inspectArchive(bytes);
+    assert.equal(result.manifest.runtime.entry, value.runtime.entry);
+    const archivePath = path.join(directory, value.runtime.entry + ".zip");
+    fs.writeFileSync(archivePath, bytes);
+    const material = await manager.reviewMaterial(archivePath, result.archiveSha256);
+    assert.equal(material.source, source);
+    assert.equal(result.runtimeExecution, "blocked");
+  }
+  assert.throws(() => createCustomNodeArchive({ manifest: { ...manifest, runtime: { entry: "node.json" } }, source: "{}" }), { code: "CUSTOM_NODE_MANIFEST_INVALID" });
+  assert.throws(() => inspectArchive(createCustomNodeArchive({ manifest: { ...manifest, runtime: { entry: "../runtime.py" } }, source: "pass" })), /ZIP|path|percorso/i);
 });

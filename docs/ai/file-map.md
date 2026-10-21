@@ -85,6 +85,9 @@ Last updated: 2026-10-10.
 
 - `package.json`: Electron scripts and development dependency.
 - `electron/main.cjs`: desktop lifecycle, secure BrowserWindow, CSP, validated IPC and navigation policy.
+- `core/desktop/chat-browser.cjs`, `chat-skills.cjs`, `chat-capability-scope.cjs`, `chat-pty-process.cjs`: scoped browser/skill reviews and Unix PTY host adapter; see `runtime/chat-desktop-capabilities.md`.
+- `core/desktop/chat-mcp-http.cjs`: remote Streamable HTTP transport with private environment-backed auth, JSON/SSE and session cancellation.
+- `core/desktop/chat-mcp-client.cjs`: Core-owned reviewed stdio MCP connections, handshake, discovery, calls, complete diagnostics and owner/chat/workspace lifecycle.
 - `electron/preload.cjs`: minimal renderer bridge; it must not expose Node.js, filesystem or unrestricted IPC.
 - `core/desktop/tl-core.cjs`: Electron-independent allow-listed desktop command boundary.
 - `core/desktop/desktop-persistence.cjs`: Core-owned SQLite schema and allow-listed collection operations.

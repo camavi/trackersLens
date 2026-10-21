@@ -81,6 +81,129 @@ const createTlCore = ({ appVersion = "0.0.0", platform = "unknown", mode = "prod
         return customNodeSetup.execute({ planId: String(payload?.planId || ''), confirmed: payload?.confirmed === true }, lifecycle);
       case 'desktop.customNodePackages.discardSetup':
         return customNodeSetup.discard({ planId: String(payload?.planId || '') }, lifecycle);
+      case "desktop.chatBrowser.listTabs": {
+        if (!adapters.chatBrowser?.listTabs) throw errorWithCode("Capability unavailable", "CHAT_CAPABILITY_UNAVAILABLE");
+        const args = { chatId: String(payload?.chatId || ""), workspaceId: String(payload?.workspaceId || "") };
+        return adapters.chatBrowser.listTabs(args, lifecycle);
+      }
+      case "desktop.chatBrowser.inspect": {
+        if (!adapters.chatBrowser?.inspect) throw errorWithCode("Capability unavailable", "CHAT_CAPABILITY_UNAVAILABLE");
+        const args = { chatId: String(payload?.chatId || ""), workspaceId: String(payload?.workspaceId || "") };
+        args.tabId = String(payload?.tabId ?? "");
+        return adapters.chatBrowser.inspect(args, lifecycle);
+      }
+      case "desktop.chatBrowser.screenshot": {
+        if (!adapters.chatBrowser?.screenshot) throw errorWithCode("Capability unavailable", "CHAT_CAPABILITY_UNAVAILABLE");
+        const args = { chatId: String(payload?.chatId || ""), workspaceId: String(payload?.workspaceId || "") };
+        args.tabId = String(payload?.tabId ?? "");
+        return adapters.chatBrowser.screenshot(args, lifecycle);
+      }
+      case "desktop.chatBrowser.previewAction": {
+        if (!adapters.chatBrowser?.previewAction) throw errorWithCode("Capability unavailable", "CHAT_CAPABILITY_UNAVAILABLE");
+        const args = { chatId: String(payload?.chatId || ""), workspaceId: String(payload?.workspaceId || "") };
+        args.operation = String(payload?.operation ?? "");
+        args.tabId = String(payload?.tabId ?? "");
+        args.url = String(payload?.url ?? "");
+        args.snapshotId = String(payload?.snapshotId ?? "");
+        args.elementId = String(payload?.elementId ?? "");
+        args.value = String(payload?.value ?? "");
+        args.key = String(payload?.key ?? "");
+        args.x = payload?.x;
+        args.y = payload?.y;
+        return adapters.chatBrowser.previewAction(args, lifecycle);
+      }
+      case "desktop.chatBrowser.applyAction": {
+        if (!adapters.chatBrowser?.applyAction) throw errorWithCode("Capability unavailable", "CHAT_CAPABILITY_UNAVAILABLE");
+        const args = { chatId: String(payload?.chatId || ""), workspaceId: String(payload?.workspaceId || "") };
+        args.operation = String(payload?.operation ?? "");
+        args.tabId = String(payload?.tabId ?? "");
+        args.url = String(payload?.url ?? "");
+        args.snapshotId = String(payload?.snapshotId ?? "");
+        args.elementId = String(payload?.elementId ?? "");
+        args.value = String(payload?.value ?? "");
+        args.key = String(payload?.key ?? "");
+        args.x = payload?.x;
+        args.y = payload?.y;
+        args.previewToken = String(payload?.previewToken ?? "");
+        args.confirmed = payload?.confirmed === true;
+        return adapters.chatBrowser.applyAction(args, lifecycle);
+      }
+      case "desktop.chatBrowser.cancelChat": {
+        if (!adapters.chatBrowser?.cancelChat) throw errorWithCode("Capability unavailable", "CHAT_CAPABILITY_UNAVAILABLE");
+        const args = { chatId: String(payload?.chatId || ""), workspaceId: String(payload?.workspaceId || "") };
+        return adapters.chatBrowser.cancelChat(args, lifecycle);
+      }
+      case "desktop.chatSkills.list": {
+        if (!adapters.chatSkills?.list) throw errorWithCode("Capability unavailable", "CHAT_CAPABILITY_UNAVAILABLE");
+        const args = { chatId: String(payload?.chatId || ""), workspaceId: String(payload?.workspaceId || "") };
+        args.folderId = String(payload?.folderId ?? "");
+        return adapters.chatSkills.list(args, lifecycle);
+      }
+      case "desktop.chatSkills.read": {
+        if (!adapters.chatSkills?.read) throw errorWithCode("Capability unavailable", "CHAT_CAPABILITY_UNAVAILABLE");
+        const args = { chatId: String(payload?.chatId || ""), workspaceId: String(payload?.workspaceId || "") };
+        args.folderId = String(payload?.folderId ?? "");
+        args.skillId = String(payload?.skillId ?? "");
+        return adapters.chatSkills.read(args, lifecycle);
+      }
+      case "desktop.chatSkills.previewInstall": {
+        if (!adapters.chatSkills?.previewInstall) throw errorWithCode("Capability unavailable", "CHAT_CAPABILITY_UNAVAILABLE");
+        const args = { chatId: String(payload?.chatId || ""), workspaceId: String(payload?.workspaceId || "") };
+        args.folderId = String(payload?.folderId ?? "");
+        args.skillId = String(payload?.skillId ?? "");
+        args.sourceDirectory = String(payload?.sourceDirectory ?? "");
+        args.expectedSha256 = String(payload?.expectedSha256 ?? "");
+        args.expectedInstalledSha256 = String(payload?.expectedInstalledSha256 ?? "");
+        return adapters.chatSkills.previewInstall(args, lifecycle);
+      }
+      case "desktop.chatSkills.applyInstall": {
+        if (!adapters.chatSkills?.applyInstall) throw errorWithCode("Capability unavailable", "CHAT_CAPABILITY_UNAVAILABLE");
+        const args = { chatId: String(payload?.chatId || ""), workspaceId: String(payload?.workspaceId || "") };
+        args.folderId = String(payload?.folderId ?? "");
+        args.skillId = String(payload?.skillId ?? "");
+        args.sourceDirectory = String(payload?.sourceDirectory ?? "");
+        args.expectedSha256 = String(payload?.expectedSha256 ?? "");
+        args.expectedInstalledSha256 = String(payload?.expectedInstalledSha256 ?? "");
+        args.previewToken = String(payload?.previewToken ?? "");
+        args.confirmed = payload?.confirmed === true;
+        return adapters.chatSkills.applyInstall(args, lifecycle);
+      }
+      case "desktop.chatSkills.previewActivate": {
+        if (!adapters.chatSkills?.previewActivate) throw errorWithCode("Capability unavailable", "CHAT_CAPABILITY_UNAVAILABLE");
+        const args = { chatId: String(payload?.chatId || ""), workspaceId: String(payload?.workspaceId || "") };
+        args.folderId = String(payload?.folderId ?? "");
+        args.skillId = String(payload?.skillId ?? "");
+        args.packageSha256 = String(payload?.packageSha256 ?? "");
+        return adapters.chatSkills.previewActivate(args, lifecycle);
+      }
+      case "desktop.chatSkills.applyActivate": {
+        if (!adapters.chatSkills?.applyActivate) throw errorWithCode("Capability unavailable", "CHAT_CAPABILITY_UNAVAILABLE");
+        const args = { chatId: String(payload?.chatId || ""), workspaceId: String(payload?.workspaceId || "") };
+        args.folderId = String(payload?.folderId ?? "");
+        args.skillId = String(payload?.skillId ?? "");
+        args.packageSha256 = String(payload?.packageSha256 ?? "");
+        args.previewToken = String(payload?.previewToken ?? "");
+        args.confirmed = payload?.confirmed === true;
+        return adapters.chatSkills.applyActivate(args, lifecycle);
+      }
+      case "desktop.mcp.previewConnect":
+      case "desktop.mcp.connect":
+      case "desktop.mcp.listConnections":
+      case "desktop.mcp.listTools":
+      case "desktop.mcp.diagnostics":
+      case "desktop.mcp.previewCall":
+      case "desktop.mcp.call":
+      case "desktop.mcp.disconnect":
+      case "desktop.mcp.cancelChat": {
+        const method = command.slice("desktop.mcp.".length);
+        if (!adapters.mcp?.[method]) throw errorWithCode("MCP client is unavailable", "MCP_UNAVAILABLE");
+        const args = { chatId: String(payload?.chatId || ""), workspaceId: String(payload?.workspaceId || "") };
+        const fields = ["previewConnect", "connect"].includes(method) ? ["folderId", "configPath", "serverName", "expectedSha256"] : ["sessionId"];
+        if (!["listConnections", "cancelChat"].includes(method)) for (const field of fields) args[field] = String(payload?.[field] || "");
+        if (["previewCall", "call"].includes(method)) { args.toolName = String(payload?.toolName || ""); args.arguments = payload?.arguments === undefined ? null : clone(payload.arguments); }
+        if (["connect", "call"].includes(method)) { args.previewToken = String(payload?.previewToken || ""); args.confirmed = payload?.confirmed === true; }
+        return adapters.mcp[method](args, lifecycle);
+      }
       case "desktop.chatProject.chooseFolder":
         if (!adapters.chatProject?.chooseFolder) throw errorWithCode("Project reader is unavailable", "CHAT_PROJECT_UNAVAILABLE");
         return adapters.chatProject.chooseFolder({ chatId: String(payload?.chatId || "") });
@@ -110,16 +233,18 @@ const createTlCore = ({ appVersion = "0.0.0", platform = "unknown", mode = "prod
       case "desktop.chatProject.listTerminals":
       case "desktop.chatProject.pollTerminal":
       case "desktop.chatProject.writeTerminal":
+      case "desktop.chatProject.resizeTerminal":
       case "desktop.chatProject.stopTerminal": {
         const method = command.split(".").at(-1);
         if (!adapters.chatProject?.[method]) throw errorWithCode("Terminal sessions are unavailable", "CHAT_PROJECT_UNAVAILABLE");
-        return adapters.chatProject[method]({ chatId: String(payload?.chatId || ""), workspaceId: String(payload?.workspaceId || ""), workId: String(payload?.workId || ""), folderId: String(payload?.folderId || ""), sessionId: String(payload?.sessionId || ""), commandText: payload?.commandText, relativePath: String(payload?.relativePath || ""), text: payload?.text, endInput: payload?.endInput === true, previewToken: String(payload?.previewToken || ""), confirmed: payload?.confirmed === true }, lifecycle);
+        if (payload?.transport !== undefined && !["pty", "stdin-pipes"].includes(payload.transport)) throw errorWithCode("Unsupported terminal transport", "CHAT_PROJECT_UNAVAILABLE");
+        return adapters.chatProject[method]({ chatId: String(payload?.chatId || ""), workspaceId: String(payload?.workspaceId || ""), workId: String(payload?.workId || ""), folderId: String(payload?.folderId || ""), sessionId: String(payload?.sessionId || ""), transport: payload?.transport === 'pty' ? 'pty' : 'stdin-pipes', cols: payload?.cols === undefined ? 80 : payload.cols, rows: payload?.rows === undefined ? 24 : payload.rows, commandText: payload?.commandText, relativePath: String(payload?.relativePath || ""), text: payload?.text, endInput: payload?.endInput === true, previewToken: String(payload?.previewToken || ""), confirmed: payload?.confirmed === true }, lifecycle);
       }
       case "desktop.chatProject.previewCommand":
       case "desktop.chatProject.runCommand": {
         const method = command.endsWith("previewCommand") ? "previewCommand" : "runCommand";
         if (!adapters.chatProject?.[method]) throw errorWithCode("Project terminal is unavailable", "CHAT_PROJECT_UNAVAILABLE");
-        return adapters.chatProject[method]({ chatId: String(payload?.chatId || ""), folderId: String(payload?.folderId || ""), commandText: payload?.commandText, relativePath: String(payload?.relativePath || ""), previewToken: String(payload?.previewToken || ""), confirmed: payload?.confirmed === true }, lifecycle);
+        return adapters.chatProject[method]({ chatId: String(payload?.chatId || ""), folderId: String(payload?.folderId || ""), transport: payload?.transport === 'pty' ? 'pty' : 'stdin-pipes', cols: payload?.cols === undefined ? 80 : payload.cols, rows: payload?.rows === undefined ? 24 : payload.rows, commandText: payload?.commandText, relativePath: String(payload?.relativePath || ""), previewToken: String(payload?.previewToken || ""), confirmed: payload?.confirmed === true }, lifecycle);
       }
       case "desktop.chatProject.previewPackageScript":
       case "desktop.chatProject.runPackageScript": {
@@ -326,7 +451,9 @@ const createTlCore = ({ appVersion = "0.0.0", platform = "unknown", mode = "prod
         const reference = (value = {}) => ({ packageId: String(value?.packageId || ""), version: String(value?.version || ""), archiveSha256: String(value?.archiveSha256 || "") });
         const action = command.split(".").pop();
         if (!customNodePackages?.[action]) throw errorWithCode("Migration unavailable", "CUSTOM_NODE_PACKAGES_UNAVAILABLE");
-        return customNodePackages[action]({ source: reference(payload?.source), target: reference(payload?.target) });
+        return customNodePackages[action]({ source: reference(payload?.source), target: reference(payload?.target),
+          ...(action === "previewMigration" && payload?.workspaceId !== undefined ? { workspaceId: payload.workspaceId } : {}),
+          ...(action === "previewMigration" && payload?.nodeIds !== undefined ? { nodeIds: payload.nodeIds } : {}) });
       }
       case "desktop.customNodePackages.migrationHistory":
       case "desktop.customNodePackages.dependencies":

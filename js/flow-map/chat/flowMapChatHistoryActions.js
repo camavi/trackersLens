@@ -1,7 +1,7 @@
 // flow Map Chat History Actions.
 // State and dependency wiring: js/flow-map/flowMapPromptChat.js.
 const createFlowMapChatHistoryActions = (moduleDependencies) => {
-  const loadHistory = async () => {
+  const loadHistory = async (options = {}) => {
     moduleDependencies.draft.loadingHistory = true;
     (0, moduleDependencies.refresh)();
     try {
@@ -21,7 +21,7 @@ const createFlowMapChatHistoryActions = (moduleDependencies) => {
   };
 
   const startNewChat = async () => {
-    if (moduleDependencies.draft.busy) return;
+    if (moduleDependencies.draft.busy || moduleDependencies.draft.loadingHistory) return;
     (0, moduleDependencies.setActiveChat)((0, moduleDependencies.flowPromptNewChat)(moduleDependencies.draft.workspaceId));
     moduleDependencies.draft.view = "chat";
     (0, moduleDependencies.refresh)();
@@ -40,6 +40,8 @@ const createFlowMapChatHistoryActions = (moduleDependencies) => {
     if (!confirmed) return;
     moduleDependencies.draft.error = "";
     try {
+      await window.trackers?.desktop?.mcp?.cancelChat({ chatId: chat.id, workspaceId: moduleDependencies.draft.workspaceId });
+      await window.trackers?.desktop?.chatBrowser?.cancelChat({ chatId: chat.id, workspaceId: moduleDependencies.draft.workspaceId });
       await (0, moduleDependencies.flowPromptDeleteChat)(chat.id);
       moduleDependencies.draft.chats = moduleDependencies.draft.chats.filter((item) => item.id !== chat.id);
       if (moduleDependencies.draft.activeChat?.id === chat.id) {

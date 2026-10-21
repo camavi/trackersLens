@@ -3,7 +3,11 @@
 Purpose: important decisions that should guide future work.
 Read when: a change might conflict with architecture or product direction.
 Do not read when: making narrow UI/code fixes.
-Last updated: 2026-10-05.
+Last updated: 2026-10-21.
+
+## Chat desktop capability ownership
+
+- 2026-10-21: extend the named Main/Core boundary for remote MCP, browser, project skills and Unix PTY rather than grant native provider identity unrestricted renderer/OS tools. MCP auth values remain Main-owned; HTTP redirects/session replay are explicit. Browser control uses visible sandboxed windows in ephemeral partitions and fixed isolated-world operations, never provider-supplied evaluation or the app preload. Project skills are file packages with reviewed installation and separate frozen instruction activation on a chat; scripts are not auto-executed and replaced files remain backed up. PTY uses a short-lived standard-library Python host to avoid an Electron ABI-dependent native addon, retaining existing session persistence/audit and user-local command consent. This is independent of managed sandboxed Python nodes. See `runtime/chat-desktop-capabilities.md` for actual support and remaining limits.
 
 ## Folder projects
 

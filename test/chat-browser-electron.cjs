@@ -1,0 +1,61 @@
+const { app, BrowserWindow, session } = require('electron');
+const assert = require('node:assert/strict');
+const http = require('node:http');
+const fs = require('node:fs'), os = require('node:os'), path = require('node:path');
+const { ChatBrowser, createChatBrowserWindow } = require('../core/desktop/chat-browser.cjs');
+const { createTlCore } = require('../core/desktop/tl-core.cjs');
+const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'tl-browser-test-'));
+app.setPath('userData', directory);
+app.whenReady().then(async () => {
+  const server = http.createServer((req, res) => {
+    if (req.url === '/redirect') { res.writeHead(302, { Location: 'https://example.invalid/no' }); res.end(); return; }
+    res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+    res.end('<!doctype html><title>Browser fixture</title><h1>école</h1><input aria-label="Name"><input type="password" value="must-not-be-visible"><button onclick="document.querySelector(\'output\').textContent=document.querySelector(\'input\').value">Submit</button><output></output><a href="file:///etc/passwd">Forbidden file</a><script>window.fixtureHasNode=typeof require;console.error("QA browser console")</script>');
+  });
+  await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
+  const browser = new ChatBrowser({ createWindow: () => createChatBrowserWindow({ BrowserWindow, session, show: false }) });
+  const scope = { chatId: 'chat', workspaceId: 'workspace' }, owner = { ownerId: 5 };
+  const core = createTlCore({ adapters: { chatBrowser: browser } });
+  const request = (method, args = {}, lifecycle = owner) => core.request('desktop.chatBrowser.' + method, { ...scope, ...args }, lifecycle);
+  const apply = async args => { const preview = await request('previewAction', args); return request('applyAction', { ...args, previewToken: preview.previewToken, confirmed: true }); };
+  try {
+    const url = `http://127.0.0.1:${server.address().port}`;
+    await assert.rejects(request('previewAction', { operation: 'open', url: 'file:///etc/passwd' }), /HTTP/);
+    const opening = { operation: 'open', url };
+    const review = await request('previewAction', opening);
+    assert.equal(browser.tabs.size, 0);
+    await assert.rejects(request('applyAction', { ...opening, previewToken: review.previewToken }), /Confirmation/);
+    const tab = await apply(opening);
+    const win = [...browser.tabs.values()][0].window;
+    assert.equal(win.webContents.getLastWebPreferences().nodeIntegration, false);
+    assert.equal(win.webContents.getLastWebPreferences().sandbox, true);
+    assert.equal(await win.webContents.executeJavaScript('typeof window.trackers'), 'undefined');
+    assert.equal(await win.webContents.executeJavaScript('window.fixtureHasNode'), 'undefined');
+    await assert.rejects(request('inspect', { tabId: tab.tabId }, { ownerId: 6 }), /outside/);
+    const inspect = await request('inspect', { tabId: tab.tabId });
+    assert.ok(inspect.console.some(entry => entry.message === "QA browser console"));
+    assert.match(inspect.text, /école/); assert.equal(JSON.stringify(inspect).includes('must-not-be-visible'), false);
+    const input = inspect.elements.find(element => element.label === 'Name');
+    const typeArgs = { operation: 'type', tabId: tab.tabId, snapshotId: inspect.snapshotId, elementId: input.elementId, value: 'Mario è qui' };
+    await apply(typeArgs);
+    const afterType = await request('inspect', { tabId: tab.tabId });
+    const submit = afterType.elements.find(element => element.label === 'Submit');
+    const clicking = { operation: 'click', tabId: tab.tabId, snapshotId: afterType.snapshotId, elementId: submit.elementId };
+    const clickReview = await request('previewAction', clicking);
+    await win.webContents.executeJavaScript('document.querySelector("button").textContent="changed"');
+    await assert.rejects(request('applyAction', { ...clicking, previewToken: clickReview.previewToken, confirmed: true }), /changed/);
+    await win.webContents.executeJavaScript('document.querySelector("button").textContent="Submit"');
+    await apply(clicking);
+    assert.match((await request('inspect', { tabId: tab.tabId })).text, /Mario è qui/);
+    const screenshot = await request('screenshot', { tabId: tab.tabId });
+    assert.equal(screenshot.image.mime, 'image/png'); assert.ok(Buffer.from(screenshot.image.data, 'base64').length > 1000);
+    const beforeFile = await request('inspect', { tabId: tab.tabId });
+    const fileLink = beforeFile.elements.find(element => element.label === 'Forbidden file');
+    await apply({ operation: 'click', tabId: tab.tabId, snapshotId: beforeFile.snapshotId, elementId: fileLink.elementId });
+    assert.equal(new URL(win.webContents.getURL()).protocol, 'http:');
+    await assert.rejects(apply({ operation: 'navigate', tabId: tab.tabId, url: url + '/redirect' }));
+    assert.equal(browser.tabs.get(tab.tabId).blockedNavigation, 'https://example.invalid/no');
+    browser.cancelOwner(owner.ownerId); assert.equal((await request('listTabs')).length, 0);
+    console.log('Chat browser Electron: isolated pages, scoped read/screenshot, confirmed actions, stale target rejection and blocked file/cross-origin navigation passed.');
+  } finally { browser.cancelOwner(owner.ownerId); server.closeAllConnections(); server.close(); app.quit(); }
+}).catch(error => { console.error(error); app.exit(1); });

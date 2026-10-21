@@ -1,0 +1,62 @@
+const test = require('node:test');
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const os = require('node:os');
+const path = require('node:path');
+const { ChatSkills } = require('../core/desktop/chat-skills.cjs');
+const { ChatProjectWorkspace } = require('../core/desktop/chat-project-workspace.cjs');
+const { createTlCore } = require('../core/desktop/tl-core.cjs');
+async function fixture(t) {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'tl-skills-'));
+  fs.mkdirSync(path.join(root, 'source/scripts'), { recursive: true });
+  fs.writeFileSync(path.join(root, 'source/SKILL.md'), '---\nname: sample\ndescription: A local test skill\n---\nUse tests before completion.\n');
+  fs.writeFileSync(path.join(root, 'source/scripts/helper.py'), 'raise RuntimeError("must never execute during install")\n');
+  fs.chmodSync(path.join(root, 'source/scripts/helper.py'), 0o755);
+  const workspace = new ChatProjectWorkspace({ selectDirectory: async () => root }); const grant = await workspace.chooseFolder({ chatId: 'chat' });
+  const scope = { chatId: 'chat', workspaceId: 'workspace', folderId: grant.folderId }, owner = { ownerId: 12 };
+  const skills = new ChatSkills({ workspace }), core = createTlCore({ adapters: { chatSkills: skills } });
+  const file = workspace.readTextFile({ ...scope, relativePath: 'source/SKILL.md' });
+  const args = { ...scope, skillId: 'sample', sourceDirectory: 'source', expectedSha256: file.sha256, expectedInstalledSha256: 'absent' };
+  const request = (method, args) => core.request('desktop.chatSkills.' + method, { ...scope, ...args }, owner);
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  return { root, skills, scope, owner, args, request };
+}
+test('skill install is scoped, reviewed, nonexecuting; activation returns exact full instructions and supporting index', async t => {
+  const f = await fixture(t); assert.deepEqual(await f.request('list', {}), []);
+  const preview = await f.request('previewInstall', f.args);
+  assert.equal(preview.files.length, 2); assert.equal(fs.existsSync(path.join(f.root, '.tl/chat-skills/sample')), false);
+  await assert.rejects(f.request('applyInstall', { ...f.args, previewToken: preview.previewToken }), /Confirmation/);
+  const review = await f.request('previewInstall', f.args);
+  const result = await f.request('applyInstall', { ...f.args, previewToken: review.previewToken, confirmed: true });
+  assert.equal(result.activated, false);
+  assert.equal(fs.statSync(path.join(f.root, '.tl/chat-skills/sample/scripts/helper.py')).mode & 0o777, 0o755);
+  const read = await f.request('read', { skillId: 'sample' });
+  assert.match(read.content, /Use tests/); assert.equal(read.files[1].projectPath, '.tl/chat-skills/sample/scripts/helper.py');
+  const activate = { skillId: 'sample', packageSha256: read.packageSha256 };
+  const activateReview = await f.request('previewActivate', activate);
+  const active = await f.request('applyActivate', { ...activate, previewToken: activateReview.previewToken, confirmed: true });
+  assert.equal(active.skill.content, read.content);
+  await assert.rejects(f.request('applyActivate', { ...activate, previewToken: activateReview.previewToken, confirmed: true }), /Confirmation/);
+});
+test('skill updates preserve old version; changed sources or activation packages are rejected', async t => {
+  const f = await fixture(t); const preview = await f.request('previewInstall', f.args);
+  fs.appendFileSync(path.join(f.root, 'source/scripts/helper.py'), '# changed\n');
+  await assert.rejects(f.request('applyInstall', { ...f.args, previewToken: preview.previewToken, confirmed: true }), /changed/);
+  const review = await f.request('previewInstall', f.args); await f.request('applyInstall', { ...f.args, previewToken: review.previewToken, confirmed: true });
+  const before = await f.request('read', { skillId: 'sample' });
+  const activate = { skillId: 'sample', packageSha256: before.packageSha256 };
+  const activation = await f.request('previewActivate', activate);
+  fs.appendFileSync(path.join(f.root, '.tl/chat-skills/sample/SKILL.md'), 'Edited after review.\n');
+  await assert.rejects(f.request('applyActivate', { ...activate, previewToken: activation.previewToken, confirmed: true }), /changed/);
+  const next = { ...f.args, expectedInstalledSha256: (await f.request('read', { skillId: 'sample' })).packageSha256 };
+  const update = await f.request('previewInstall', next);
+  assert.equal((await f.request('applyInstall', { ...next, previewToken: update.previewToken, confirmed: true })).previousVersionPreserved, true);
+  assert.equal(fs.readdirSync(path.join(f.root, '.tl/chat-skill-backups')).length, 1);
+});
+test('skill paths, symlinks and mismatched desktop owner cannot escape scope', async t => {
+  const f = await fixture(t); assert.throws(() => f.skills.previewInstall({ ...f.args, skillId: '../bad' }, f.owner));
+  const preview = f.skills.previewInstall(f.args, f.owner);
+  assert.throws(() => f.skills.applyInstall({ ...f.args, previewToken: preview.previewToken, confirmed: true }, { ownerId: 13 }), /Confirmation/);
+  fs.symlinkSync(os.tmpdir(), path.join(f.root, 'source/escape'));
+  assert.throws(() => f.skills.previewInstall(f.args, f.owner), /symlink/);
+});

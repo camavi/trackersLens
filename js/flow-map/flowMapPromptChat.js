@@ -763,6 +763,7 @@ const {
 const openFlowPromptChatDialog = async (options = {}) => {
   const existingAside = document.querySelector("[data-flow-prompt-aside]");
   if (existingAside) {
+    await existingAside.tlHistoryReady;
     flowPromptSaveOpenState(true);
     existingAside.classList.add("is-open");
     window.dispatchEvent(new Event("tl-chat-foreground"));
@@ -870,7 +871,7 @@ const openFlowPromptChatDialog = async (options = {}) => {
 
   // Discovery is intentionally per provider turn. A previous answer cannot
   // silently grant a later request a broader data vocabulary.
-  let providerToolDiscovery = { domainsListed: false, indexedDomains: new Set(), detailedTools: new Set(), declaredNodeTools: new Set(), resolvedNodeIds: new Set(), inspectedNodeIds: new Set(), pythonResolutions: new Map(), nodeConfigReads: new Map(), proposedActionKeys: new Set(), completedReadRequests: new Map(), flowIndex: null, packageInventory: null, sqliteStores: new Set(), sqliteRecordIds: new Map(), projectFiles: new Map(), projectDirectories: new Set(), terminalSessions: new Map() };
+  let providerToolDiscovery = { domainsListed: false, indexedDomains: new Set(), detailedTools: new Set(), declaredNodeTools: new Set(), resolvedNodeIds: new Set(), inspectedNodeIds: new Set(), pythonResolutions: new Map(), nodeConfigReads: new Map(), proposedActionKeys: new Set(), completedReadRequests: new Map(), flowIndex: null, packageInventory: null, sqliteStores: new Set(), sqliteRecordIds: new Map(), projectFiles: new Map(), projectDirectories: new Set(), terminalSessions: new Map(), mcpSessions: new Map(), browserTabs: new Map(), skills: new Map() };
   let providerPackageReads = new Map();
   const {
     providerToolProtocolProgress,
@@ -879,6 +880,7 @@ const openFlowPromptChatDialog = async (options = {}) => {
     confirmNodeConfigUpdate,
     runProviderReadTool,
   } = createFlowMapChatReadTools({
+    get refresh() { return refresh; },
     get FLOW_PROMPT_FAST_PATH_TOOLS() { return FLOW_PROMPT_FAST_PATH_TOOLS; },
     get draft() { return draft; },
     get flowPromptCapabilityDetails() { return flowPromptCapabilityDetails; },
@@ -1337,8 +1339,10 @@ const openFlowPromptChatDialog = async (options = {}) => {
         _.span(`Lavoro: ${draft.activeChat.agentRun.status}`),
         draft.activeChat.agentRun.nativeSession ? _.span(draft.activeChat.agentRun.nativeSession.resumed ? " · Sessione Codex ripresa" : " · Sessione Codex persistente") : null,
         _.span(draft.activeChat.agentRun.transport === "streaming" ? " · Streaming" : draft.activeChat.agentRun.transport === "events" ? " · Eventi live (messaggi completati)" : " · Risposta completa alla fine"),
-        draft.busy && (draft.activeChat.agentRun.status === "waiting-provider" || draft.projectScriptRequestId) ? flowMapBtn({ onclick: () => {
+        draft.busy && (draft.activeChat.agentRun.status === "waiting-provider" || draft.projectScriptRequestId || draft.mcpActiveRequest || draft.extensionActiveRequest) ? flowMapBtn({ onclick: () => {
           draft.stopRequested = true;
+          void window.trackers?.desktop?.mcp?.cancelChat({ chatId: draft.activeChat.id, workspaceId: draft.workspaceId })?.catch(error => console.error("MCP stop:", error));
+          void window.trackers?.desktop?.chatBrowser?.cancelChat({ chatId: draft.activeChat.id, workspaceId: draft.workspaceId })?.catch(error => console.error("Browser stop:", error));
           if (draft.projectScriptRequestId) window.trackers?.desktop?.chatProject?.cancelScript({ requestId: draft.projectScriptRequestId });
           window.TrackerLensLlmObservation?.cancel({ workspaceId: draft.workspaceId, nodeId: draft.activeChat.id, jobId: draft.activeChat.agentRun.observationJobId });
           refresh();
@@ -1517,7 +1521,8 @@ const openFlowPromptChatDialog = async (options = {}) => {
     if (!options.restore) aside?.querySelector("textarea")?.focus?.();
   });
   void refreshProviderStatus();
-  loadHistory();
+  aside.tlHistoryReady = loadHistory(options);
+  await aside.tlHistoryReady;
 };
 
 window.TrackerLensOpenFlowPromptChat = openFlowPromptChatDialog;

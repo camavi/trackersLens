@@ -9,6 +9,10 @@ Last updated: 2026-08-31.
 
 Main exposes `desktop.project.getStatus/open/openRecent/close` through `window.trackers.desktop.project`, validates the trusted frame/project session and uses a native directory picker. `ProjectRuntime` owns manifests and opaque recent IDs; no renderer-supplied path is accepted. Home has no project SQLite/runtime. Opening/closing relaunches a project-bound session; project SQLite/archives and Chromium editor state live in the folder, while personal settings/provider profiles and account authentication remain personal. This supersedes historical app-data project-path descriptions below. See `project-runtime.md`.
 
+## Chat desktop capability adapters (2026-10-21)
+
+`desktop.chatBrowser.*` and `desktop.chatSkills.*` join the trusted-frame named Core boundary; renderer arguments never carry owner identity, arbitrary browser scripts or OS handles. MCP now supports reviewed Streamable HTTP sessions with private environment-backed headers. Named project terminal operations accept explicit PTY transport and reviewed resize. Main owns scoped cleanup for navigation, chat/project close and application exit. See [Chat desktop capabilities](chat-desktop-capabilities.md).
+
 ## Current Phase 2 Boundary
 
 Local AI profile setup (2026-10-05): trusted `customNodePackages.discoverLocalAi/previewLocalAiProfile/applyLocalAiProfile/discardLocalAiProfile` routes receive Main-injected owner IDs. Discovery sends only model-catalog GETs to loopback candidates, returns attribution/full evidence and does not infer or persist a profile. The approved profile plan fixes exact verified endpoint/model and expected record; Core's internal SQLite compare-and-save rejects stale updates and preserves credentials/identity. Payloads cannot supply an owner, authorization headers or arbitrary profile record. Renderer receives safe metadata only.

@@ -1,3 +1,4 @@
+const { spawnPty, dimensions } = require('./chat-pty-process.cjs');
 const crypto = require('node:crypto');
 const { spawn } = require('node:child_process');
 const fs = require('node:fs');
@@ -13,6 +14,7 @@ class ChatProjectScripts {
 
   inspect(args = {}) {
     if (args.executionKind === 'command') {
+      if (args.transport === 'pty') dimensions(args.cols, args.rows);
       if (typeof args.commandText !== 'string' || !args.commandText.trim() || args.commandText.includes('\0')) throw new Error('An exact terminal command is required.');
       const { target } = this.workspace.resolve({ ...args, relativePath: args.relativePath || '' });
       if (!fs.statSync(target).isDirectory()) throw new Error('Terminal working directory must be a directory.');
@@ -32,14 +34,14 @@ class ChatProjectScripts {
   }
 
   identity(args = {}) {
-    return JSON.stringify([args.chatId, args.folderId, args.executionKind || "script", args.scriptName, args.expectedSha256, args.commandText, args.relativePath, args.interactive === true]);
+    return JSON.stringify([args.chatId, args.folderId, args.executionKind || "script", args.scriptName, args.expectedSha256, args.commandText, args.relativePath, args.interactive === true, args.transport || 'stdin-pipes', args.cols || 80, args.rows || 24]);
   }
 
   preview(args = {}) {
     const inspected = this.inspect(args);
     const previewToken = crypto.randomUUID();
     this.previews.set(previewToken, this.identity(args));
-    return { scriptName: args.scriptName, ...inspected, previewToken, executionPolicy: 'user-local-permissions' };
+    return { scriptName: args.scriptName, ...inspected, ...(args.interactive ? { transport: args.transport || "stdin-pipes", cols: args.cols || 80, rows: args.rows || 24 } : {}), previewToken, executionPolicy: 'user-local-permissions' };
   }
 
   async run(args = {}, { signal, onEvent = () => {}, onProcess = () => {} } = {}) {
@@ -53,7 +55,7 @@ class ChatProjectScripts {
     return new Promise((resolve, reject) => {
       const executable = args.executionKind === 'command' ? '/bin/sh' : 'npm';
       const argv = args.executionKind === 'command' ? ['-c', args.commandText] : ['run', '--', args.scriptName];
-      const child = this.spawnProcess(executable, argv, { cwd, detached: true, stdio: [args.interactive === true ? 'pipe' : 'ignore', 'pipe', 'pipe'], windowsHide: true, shell: false });
+      const child = args.transport === 'pty' ? spawnPty(args.commandText, { cwd, cols: args.cols, rows: args.rows }) : this.spawnProcess(executable, argv, { cwd, detached: true, stdio: [args.interactive === true ? 'pipe' : 'ignore', 'pipe', 'pipe'], windowsHide: true, shell: false });
       const decoders = { stdout: new StringDecoder('utf8'), stderr: new StringDecoder('utf8') };
       const output = { stdout: '', stderr: '' };
       let cancelled = false, settled = false, killTimer;

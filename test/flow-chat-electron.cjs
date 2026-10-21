@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain } = require('electron');
+const { app, BrowserWindow, ipcMain, session } = require('electron');
 const assert = require('node:assert/strict');
 const path = require('node:path');
 const fs = require('node:fs');
@@ -8,6 +8,9 @@ const { createTlCore } = require('../core/desktop/tl-core.cjs');
 const { DesktopPersistence } = require('../core/desktop/desktop-persistence.cjs');
 const { ExternalAiChatRuns } = require('../core/desktop/external-ai-chat-runner.cjs');
 const { ExternalAiWorkSessions } = require('../core/desktop/external-ai-work-sessions.cjs');
+const { ChatBrowser, createChatBrowserWindow } = require('../core/desktop/chat-browser.cjs');
+const { ChatSkills } = require('../core/desktop/chat-skills.cjs');
+const { ChatMcpClient } = require('../core/desktop/chat-mcp-client.cjs');
 const { ChatProjectWorkspace } = require('../core/desktop/chat-project-workspace.cjs');
 const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'tl-chat-ui-'));
 const projectFolder = path.join(directory, 'project');
@@ -23,6 +26,10 @@ let mode = 'answer', calls = [], aborted = false, atomicStep = 0;
 let atomicCommits = 0;
 let releaseBackground = null;
 let lifecyclePackages = [], lifecycleListReads = 0;
+let migrationPreviews = [], migrationApplies = 0;
+let failedDirectoryRead = false, projectFolderChoices = 0;
+const migrationSource = {packageId:'custom.migration-chat',version:'1.0.0',archiveSha256:'a'.repeat(64)};
+const migrationTarget = {...migrationSource,version:'1.0.1',archiveSha256:'b'.repeat(64)};
 const lifecycleReference = { packageId: 'custom.lifecycle-fixture', version: '1.0.0', archiveSha256: 'b'.repeat(64) };
 const nativeUuid = '12345678-1234-1234-1234-123456789abc';
 const nativeSessions = new ExternalAiWorkSessions({ persistence, directory: path.join(directory, 'native'), runner: async (_provider, _prompt, options) => {
@@ -37,11 +44,90 @@ const atomicEdits = [{ operation: 'config', nodeId: 'atomic-node', field: 'min',
   { operation: 'duplicate', nodeId: 'atomic-node', newNodeId: '@copy', value: 'Atomic copy' },
   { operation: 'connect', sourceNodeId: '@copy', targetNodeId: '@preview', sourcePort: 'output', targetPort: 'raw' },
 ];
-const core = createTlCore({ adapters: { persistence, nativeWorkSessions: nativeSessions, externalAi: {
+const chatProject = new ChatProjectWorkspace({ persistence, selectDirectory: async () => projectFolder });
+const mcp = new ChatMcpClient({ workspace: chatProject });
+const chatSkills = new ChatSkills({ workspace: chatProject });
+const chatBrowser = new ChatBrowser({ createWindow: () => createChatBrowserWindow({ BrowserWindow, session, show: false }) });
+let browserFixtureUrl = '';
+fs.mkdirSync(path.join(projectFolder, 'skill-source/scripts'), { recursive: true });
+const skillContent = '---\nname: qa-skill\ndescription: QA project skill\n---\nUse SCOPE_APPROVED_SKILL_MARKER in verification.\n';
+fs.writeFileSync(path.join(projectFolder, 'skill-source/SKILL.md'), skillContent);
+fs.writeFileSync(path.join(projectFolder, 'skill-source/scripts/helper.py'), 'raise Exception("never execute implicitly")');
+const skillSourceHash = crypto.createHash('sha256').update(skillContent).digest('hex');
+const testNodePath = require('node:child_process').execFileSync('/usr/bin/which', ['node'], { encoding: 'utf8' }).trim();
+const mcpConfig = JSON.stringify({ mcpServers: { fixture: { command: testNodePath, args: [path.join(__dirname, 'fixtures/mcp-stdio-server.cjs')], requestTimeoutMs: 5000 } } });
+fs.writeFileSync(path.join(projectFolder, '.mcp.json'), mcpConfig);
+const mcpHash = crypto.createHash('sha256').update(mcpConfig).digest('hex');
+const core = createTlCore({ adapters: { chatBrowser, chatSkills, mcp, persistence, nativeWorkSessions: nativeSessions, externalAi: {
   getStatus: async ({ provider }) => ({ provider, installed: !(mode === "atomic" && atomicStep > 0), authenticated: !(mode === "atomic" && atomicStep > 0) }),
   listModels: async () => ({ models: [], source: 'fixture' }),
   sendMessage: async (payload, { signal, onEvent }) => {
     calls.push(payload);
+    if (mode.startsWith('capability-')) {
+      const read = (tool, args = {}) => ({ type: 'tool_request', tool, args });
+      const action = (action, args) => ({ type: 'proposed_action', action, args });
+      const chat = persistence.readDevelopmentRecordById({ storeName: 'tl_flow_prompt_chats', id: 'chat-restart' });
+      let steps;
+      if (mode === 'capability-browser') {
+        const tabId = [...chatBrowser.tabs.keys()].at(-1) || '';
+        const snapshot = chat?.agentRun?.observations?.findLast(entry => entry.request?.tool === 'tl.browser.inspect')?.observation;
+        steps = [read('tl.catalog.listDomains'), read('tl.catalog.listTools', { domain: 'browser' }), ...['tl.browser.listTabs','tl.browser.inspect','tl.browser.screenshot'].map(name => read('tl.catalog.getCapabilityDetails', { name })),
+          action('browser_action', { operation: 'open', url: browserFixtureUrl }), read('tl.browser.listTabs'), read('tl.browser.inspect', { tabId }),
+          action('browser_action', { operation: 'type', tabId, snapshotId: snapshot?.snapshotId, elementId: snapshot?.elements?.find(element=>element.label==='Name')?.elementId, value: 'Chat browser reale' }),
+          read('tl.browser.listTabs'), read('tl.browser.inspect', { tabId }),
+          action('browser_action', { operation: 'click', tabId, snapshotId: snapshot?.snapshotId, elementId: snapshot?.elements?.find(element=>element.label==='Submit')?.elementId }),
+          read('tl.browser.listTabs'), read('tl.browser.inspect', { tabId }), read('tl.browser.screenshot', { tabId }), action('browser_action', { operation: 'close', tabId }),
+        ];
+      } else if (mode === 'capability-skills') {
+        const installed = chat?.agentRun?.observations?.findLast(entry=>entry.request?.tool==='tl.skills.read')?.observation?.skill;
+        steps = [read('tl.catalog.listDomains'), read('tl.catalog.listTools', { domain: 'skills' }), ...['tl.skills.list','tl.skills.read'].map(name=>read('tl.catalog.getCapabilityDetails', { name })), read('tl.project.chooseFolder'), read('tl.project.listDirectory', { relativePath: 'skill-source' }), read('tl.project.readTextFile', { relativePath: 'skill-source/SKILL.md' }), read('tl.skills.list'),
+          action('install_skill', { skillId: 'qa-skill', sourceDirectory: 'skill-source', expectedSha256: skillSourceHash, expectedInstalledSha256: 'absent' }), read('tl.skills.list'), read('tl.skills.read', { skillId: 'qa-skill' }), action('activate_skill', { skillId: 'qa-skill', packageSha256: installed?.packageSha256 }),
+        ];
+      } else if (mode === 'capability-deactivate') steps = [action('deactivate_skill', { skillId: 'qa-skill' })];
+      else {
+        const sessionId = [...chatProject.terminals.sessions.keys()].at(-1) || '';
+        steps = [read('tl.project.chooseFolder'), read('tl.project.listDirectory'), action('start_project_terminal', { commandText: 'test -t 0 && printf PTY_READY; read answer; stty size; printf "PTY:%s" "$answer"', relativePath: '', transport: 'pty', cols: 80, rows: 24 }), read('tl.project.pollTerminal', { sessionId }), action('resize_project_terminal', { sessionId, cols: 100, rows: 40 }), read('tl.project.pollTerminal', { sessionId }), action('write_project_terminal', { sessionId, text: 'ciao\n', endInput: false }), read('tl.project.pollTerminal', { sessionId })];
+      }
+      return { text: steps[atomicStep] ? JSON.stringify(steps[atomicStep++]) : 'Capabilities verified' };
+    }
+    if (mode === 'mcp' || mode === 'mcp-stop') {
+      const sessionId = [...mcp.sessions.keys()].at(-1) || '';
+      const read = (tool, args = {}) => ({ type: 'tool_request', tool, args });
+      const action = (action, args) => ({ type: 'proposed_action', action, args });
+      const call = action('call_mcp_tool', { sessionId, toolName: 'echo', arguments: mode === 'mcp-stop' ? { hang: true } : { text: 'MCP è reale', change: true } });
+      const steps = [
+        read('tl.catalog.listDomains'), read('tl.catalog.listTools', { domain: 'mcp' }),
+        ...['tl.mcp.listConnections', 'tl.mcp.listTools', 'tl.mcp.diagnostics'].map(name => read('tl.catalog.getCapabilityDetails', { name })),
+        read('tl.project.chooseFolder'), read('tl.project.listDirectory'), read('tl.project.readTextFile', { relativePath: '.mcp.json' }),
+        action('connect_mcp_server', { configPath: '.mcp.json', expectedSha256: mcpHash, serverName: 'fixture' }),
+        read('tl.mcp.listConnections'), read('tl.mcp.listTools', { sessionId }), call, call,
+        read('tl.mcp.listConnections'), read('tl.mcp.listTools', { sessionId }),
+        action('call_mcp_tool', { sessionId, toolName: 'echo', arguments: { text: 'denied', change: true } }),
+        read('tl.mcp.listConnections'), action('disconnect_mcp_server', { sessionId }),
+        read('tl.mcp.listConnections'), read('tl.mcp.diagnostics', { sessionId }),
+      ];
+      return { text: steps[atomicStep] ? JSON.stringify(steps[atomicStep++]) : 'MCP workflow verified' };
+    }
+    if (mode === 'project-read-recovery') {
+      const steps = [
+        {type:'tool_request',tool:'tl.project.readTextFile',args:{relativePath:'example.js'}},
+        {type:'tool_request',tool:'tl.project.chooseFolder',args:{}},
+        {type:'tool_request',tool:'tl.project.listDirectory',args:{}},
+        {type:'tool_request',tool:'tl.project.chooseFolder',args:{}},
+        {type:'tool_request',tool:'tl.project.listDirectory',args:{}},
+        {type:'tool_request',tool:'tl.project.readTextFile',args:{relativePath:'example.js'}},
+      ];
+      return {text:steps[atomicStep] ? JSON.stringify(steps[atomicStep++]) : 'Recovered project folder and read current directory'};
+    }
+    if (mode === 'package-migration') {
+      const steps = [
+        {type:'tool_request',tool:'tl.customNodes.list',args:{}},
+        {type:'tool_request',tool:'tl.workspace.resolveNode',args:{node:'atomic-node'}},
+        {type:'proposed_action',action:'migrate_custom_node',args:{source:migrationSource,target:migrationTarget,nodeIds:['atomic-node']}},
+        {type:'tool_request',tool:'tl.workspace.inspectTopology',args:{}},
+      ];
+      return {text:steps[atomicStep] ? JSON.stringify(steps[atomicStep++]) : 'Version updated without duplicating the node'};
+    }
     if (mode === 'package-lifecycle') {
       if (atomicStep === 4) lifecyclePackages = [{ ...lifecycleReference, name: 'Lifecycle fixture', archive: { sha256: lifecycleReference.archiveSha256 }, manifest: { id: lifecycleReference.packageId }, runtimeExecution: 'manifest-only' }];
       if (atomicStep === 6) lifecyclePackages[0].runtimeExecution = 'sandboxed';
@@ -151,7 +237,7 @@ const core = createTlCore({ adapters: { persistence, nativeWorkSessions: nativeS
       return { text: steps[atomicStep] ? JSON.stringify(steps[atomicStep++]) : 'Terminal completed' };
     }
     if (mode === 'project-interactive') {
-      const terminal = persistence.readDevelopmentRecords({ storeName: 'tl_ai_jobs' }).find(record => record.kind === 'flow-chat-terminal');
+      const terminal = [...chatProject.terminals.sessions.values()].at(-1)?.record;
       const steps = [
         { type: 'tool_request', tool: 'tl.project.chooseFolder', args: {} },
         { type: 'tool_request', tool: 'tl.project.listDirectory', args: {} },
@@ -206,10 +292,19 @@ const core = createTlCore({ adapters: { persistence, nativeWorkSessions: nativeS
       if (signal.aborted) cancel();
     });
     return { text: ['uncertain', 'receipt'].includes(mode) ? payload.prompt.includes('"status":"duplicate"') ? 'Esito precedente verificato; nessuna operazione ripetuta.' : JSON.stringify({ type: 'proposed_action', action: 'edit_graph', args: { operation: 'rename', nodeId: mode === 'receipt' ? 'atomic-node' : 'fixture-node', nextLabel: mode === 'receipt' ? 'Receipt fixture' : 'Changed' } }) : 'Recovered fixture answer', raw: { usage: { input_tokens: 5, output_tokens: 3 } } };
-  } }, customNodePackages: { list: async () => { if (mode === 'package-lifecycle') { lifecycleListReads++; return lifecyclePackages; } return []; } }, chatProject: new ChatProjectWorkspace({ persistence, selectDirectory: async () => projectFolder }) } });
+  } }, customNodePackages: {
+    list: async () => { if(mode==='package-migration') return [migrationSource,migrationTarget].map(ref=>({...ref,name:'Migration chat',runtimeExecution:'sandboxed',archive:{sha256:ref.archiveSha256},manifest:{id:ref.packageId}})); if (mode === 'package-lifecycle') { lifecycleListReads++; return lifecyclePackages; } return []; },
+    compareVersions: async () => ({}),
+    previewMigration: async payload => {migrationPreviews.push(payload);return {planId:'chat-migration-plan',source:payload.source,target:payload.target,nodes:[{id:'atomic-node',workspaceId:payload.workspaceId,beforeConfig:{min:1},afterConfig:{min:1}}],message:'Keep IDs and links'};},
+    applyMigration: async payload => {assert.equal(payload.confirmed,true);assert.equal(payload.planId,'chat-migration-plan');migrationApplies++;const node=persistence.readDevelopmentRecordById({storeName:'tl_runtime_nodes',id:'atomic-node'});persistence.writeDevelopmentRecords({storeName:'tl_runtime_nodes',records:[{...node,metadata:{...node.metadata,customPackage:{...migrationTarget,archive:{sha256:migrationTarget.archiveSha256}}}}]});return {updated:1,snapshotId:'migration-fixture-snapshot'};},
+  }, chatProject } });
 ipcMain.handle('trackers-core:request', (event, command, payload) => {
+  if(mode==='project-read-recovery' && command==='desktop.chatProject.chooseFolder')projectFolderChoices++;
+  if(mode==='project-read-recovery' && command==='desktop.chatProject.listDirectory' && !failedDirectoryRead){failedDirectoryRead=true;throw new Error('Project folder grant is missing or expired. Select the folder again.');}
+  if (/^desktop\.(mcp|chatBrowser|chatSkills)\./.test(command)) return core.request(command, payload, { ownerId: event.sender.id });
+  if (command === 'desktop.project.getStatus') return {active:{id:'chat-fixture',name:'Chat fixture'},recent:[]};
   if (command === 'desktop.flowChat.applyNodeEdits' && payload.confirmed === true) atomicCommits++;
-  if (/^desktop\.chatProject\.(startTerminal|writeTerminal|stopTerminal)$/.test(command)) return core.request(command, payload, { ownerId: event.sender.id });
+  if (/^desktop\.chatProject\.(startTerminal|writeTerminal|resizeTerminal|stopTerminal)$/.test(command)) return core.request(command, payload, { ownerId: event.sender.id });
   if (command === 'desktop.chatProject.cancelScript') return { cancelled: runs.cancel(event.sender.id, payload.requestId) };
   if (['desktop.chatProject.runPackageScript', 'desktop.chatProject.runCommand'].includes(command)) return runs.run(event.sender.id, payload.requestId,
     lifecycle => core.request(command, payload, lifecycle),
@@ -222,12 +317,19 @@ ipcMain.handle('trackers-core:request', (event, command, payload) => {
 });
 
 app.whenReady().then(async () => {
+  const browserServer = require('node:http').createServer((_req, res) => { res.writeHead(200, { 'Content-Type': 'text/html' }); res.end('<!doctype html><title>Chat browser fixture</title><input aria-label="Name"><button onclick="document.querySelector(\'output\').textContent=document.querySelector(\'input\').value">Submit</button><output></output>'); });
+  await new Promise(resolve => browserServer.listen(0, '127.0.0.1', resolve));
+  browserFixtureUrl = `http://127.0.0.1:${browserServer.address().port}`;
   const win = new BrowserWindow({ show: false, width: 1200, height: 850, webPreferences: { preload: path.resolve(__dirname, '../electron/preload.cjs'), sandbox: true, contextIsolation: true, nodeIntegration: false } });
   const js = code => win.webContents.executeJavaScript(code).catch(error => { console.error("Renderer fixture failed:", code); throw error; });
   const waitFor = async (code, label) => {
     const end = Date.now() + 15000;
     while (Date.now() < end) { if (typeof code === "function" ? await code() : await js(code)) return; await new Promise(resolve => setTimeout(resolve, 100)); }
     throw new Error(`Timed out: ${label}: ${await js('document.body.textContent')}`);
+  };
+  const consent = async label => {
+    await js(`(() => { const button=[...document.querySelectorAll('.jss-dialog button')].findLast(b=>b.textContent===${JSON.stringify(label)});window.__clickedConsent=button;button.click(); })()`);
+    await waitFor('!window.__clickedConsent?.isConnected','consent dialog removed');
   };
   const load = async () => {
     await win.loadFile(path.resolve(__dirname, '../app.html'), { query: { 'tl-route': 'flowMap.html' } });
@@ -356,7 +458,7 @@ app.whenReady().then(async () => {
     persistence.writeDevelopmentRecords({ storeName: 'tl_runtime_nodes', records: [{ id: 'atomic-node', workspaceId, label: 'Atomic fixture', type: 'processor', inputs: ['input'], outputs: ['output'], metadata: { category: 'processors', subtype: 'transform', config: { min: 1, max: 3 }, settingsSchema: { min: 'number', max: 'number' }, configRules: [{ kind: 'lessThanOrEqual', field: 'min', otherField: 'max' }] } }] });
     mode = 'atomic'; atomicStep = 0; const beforeAtomicCommits = atomicCommits; await load(); await open(); await resume();
     await waitFor(`[...document.querySelectorAll('button')].some(b=>b.textContent==='Consenti tutte le letture per questa chat')`, 'read consent');
-    await js(`[...document.querySelectorAll('button')].find(b=>b.textContent==='Consenti tutte le letture per questa chat').click()`);
+    await consent('Consenti tutte le letture per questa chat');
     await waitFor(`[...document.querySelectorAll('button')].some(b=>b.textContent==='Applica tutte')`, 'atomic confirmation');
     assert.ok(await js(`document.querySelector('.tl-flow-plan-review-summary')`));
     assert.ok(await js(`document.querySelectorAll('.tl-flow-plan-review-item').length > 0`));
@@ -425,6 +527,35 @@ app.whenReady().then(async () => {
         persistence.writeDevelopmentRecords({storeName:'tl_runtime_nodes',records:[repeatOriginal]});
       } else assert.equal(observations.filter(entry=>entry.observation?.cached).length,3,'repeated reads remain inspectable and do not stop after two calls');
     }
+    await seed(false); mode='project-read-recovery';atomicStep=0;failedDirectoryRead=false;projectFolderChoices=0;
+    const recoveryChat=record();recoveryChat.permissions={readToolScope:'all-read',readToolGrants:{}};
+    persistence.writeDevelopmentRecords({storeName:'tl_flow_prompt_chats',records:[recoveryChat]});
+    await load();await open();await resume();
+    await waitFor(`[...document.querySelectorAll('button')].some(b=>b.textContent==='Consenti una volta')`,'recovered file read consent');
+    await consent('Consenti una volta');
+    await waitFor(`window.trackers.desktop.persistence.readDevelopmentRecordById({storeName:'tl_flow_prompt_chats',id:'chat-restart'}).then(chat=>chat.agentRun.status==='completed')`,'project read failure recovery');
+    const recoveryReads=record().agentRun.observations.filter(entry=>entry.request.tool==='tl.project.listDirectory');
+    assert.equal(projectFolderChoices,2,'reselection must call Core rather than reuse an expired folder observation');
+    assert.equal(recoveryReads.length,2);assert.equal(recoveryReads[0].observation.status,'failed');assert.equal(recoveryReads[1].observation.ok,true);
+    assert.ok(!recoveryReads[1].observation.cached,'failed reads must not prevent fresh directory access');
+    const recoveryFiles=record().agentRun.observations.filter(entry=>entry.request.tool==='tl.project.readTextFile');
+    assert.equal(recoveryFiles[0].observation.code,'TL_TOOL_PREREQUISITE');assert.equal(recoveryFiles[1].observation.ok,true);
+    await seed(false); mode = 'package-migration'; atomicStep = 0;
+    const migrationChat = record(); migrationChat.permissions={readToolScope:'all-read',readToolGrants:{}};
+    persistence.writeDevelopmentRecords({storeName:'tl_flow_prompt_chats',records:[migrationChat]});
+    await load(); await open(); await resume();
+    const migrationButton = `[...document.querySelectorAll('button')].find(b=>b.textContent.trim()==='Aggiorna versione nodi')`;
+    await waitFor(migrationButton,'package migration confirmation');
+    assert.equal(migrationApplies,0,'preview does not write');
+    assert.deepEqual(migrationPreviews.at(-1),{source:migrationSource,target:migrationTarget,workspaceId,nodeIds:['atomic-node']},'preload preserves exact node/workspace scope');
+    await js(`${migrationButton}.click()`);
+    await waitFor(`window.trackers.desktop.persistence.readDevelopmentRecordById({storeName:'tl_flow_prompt_chats',id:'chat-restart'}).then(chat=>chat.agentRun.status==='completed')`,'migration completed');
+    assert.equal(migrationApplies,1);
+    console.log('Flow Chat Electron: reviewed version migration preserves exact node/workspace scope through preload/Core.');
+    assert.equal(persistence.readDevelopmentRecordById({storeName:'tl_runtime_nodes',id:'atomic-node'}).metadata.customPackage.version,'1.0.1');
+    assert.equal(record().agentRun.observations.find(entry=>entry.request.action==='migrate_custom_node').observation.updated,1);
+    const migrated=persistence.readDevelopmentRecordById({storeName:'tl_runtime_nodes',id:'atomic-node'});delete migrated.metadata.customPackage;
+    persistence.writeDevelopmentRecords({storeName:'tl_runtime_nodes',records:[migrated]});
     await seed(false); mode = 'package-lifecycle'; atomicStep = 0; lifecyclePackages = []; lifecycleListReads = 0;
     const lifecycleChat = record(); lifecycleChat.permissions = { readToolScope: 'all-read', readToolGrants: {} };
     persistence.writeDevelopmentRecords({ storeName: 'tl_flow_prompt_chats', records: [lifecycleChat] });
@@ -452,7 +583,7 @@ app.whenReady().then(async () => {
     assert.equal(lifecycleObservations.filter(entry => entry.request.tool === 'tl.workspace.inspectTopology').length, 2);
     await seed(false); mode = 'draft-guard'; atomicStep = 0; await load(); await open(); await resume();
     await waitFor(`[...document.querySelectorAll('button')].some(b=>b.textContent==='Consenti tutte le letture per questa chat')`, 'draft read consent');
-    await js(`[...document.querySelectorAll('button')].find(b=>b.textContent==='Consenti tutte le letture per questa chat').click()`);
+    await consent('Consenti tutte le letture per questa chat');
     await waitFor(`window.trackers.desktop.persistence.readDevelopmentRecordById({storeName:'tl_flow_prompt_chats',id:'chat-restart'}).then(chat=>chat.agentRun.status==='completed')`, 'duplicate draft reviewed');
     const draftObservation = record().agentRun.observations.find(entry => entry.request?.action === 'draft_custom_node')?.observation;
     const topologyObservation = record().agentRun.observations.find(entry => entry.request?.tool === 'tl.workspace.inspectTopology')?.observation;
@@ -468,10 +599,10 @@ app.whenReady().then(async () => {
     ] });
     await seed(false); mode = 'sqlite'; atomicStep = 0; await load(); await open(); await resume();
     await waitFor(`[...document.querySelectorAll('button')].some(b=>b.textContent==='Consenti tutte le letture per questa chat')`, 'SQLite catalog consent');
-    await js(`[...document.querySelectorAll('button')].find(b=>b.textContent==='Consenti tutte le letture per questa chat').click()`);
+    await consent('Consenti tutte le letture per questa chat');
     await waitFor(`document.body.textContent.includes('intero record sqlite-fixture')`, 'exact SQLite record consent');
     await waitFor(`![...document.querySelectorAll('button')].some(b=>b.textContent==='Consenti tutte le letture per questa chat')`, 'directory consent closed before file consent');
-    await js(`[...document.querySelectorAll('button')].find(b=>b.textContent==='Consenti una volta').click()`);
+    await consent('Consenti una volta');
     await waitFor(`window.trackers.desktop.persistence.readDevelopmentRecordById({storeName:'tl_flow_prompt_chats',id:'chat-restart'}).then(chat=>chat.agentRun.status==='completed')`, 'SQLite read completion');
     const sqliteRead = record().agentRun.observations.find(entry => entry.request?.tool === 'tl.sqlite.readRecord')?.observation;
     assert.equal(sqliteRead?.record?.details, 'full record retained');
@@ -496,18 +627,88 @@ app.whenReady().then(async () => {
     assert.equal(nativeRecord.archivedSessions[0].nativeSessionId, nativeUuid);
     await seed(false); mode = 'project'; atomicStep = 0; await load(); await open(); await resume();
     await waitFor(`[...document.querySelectorAll('button')].some(b=>b.textContent==='Consenti tutte le letture per questa chat')`, 'project directory consent');
-    await js(`[...document.querySelectorAll('button')].find(b=>b.textContent==='Consenti tutte le letture per questa chat').click()`);
-    await waitFor(`document.body.textContent.includes('testo completo del file example.js')`, 'project file consent');
+    await consent('Consenti tutte le letture per questa chat');
+    await waitFor(`[...document.querySelectorAll('.jss-dialog button')].some(b=>b.textContent==='Consenti una volta')`, 'project file consent');
+    await waitFor(`![...document.querySelectorAll('button')].some(b=>b.textContent==='Consenti tutte le letture per questa chat')`, 'directory consent dismissed');
     assert.equal(await js(`[...document.querySelectorAll('button')].some(b=>b.textContent==='Consenti tutte le letture per questa chat')`), false);
-    await js(`[...document.querySelectorAll('button')].find(b=>b.textContent==='Consenti una volta').click()`);
+    await consent('Consenti una volta');
     await waitFor(`window.trackers.desktop.persistence.readDevelopmentRecordById({storeName:'tl_flow_prompt_chats',id:'chat-restart'}).then(chat=>chat.agentRun.status==='completed')`, 'project read completion');
     assert.equal(record().agentRun.observations.find(entry => entry.request?.tool === 'tl.project.readTextFile')?.observation?.text, 'export const example = 42;\n');
     assert.equal(JSON.stringify(record().agentRun.observations).includes(projectFolder), false);
+    await seed(false); mode = 'mcp'; atomicStep = 0; await load(); await open(); await resume();
+    await waitFor(`[...document.querySelectorAll('.jss-dialog button')].some(b=>b.textContent==='Consenti tutte le letture per questa chat')`, 'MCP metadata consent');
+    await consent('Consenti tutte le letture per questa chat');
+    await waitFor(`[...document.querySelectorAll('.jss-dialog button')].some(b=>b.textContent==='Consenti una volta')`, 'MCP config file consent');
+    await consent('Consenti una volta');
+    await waitFor(`[...document.querySelectorAll('.jss-dialog button')].some(b=>b.textContent==='Collega server')`, 'MCP launch review');
+    assert.equal(mcp.sessions.size, 0, 'review does not launch a server');
+    await consent('Collega server');
+    await waitFor(`[...document.querySelectorAll('.jss-dialog button')].some(b=>b.textContent==='Esegui tool MCP')`, 'MCP tool review');
+    assert.equal(fs.existsSync(path.join(projectFolder, 'calls.txt')), false, 'readOnlyHint never skips call consent');
+    await consent('Esegui tool MCP');
+    await waitFor(`[...document.querySelectorAll('.jss-dialog button')].some(b=>b.textContent==='Esegui tool MCP')`, 'MCP second call review');
+    await consent('Annulla');
+    await waitFor(`window.trackers.desktop.persistence.readDevelopmentRecordById({storeName:'tl_flow_prompt_chats',id:'chat-restart'}).then(chat=>chat.agentRun.status==='completed')`, 'MCP completion');
+    const mcpObservations = record().agentRun.observations;
+    const mcpCalls = mcpObservations.filter(entry=>entry.request?.action==='call_mcp_tool');
+    assert.equal(mcpCalls[0].observation.result.content[0].text, 'MCP è reale');
+    assert.equal(mcpCalls[1].observation.status, 'blocked');
+    assert.equal(mcpCalls[2].observation.status, 'denied');
+    assert.equal(fs.readFileSync(path.join(projectFolder, 'calls.txt'), 'utf8'), 'call\n');
+    assert.equal([...mcp.sessions.values()][0].connection.closed, true);
+    assert.equal(mcpObservations.findLast(entry=>entry.request?.tool==='tl.mcp.listConnections').observation.sessions[0].status, 'closed', 'live MCP status is never cached');
+    assert.match(mcpObservations.find(entry=>entry.request?.tool==='tl.mcp.diagnostics').observation.stderr, /fixture ready/);
+    await seed(false); mode = 'mcp-stop'; atomicStep = 0; await load(); await open(); await resume();
+    await waitFor(`[...document.querySelectorAll('.jss-dialog button')].some(b=>b.textContent==='Consenti tutte le letture per questa chat')`, 'MCP stop metadata');
+    await consent('Consenti tutte le letture per questa chat');
+    await waitFor(`[...document.querySelectorAll('.jss-dialog button')].some(b=>b.textContent==='Consenti una volta')`, 'MCP stop config');
+    await consent('Consenti una volta');
+    await waitFor(`[...document.querySelectorAll('.jss-dialog button')].some(b=>b.textContent==='Collega server')`, 'MCP stop launch');
+    await consent('Collega server');
+    await waitFor(`[...document.querySelectorAll('.jss-dialog button')].some(b=>b.textContent==='Esegui tool MCP')`, 'MCP stop call');
+    await consent('Esegui tool MCP');
+    await waitFor(()=>record().agentRun.status==='executing', 'MCP hanging call');
+    await js(`document.querySelector('[aria-label="Lavoro della chat"]').click()`);
+    await waitFor(`[...document.querySelectorAll('.tl-flow-prompt-work-dialog-body button')].some(b=>b.textContent==='Interrompi')`, 'MCP Stop is available during execution');
+    await js(`[...document.querySelectorAll('.tl-flow-prompt-work-dialog-body button')].find(b=>b.textContent==='Interrompi').click()`);
+    await waitFor(()=>record().agentRun.status==='cancelled', 'MCP stop completion');
+    assert.equal([...mcp.sessions.values()].at(-1).connection.closed, true);
+    assert.equal(record().agentRun.pendingAction.action, 'call_mcp_tool', 'interrupted action stays uncertain and cannot auto-replay');
+    const completeCapability = async (nextMode, approvals) => {
+      await seed(false); mode = nextMode; atomicStep = 0; await load(); await open(); await resume();
+      const end = Date.now() + 20000;
+      while (Date.now() < end && record().agentRun.status !== 'completed') {
+        const label = await js(`[...document.querySelectorAll('.jss-dialog button')].filter(b=>b.getClientRects().length&&!b.disabled).map(b=>b.textContent).find(text=>${JSON.stringify(approvals)}.includes(text))`);
+        if (label) await consent(label); else await new Promise(resolve => setTimeout(resolve, 50));
+      }
+      assert.equal(record().agentRun.status, 'completed', JSON.stringify(record().agentRun));
+    };
+    await completeCapability('capability-browser', ['Consenti tutte le letture per questa chat','Consenti una volta','Esegui azione browser']);
+    const browserObservations = record().agentRun.observations;
+    assert.match(browserObservations.findLast(entry=>entry.request?.tool==='tl.browser.inspect').observation.text, /Chat browser reale/);
+    assert.equal(browserObservations.filter(entry=>entry.request?.action==='browser_action'&&entry.observation.ok).length, 4);
+    assert.ok(calls.at(-1).images[0].data.length > 1000);
+    await completeCapability('capability-skills', ['Consenti tutte le letture per questa chat','Consenti una volta','Installa skill','Attiva skill']);
+    assert.equal(record().activeSkills[0].content, skillContent);
+    assert.match(calls.at(-1).prompt, /User-approved active project skill instructions/);
+    await load(); mode = 'capability-deactivate'; atomicStep = 0;
+    await js('window.TrackerLensOpenFlowPromptChat()');
+    await js(`(() => {const input=document.querySelector('[data-flow-prompt-chat] textarea'); input.value='Disattiva la skill'; input.dispatchEvent(new Event('input',{bubbles:true})); document.querySelector('[aria-label="Invia messaggio"]').click();})()`);
+    await waitFor(`[...document.querySelectorAll('.jss-dialog button')].some(b=>b.textContent==='Disattiva skill')`, 'skill deactivation after reload');
+    assert.match(calls.at(-1).prompt, /SCOPE_APPROVED_SKILL_MARKER/);
+    await consent('Disattiva skill');
+    await waitFor(()=>record().agentRun.status==='completed'&&!record().activeSkills.length, 'skill deactivated');
+    assert.equal(calls.at(-1).prompt.includes('User-approved active project skill instructions'), false);
+    await completeCapability('capability-pty', ['Consenti tutte le letture per questa chat','Consenti una volta','Avvia terminale','Ridimensiona terminale','Invia input']);
+    const terminalId = [...chatProject.terminals.sessions.keys()].at(-1);
+    await waitFor(()=>persistence.readDevelopmentRecordById({storeName:'tl_ai_jobs',id:terminalId}).status==='completed', 'PTY completion');
+    const ptyRecord = persistence.readDevelopmentRecordById({storeName:'tl_ai_jobs',id:terminalId});
+    assert.equal(ptyRecord.transport, 'pty'); assert.match(ptyRecord.stdout, /40 100/); assert.match(ptyRecord.stdout, /PTY:ciao/);
     await seed(false); mode = 'project-edit'; atomicStep = 0; await load(); await open(); await resume();
     await waitFor(`[...document.querySelectorAll('button')].some(b=>b.textContent==='Consenti tutte le letture per questa chat')`, 'project edit directory consent');
-    await js(`[...document.querySelectorAll('button')].find(b=>b.textContent==='Consenti tutte le letture per questa chat').click()`);
-    await waitFor(`document.body.textContent.includes('testo completo del file example.js')`, 'project edit file consent');
-    await js(`[...document.querySelectorAll('button')].find(b=>b.textContent==='Consenti una volta').click()`);
+    await consent('Consenti tutte le letture per questa chat');
+    await waitFor(`[...document.querySelectorAll('.jss-dialog button')].some(b=>b.textContent==='Consenti una volta')`, 'project edit file consent');
+    await consent('Consenti una volta');
     await waitFor(`[...document.querySelectorAll('button')].some(b=>b.textContent==='Applica modifica')`, 'project edit review');
     assert.equal(fs.readFileSync(path.join(projectFolder, 'example.js'), 'utf8'), 'export const example = 42;\n');
     assert.match(await js(`document.body.textContent`), /export const example = 43/);
@@ -524,9 +725,9 @@ app.whenReady().then(async () => {
     assert.equal(record().agentRun.observations.find(entry => entry.request?.action === 'edit_project_file')?.observation?.status, 'completed');
     await seed(false); mode = 'project-script'; atomicStep = 0; await load(); await open(); await resume();
     await waitFor(`[...document.querySelectorAll('button')].some(b=>b.textContent==='Consenti tutte le letture per questa chat')`, 'script directory consent');
-    await js(`[...document.querySelectorAll('button')].find(b=>b.textContent==='Consenti tutte le letture per questa chat').click()`);
-    await waitFor(`document.body.textContent.includes('testo completo del file package.json')`, 'script manifest consent');
-    await js(`[...document.querySelectorAll('button')].find(b=>b.textContent==='Consenti una volta').click()`);
+    await consent('Consenti tutte le letture per questa chat');
+    await waitFor(`[...document.querySelectorAll('.jss-dialog button')].some(b=>b.textContent==='Consenti una volta')`, 'script manifest consent');
+    await consent('Consenti una volta');
     await waitFor(`[...document.querySelectorAll('button')].some(b=>b.textContent==='Esegui script')`, 'script execution review');
     assert.match(await js(`document.body.textContent`), /permessi locali/);
     assert.equal(record().agentRun.status, 'waiting-approval');
@@ -539,8 +740,8 @@ app.whenReady().then(async () => {
     assert.equal(record().agentRun.commandOutput.stdout, scriptResult.stdout);
     await seed(false); mode = 'project-cycle'; atomicStep = 0; await load(); await open(); await resume();
     await waitFor(`[...document.querySelectorAll('button')].some(b=>b.textContent==='Consenti tutte le letture per questa chat')`, 'cycle directory consent');
-    await js(`[...document.querySelectorAll('button')].find(b=>b.textContent==='Consenti tutte le letture per questa chat').click()`);
-    await waitFor(`document.body.textContent.includes('testo completo del file package.json')`, 'cycle manifest consent');
+    await consent('Consenti tutte le letture per questa chat');
+    await waitFor(`[...document.querySelectorAll('.jss-dialog button')].some(b=>b.textContent==='Consenti una volta')`, 'cycle manifest consent');
     for (const button of ['Consenti una volta', 'Esegui script', 'Consenti una volta', 'Applica modifica', 'Consenti una volta', 'Esegui script']) {
       await waitFor(`[...document.querySelectorAll('button')].some(b=>b.textContent===${JSON.stringify(button)})`, `cycle ${button}`);
       await js(`window.__fixtureClicked = [...document.querySelectorAll('button')].findLast(b=>b.textContent===${JSON.stringify(button)}); window.__fixtureClicked.click()`);
@@ -551,9 +752,9 @@ app.whenReady().then(async () => {
     assert.equal(fs.readFileSync(path.join(projectFolder, 'example.js'), 'utf8'), 'export const example = 44;\n');
     await seed(false); mode = 'project-group'; atomicStep = 0; await load(); await open(); await resume();
     await waitFor(`[...document.querySelectorAll('button')].some(b=>b.textContent==='Consenti tutte le letture per questa chat')`, 'group directory consent');
-    await js(`[...document.querySelectorAll('button')].find(b=>b.textContent==='Consenti tutte le letture per questa chat').click()`);
-    await waitFor(`document.body.textContent.includes('testo completo del file example.js')`, 'group existing file consent');
-    await js(`[...document.querySelectorAll('button')].find(b=>b.textContent==='Consenti una volta').click()`);
+    await consent('Consenti tutte le letture per questa chat');
+    await waitFor(`[...document.querySelectorAll('.jss-dialog button')].some(b=>b.textContent==='Consenti una volta')`, 'group existing file consent');
+    await consent('Consenti una volta');
     await waitFor(`[...document.querySelectorAll('button')].some(b=>b.textContent==='Applica modifiche ai file')`, 'group full review');
     assert.equal(fs.readFileSync(path.join(projectFolder, 'example.js'), 'utf8'), 'export const example = 44;\n');
     assert.equal(fs.existsSync(path.join(projectFolder, 'group-test.js')), false);
@@ -565,7 +766,7 @@ app.whenReady().then(async () => {
     assert.equal(record().agentRun.observations.find(entry => entry.request?.action === 'edit_project_files')?.observation?.status, 'completed');
     await seed(false); mode = 'project-terminal'; atomicStep = 0; await load(); await open(); await resume();
     await waitFor(`[...document.querySelectorAll('button')].some(b=>b.textContent==='Consenti tutte le letture per questa chat')`, 'terminal directory consent');
-    await js(`[...document.querySelectorAll('button')].find(b=>b.textContent==='Consenti tutte le letture per questa chat').click()`);
+    await consent('Consenti tutte le letture per questa chat');
     await waitFor(`[...document.querySelectorAll('button')].some(b=>b.textContent==='Esegui comando')`, 'terminal explicit review');
     assert.equal(fs.existsSync(path.join(projectFolder, 'terminal.txt')), false);
     assert.match(await js(`document.body.textContent`), /fuori dal progetto/);
@@ -578,7 +779,7 @@ app.whenReady().then(async () => {
     assert.equal(fs.readFileSync(path.join(projectFolder, 'terminal.txt'), 'utf8'), 'terminal fixture');
     await seed(false); mode = 'project-interactive'; atomicStep = 0; await load(); await open(); await resume();
     await waitFor(`[...document.querySelectorAll('button')].some(b=>b.textContent==='Consenti tutte le letture per questa chat')`, 'interactive directory consent');
-    await js(`[...document.querySelectorAll('button')].find(b=>b.textContent==='Consenti tutte le letture per questa chat').click()`);
+    await consent('Consenti tutte le letture per questa chat');
     await waitFor(`[...document.querySelectorAll('button')].some(b=>b.textContent==='Avvia terminale')`, 'interactive start review');
     await js(`[...document.querySelectorAll('button')].find(b=>b.textContent==='Avvia terminale').click()`);
     await waitFor(`[...document.querySelectorAll('button')].some(b=>b.textContent==='Invia input')`, 'interactive input review');
@@ -594,7 +795,7 @@ app.whenReady().then(async () => {
     assert.equal(polls[1].observation.inputs[0].text, 'fixture answer\n');
     await seed(false); mode = 'project-interactive-manual'; atomicStep = 0; await load(); await open(); await resume();
     await waitFor(`[...document.querySelectorAll('button')].some(b=>b.textContent==='Consenti tutte le letture per questa chat')`, 'manual terminal directory');
-    await js(`[...document.querySelectorAll('button')].find(b=>b.textContent==='Consenti tutte le letture per questa chat').click()`);
+    await consent('Consenti tutte le letture per questa chat');
     await waitFor(`[...document.querySelectorAll('button')].some(b=>b.textContent==='Avvia terminale')`, 'manual terminal start review');
     await js(`[...document.querySelectorAll('button')].find(b=>b.textContent==='Avvia terminale').click()`);
     await waitFor(`window.trackers.desktop.persistence.readDevelopmentRecordById({storeName:'tl_flow_prompt_chats',id:'chat-restart'}).then(chat=>chat.agentRun.status==='completed')`, 'manual terminal chat done');
@@ -612,7 +813,7 @@ app.whenReady().then(async () => {
     await waitFor(`document.querySelector('.tl-flow-prompt-work-dialog-body')?.textContent.includes('manual:user supplied')`, 'manual terminal final output');
     await seed(false); mode = 'project-create'; atomicStep = 0; await load(); await open(); await resume();
     await waitFor(`[...document.querySelectorAll('button')].some(b=>b.textContent==='Consenti tutte le letture per questa chat')`, 'creation directory consent');
-    await js(`[...document.querySelectorAll('button')].find(b=>b.textContent==='Consenti tutte le letture per questa chat').click()`);
+    await consent('Consenti tutte le letture per questa chat');
     await waitFor(`[...document.querySelectorAll('button')].some(b=>b.textContent==='Crea file')`, 'creation review');
     assert.equal(fs.existsSync(path.join(projectFolder, 'created.js')), false);
     await js(`[...document.querySelectorAll('button')].find(b=>b.textContent==='Crea file').click()`);
@@ -620,9 +821,9 @@ app.whenReady().then(async () => {
     assert.equal(fs.readFileSync(path.join(projectFolder, 'created.js'), 'utf8'), 'export const created = true;\n');
     await seed(false); mode = 'project-script-cancel'; atomicStep = 0; await load(); await open(); await resume();
     await waitFor(`[...document.querySelectorAll('button')].some(b=>b.textContent==='Consenti tutte le letture per questa chat')`, 'cancel directory consent');
-    await js(`[...document.querySelectorAll('button')].find(b=>b.textContent==='Consenti tutte le letture per questa chat').click()`);
-    await waitFor(`document.body.textContent.includes('testo completo del file package.json')`, 'cancel manifest consent');
-    await js(`[...document.querySelectorAll('button')].find(b=>b.textContent==='Consenti una volta').click()`);
+    await consent('Consenti tutte le letture per questa chat');
+    await waitFor(`[...document.querySelectorAll('.jss-dialog button')].some(b=>b.textContent==='Consenti una volta')`, 'cancel manifest consent');
+    await consent('Consenti una volta');
     await waitFor(`[...document.querySelectorAll('button')].some(b=>b.textContent==='Esegui script')`, 'cancel execution review');
     await js(`[...document.querySelectorAll('button')].find(b=>b.textContent==='Esegui script').click()`);
     await waitFor(`![...document.querySelectorAll('button')].some(b=>b.textContent==='Esegui script')`, 'script approval closed');
@@ -643,7 +844,7 @@ app.whenReady().then(async () => {
       await seed(false); mode = 'delete'; atomicStep = 0;
       await load(); await open(); await resume();
       await waitFor(`[...document.querySelectorAll('button')].some(b=>b.textContent==='Consenti tutte le letture per questa chat')`, 'delete read consent');
-      await js(`[...document.querySelectorAll('button')].find(b=>b.textContent==='Consenti tutte le letture per questa chat').click()`);
+      await consent('Consenti tutte le letture per questa chat');
       await waitFor(`[...document.querySelectorAll('button')].some(b=>b.textContent==='Applica tutte')`, 'delete confirmation');
       assert.ok(readNode(), 'delete preview never writes');
       await js(`[...document.querySelectorAll('button')].find(b=>b.textContent===${JSON.stringify(approve ? 'Applica tutte' : 'Annulla')}).click()`);
@@ -739,10 +940,11 @@ app.whenReady().then(async () => {
     await waitFor(() => typeof releaseBackground === "function", "background consent provider started");
     releaseBackground();
     await waitFor(`window.trackers.desktop.persistence.readDevelopmentRecordById({storeName:'tl_flow_prompt_chats',id:'chat-restart'}).then(chat=>chat.agentRun.status==='waiting-approval')`, 'background waits for user');
+    await waitFor(`![...document.querySelectorAll('button')].some(b=>b.textContent==='Consenti tutte le letture per questa chat')`, 'directory consent dismissed');
     assert.equal(await js(`[...document.querySelectorAll('button')].some(b=>b.textContent==='Consenti tutte le letture per questa chat')`), false);
     await js(`window.TrackerLensOpenFlowPromptChat()`);
     await waitFor(`[...document.querySelectorAll('button')].some(b=>b.textContent==='Consenti tutte le letture per questa chat')`, 'consent shown only on return');
-    await js(`[...document.querySelectorAll('button')].find(b=>b.textContent==='Consenti tutte le letture per questa chat').click()`);
+    await consent('Consenti tutte le letture per questa chat');
     await waitFor(`window.trackers.desktop.persistence.readDevelopmentRecordById({storeName:'tl_flow_prompt_chats',id:'chat-restart'}).then(chat=>chat.agentRun.status==='completed')`, 'background consent continuation');
     // Real sandboxed renderer: local worker parsing, paste, drafts and persisted originals.
     mode = 'answer'; await seed(false); await load(); await js('window.TrackerLensOpenFlowPromptChat()');
@@ -793,6 +995,8 @@ app.whenReady().then(async () => {
     console.log('Flow Chat Electron: SQLite restart/resume, uncertain-action guard, CLI live trace and cancellation passed.');
     console.log('Flow Chat Electron: atomic config/create/duplicate/connect, delete denial/apply, retained outputs and scoped restore passed.');
     console.log('Flow Chat Electron: repeated proposals/reads return feedback, denied/completed actions run at most once, failed preflight recovers after fresh reads.');
+    console.log('Flow Chat Electron: isolated browser/actions/images, installed/activated/reloaded/deactivated skills and PTY input/resize passed.');
+    console.log('Flow Chat Electron: real stdio MCP launch/call/deny/duplicate/disconnect and active-call Stop passed.');
     console.log('Flow Chat Electron: project reads, reviewed edits/creation, real npm verification and live process cancellation passed.');
     console.log('Flow Chat Electron: manual batch atomic Apply, lost-reply receipt recovery, hidden-chat route continuation and deferred consent passed.');
   } finally {

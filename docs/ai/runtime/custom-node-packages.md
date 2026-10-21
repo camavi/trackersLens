@@ -4,6 +4,12 @@ Purpose: package lifecycle, local management, runtime authority and marketplace 
 Read when: implementing Custom Node creation, import, activation, removal or publication.
 Last updated: 2026-09-26.
 
+## Chat-authored Python packages (2026-10-20)
+
+Core `prepareCreate` uses the manifest runtime entry when constructing a new archive, so a Python draft stores `runtime.py` rather than incorrectly always writing `runtime.js`. All drafts still pass ordinary archive/manifest validation and reviewed setup. The Chat provider receives the exact Python function/input/emit contract and discovers pinned module requirements from the managed catalog; source generation does not install arbitrary modules.
+
+Chat `migrate_custom_node` accepts exact source/target references and selected stable node IDs after same-turn inventory and node inspection. It calls the existing migration preview/apply tool with chat workspace and node scope, presents full reference/config changes, and retains Core fresh-state comparison, activation/port checks and Time Travel. Scope flows through preload/Core; nodes outside the selected workspace/IDs stay untouched. Existing manual migrations without scope retain their prior all-reference behavior. Uncertain application is never automatically replayed.
+
 ## Python packages (2026-09-26)
 
 ### Combined Chat setup (2026-10-05)
@@ -20,7 +26,7 @@ Both package tests and Flow runs use the existing exact-reference custom sandbox
 
 `core/desktop/custom-node-python-runner.cjs` launches one process per invocation with a minimal environment, Python isolated mode and an OS deny-by-default policy. The initial adapter uses macOS Seatbelt (`sandbox-exec`); Linux/Windows and hosts without it explicitly fail, without unsandboxed fallback. This macOS facility is deprecated by Apple, so a maintained cross-platform isolation adapter remains future work. Python `-I` is import/environment isolation, not the security boundary (see https://docs.python.org/3.11/using/cmdline.html). The policy permits read-only installed interpreter/library paths, but no user-data reads, file writes, network, process spawning or unrestricted Mach access. Standard-library and managed environment files are readable; this is not a Python module-name allowlist. The worker does not receive app credentials or a database handle.
 
-`runtimes/python/tl_custom_node_worker.py` verifies actual module versions before evaluating the entry. Packages implement `def run(*, input, config, emit, log)` (also async); emit/log callbacks are synchronous and broker-validated. Full logs, errors, tracebacks and emitted data remain inspectable. Only the declared entry is evaluated: importing helper modules/assets from the archive and Python graph/AI/memory tool calls are not yet supported. The built-in creator still authors JavaScript; Python packages use ZIP import.
+`runtimes/python/tl_custom_node_worker.py` verifies actual module versions before evaluating the entry. Packages implement `def run(*, input, config, emit, log)` (also async); emit/log callbacks are synchronous and broker-validated. Full logs, errors, tracebacks and emitted data remain inspectable. Only the declared entry is evaluated: importing helper modules/assets from the archive and Python graph/AI/memory tool calls are not yet supported. The manual guided creator still authors JavaScript; Python packages can use ZIP import or Chat-authored manifest/source drafts.
 
 No implicit execution timeout or output/source cap is added. Explicit `timeoutMs` is honored; zero means no deadline. Stopping a Python run kills its disposable process; installers await process shutdown. Pack/module provenance accompanies results and a pre-execution log records verified versions.
 

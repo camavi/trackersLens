@@ -81,13 +81,13 @@ const createFlowMapChatComposerView = (moduleDependencies) => {
             })
           ),
           _.Toolbar({ class: "tl-flow-prompt-composer-actions", gap: 8 },
-            flowMapBtn({ title: "Allega file", "aria-label": "Allega file", disabled: moduleDependencies.draft.busy || moduleDependencies.draft.readingAttachments, onclick: () => {
+            flowMapBtn({ title: "Allega file", "aria-label": "Allega file", disabled: moduleDependencies.draft.loadingHistory || moduleDependencies.draft.busy || moduleDependencies.draft.readingAttachments, onclick: () => {
               const input = document.createElement("input");
               input.type = "file"; input.multiple = true;
               input.onchange = () => { void (0, moduleDependencies.addAttachments)(input.files); };
               input.click();
             } }, flowMapIcon("attach_file", "sm")),
-            flowMapBtn({ class: "tl-flow-prompt-send", title: "Invia messaggio", "aria-label": "Invia messaggio", disabled: moduleDependencies.draft.busy || moduleDependencies.draft.readingAttachments, onclick: () => (0, moduleDependencies.analyze)() }, flowMapIcon("send", "sm")),
+            flowMapBtn({ class: "tl-flow-prompt-send", title: "Invia messaggio", "aria-label": "Invia messaggio", disabled: moduleDependencies.draft.loadingHistory || moduleDependencies.draft.busy || moduleDependencies.draft.readingAttachments, onclick: () => (0, moduleDependencies.analyze)() }, flowMapIcon("send", "sm")),
             moduleDependencies.draft.readingAttachments ? flowMapBtn({ onclick: () => moduleDependencies.draft.attachmentReadController.abort() }, "Annulla lettura") : null
           )
         )

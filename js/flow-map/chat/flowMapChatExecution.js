@@ -44,7 +44,7 @@ const createFlowMapChatExecution = (moduleDependencies) => {
   };
 
   const analyze = async (promptOverride = null, { resume = false } = {}) => {
-    if (moduleDependencies.draft.busy || moduleDependencies.draft.readingAttachments) return;
+    if (moduleDependencies.draft.loadingHistory || moduleDependencies.draft.busy || moduleDependencies.draft.readingAttachments) return;
     moduleDependencies.draft.stopRequested = false;
     moduleDependencies.draft.error = "";
     const attachments = resume ? (moduleDependencies.draft.activeChat.agentRun?.attachments || []) : (moduleDependencies.draft.activeChat.pendingAttachments || []);

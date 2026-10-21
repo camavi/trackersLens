@@ -150,6 +150,7 @@ class ChatProjectWorkspace {
   startTerminal(args, lifecycle) { return this.terminals.start(args, lifecycle); }
   listTerminals(args) { return this.terminals.list(args); }
   pollTerminal(args) { return this.terminals.poll(args); }
+  resizeTerminal(args, lifecycle) { return this.terminals.resize(args, lifecycle); }
   writeTerminal(args, lifecycle) { return this.terminals.write(args, lifecycle); }
   stopTerminal(args, lifecycle) { return this.terminals.stop(args, lifecycle); }
 

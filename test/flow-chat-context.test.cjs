@@ -621,3 +621,64 @@ test('isolated attachment reader retains originals, complete text and extraction
   const cancelled = create({ messageId: () => 'id', readDataUrl: async () => { throw new Error('must not read original after failure'); }, extractDocument: async () => { throw new Error('Lettura allegati annullata.'); } });
   await assert.rejects(cancelled.flowPromptReadAttachment(file('cancelled.pdf', '', [1]), signal), /cancelled.pdf: Lettura allegati annullata/);
 });
+
+test('chat history restores the saved provider and applies only an explicit opening provider', async () => {
+  const context = vm.createContext({});
+  vm.runInContext(fs.readFileSync(require.resolve('../js/flow-map/chat/flowMapChatHistoryActions.js'), 'utf8') + '\nglobalThis.createHistory = createFlowMapChatHistoryActions;', context);
+  for (const openingProvider of [undefined, 'codex', 'unknown']) {
+    const draft = { workspaceId: 'history-workspace' };
+    let saves = 0, statusReads = 0;
+    const actions = context.createHistory({ draft, FLOW_PROMPT_EXTERNAL_PROVIDER_IDS: ['codex', 'claude'],
+      refresh() {}, flowPromptListChats: async () => [{ id: 'saved-chat', providerId: 'claude' }],
+      setActiveChat: chat => { draft.activeChat = chat; }, flowPromptNewChat: () => { throw Error('Saved history should be used'); },
+      persistActiveChat: async () => { saves++; }, refreshProviderStatus: async () => { statusReads++; },
+    });
+    await actions.loadHistory(openingProvider === undefined ? undefined : { providerId: openingProvider });
+    assert.equal(draft.error, undefined);
+    assert.equal(draft.loadingHistory, false);
+    assert.equal(draft.activeChat.providerId, openingProvider === 'codex' ? 'codex' : 'claude');
+    assert.equal(saves, openingProvider === 'codex' ? 1 : 0);
+    assert.equal(statusReads, 1);
+  }
+});
+
+
+test('a completed graph action permits a natural completion instead of another creation plan', async () => {
+  const { api, requests } = setup();
+  await api.external('codex', 'Crea un flow', { toolObservations: [{ request: { action: 'edit_nodes_atomic' }, observation: { ok: true, status: 'completed', applied: true } }] });
+  assert.doesNotMatch(requests[0], /The user is asking to create a Flow/);
+  assert.match(requests[0], /edit_nodes_atomic/);
+  assert.match(requests[0], /For Python Custom Node authoring/);
+});
+
+
+test('project file creation wording does not force a Flow graph plan', async () => {
+  const { api, requests } = setup();
+  await api.external('codex', 'Crea README.md e correggi il test npm', { toolCatalog: { tools: [{name:'tl.project.readTextFile'}] } });
+  assert.doesNotMatch(requests[0], /The user is asking to create a Flow/);
+  assert.match(requests[0], /Only if you decide the user actually requests a Flow graph creation/);
+  assert.match(requests[0], /never project files/);
+});
+
+test('approved skills are included as exact instructions while ordinary reads remain observations', async () => {
+  const { api, payloads } = setup();
+  const content = '---\nname: fixture\ndescription: Verify fixture\n---\nAlways verify UNIQUE_SKILL_MARKER.\n';
+  await api.external('codex', 'Do the task', { sessionContext: { activeSkills: [{ skillId: 'fixture', packageSha256: 'a'.repeat(64), content }] } });
+  assert.match(payloads[0].prompt, /User-approved active project skill instructions/);
+  assert.match(payloads[0].prompt, /UNIQUE_SKILL_MARKER/);
+});
+
+test('browser screenshots are model image inputs, with full bytes retained in original observations', async () => {
+  const { api, payloads } = setup();
+  const observation = { tool: 'tl.browser.screenshot', image: { mime: 'image/png', data: 'UNIQUE_IMAGE_BYTES' } };
+  await api.external('codex', 'Inspect the screenshot', { toolObservations: [{ request: { tool: 'tl.browser.screenshot' }, observation }] });
+  assert.deepEqual(JSON.parse(JSON.stringify(payloads[0].images)), [{ mime: 'image/png', data: 'UNIQUE_IMAGE_BYTES' }]);
+  assert.equal(payloads[0].prompt.includes('UNIQUE_IMAGE_BYTES'), false);
+  assert.equal(observation.image.data, 'UNIQUE_IMAGE_BYTES');
+});
+
+
+test('chat cannot send a new task before saved provider and skill history finishes loading', async () => {
+  const { context } = setup();
+  await vm.runInContext(`createFlowMapChatExecution({ draft: { loadingHistory: true } }).analyze('must wait for the persisted provider')`, context);
+});

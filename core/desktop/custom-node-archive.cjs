@@ -46,4 +46,10 @@ const zipStored = (files = {}) => {
   return Buffer.concat([...locals, centralBuffer, eocd]);
 };
 
-module.exports = { zipStored };
+const createCustomNodeArchive = ({ manifest, source } = {}) => {
+  const entry = String(manifest?.runtime?.entry || "runtime.js").trim();
+  if (entry === "node.json") throw Object.assign(new Error("runtime.entry non può sostituire node.json."), { code: "CUSTOM_NODE_MANIFEST_INVALID" });
+  return zipStored({ "node.json": JSON.stringify(manifest), [entry]: String(source || "") });
+};
+
+module.exports = { zipStored, createCustomNodeArchive };

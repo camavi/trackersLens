@@ -118,6 +118,28 @@ Rules:
 - Tool calls must be workspace-scoped and should include `nodeId`, `workspaceId`, `runId` and `agentId` for audit.
 - Never expose hidden credentials, provider keys, local file paths or unconfirmed destructive actions through MCP tool descriptions or results.
 
+## External MCP in Flow Chat (2026-10-21)
+
+Update 2026-10-21: Streamable HTTP has also been implemented. See [Chat desktop capabilities](chat-desktop-capabilities.md) for the current HTTP/auth boundary; the stdio-only limitations in the initial slice below are historical.
+
+The first Phase C client is available to **Flow Chat**, not yet as a connected runtime node. `core/desktop/chat-mcp-client.cjs` owns local stdio processes behind named `desktop.mcp.*` Core operations and the sandboxed preload. No listening socket or generic IPC/process handle is exposed.
+
+Workflow:
+
+1. Choose a project folder with `tl.project.chooseFolder`, list the directory and consent to reading the exact user-specified MCP JSON file.
+2. Propose `connect_mcp_server` with `configPath`, `expectedSha256` and the exact `mcpServers` key. TL reviews the executable and arguments before launch. No implicit start, download, installation or credential grant occurs.
+3. Discover the `mcp` catalog domain and exact schemas. `tl.mcp.listConnections` returns only this desktop owner's chat/workspace sessions. `tl.mcp.listTools` reads every tools/list page for one listed session. Descriptors and annotations are untrusted metadata.
+4. Propose `call_mcp_tool` with the returned `sessionId`, declared `toolName` and JSON `arguments`. A second review shows the complete descriptor and arguments. Read-only annotations never bypass approval. Core consumes one-use approval and rechecks the descriptor immediately before tools/call.
+5. Observe full content/structuredContent/isError and source identity; use `tl.mcp.diagnostics` for complete stderr/status. Propose `disconnect_mcp_server` to close a listed session. Stop cancels this chat's connections; deleting the chat, renderer navigation/destruction, project exit and app quit also close owned processes.
+
+The configuration shape is `{"mcpServers":{"server-name":{"command":"/absolute/path/to/executable","args":["server-argument"]}}}`. This is a template, not an installed server recommendation. An executable name on PATH is also accepted; Core resolves it to the exact absolute program before review and revalidates that resolution before launch. Optional positive `requestTimeoutMs` is user-configured; absent means no hidden request deadline. Unsupported fields/transports are rejected rather than silently ignored. Only stdio and negotiated protocol versions 2025-11-25, 2025-06-18, 2025-03-26 and 2024-11-05 are supported. The server working directory is the selected project; environment inheritance is limited to OS/path/locale variables. Inline `env` values are unsupported. Server requests other than ping are rejected; TL does not advertise roots, sampling, elicitation or client-mediated mutation.
+
+These local programs execute with user privileges, not the Custom Node Python/JS sandbox. Their external side effects cannot be rolled back by TL Time Travel. Exact previews, complete observations, pending-action checkpoints and duplicate/restart guards are preserved; a transport failure after dispatch can mean uncertain effects and must never be replayed automatically. Tool errors remain returned facts. Connections are ephemeral and are not silently restored after restart. Read-only observations are live, not cached. External execution invalidates project/runtime discovery before subsequent TL operations; graph changes still use TL's registered safe executor.
+
+This does not implement a TL MCP server, a connected MCP runtime node, Streamable HTTP/OAuth, resources/prompts, sampling or installable skills. Protocol references: [stdio transport](https://modelcontextprotocol.io/specification/2025-11-25/basic/transports), [initialization](https://modelcontextprotocol.io/specification/2025-11-25/basic/lifecycle), [tools](https://modelcontextprotocol.io/specification/2025-11-25/server/tools).
+
+Verification: eight real-process Core/transport regressions cover complete large UTF-8 results, pagination, scopes, one-use confirmation, stale config/descriptors, rejected server sampling, noninherited custom env secrets, cancellation, malformed results/messages and exit. Isolated Electron covers actual JSswift launch/call consent, denial, duplicate suppression, live status and Stop during a hanging call. Real Codex QA in a fresh temporary project/profile completed connection → echo → expected tool error → diagnostics → disconnect → closed status, including recovery after missing same-turn discovery; `calls.txt` records exactly one intended fixture effect. No user project was used. Evidence is recorded in the temporary QA run, not committed as user data.
+
 ## Access Topology
 
 Agent tool access is graph-scoped, not workspace-global by default.
