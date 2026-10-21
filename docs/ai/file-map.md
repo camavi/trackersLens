@@ -123,3 +123,7 @@ Chat LSP snippet expansion: `core/desktop/chat-lsp-snippets.cjs` parses static t
 External TL MCP server: `core/mcp/tl-tools.cjs` owns schemas and Core read/preview dispatch; `local-service.cjs` owns project sockets/lifecycle; `local-client.cjs` connects the external SDK stdio entry `scripts/tl-mcp.cjs`. Main/preload and `js/tl-app-shell.js` own opt-in project controls. Contract: `runtime/mcp-server.md`.
 
 MCP mutation plans: `core/mcp/node-edits.cjs` owns connection scope/review/apply/receipts. Main owns approval tokens and save/unload/commit/reload lifecycle; `js/tl-project-session.js` and preload render/answer/cancel the local JSswift review. `mcp-edit-pending.html` is script-free during commit.
+
+MCP exact topology/duplicate schemas are in `core/mcp/tl-tools.cjs`; `McpNodeEdits.previewGraph` owns generated identities and forwards normalized plans to existing Core graph transactions. Tests extend the same SDK process and production Electron fixtures.
+
+MCP one-shot runtime: `core/mcp/runtime-runs.cjs` owns connection plans, run records and cancellation; Main adapts the existing Custom Node sandbox runner with AbortSignal/onExecution. Tests: `test/tl-mcp-runtime.test.cjs`, `test/tl-mcp-runtime-electron.cjs`. Full Flow propagation remains separate.

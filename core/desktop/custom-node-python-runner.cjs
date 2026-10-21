@@ -100,7 +100,7 @@ class CustomNodePythonRunner {
     return { executionId, provenance: { runtime: "python", isolation: readiness.isolation, pack: readiness.dependencies.pack } };
   }
 
-  close(executionId) { this.processes.get(executionId)?.kill("SIGKILL"); }
+  close(executionId) { const child=this.processes.get(executionId);if(!child)return Promise.resolve();return new Promise(resolve=>{child.once("close",resolve);child.kill("SIGKILL");}); }
   async stop() {
     await Promise.all([...this.processes.values()].map((child) => new Promise((resolve) => {
       child.once("close", resolve);

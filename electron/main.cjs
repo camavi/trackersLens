@@ -91,6 +91,7 @@ let pythonNlp = null;
 let pythonGraphRelations = null;
 let persistence = null;
 let tlMcpService = null;
+let launchMcpNode = null;
 let mcpMutationInProgress = false;
 const mcpReviews = new Map();
 let projectRuntime = null;
@@ -119,7 +120,7 @@ const reviewMcpEdit = (plan,signal) => new Promise((resolve,reject)=>{
   const finish=approved=>{signal?.removeEventListener('abort',cancel);mcpReviews.delete(token);window.webContents.removeListener('destroyed',destroyed);resolve(approved);};
   if(signal?.aborted)return resolve(false);signal?.addEventListener('abort',cancel,{once:true});
   mcpReviews.set(token,{ownerId:window.webContents.id,finish});window.webContents.once('destroyed',destroyed);
-  window.webContents.send('trackers-core:mcp-review',{token,workspaceId:plan.workspaceId,operationId:plan.operationId,before:plan.plan.before,after:plan.plan.after,edits:plan.edits});
+  window.webContents.send('trackers-core:mcp-review',{token,kind:plan.kind||'edit',workspaceId:plan.workspaceId,operationId:plan.operationId,before:plan.plan.before,after:plan.plan.after,edits:plan.edits});
 });
 const withMcpEditorPaused = async apply => {
   if(projectTransition||mcpMutationInProgress)throw new Error('Transizione progetto o modifica MCP in corso.');
@@ -526,7 +527,7 @@ ipcMain.handle("trackers-core:request", (event, command, payload) => {
   if (!projectSession) throw new Error('Apri una cartella progetto dalla Home.');
   if (projectTransition && !String(command).startsWith('desktop.persistence.') && !['desktop.externalAi.cancelMessage', 'desktop.chatProject.cancelScript', 'desktop.mcp.cancelChat', 'desktop.mcp.disconnect'].includes(command)) throw new Error('Cambio progetto in corso.');
   if (['desktop.mcpServer.status','desktop.mcpServer.start','desktop.mcpServer.stop'].includes(command)) {
-    tlMcpService ||= new (require('../core/mcp/local-service.cjs').LocalMcpService)({projectDirectory:projectSession.directory,project:projectSession,persistence,cliPath:path.join(projectRoot,'scripts','tl-mcp.cjs'),nodeEdits:new (require('../core/mcp/node-edits.cjs').McpNodeEdits)({core:tlCore,persistence,review:reviewMcpEdit,withEditorPaused:withMcpEditorPaused})});
+    tlMcpService ||= new (require('../core/mcp/local-service.cjs').LocalMcpService)({projectDirectory:projectSession.directory,project:projectSession,persistence,cliPath:path.join(projectRoot,'scripts','tl-mcp.cjs'),nodeEdits:new (require('../core/mcp/node-edits.cjs').McpNodeEdits)({core:tlCore,persistence,review:reviewMcpEdit,withEditorPaused:withMcpEditorPaused}),runtimeRuns:new (require('../core/mcp/runtime-runs.cjs').McpRuntimeRuns)({persistence,packages:customNodePackageManager,execute:(args,lifecycle)=>launchMcpNode(args,lifecycle),trace:id=>customNodeSandboxRunner?.broker.get(id),review:reviewMcpEdit})});
     const operation=command.split('.').pop();return tlMcpService[operation]();
   }
   if (['desktop.customNodePackages.discoverLocalAi', 'desktop.customNodePackages.previewLocalAiProfile', 'desktop.customNodePackages.applyLocalAiProfile', 'desktop.customNodePackages.discardLocalAiProfile', 'desktop.customNodePackages.previewSetup', 'desktop.customNodePackages.executeSetup', 'desktop.customNodePackages.discardSetup'].includes(command)) {
@@ -652,7 +653,7 @@ app.whenReady().then(async () => {
   // Both Flow and package tests use this exact-reference coordinator. Core
   // reloads verified source and chooses the runner; renderer data cannot select
   // an interpreter, source file, environment path or shell command.
-  const launchCustomNodeSandbox = async ({ packageId = "", version = "", archiveSha256 = "", nodeId = "", inputs = {}, config = {}, context = {}, timeoutMs: requestedTimeoutMs } = {}) => {
+  const launchCustomNodeSandbox = async ({ packageId = "", version = "", archiveSha256 = "", nodeId = "", inputs = {}, config = {}, context = {}, timeoutMs: requestedTimeoutMs } = {}, lifecycle = {}) => {
     if (!customNodeSandboxRunner) throw Object.assign(new Error("Il runner sandbox dei Custom Node non è abilitato."), { code: "CUSTOM_NODE_SANDBOX_DISABLED" });
     const runtime = await customNodePackageManager.loadSandboxRuntime({ packageId, version, archiveSha256 });
     const execution = runtime.packageRecord.manifest.execution;
@@ -668,7 +669,11 @@ app.whenReady().then(async () => {
       context,
       grantedPermissions: runtime.packageRecord.grantedPermissions
     });
+    const abort=()=>{customNodeSandboxRunner.broker.fail({executionId:request.executionId,code:'EXECUTION_CANCELLED',message:'Esecuzione annullata tramite MCP.'});void runner.close(request.executionId);};
+    lifecycle.signal?.addEventListener('abort',abort,{once:true});
     try {
+      lifecycle.onExecution?.(request.executionId);
+      if(lifecycle.signal?.aborted){abort();throw Object.assign(new Error('Execution cancelled before launch.'),{code:'EXECUTION_CANCELLED'});}
       const launched = await runner.launch({ request, source: runtime.source, execution });
       const timeout = timeoutMs > 0 ? setTimeout(() => {
         customNodeSandboxRunner.broker.fail({
@@ -692,7 +697,7 @@ app.whenReady().then(async () => {
       } finally {
         clearTimeout(timeout);
         customNodeLocalAi.cancel(request.executionId);
-        runner.close(request.executionId);
+        await runner.close(request.executionId);
       }
     } catch (error) {
       customNodeLocalAi.cancel(request.executionId);
@@ -701,9 +706,11 @@ app.whenReady().then(async () => {
         code: "CUSTOM_NODE_SANDBOX_LAUNCH_FAILED",
         message: error?.message || String(error)
       });
+      await runner.close(request.executionId);
       throw error;
-    }
+    } finally { lifecycle.signal?.removeEventListener('abort',abort); }
   };
+  launchMcpNode = launchCustomNodeSandbox;
   const selectCustomNodeArchive = async () => {
     const result = await dialog.showOpenDialog({
       title: "Importa Custom Node",

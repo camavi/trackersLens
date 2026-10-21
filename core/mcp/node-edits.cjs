@@ -8,6 +8,15 @@ class McpNodeEdits {
   this.plans.set(planId,{owner,workspaceId:args.workspaceId,edits:structuredClone(args.edits),expected:plan.before,operationId,plan});
   return {...plan,planId,operationId,tool:'applyNodeEdits',status:'ready',limitations:['Apply requires a separate call and local TL review. TL saves pending edits and reloads the editor; stale state or active runtime work blocks the entire write.']};
  }
+ async previewGraph(args,owner){
+  const edits=args.edits.map(edit=>{
+   if(edit.operation==='connect')return {...edit,dependencyId:'mcp_dep_'+crypto.randomUUID(),connectionId:'mcp_conn_'+crypto.randomUUID()};
+   if(edit.operation==='duplicate')return {...edit,newNodeId:'mcp_node_'+crypto.randomUUID()};
+   return {...edit};
+  });
+  const result=await this.preview({...args,edits},owner);
+  return {...result,edits,limitations:[...result.limitations,'New identities are allocated once by TL for this exact plan. Duplicate creates an inactive instance from the existing node; existing channel producers and saved output are preserved. Disconnect removes only the exact link; it does not delete produced data.']};
+ }
  async apply({planId},owner){
   const plan=this.plans.get(planId);if(!plan||plan.owner!==owner)throw new Error('Plan is outside this MCP connection; prepare a new preview.');
   if(this.running||this.closed)throw new Error('Another MCP edit or project transition is in progress.');
