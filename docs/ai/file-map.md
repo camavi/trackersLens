@@ -115,3 +115,5 @@ Last updated: 2026-10-10.
 - `docs/ai/runtime/desktop-persistence.md`: SQLite-only desktop persistence contract.
 
 LSP completion/code-action proposals: `core/desktop/chat-lsp.cjs` owns synchronized queries, opaque proposal resolution and reviewed edit plans; `test/chat-lsp-proposals-real.cjs` exercises actual TypeScript completion/import organization/tsc. Chat catalog/read/action modules retain the standard Core boundary.
+
+TypeScript refactoring calculations: `core/desktop/chat-lsp-typescript.cjs` validates opaque server commands and converts getEditsForRefactor results into reviewed WorkspaceEdits; integrated through `ChatLsp.prepareProposal`, never generic renderer command execution.

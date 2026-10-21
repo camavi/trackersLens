@@ -3,6 +3,7 @@ const path = require('node:path');
 const { pathToFileURL } = require('node:url');
 const { spawn } = require('node:child_process');
 const crypto = require('node:crypto');
+const { prepareTypeScriptRefactor } = require('./chat-lsp-typescript.cjs');
 const { positionOffset, projectLocation, normalizeWorkspaceEdit } = require('./chat-lsp-edits.cjs');
 const { ReviewedChatCapability, fingerprint } = require('./chat-capability-scope.cjs');
 class LspProcess {
@@ -165,7 +166,7 @@ class ChatLsp extends ReviewedChatCapability {
       const proposalId=crypto.randomUUID();this.proposals.set(proposalId,{...this.scope(args,lifecycle),sessionId:session.sessionId,kind,item,snapshot,uri,document:source.document,defaults:result?.itemDefaults,range:args.range,source:{relativePath:source.file.relativePath,sha256:source.file.sha256,version:source.document.version,position:args.position}});
       return {proposalId,item};
     });
-    return {sessionId:session.sessionId,kind,result,proposals,limitations:['Proposals are untrusted evidence, not applied edits. Completion without an explicit server or caller text range, snippets and commands require unsupported semantics and remain inspectable only. Code-action diagnostics are supplied only for an exact versioned report.']};
+    return {sessionId:session.sessionId,kind,result,proposals,limitations:['Proposals are untrusted evidence, not applied edits. Completion without an explicit server or caller text range, snippets and arbitrary commands remain inspectable only; server-owned TypeScript refactors may use the fixed getEditsForRefactor calculation adapter. Code-action diagnostics are supplied only for an exact versioned report.']};
   }
   async prepareProposal(args,lifecycle) {
     const proposal=this.proposals.get(args.proposalId);
@@ -176,12 +177,16 @@ class ChatLsp extends ReviewedChatCapability {
     const provider=session.server.capabilities[proposal.kind==='completion'?'completionProvider':'codeActionProvider'];
     if(provider?.resolveProvider)item=await session.server.request(proposal.kind==='completion'?'completionItem/resolve':'codeAction/resolve',item);
     this.checkSnapshot(session,proposal.snapshot);
-    let edit=null;const reasons=[];
+    let edit=null,adapter=null;const reasons=[];
     if(!item||typeof item!=='object')reasons.push('Malformed resolved proposal.');
     else if(proposal.kind==='codeAction'){
       if(item.disabled)reasons.push('Disabled action: '+item.disabled.reason);
-      if(item.command)reasons.push('Command execution is unsupported; the complete action is retained without partial application.');
-      edit=item.edit;
+      if(item.command&&!item.disabled){
+        adapter=await prepareTypeScriptRefactor({workspace:this.workspace,session,proposal,item});
+        if(!adapter)reasons.push('Command execution is unsupported; the complete action is retained without partial application.');
+      }
+      edit=adapter?.edit??item.edit;
+      if(adapter)reasons.push(...adapter.reasons);
     }else{
       const defaults=proposal.defaults||{};
       if(Object.keys(defaults).some(key=>!['editRange','insertTextFormat','insertTextMode','data'].includes(key)))reasons.push('Unsupported completion item defaults; no partial insertion.');
@@ -196,9 +201,10 @@ class ChatLsp extends ReviewedChatCapability {
       if(defaults.data!==undefined&&!Object.hasOwn(proposal.item,'data'))reasons.push('Unsupported completion itemDefaults.data resolution.');
       edit={changes:{[proposal.uri]:[...(primary?[primary]:[]),...(item.additionalTextEdits||[])]}};
     }
+    this.checkSnapshot(session,proposal.snapshot);
     const normalized=normalizeWorkspaceEdit({workspace:this.workspace,session,snapshot:proposal.snapshot,edit});
     normalized.reasons.unshift(...reasons);
-    const renameId=crypto.randomUUID(),plan={...this.scope(args,lifecycle),sessionId:session.sessionId,renameId,source:proposal.source,newName:item?.label||item?.title||proposal.kind,result:{kind:proposal.kind,original:proposal.item,resolved:item,edit},...normalized};
+    const renameId=crypto.randomUUID(),plan={...this.scope(args,lifecycle),sessionId:session.sessionId,renameId,source:proposal.source,newName:item?.label||item?.title||proposal.kind,result:{kind:proposal.kind,original:proposal.item,resolved:item,edit,...(adapter?{adapter:adapter.evidence}:{})},...normalized};
     plan.snapshot=proposal.snapshot;
     plan.applicable=!plan.reasons.length&&plan.files.some(file=>file.content!==this.workspace.readTextFile({chatId:args.chatId,folderId:session.folderId,relativePath:file.relativePath}).text);
     if(!plan.applicable&&!plan.reasons.length)plan.reasons.push('Server returned no effective changes.');

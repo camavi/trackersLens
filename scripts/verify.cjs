@@ -20,6 +20,7 @@ const syntaxFiles = [
   'core/desktop/chat-git.cjs',
   'core/desktop/chat-lsp.cjs',
   'core/desktop/chat-lsp-edits.cjs',
+  'core/desktop/chat-lsp-typescript.cjs',
   'test/chat-lsp-navigation-real.cjs',
   'test/chat-lsp-proposals-real.cjs',
   'core/desktop/chat-tests.cjs',

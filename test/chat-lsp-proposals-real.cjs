@@ -32,8 +32,15 @@ if(!process.env.TL_TEST_LSP_CLI){console.log('Set TL_TEST_LSP_CLI to the install
   const actionable=plans.find(p=>p.applicable);assert.ok(actionable,JSON.stringify({actions,plans}));
   review=await request('previewRename',{renameId:actionable.renameId});
   const applied=await request('applyRename',{renameId:actionable.renameId,previewToken:review.previewToken,confirmed:true});assert.equal(applied.status,'completed');
+  await sync('consumer.ts');
+  const refactors=await request('proposalsFor',{sessionId:session.sessionId,relativePath:'consumer.ts',expectedSha256:read('consumer.ts').sha256,kind:'codeAction',only:['refactor.extract'],position:{line:2,character:22},range:{start:{line:2,character:22},end:{line:2,character:31}}});
+  const extraction=refactors.proposals.find(p=>p.item.kind==='refactor.extract.constant'&&!p.item.disabled);assert.ok(extraction,JSON.stringify(refactors));
+  const beforeRefactor=read('consumer.ts').text,beforeFiles=fs.readdirSync(root).sort();
+  const extractPlan=await request('prepareProposal',{proposalId:extraction.proposalId});assert.equal(extractPlan.applicable,true,JSON.stringify(extractPlan));assert.equal(read('consumer.ts').text,beforeRefactor);assert.deepEqual(fs.readdirSync(root).sort(),beforeFiles);
+  const extractReview=await request('previewRename',{renameId:extractPlan.renameId});
+  const extractApplied=await request('applyRename',{renameId:extractPlan.renameId,previewToken:extractReview.previewToken,confirmed:true});assert.equal(extractApplied.status,'completed');assert.ok(read('consumer.ts').text.includes('const newLocal = double(2)'));
   const tsc=path.resolve(path.dirname(process.env.TL_TEST_LSP_CLI),'../../typescript/bin/tsc');execFileSync(process.execPath,[tsc,'--project',root],{cwd:root,encoding:'utf8'});
   const stopped=await request('stop',{sessionId:session.sessionId});assert.equal(stopped.status,'closed');
-  if(process.env.TL_TEST_LSP_PROPOSAL_EVIDENCE)fs.writeFileSync(process.env.TL_TEST_LSP_PROPOSAL_EVIDENCE,JSON.stringify({completion,planned,actions,plans,review,applied,stopped},null,2));console.log('REAL TYPESCRIPT COMPLETION/CODE-ACTION PASS');
+  if(process.env.TL_TEST_LSP_PROPOSAL_EVIDENCE)fs.writeFileSync(process.env.TL_TEST_LSP_PROPOSAL_EVIDENCE,JSON.stringify({completion,planned,actions,plans,review,applied,refactors,extractPlan,extractReview,extractApplied,stopped},null,2));console.log('REAL TYPESCRIPT COMPLETION/CODE-ACTION/EXTRACT-REFACTOR PASS');
  }finally{await lsp.cancelOwner(1);fs.rmSync(root,{recursive:true,force:true});}
 })().catch(error=>{console.error(error);process.exitCode=1;});

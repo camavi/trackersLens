@@ -76,7 +76,7 @@ for(const kind of ['completion','codeAction'])test(`LSP ${kind} proposals resolv
  const f=await fixture(t),session=await f.start();
  const args={sessionId:session.sessionId,relativePath:'source.js',expectedSha256:f.read('source.js').sha256,languageId:'javascript',kind,position:{line:0,character:6},range:{start:{line:0,character:0},end:{line:0,character:6}}};
  await f.request('inspectFile',args);
- const response=await f.request('proposalsFor',args);assert.equal(response.proposals.length,kind==='completion'?2:3);
+ const response=await f.request('proposalsFor',args);assert.equal(response.proposals.length,kind==='completion'?2:4);
  if(kind==='completion')assert.equal(response.result.isIncomplete,true);
  const blocked=await f.request('prepareProposal',{proposalId:response.proposals[1].proposalId});assert.equal(blocked.applicable,false);assert.match(blocked.reasons.join(' '),kind==='completion'?/Snippet/:/Command/);
  await assert.rejects(f.request('previewRename',{renameId:blocked.renameId}),/not applicable/);
@@ -96,4 +96,24 @@ test('LSP proposals reject changed documents before resolve and caller ranges ou
  await assert.rejects(f.request('proposalsFor',{...args,range:{start:{line:0,character:0},end:{line:0,character:2}}}),/contain the cursor/);
  const response=await f.request('proposalsFor',args);fs.writeFileSync(path.join(f.root,'source.js'),'USER CHANGE');
  await assert.rejects(f.request('prepareProposal',{proposalId:response.proposals[0].proposalId}),/changed/);assert.equal(f.read('source.js').text,'USER CHANGE');
+});
+
+for(const newFile of [false,true])test(`TypeScript refactor calculation is reviewed and rejects resource edits (${newFile})`,async t=>{
+ const f=await fixture(t);
+ if(newFile){const config=JSON.parse(fs.readFileSync(path.join(f.root,'lsp.json'),'utf8'));config.languageServers.fixture.args.push('--refactor-new-file');fs.writeFileSync(path.join(f.root,'lsp.json'),JSON.stringify(config));f.args.expectedSha256=f.read('lsp.json').sha256;}
+ const session=await f.start(),args={sessionId:session.sessionId,relativePath:'source.js',expectedSha256:f.read('source.js').sha256,languageId:'javascript',kind:'codeAction',position:{line:0,character:6},range:{start:{line:0,character:0},end:{line:0,character:6}}};
+ await f.request('inspectFile',args);const proposals=await f.request('proposalsFor',args);
+ const plan=await f.request('prepareProposal',{proposalId:proposals.proposals[3].proposalId});assert.equal(f.read('source.js').text,'BROKEN');
+ assert.equal(plan.result.adapter.request.command,'typescript.tsserverRequest');assert.equal(plan.result.adapter.request.arguments[0],'getEditsForRefactor');assert.deepEqual(plan.result.adapter.response.body.renameLocation,{line:1,offset:1});
+ if(newFile){assert.equal(plan.applicable,false);assert.match(JSON.stringify(plan.reasons),/new file/);await assert.rejects(f.request('previewRename',{renameId:plan.renameId}),/not applicable/);}
+ else{assert.equal(plan.applicable,true);const review=await f.request('previewRename',{renameId:plan.renameId});assert.match(review.files[0].diff,/FIXED/);const applied=await f.request('applyRename',{renameId:plan.renameId,previewToken:review.previewToken,confirmed:true});assert.equal(applied.status,'completed');assert.equal(f.read('source.js').text,'FIXED');}
+});
+
+test('TypeScript refactor adapter rejects mismatched/extra command input before any request',async()=>{
+ const {prepareTypeScriptRefactor}=require('../core/desktop/chat-lsp-typescript.cjs');
+ const uri='file:///project/source.ts',range={start:{line:0,character:0},end:{line:0,character:6}},valid={file:'/project/source.ts',startLine:1,startOffset:1,endLine:1,endOffset:7,refactor:'Extract Symbol',action:'constant_scope_0'};
+ let calls=0;const workspace={resolve:()=>({target:'/project/source.ts',root:'/project'})},session={root:'/project',chatId:'chat',folderId:'f',server:{capabilities:{executeCommandProvider:{commands:['typescript.tsserverRequest']}},request:async()=>{calls++;throw new Error('Must not request');}}};
+ for(const args of [{...valid,endOffset:6},{...valid,file:'/outside.ts'},{...valid,extra:'ignored?'},{...valid,refactor:''}])await assert.rejects(prepareTypeScriptRefactor({workspace,session,proposal:{uri,range},item:{command:{command:'_typescript.applyRefactoring',arguments:[args]}}}));
+ await assert.rejects(prepareTypeScriptRefactor({workspace,session,proposal:{uri,range},item:{edit:{changes:{}},command:{command:'_typescript.applyRefactoring',arguments:[valid]}}}),/Combined/);
+ assert.equal(await prepareTypeScriptRefactor({workspace,session,proposal:{uri,range},item:{command:{command:'arbitrary.execute',arguments:[valid]}}}),null);assert.equal(calls,0);
 });
