@@ -21,6 +21,7 @@ const syntaxFiles = [
   'test/tl-mcp-update-recovery-electron.cjs',
   'test/tl-mcp-orders-electron.cjs',
   'test/tl-mcp-background-electron.cjs',
+  'test/tl-mcp-workspaces-electron.cjs',
   'electron/main.cjs',
   'core/desktop/project-runtime.cjs',
   'js/project-home.js',
