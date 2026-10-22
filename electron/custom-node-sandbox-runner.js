@@ -18,7 +18,7 @@
         return result?.result;
       };
       const tools = Object.freeze({
-        ai: Object.freeze({ complete: (args = {}) => toolCall("ai.complete", args) }),
+        ai: Object.freeze({ complete: (args = {}) => toolCall("ai.complete", args), completeLogin: (args = {}) => toolCall("ai.completeLogin", args) }),
         memory: Object.freeze({ read: (args = {}) => toolCall("memory.read", args), write: (args = {}) => toolCall("memory.write", args) }),
         runtimeGraph: Object.freeze({ read: (args = {}) => toolCall("runtimeGraph.read", args), preflight: (args = {}) => toolCall("runtimeGraph.preflight", args) })
       });

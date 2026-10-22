@@ -48,7 +48,8 @@ window.TrackerLensCustomNodePackages = (() => {
   const permissionText = (permissions = {}) => [
     permissions.network ? "network" : null,
     permissions.filesystem ? "filesystem" : null,
-    permissions.aiProvider ? "AI provider" : null,
+    permissions.aiProvider ? "AI provider locale" : null,
+    permissions.externalAiProvider ? "AI con login (invio dati)" : null,
     permissions.memory ? "memory" : null,
     permissions.runtimeGraph && permissions.runtimeGraph !== "none" ? `runtime graph: ${permissions.runtimeGraph}` : null,
   ].filter(Boolean);

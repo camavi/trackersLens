@@ -104,14 +104,14 @@
       [item.key, item.label, item.value].forEach((control) => control.addEventListener("input", sync));
       settingsHost.append(row); sync();
     };
-    const permissions = { network: false, filesystem: false, aiProvider: false, memory: false, runtimeGraph: "none" };
+    const permissions = { network: false, filesystem: false, aiProvider: false, externalAiProvider: false, memory: false, runtimeGraph: "none" };
     const ports = (key) => [...new Set(fields[key].value.split(",").map((value) => value.trim()).filter(Boolean))];
     const build = () => ({ id: fields.id.value.trim(), name: fields.name.value.trim(), version: fields.version.value.trim(), publisher: fields.publisher.value.trim(), category: fields.category.value.trim(), icon: fields.icon.value.trim(), subtype: fields.id.value.trim(), inputs: ports("inputs"), outputs: ports("outputs"), permissions: { ...permissions }, settingsSchema: settingsSchema(), runtime: { entry: "runtime.js", mode: "sandboxed" } });
     const sync = () => { try { manifest.value = JSON.stringify(build(), null, 2); message.textContent = ""; } catch (failure) { message.textContent = failure.message; } };
     Object.values(fields).forEach((input) => input.addEventListener("input", sync));
     const permissionControls = _.div({ class: "tl-custom-permission-fields" },
-      ...[["aiProvider", "AI provider"], ["memory", "Memoria"]].map(([key, label]) => _.div(_.span(label), _.Toggle({ checked: false, onChange: (checked) => { permissions[key] = Boolean(checked); sync(); } }))),
-      _.p("AI e memoria: dichiarazione per il pacchetto; i servizi runtime non sono ancora collegati."),
+      ...[["aiProvider", "AI provider locale"], ["externalAiProvider", "AI con login (invio dati a Codex)"], ["memory", "Memoria"]].map(([key, label]) => _.div(_.span(label), _.Toggle({ checked: false, onChange: (checked) => { permissions[key] = Boolean(checked); sync(); } }))),
+      _.p("AI locale e Login Codex passano dal profilo configurato in TL e richiedono permessi distinti. Il servizio memoria non è ancora collegato."),
       _.div(_.span("Grafo runtime"), _.Select({ value: "none", options: [{ value: "none", label: "Nessun accesso" }, { value: "read", label: "Lettura nel Flow" }, { value: "write", label: "Proposte di modifica (preflight)" }], onChange: (value) => { permissions.runtimeGraph = value; sync(); } })),
       _.p("Accesso diretto a rete e filesystem non disponibile. I permessi si concedono dopo l’installazione."));
     const message = _.p({ role: "alert" });
@@ -354,7 +354,8 @@
     const message = _.p({ role: "alert" });
     const declared = pkg.permissions || {};
     const capabilities = [
-      { key: "aiProvider", iconName: "smart_toy", label: "Provider AI", detail: "Può richiedere il provider AI configurato per il Flow.", allowed: declared.aiProvider === true },
+      { key: "externalAiProvider", iconName: "cloud_upload", label: "Provider AI con login", detail: "Invia i messaggi al profilo Login Codex selezionato tramite il bridge desktop.", allowed: declared.externalAiProvider === true },
+      { key: "aiProvider", iconName: "smart_toy", label: "Provider AI locale", detail: "Invia messaggi al profilo API loopback configurato in TL.", allowed: declared.aiProvider === true },
       { key: "memory", iconName: "memory", label: "Memoria", detail: "Può usare la memoria esplicitamente collegata al runtime.", allowed: declared.memory === true },
       { key: "runtimeGraph", iconName: "account_tree", label: "Grafo runtime", detail: declared.runtimeGraph === "write" ? "Può proporre modifiche, soggette a preflight e consenso." : declared.runtimeGraph === "read" ? "Può leggere il grafo del Flow durante l’esecuzione." : "Non può leggere o modificare il grafo runtime.", allowed: declared.runtimeGraph === "read" || declared.runtimeGraph === "write", state: declared.runtimeGraph || "none" },
       { key: "network", iconName: "language", label: "Rete", detail: "Il runtime dei Custom Node non offre accesso diretto alla rete.", allowed: false },
@@ -508,7 +509,7 @@
       const finish = value => { if (!settled) { settled = true; resolve(value); } };
       const timeline = _.div({ class: "tl-custom-setup-progress", role: "status", "aria-live": "polite" });
       const steps = { install: "Installa il pacchetto", permissions: "Registra i permessi dichiarati", python: "Installa e verifica Python e modelli", activate: "Attiva questa versione" };
-      const permissions = { aiProvider: "Provider AI", memory: "Memoria", runtimeGraph: "Grafo runtime", network: "Rete", filesystem: "File locali" };
+      const permissions = { aiProvider: "Provider AI locale", externalAiProvider: "Provider AI con login (invio dati)", memory: "Memoria", runtimeGraph: "Grafo runtime", network: "Rete", filesystem: "File locali" };
       const python = plan.pythonPlan;
       const dialog = trackedDialog({
         class: "tl-custom-setup-dialog", title: "Prepara Custom Node", icon: "deployed_code", size: "lg",

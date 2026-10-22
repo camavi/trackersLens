@@ -274,7 +274,7 @@ test("Custom Node manifest-only install copies the archive and catalogs opaque m
   assert.equal(installed.runtimeExecution, "blocked");
   assert.equal(installed.trustLevel, "local-dev");
   assert.equal(installed.staticAnalysis.status, "reviewed");
-  assert.deepEqual(installed.grantedPermissions, { network: false, filesystem: false, aiProvider: false, memory: false, runtimeGraph: "none" });
+  assert.deepEqual(installed.grantedPermissions, { network: false, filesystem: false, aiProvider: false, externalAiProvider: false, memory: false, runtimeGraph: "none" });
   assert.equal(records.length, 1);
   assert.equal(Object.values(installed).some((value) => typeof value === "string" && value.includes(root)), false);
   const archivedFiles = fs.readdirSync(path.join(root, "app-data-packages", "custom.example-node", "1.0.0"));

@@ -13,6 +13,7 @@ const { CustomNodeSandboxBroker } = require("../core/desktop/custom-node-sandbox
 const { CustomNodeElectronRunner } = require("../core/desktop/custom-node-electron-runner.cjs");
 const { CustomNodeToolDispatcher } = require("../core/desktop/custom-node-tool-dispatcher.cjs");
 const { CustomNodeLocalAi } = require("../core/desktop/custom-node-local-ai.cjs");
+const { CustomNodeLoginAi } = require("../core/desktop/custom-node-login-ai.cjs");
 const { DesktopPersistence } = require("../core/desktop/desktop-persistence.cjs");
 const { ExternalAiProviderBridge } = require("../core/desktop/external-ai-provider-bridge.cjs");
 const { ChatBrowser, createChatBrowserWindow } = require("../core/desktop/chat-browser.cjs");
@@ -638,8 +639,9 @@ app.whenReady().then(async () => {
     persistence
   });
   const customNodeLocalAi = new CustomNodeLocalAi({ persistence });
+  const customNodeLoginAi = new CustomNodeLoginAi({ persistence, bridge: externalAiProviderBridge });
   if (customNodeSandboxEnabled) {
-    const toolDispatcher = new CustomNodeToolDispatcher({ persistence, localAi: customNodeLocalAi });
+    const toolDispatcher = new CustomNodeToolDispatcher({ persistence, localAi: customNodeLocalAi, loginAi: customNodeLoginAi });
     const broker = new CustomNodeSandboxBroker({ onToolCall: (call) => toolDispatcher.dispatch(call) });
     customNodePythonRunner = new CustomNodePythonRunner({ broker, resolver: pythonPacks, environments: [dataEnvironment, nlpEnvironment, graphEnvironment] });
     customNodeSandboxRunner = new CustomNodeElectronRunner({
@@ -698,10 +700,12 @@ app.whenReady().then(async () => {
       } finally {
         clearTimeout(timeout);
         customNodeLocalAi.cancel(request.executionId);
+        await customNodeLoginAi.cancel(request.executionId);
         await runner.close(request.executionId);
       }
     } catch (error) {
       customNodeLocalAi.cancel(request.executionId);
+      await customNodeLoginAi.cancel(request.executionId);
       customNodeSandboxRunner.broker.fail({
         executionId: request.executionId,
         code: "CUSTOM_NODE_SANDBOX_LAUNCH_FAILED",

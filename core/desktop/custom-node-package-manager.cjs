@@ -111,6 +111,7 @@ const normalizePermissions = (value = {}) => {
     network: Boolean(value.network),
     filesystem: Boolean(value.filesystem),
     aiProvider: Boolean(value.aiProvider),
+    externalAiProvider: Boolean(value.externalAiProvider),
     memory: Boolean(value.memory),
     runtimeGraph
   });

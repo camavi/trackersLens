@@ -8,12 +8,14 @@ const clone = (value) => JSON.parse(JSON.stringify(value));
 // handles/paths and has no mutation operation. Graph reads are workspace scoped;
 // local AI goes through an explicitly configured profile and granted capability.
 class CustomNodeToolDispatcher {
-  constructor({ persistence = null, localAi = null } = {}) {
+  constructor({ persistence = null, localAi = null, loginAi = null } = {}) {
     this.persistence = persistence;
     this.localAi = localAi;
+    this.loginAi = loginAi;
   }
 
   async dispatch({ tool = "", arguments: args = {}, request = {}, executionId = '' } = {}) {
+    if (tool === 'ai.completeLogin' && this.loginAi) return this.loginAi.complete({ arguments: args, request, executionId });
     if (tool === 'ai.complete' && this.localAi) return this.localAi.complete({ arguments: args, request, executionId });
     if (tool === "runtimeGraph.read") return this.readRuntimeGraph(request);
     if (tool === "runtimeGraph.preflight") return this.preflightRuntimeGraph(request, args);

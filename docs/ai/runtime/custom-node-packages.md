@@ -59,6 +59,16 @@ At startup, cataloged legacy `custom-node-packages` archives are hash-checked an
 
 Lifecycle timestamps record installation, permission grant, activation and deactivation. Readable Review/Details sections expose identity, permissions, static findings, files, hashes, lifecycle and installed versions; the complete JSON remains expandable. Package upgrades remain separate exact identities and never silently migrate Flow references.
 
+## Explicit Codex Login capability (2026-10-22)
+
+JavaScript sandbox packages may call `await tools.ai.completeLogin({messages})` (or `{prompt}`) with the separate `permissions.externalAiProvider: true` declaration and exact-archive grant. Legacy `aiProvider` permission still authorizes only the existing loopback `tools.ai.complete` broker. The authoring/permission UI distinguishes local inference from sending data to Codex.
+
+`config.aiProviderId` must identify an explicitly configured `connectionType: "login"`, Codex profile with a selected model and no API endpoint. Core resolves model/reasoning/speed from that profile and reuses `ExternalAiProviderBridge` plus the isolated read-only CLI runner. Tool arguments cannot choose destination, executable, credentials, model, filesystem or processes. No automatic login/install/profile creation occurs. Other Login providers and Python AI calls are unsupported here.
+
+`CustomNodeLoginAi` persists complete ordered messages and the actual JSON serialization supplied to the CLI (not native message-role isolation), provider events, terminal response, usage and provenance under `tl_ai_logs`, scoped by workspace/node/execution. Missing usage is null. Cancellation aborts the transport and waits for its completion; partial events remain inspectable. The result includes `text`, full `response`, `usage` and invocation/profile/model/transport provenance. Generated source is data until separately reviewed, packaged and executed through the existing lifecycle; no eval tool or automatic generated-code executor is added.
+
+Real acceptance: `test/tl-mcp-llm-collaboration-electron.cjs`, opt-in with a local LM Studio token file and `TL_LM_MODEL` selected from the actual catalog. It uses a temporary project/profile, actual Gemma → Codex → Python verification, then separate installation/execution of the exact Codex-generated Python. `test/tl-mcp-llm-collaboration-verify.cjs ROOT` independently reads SQLite and immutable archives after app exit. It does not establish general built-in LLM-node or event-bus parity. No credentials belong in evidence or repository files.
+
 ## Archive contract
 
 `node.json` must be at the ZIP root (not inside a wrapper directory). Example:

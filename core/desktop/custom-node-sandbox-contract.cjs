@@ -16,6 +16,7 @@ const normalizePermissions = (value = {}) => {
     network: Boolean(source.network),
     filesystem: Boolean(source.filesystem),
     aiProvider: Boolean(source.aiProvider),
+    externalAiProvider: Boolean(source.externalAiProvider),
     memory: Boolean(source.memory),
     runtimeGraph: ["none", "read", "write"].includes(runtimeGraph) ? runtimeGraph : "none"
   };
@@ -29,6 +30,7 @@ const intersectPermissions = (declared = {}, granted = {}) => {
     network: requested.network && approved.network,
     filesystem: requested.filesystem && approved.filesystem,
     aiProvider: requested.aiProvider && approved.aiProvider,
+    externalAiProvider: requested.externalAiProvider && approved.externalAiProvider,
     memory: requested.memory && approved.memory,
     runtimeGraph: graphLevels[Math.min(graphLevels.indexOf(requested.runtimeGraph), graphLevels.indexOf(approved.runtimeGraph))]
   };
@@ -37,6 +39,7 @@ const intersectPermissions = (declared = {}, granted = {}) => {
 const permissionForTool = (tool = "") => {
   const name = text(tool).toLowerCase();
   if (name === "ai.complete") return ["aiProvider", true];
+  if (name === "ai.completelogin") return ["externalAiProvider", true];
   if (["memory.read", "memory.write"].includes(name)) return ["memory", true];
   if (name === "runtimegraph.read") return ["runtimeGraph", "read"];
   if (name === "runtimegraph.preflight") return ["runtimeGraph", "write"];
