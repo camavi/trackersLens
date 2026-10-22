@@ -24,7 +24,7 @@
         try{status=await (status.running?bridge.stop():bridge.start());}catch(failure){error.textContent=failure.message;}finally{busy=false;render();}
       }}));
     };render();
-    const dialog=_.Dialog({title:'MCP del progetto',class:'tl-mcp-settings',size:'lg',closeButton:true,content:()=>_.div(state,_.p('Consente ai client locali del tuo utente di leggere grafi, configurazioni, output e log di questo progetto. Modifiche ed esecuzioni dei nodi richiedono anteprima e conferma in TL.'),controls,error,_.p('Configurazione del client MCP'),configuration),footer:()=>[_.Button({label:'Chiudi',onClick:()=>dialog.close()})]});dialog.open();
+    const dialog=_.Dialog({title:'MCP del progetto',class:'tl-mcp-settings',size:'lg',closeButton:true,content:()=>_.div(state,_.p('Consente ai client locali del tuo utente di leggere grafi, configurazioni, output e log di questo progetto. Modifiche ed esecuzioni dei nodi richiedono anteprima e conferma in TL.'),_.p('MCP resta attivo solo per questa sessione. Disattivarlo scollega i client e interrompe le loro esecuzioni, conservando gli output già salvati.'),controls,error,_.p('Configurazione del client MCP'),configuration),footer:()=>[_.Button({label:'Chiudi',onClick:()=>dialog.close()})]});dialog.open();
   };
   const openProjectMenu = async () => {
     const status = await projectBridge.getStatus();

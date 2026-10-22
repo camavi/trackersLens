@@ -85,3 +85,9 @@ test('official MCP client connects/disconnects exact ports and duplicates inacti
  const stale=(await call('tl_preview_graph_edits',{workspaceId:'w',edits:[link]})).structuredContent;f.persistence.writeDevelopmentRecords({storeName:'tl_channels',records:[{...read('tl_channels').find(c=>c.id==='out'),value:'Later runtime output'}]});assert.equal((await call('tl_apply_node_edits',{planId:stale.planId})).isError,true);assert.equal(read('tl_connections').length,0);assert.equal(read('tl_channels').find(c=>c.id==='out').value,'Later runtime output');
  assert.equal(read('tl_time_travel_snapshots').length,3);await client.close();
 });
+
+test('external client reports actionable disabled and moved-project connection errors', async t => {
+ const f=await fixture(t);
+ await assert.rejects(new LocalTlClient(f.root).connect(), /enable.*MCP del progetto/i);
+ await assert.rejects(new LocalTlClient(path.join(f.root,'moved project')).connect(), /folder not found.*moved.*configuration/i);
+});

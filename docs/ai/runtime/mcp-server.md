@@ -2,7 +2,7 @@
 
 Purpose: external assistant access to the open TL project, independent of Flow Chat.
 Read when: changing the MCP server, local connection or external TL control.
-Last updated: 2026-10-21.
+Last updated: 2026-10-22.
 
 ## Product direction
 
@@ -201,3 +201,13 @@ Final proof preserves40 source emissions,40 distinct downstream invocations, a f
 Alpha raises a real ValueError after ten emissions, while beta retains its execution/PID and continues. A new reviewed alpha run is stopped after six emissions; its Python and supervisor die while beta stays live and produces more results. Beta then completes100 ordered source emissions and100 doubled downstream invocations. Both worker workspace schedules refresh while the Flow view is unmounted, without being restarted. Full reports remain unchanged, and scoped MCP event/log reads contain only the requested workspace. A beta node requested under alpha is rejected.
 
 Independent read-only SQLite/OS/archive checks verify216 emitted records and222 logs against all saved per-execution traces, with no missing/duplicate/cross-workspace values, integrityok, three runs, four unchanged inactive nodes/two links and the same hash-verified archive. No runtime fix was needed. Evidence: `/tmp/tlw-final-20261022/evidence.json`, `independent-evidence.json`, `view-alpha.png`, `view-beta.png`. Fifteen focused MCP-runtime/worker regressions pass; the full358-pass/one-skip suite is the previous eleventh result, not a rerun for this QA addition. This is SDK acceptance, not another model-selection test, and does not establish toolbar Run, event-bus streaming parity, simultaneous downstream delivery before source completion or execution after app shutdown.
+
+## Project-menu onboarding/reconnection acceptance (2026-10-22)
+
+`TL_MCP_ONBOARDING_QA_ROOT=/tmp/tmo-fresh node test/tl-mcp-onboarding-electron.cjs` orchestrates two real Electron lifetimes. A temporary fixture has a reviewed/granted/activated two-node Python package using the already verified managed data pack. The test opens the project menu and enables/disables MCP through the actual JSswift buttons. It parses the displayed JSON configuration unchanged into an external official SDK transport: no handcrafted CLI quoting, clipboard integration or editor-specific configuration conversion is claimed. The client discovers21 tools, the intended workspace and both nodes, then runs the Python Flow through local approval.
+
+UI disable during an unbounded run closes the client, drains Python and its supervisor, preserves the partial output and removes the private descriptor. UI re-enable creates a different service instance. Unused old runtime/edit plans are rejected without new effects/receipt/snapshot; no work restarts until a fresh plan is approved. After clean app exit, QA renames the temporary project from a spaced path to a Unicode/spaced path and reopens it with the same profile. MCP is disabled by default. The original client path is refused; JSON from the new session connects to the same project identity and reads unchanged historical reports/packages/nodes. An explicitly approved new run completes from the preserved archive.
+
+`LocalTlClient.connect` now reports missing/moved project folders separately from absent/stale MCP sockets and directs the client to open the folder, enable MCP or copy the new configuration. Original causes remain attached, and symlink/privacy/descriptor checks are unchanged. The JSswift settings dialog explicitly describes session lifetime and the cancellation effects of disable. A regression reproduced the previous raw ENOENT message before the correction. Fresh final acceptance passes after correcting QA's record-order assumption; comparisons are by identity.
+
+Independent read-only SQLite/OS/archive checks verify integrityok, four completed/cancelled/completed/completed runs,19 preserved emitted records and15 logs matching full per-execution evidence, unchanged original reports/package grants/node config, physical PID termination and no replay/snapshots. Evidence: `/tmp/tmo13-final/independent-evidence.json`, `python-independent-checks.json`, `first-enabled.png`, `first-disabled.png`, `moved-enabled.png`. Full suite359 pass/one optional debugpy skip and existing production Electron graph/UI/responsive1200/480 regression pass. This still assumes a source checkout and Node on the external client's PATH; standalone distribution, remote transport and every editor's configuration format remain outside this acceptance.

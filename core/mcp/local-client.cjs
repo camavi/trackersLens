@@ -2,7 +2,20 @@ const net=require('node:net'),fs=require('node:fs'),path=require('node:path'),cr
 class LocalTlClient {
  constructor(projectDirectory){this.projectDirectory=projectDirectory;this.pending=new Map();this.socket=null;}
  async connect(){
-  const root=fs.realpathSync(this.projectDirectory),directory=path.join(root,'.tl','mcp'),descriptor=path.join(directory,'connection.json');
+  let root;
+  try { root=fs.realpathSync(this.projectDirectory); }
+  catch(error) {
+   if(!['ENOENT','ENOTDIR'].includes(error.code))throw error;
+   throw new Error('TL project folder not found. If it was moved, reopen the new folder in TL and copy its MCP configuration. ('+error.code+')',{cause:error});
+  }
+  try { return await this.open(root); }
+  catch(error) {
+   if(!['ENOENT','ENOTDIR','ECONNREFUSED','ECONNRESET'].includes(error.code))throw error;
+   throw new Error('TL MCP is unavailable for this project. Open this folder in TL and enable "MCP del progetto". If the folder was moved, copy the new client configuration from TL. ('+error.code+')',{cause:error});
+  }
+ }
+ async open(root){
+  const directory=path.join(root,'.tl','mcp'),descriptor=path.join(directory,'connection.json');
   for(const candidate of [path.join(root,'.tl'),directory])if(!fs.lstatSync(candidate).isDirectory()||fs.lstatSync(candidate).isSymbolicLink())throw new Error('Invalid TL MCP directory.');
   if((fs.statSync(directory).mode&0o077)!==0)throw new Error('TL MCP directory must be private to the current user.');
   if(!fs.lstatSync(descriptor).isFile()||fs.lstatSync(descriptor).isSymbolicLink())throw new Error('Invalid TL MCP connection descriptor.');
