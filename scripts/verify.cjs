@@ -6,6 +6,8 @@ const syntaxFiles = [
   'core/runtime/ai-provider-catalog.js',
   'test/standard-node-provider-live.cjs',
   'test/tl-consolidate-lmstudio-profile.cjs',
+  'test/tl-standard-document-repeat-app.cjs',
+  'test/tl-standard-document-repeat-verify.cjs',
   'core/desktop/standard-node-runtime.cjs',
   'core/runtime/standard-node-templates.js',
   'test/standard-node-editor-electron.cjs',

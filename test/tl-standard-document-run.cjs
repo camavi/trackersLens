@@ -20,14 +20,18 @@ const delay=ms=>new Promise(r=>setTimeout(r,ms));
   {key:'online',label:'4 · Codex · LLM Custom',templateId:'llm-custom',config:{aiProviderId:ready.onlineProfileId,model:ready.models.online,allowOnline:true,instructions:fixture.onlineInstructions,inputPath:'pseudonymizedText',inputFormat:'json',inputKey:'document',outputKey:'onlineLlm',requireTruePath:'privacy.passed',guardTermsPath:'privacy.requiredTerms'}},
   {key:'restore',label:'5 · Ricostruisci · Python',templateId:'python-custom',config:py({role:'restore'})}
  ],ids={};
- if(process.env.TL_STD_RESUME)Object.assign(ids,JSON.parse(fs.readFileSync(path.join(root,'existing-ids.json'))));
+ if(process.env.TL_STD_RESUME){
+  Object.assign(ids,JSON.parse(fs.readFileSync(path.join(root,'existing-ids.json'))));
+  for(const item of spec){const inspected=await call('tl_inspect_node',{workspaceId,nodeId:ids[item.key]});assert.equal(inspected.node.metadata.subtype,item.templateId);item.label=inspected.node.label;item.config=inspected.node.metadata.config;}
+  assert.equal(spec.find(item=>item.key==='local').config.aiProviderId,ready.localProfileId,'Use the existing LM Studio profile');
+ }
  else for(let i=0;i<spec.length;i++){
   const node=spec[i],preview=await call('tl_preview_create_standard_node',{workspaceId,templateId:node.templateId,label:node.label,config:node.config,position:{x:100+i*380,y:600}});await call('tl_apply_node_edits',{planId:preview.planId});ids[node.key]=preview.nodeId;console.log('STANDARD NODE READY',node.key);
  }
  const edits=spec.slice(0,-1).map((node,i)=>({operation:'connect',sourceNodeId:ids[node.key],targetNodeId:ids[spec[i+1].key],sourcePort:'output',targetPort:'input'}));
  if(!process.env.TL_STD_RESUME){const connections=await call('tl_preview_graph_edits',{workspaceId,edits});await call('tl_apply_node_edits',{planId:connections.planId});}
- const directory=path.join(ready.project,'documents','privacy-standard-'+path.basename(root));fs.mkdirSync(directory,{recursive:true,mode:0o700});
- const inputFile=path.join(directory,'documento-sintetico.txt');if(process.env.TL_STD_RESUME)assert.equal(fs.readFileSync(inputFile,'utf8'),fixture.documentText);else fs.writeFileSync(inputFile,fixture.documentText,{mode:0o600,flag:'wx'});
+ const directory=path.join(ready.project,'documents','privacy-standard-'+path.basename(root));if(!ready.inputFile)fs.mkdirSync(directory,{recursive:true,mode:0o700});
+ const inputFile=ready.inputFile||path.join(directory,'documento-sintetico.txt');if(process.env.TL_STD_RESUME)assert.equal(fs.readFileSync(inputFile,'utf8'),fixture.documentText);else fs.writeFileSync(inputFile,fixture.documentText,{mode:0o600,flag:'wx'});
  const preview=await call('tl_preview_run_flow',{workspaceId,startNodeId:ids.source,inputs:{}}),started=await call('tl_start_node_run',{planId:preview.planId});console.log('DOCUMENT FLOW STARTED',started.runId);
  let run;const until=Date.now()+Number(process.env.TL_DOC_QA_WAIT_MS||900000);
  while(Date.now()<until){run=(await call('tl_get_node_run',{runId:started.runId})).run;if(run.status!=='running')break;await delay(1000);}
