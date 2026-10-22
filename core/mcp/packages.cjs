@@ -32,7 +32,7 @@ class McpPackages {
   const plan=this.plans.get(planId);if(!plan||plan.owner!==owner)throw new Error('Package plan outside this connection.');
   if(plan.used)throw new Error('Package plan consumed; inspect operationId '+plan.operationId+' without replay.');plan.used=true;
   const controller=new AbortController();plan.controller=controller;
-  const job={id:plan.operationId,kind:'mcp-package-operation',workspaceId:plan.workspaceId||'',status:'reviewing',operation:plan.kind,plan:plan.material,startedAt:new Date().toISOString()};
+  const job={id:plan.operationId,kind:'mcp-package-operation',workspaceId:plan.workspaceId||'',status:'reviewing',operation:plan.kind,...(plan.kind==='setup'?{setupJobId:'custom-node-setup-'+plan.innerId}:{}),plan:plan.material,startedAt:new Date().toISOString()};
   const save=()=>this.persistence.writeDevelopmentRecords({storeName:'tl_ai_jobs',records:[job]});this.inflight.add(job.id);
   try{
    save();
@@ -47,9 +47,26 @@ class McpPackages {
   }catch(error){job.status=job.result?'committed-reload-failed':'failed';job.error={message:error.message,code:error.code||'MCP_PACKAGE_FAILED'};throw error;}
   finally{job.completedAt=new Date().toISOString();try{save();}finally{this.inflight.delete(job.id);await this.cleanup(plan);}}
  }
- get({operationId}){const operation=this.persistence.readDevelopmentRecordById({storeName:'tl_ai_jobs',id:operationId});if(operation?.kind!=='mcp-package-operation')throw new Error('Package operation not found.');return {operation:{...operation,...(['reviewing','running'].includes(operation.status)&&!this.inflight.has(operationId)?{status:'interrupted',outcome:'unknown-after-restart'}:{})},cleanupErrors:this.cleanupErrors,limitations:['Inspect setupJobId/snapshotId and result before any new proposal. No automatic replay. Approved setup stages already in progress finish before service shutdown; they are not rolled back on disconnect.']};}
+ get({operationId}){
+  const operation=this.persistence.readDevelopmentRecordById({storeName:'tl_ai_jobs',id:operationId});if(operation?.kind!=='mcp-package-operation')throw new Error('Package operation not found.');
+  const setupJobId=operation.setupJobId||(operation.operation==='setup'&&operation.plan?.planId?'custom-node-setup-'+operation.plan.planId:null);
+  const savedSetup=setupJobId?this.persistence.readDevelopmentRecordById({storeName:'tl_ai_jobs',id:setupJobId}):null;
+  const interrupted=['reviewing','running'].includes(operation.status)&&!this.inflight.has(operationId);
+  const setupActive=this.core.isCustomNodeSetupActive?.(setupJobId)??this.inflight.has(operationId);
+  return {operation:{...operation,...(setupJobId?{setupJobId}:{}),...(interrupted?{status:'interrupted',outcome:'unknown-after-restart'}:{})},setup:savedSetup?{...savedSetup,...(savedSetup.status==='running'&&!setupActive?{status:'interrupted',outcome:'unknown-after-restart'}:{})}:null,cleanupErrors:this.cleanupErrors,limitations:['Setup steps/events are the persisted evidence; an interrupted in-progress step has unknown outcome. Review a fresh exact-material plan; completed stages are not rolled back or automatically repeated. Approved setup stages already in progress finish before orderly service shutdown.']};
+ }
+
  async cleanup(plan){if(plan.kind==='setup'){await this.core.request('desktop.customNodePackages.discardSetup',{planId:plan.innerId},{ownerId:plan.ownerId});await this.discardDraft?.(plan.importId);}else await this.core.request('desktop.customNodePackages.discardMigration',{planId:plan.innerId});}
  forget(owner){this.forgotten.add(owner);for(const [id,plan]of this.plans)if(plan.owner===owner){plan.controller?.abort();this.plans.delete(id);if(!plan.used){const pending=this.cleanup(plan).catch(error=>this.cleanupErrors.push({operationId:plan.operationId,message:error.message}));this.pending.add(pending);void pending.finally(()=>this.pending.delete(pending));}}}
  async close(){this.generation++;for(const plan of this.plans.values()){plan.controller?.abort();if(!plan.used)await this.cleanup(plan);}this.plans.clear();await Promise.allSettled([...this.pending]);}
 }
-module.exports={McpPackages};
+// Known Core-owned job kinds use live in-memory ownership, never stale disk status.
+// Unknown owners remain conservatively busy; this does not mark history completed.
+function isLiveProjectJob(job,{runtimeRuns,packages,setupIsActive}={}){
+ if(!['running','working','queued','pending'].includes(job.status))return false;
+ if(['mcp-node-run','mcp-flow-run'].includes(job.kind))return runtimeRuns?runtimeRuns.active.has(job.id):true;
+ if(job.kind==='mcp-package-operation')return packages?packages.inflight.has(job.id):true;
+ if(job.kind==='custom-node-setup')return setupIsActive?setupIsActive(job.id):true;
+ return true;
+}
+module.exports={McpPackages,isLiveProjectJob};

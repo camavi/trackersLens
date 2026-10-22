@@ -640,6 +640,7 @@ const createTlCore = ({ appVersion = "0.0.0", platform = "unknown", mode = "prod
     contractVersion: TL_CORE_CONTRACT_VERSION,
     getDesktopStatus,
     getRuntimeStatus,
+    isCustomNodeSetupActive: id => customNodeSetup.activeJobs.has(id),
     request
   });
 };

@@ -131,7 +131,7 @@ const withMcpEditorPaused = async apply => {
     if(!windows.length)throw new Error('Editor TL non disponibile.');
     const ensureIdle=()=>{
       const {busy}=require('../core/desktop/node-edit-plan.cjs');
-      if(persistence.readDevelopmentRecords({storeName:'tl_runtime_nodes'}).some(busy)||persistence.readDevelopmentRecords({storeName:'tl_ai_jobs'}).some(job=>['running','working','queued','pending'].includes(job.status))||externalChatRuns.owners.size||projectScriptRuns.owners.size||customNodeSandboxRunner?.windows.size)throw new Error('Ferma le esecuzioni attive prima di applicare una modifica MCP con ricaricamento editor.');
+      if(persistence.readDevelopmentRecords({storeName:'tl_runtime_nodes'}).some(busy)||persistence.readDevelopmentRecords({storeName:'tl_ai_jobs'}).some(job=>require('../core/mcp/packages.cjs').isLiveProjectJob(job,{runtimeRuns:tlMcpService?.runtimeRuns,packages:tlMcpService?.packages,setupIsActive:tlCore?.isCustomNodeSetupActive}))||externalChatRuns.owners.size||projectScriptRuns.owners.size||customNodeSandboxRunner?.windows.size)throw new Error('Ferma le esecuzioni attive prima di applicare una modifica MCP con ricaricamento editor.');
     };ensureIdle();
     for(const window of windows){await prepareEditorClose(window);suspended.push(window);await window.loadFile(path.join(projectRoot,'mcp-edit-pending.html'));}
     ensureIdle();

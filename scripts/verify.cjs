@@ -18,6 +18,7 @@ const syntaxFiles = [
   'test/tl-mcp-packages-electron.cjs',
   'test/tl-mcp-recovery-electron.cjs',
   'test/tl-mcp-concurrency-electron.cjs',
+  'test/tl-mcp-update-recovery-electron.cjs',
   'electron/main.cjs',
   'core/desktop/project-runtime.cjs',
   'js/project-home.js',

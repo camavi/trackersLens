@@ -18,6 +18,7 @@ class CustomNodeSetup {
     this.enabled = enabled;
     this.plans = new Map();
     this.running = new Set();
+    this.activeJobs = new Set();
   }
 
   async inspect(target) {
@@ -77,6 +78,7 @@ class CustomNodeSetup {
     if (this.running.has(lock)) throw error('Preparazione di questo archivio già in corso.', 'CUSTOM_NODE_SETUP_IN_PROGRESS');
     this.running.add(lock);
     const job = { id: `custom-node-setup-${planId}`, kind: 'custom-node-setup', plan: clone(saved.plan), status: 'running', steps: [], events: [], startedAt: new Date().toISOString() };
+    this.activeJobs.add(job.id);
     const persist = () => this.persistence?.writeDevelopmentRecords?.({ storeName: 'tl_ai_jobs', records: [clone(job)] });
     const progress = async (phase, message, detail = null) => {
       const event = { planId, phase, message, at: new Date().toISOString(), ...(detail ? { detail } : {}) };
@@ -127,7 +129,7 @@ class CustomNodeSetup {
       return { ok: false, status: job.status, reference: saved.plan.reference, setupJobId: job.id, steps: clone(job.steps), ...job.error, limitations: ['I passaggi completati sono conservati. Nessuna ripetizione automatica: rileggi lo stato prima di proporre un nuovo piano.'] };
     } finally {
       job.completedAt = new Date().toISOString();
-      try { await persist(); } finally { this.running.delete(lock); }
+      try { await persist(); } finally { this.running.delete(lock); this.activeJobs.delete(job.id); }
     }
   }
 }
