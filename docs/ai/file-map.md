@@ -133,3 +133,7 @@ MCP sandbox Flow: `core/runtime/sandbox-flow-plan.cjs` validates rooted persiste
 MCP package development: `core/mcp/packages.cjs` owns connection-bound draft/setup/migration review and durable operation evidence; `McpNodeEdits.previewInstalled` derives inactive instances from exact activated packages. Existing `custom-node-setup.cjs`, `custom-node-migration.cjs` and `node-edit-plan.cjs` own effects. Tests: `test/tl-mcp-packages.test.cjs`, `test/tl-mcp-packages-electron.cjs`.
 
 MCP recovery acceptance: `test/tl-mcp-recovery-electron.cjs` orchestrates two real app lifetimes, killed stdio transport, Python PID checks, exact historical reads, explicit restart and read-only SQLite evidence. Run with Node; it launches Electron itself.
+
+Python crash ownership: `core/desktop/custom-node-python-supervisor.cjs` owns one Seatbelt worker and its Main-pipe lifetime; `custom-node-python-runner.cjs` tracks/drains supervisors. `custom-node-sandbox-broker.cjs` subscriptions feed Main lifecycle observers and `McpRuntimeRuns` live checkpoints. `TL_MCP_CRASH_QA=1 node test/tl-mcp-recovery-electron.cjs` exercises actual Main SIGKILL and recovery.
+
+MCP two-client acceptance: `test/tl-mcp-concurrency-electron.cjs` exercises real stdio connection scopes, stale graph CAS, pending-review isolation, active runtime edit refusal, two independent Python invocations and owner-only stop/disconnect. SDK/Electron execution and external read-only SQLite/OS evidence are separate from the normal syntax coverage.

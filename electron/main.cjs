@@ -671,6 +671,7 @@ app.whenReady().then(async () => {
     });
     const abort=()=>{customNodeSandboxRunner.broker.fail({executionId:request.executionId,code:'EXECUTION_CANCELLED',message:'Esecuzione annullata tramite MCP.'});void runner.close(request.executionId);};
     lifecycle.signal?.addEventListener('abort',abort,{once:true});
+    const unsubscribe=lifecycle.onEvent?customNodeSandboxRunner.broker.subscribe(request.executionId,event=>lifecycle.onEvent(event,customNodeSandboxRunner.broker.get(request.executionId))):()=>{};
     try {
       lifecycle.onExecution?.(request.executionId);
       if(lifecycle.signal?.aborted){abort();throw Object.assign(new Error('Execution cancelled before launch.'),{code:'EXECUTION_CANCELLED'});}
@@ -708,7 +709,7 @@ app.whenReady().then(async () => {
       });
       await runner.close(request.executionId);
       throw error;
-    } finally { lifecycle.signal?.removeEventListener('abort',abort); }
+    } finally { unsubscribe();lifecycle.signal?.removeEventListener('abort',abort); }
   };
   launchMcpNode = launchCustomNodeSandbox;
   const selectCustomNodeArchive = async () => {

@@ -11,6 +11,7 @@ class CustomNodeSandboxBroker {
     this.onEvent = typeof onEvent === "function" ? onEvent : () => {};
     this.onToolCall = typeof onToolCall === "function" ? onToolCall : null;
     this.runs = new Map();
+    this.listeners = new Map();
     this.waiters = new Map();
   }
 
@@ -40,6 +41,7 @@ class CustomNodeSandboxBroker {
       this.settle(executionId, event);
     }
     this.onEvent(event);
+    for(const listener of this.listeners.get(executionId)||[])listener(event);
     return { accepted: true, status: run.status };
   }
 
@@ -51,6 +53,7 @@ class CustomNodeSandboxBroker {
     run.events.push(event);
     this.settle(executionId, event);
     this.onEvent(event);
+    for(const listener of this.listeners.get(executionId)||[])listener(event);
     return true;
   }
 
@@ -86,6 +89,11 @@ class CustomNodeSandboxBroker {
     } catch (error) {
       throw errorWithCode(error?.message || "Custom Node tool failed.", error?.code || "CUSTOM_NODE_TOOL_FAILED");
     }
+  }
+
+  subscribe(executionId,listener) {
+    const listeners=this.listeners.get(executionId)||new Set();listeners.add(listener);this.listeners.set(executionId,listeners);
+    return ()=>{listeners.delete(listener);if(!listeners.size)this.listeners.delete(executionId);};
   }
 
   get(executionId = "") {

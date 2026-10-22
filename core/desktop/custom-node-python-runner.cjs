@@ -65,13 +65,13 @@ class CustomNodePythonRunner {
     const profile = macProfile({ executable, environmentDirectory: await fs.realpath(environment.directory), basePrefix: await fs.realpath(info.basePrefix) });
     const worker = await fs.readFile(path.join(__dirname, "../../runtimes/python/tl_custom_node_worker.py"), "utf8");
     const directory = await fs.mkdtemp(path.join(os.tmpdir(), "tl-custom-python-"));
-    const child = spawn("/usr/bin/sandbox-exec", ["-p", profile, pythonPath, "-I", "-B", "-u", "-c", worker], { env: cleanEnvironment, cwd: directory, stdio: ["pipe", "pipe", "pipe"] });
+    const child = spawn(process.execPath, [path.join(__dirname, "custom-node-python-supervisor.cjs")], { env: {...cleanEnvironment,ELECTRON_RUN_AS_NODE:"1"}, cwd: directory, stdio: ["pipe", "pipe", "pipe"] });
     const executionId = request.executionId;
     this.processes.set(executionId, child);
     const fail = (error) => {
       const run = this.broker.get(executionId);
       if (run && !["completed", "failed"].includes(run.status)) this.broker.fail({ executionId, code: error.code || "CUSTOM_NODE_PYTHON_FAILED", message: error.message });
-      child.kill("SIGKILL");
+      child.stdin.end();
     };
     child.once("error", fail);
     child.stdin.on("error", fail);
@@ -96,15 +96,15 @@ class CustomNodePythonRunner {
       this.processes.delete(executionId);
       void fs.rm(directory, { recursive: true, force: true });
     });
-    child.stdin.end(JSON.stringify({ source, request, requirements: execution.dependencies.python.requirements }) + "\n");
+    child.stdin.write(JSON.stringify({protocol:"tl-python-supervisor/v1",profile,pythonPath,worker,directory,payload:{ source, request, requirements: execution.dependencies.python.requirements }}) + "\n");
     return { executionId, provenance: { runtime: "python", isolation: readiness.isolation, pack: readiness.dependencies.pack } };
   }
 
-  close(executionId) { const child=this.processes.get(executionId);if(!child)return Promise.resolve();return new Promise(resolve=>{child.once("close",resolve);child.kill("SIGKILL");}); }
+  close(executionId) { const child=this.processes.get(executionId);if(!child)return Promise.resolve();return new Promise(resolve=>{child.once("close",resolve);child.stdin.end();}); }
   async stop() {
     await Promise.all([...this.processes.values()].map((child) => new Promise((resolve) => {
       child.once("close", resolve);
-      child.kill("SIGKILL");
+      child.stdin.end();
     })));
   }
 }
