@@ -149,3 +149,5 @@ MCP two-workspace acceptance: `test/tl-mcp-workspaces-electron.cjs` seeds two is
 MCP onboarding acceptance: `test/tl-mcp-onboarding-electron.cjs` runs with Node, orchestrates two isolated Electron lifetimes, reads displayed client JSON, uses project-menu enable/disable, checks runtime drain/stale plans and renames the temporary folder between sessions. `core/mcp/local-client.cjs` owns actionable missing/moved/disabled connection errors; `test/tl-mcp-server.test.cjs` guards those diagnostics.
 
 Custom Node Codex Login: `core/desktop/custom-node-login-ai.cjs` reuses the existing provider bridge with separate `externalAiProvider` capability; sandbox contract/dispatcher and Main own permission enforcement, scoped logs and cancellation/drain. Real collaboration QA: `test/tl-mcp-llm-collaboration-electron.cjs`, independent `test/tl-mcp-llm-collaboration-verify.cjs`.
+
+Fifteenth error-feedback acceptance: `test/tl-mcp-llm-repair-acceptance.cjs` composes with collaboration QA under `TL_LLM_QA_REPAIR=1`; the same independent verifier checks real Codex repair, exact versioned Python archives, selected-node migration and retained failures.

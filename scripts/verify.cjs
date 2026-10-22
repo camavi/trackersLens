@@ -24,6 +24,7 @@ const syntaxFiles = [
   'test/tl-mcp-workspaces-electron.cjs',
   'test/tl-mcp-onboarding-electron.cjs',
   'test/tl-mcp-llm-collaboration-electron.cjs',
+  'test/tl-mcp-llm-repair-acceptance.cjs',
   'test/tl-mcp-llm-collaboration-verify.cjs',
   'electron/main.cjs',
   'core/desktop/project-runtime.cjs',
