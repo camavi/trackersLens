@@ -12,6 +12,8 @@ window.TrackerLensRuntimeWorker = (() => {
     error: "",
   };
   const listeners = new Set();
+  const authorizedWorkspaces = new Set();
+  let bridgeGeneration = 0;
 
   const notify = () => {
     listeners.forEach((listener) => {
@@ -29,6 +31,20 @@ window.TrackerLensRuntimeWorker = (() => {
   };
 
   const handleMessage = (message = {}) => {
+    if (message.type === 'runtime-worker:bridge-request') {
+      const generation = bridgeGeneration, reply = port;
+      const persistence = window.trackers?.desktop?.persistence;
+      const host = window.TrackerLensRuntimeWorkerBridge?.createHost({ persistence, workspaces: () => authorizedWorkspaces });
+      Promise.resolve().then(() => {
+        if (!persistence || !host) throw new Error('Desktop runtime persistence bridge unavailable');
+        return host(message.method, message.args);
+      }).then(result => {
+        if (generation === bridgeGeneration) reply?.postMessage({ type: 'runtime-worker:bridge-result', id: message.id, result });
+      }, error => {
+        if (generation === bridgeGeneration) reply?.postMessage({ type: 'runtime-worker:bridge-result', id: message.id, error: error.message });
+      });
+      return;
+    }
     if (message.type === "runtime-worker:status") {
       updateStatus({
         available: true,
@@ -55,6 +71,8 @@ window.TrackerLensRuntimeWorker = (() => {
   const workerUrl = () => `core/runtime/runtime-worker.js?v=${WORKER_VERSION}&r=${restartSeq}`;
 
   const disconnect = () => {
+    bridgeGeneration++;
+    authorizedWorkspaces.clear();
     try {
       port?.postMessage?.({ type: "runtime-worker:shutdown" });
     } catch (_) {}
@@ -76,7 +94,9 @@ window.TrackerLensRuntimeWorker = (() => {
     }
     if (port) return true;
     try {
-      if ("SharedWorker" in window) {
+      // Desktop authority belongs to this project shell. A dedicated worker
+      // survives internal routes without sharing a stale preload owner after reload.
+      if ("SharedWorker" in window && !window.trackers?.desktop?.persistence) {
         worker = new SharedWorker(workerUrl());
         port = worker.port;
         lastStatus.mode = "shared-worker";
@@ -91,6 +111,7 @@ window.TrackerLensRuntimeWorker = (() => {
         updateStatus({ available: false, connected: false, mode: "none", error: "Worker API non disponibile" });
         return false;
       }
+      if (window.trackers?.desktop?.persistence) port.postMessage({ type: 'runtime-worker:desktop-bridge' });
       connected = true;
       updateStatus({ available: true, connected: true, error: "" });
       return true;
@@ -107,20 +128,27 @@ window.TrackerLensRuntimeWorker = (() => {
     return true;
   };
 
-  const start = ({ workspaceId = "workspace_global", refreshMs = 5000 } = {}) =>
-    post({ type: "runtime-worker:start", workspaceId, refreshMs });
+  const start = ({ workspaceId = "workspace_global", refreshMs = 5000 } = {}) => {
+    if (typeof workspaceId !== 'string' || !workspaceId || ['all', '*'].includes(workspaceId)) return false;
+    authorizedWorkspaces.add(workspaceId);
+    return post({ type: "runtime-worker:start", workspaceId, refreshMs });
+  };
 
   const refresh = (workspaceId = "workspace_global") =>
     post({ type: "runtime-worker:refresh", workspaceId });
 
   const restart = ({ workspaceId = "workspace_global", refreshMs = 5000 } = {}) => {
+    if (typeof workspaceId !== 'string' || !workspaceId || ['all', '*'].includes(workspaceId)) return false;
     if (!connect({ restart: true }) || !port?.postMessage) return false;
+    authorizedWorkspaces.add(workspaceId);
     port.postMessage({ type: "runtime-worker:start", workspaceId, refreshMs });
     return true;
   };
 
-  const stop = (workspaceId = "workspace_global") =>
-    post({ type: "runtime-worker:stop", workspaceId });
+  const stop = (workspaceId = "workspace_global") => {
+    authorizedWorkspaces.delete(workspaceId);
+    return post({ type: "runtime-worker:stop", workspaceId });
+  };
 
   const status = () => {
     post({ type: "runtime-worker:status" });

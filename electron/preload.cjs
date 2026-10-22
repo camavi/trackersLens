@@ -219,8 +219,8 @@ const trackers = Object.freeze({
       readAnalyticsSummary: () => request("desktop.persistence.readAnalyticsSummary"),
       readConnectionSummaryPage: ({ offset = 0, limit = 25 } = {}) => request("desktop.persistence.readConnectionSummaryPage", { offset: Number(offset) || 0, limit: Number(limit) || 25 }),
       deleteDevelopmentRecordsByWorkspace: ({ storeName, workspaceId, includeRecordId = true } = {}) => request("desktop.persistence.deleteDevelopmentRecordsByWorkspace", { storeName: String(storeName || ""), workspaceId: String(workspaceId || ""), includeRecordId: Boolean(includeRecordId) }),
-      writeDevelopmentRecords: ({ storeName, records = [] } = {}) => request("desktop.persistence.writeDevelopmentRecords", { storeName: String(storeName || ""), records }),
-      deleteDevelopmentRecords: ({ storeName, ids = [] } = {}) => request("desktop.persistence.deleteDevelopmentRecords", { storeName: String(storeName || ""), ids }),
+      writeDevelopmentRecords: ({ storeName, records = [], expectedWorkspaceIds } = {}) => request("desktop.persistence.writeDevelopmentRecords", { storeName: String(storeName || ""), records, ...(expectedWorkspaceIds !== undefined ? { expectedWorkspaceIds } : {}) }),
+      deleteDevelopmentRecords: ({ storeName, ids = [], expectedWorkspaceIds } = {}) => request("desktop.persistence.deleteDevelopmentRecords", { storeName: String(storeName || ""), ids, ...(expectedWorkspaceIds !== undefined ? { expectedWorkspaceIds } : {}) }),
       setDevelopmentRuntimeActive: (active) => request("desktop.persistence.setDevelopmentRuntimeActive", { active: Boolean(active) })
     }),
     customNodePackages: Object.freeze({

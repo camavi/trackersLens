@@ -1332,7 +1332,7 @@ class DesktopPersistence {
     finally { database.close(); }
   }
 
-  writeDevelopmentRecords({ storeName = "", records = [] } = {}) {
+  writeDevelopmentRecords({ storeName = "", records = [], expectedWorkspaceIds } = {}) {
     if (this.profilePersistence && ["tl_settings", "tl_ai_providers"].includes(String(storeName))) return this.profilePersistence.writeDevelopmentRecords(arguments[0]);
     const name = String(storeName || "");
     if (!isAllowedRepositoryStore(name)) throw new Error(`Unsupported persistence store: ${name}`);
@@ -1343,11 +1343,16 @@ class DesktopPersistence {
     const database = new DatabaseSync(this.databasePath);
     try {
       database.exec("BEGIN IMMEDIATE");
+      const scoped = expectedWorkspaceIds !== undefined;
+      if (scoped && (!Array.isArray(expectedWorkspaceIds) || !expectedWorkspaceIds.length || expectedWorkspaceIds.some(id => typeof id !== 'string' || !id || ['all', '*'].includes(id)))) throw new Error('Invalid persistence workspace guard');
+      const owner = database.prepare('SELECT workspace_id FROM tl_records WHERE store_name = ? AND id = ?');
       const updatedAt = now();
       const writeRecord = database.prepare(
         "INSERT OR REPLACE INTO tl_records (store_name, id, workspace_id, record_json, created_at, updated_at) VALUES (?, ?, ?, ?, COALESCE((SELECT created_at FROM tl_records WHERE store_name = ? AND id = ?), ?), ?)"
       );
       normalizedRecords.forEach((record) => {
+        const previous = scoped ? owner.get(name, record.id) : null;
+        if (scoped && (!expectedWorkspaceIds.includes(record.workspaceId) || (previous && previous.workspace_id !== record.workspaceId))) throw new Error('Persistence record outside authorized workspace');
         writeRecord.run(name, record.id, record.workspaceId, record.recordJson, name, record.id, updatedAt, updatedAt);
       });
       database.exec("COMMIT");
@@ -1360,7 +1365,7 @@ class DesktopPersistence {
     }
   }
 
-  deleteDevelopmentRecords({ storeName = "", ids = [] } = {}) {
+  deleteDevelopmentRecords({ storeName = "", ids = [], expectedWorkspaceIds } = {}) {
     if (this.profilePersistence && ["tl_settings", "tl_ai_providers"].includes(String(storeName))) return this.profilePersistence.deleteDevelopmentRecords(arguments[0]);
     const name = String(storeName || "");
     if (!isAllowedRepositoryStore(name)) throw new Error(`Unsupported persistence store: ${name}`);
@@ -1371,8 +1376,15 @@ class DesktopPersistence {
     const database = new DatabaseSync(this.databasePath);
     try {
       database.exec("BEGIN IMMEDIATE");
+      const scoped = expectedWorkspaceIds !== undefined;
+      if (scoped && (!Array.isArray(expectedWorkspaceIds) || !expectedWorkspaceIds.length || expectedWorkspaceIds.some(id => typeof id !== 'string' || !id || ['all', '*'].includes(id)))) throw new Error('Invalid persistence workspace guard');
+      const owner = database.prepare('SELECT workspace_id FROM tl_records WHERE store_name = ? AND id = ?');
       const removeRecord = database.prepare("DELETE FROM tl_records WHERE store_name = ? AND id = ?");
-      recordIds.forEach((id) => removeRecord.run(name, id));
+      recordIds.forEach((id) => {
+        const previous = scoped ? owner.get(name, id) : null;
+        if (scoped && previous && !expectedWorkspaceIds.includes(previous.workspace_id)) throw new Error('Persistence record outside authorized workspace');
+        removeRecord.run(name, id);
+      });
       database.exec("COMMIT");
       return { mode: DEFAULT_MODE, status: "development-delete-complete", storeName: name, recordCount: recordIds.length };
     } catch (error) {

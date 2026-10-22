@@ -1,6 +1,8 @@
 self.window = self;
 
 const RUNTIME_WORKER_VERSION = "0.1.289-js-modules-1";
+importScripts('runtime-worker-bridge.js');
+let desktopBridge = null;
 const ports = new Set();
 const workspaces = new Map();
 
@@ -99,66 +101,45 @@ const stopRuntimeInstances = (workspaceId) => {
 };
 
 const refreshWorkspace = async (workspaceId) => {
-  const current = workspaces.get(workspaceId) || {};
-  if (current.refreshInFlight) {
-    return;
-  }
-  workspaces.set(workspaceId, { ...current, refreshInFlight: true });
-  try {
+  const current = workspaces.get(workspaceId);
+  if (!current) throw new Error('Runtime workspace is not started');
+  if (current.refreshInFlight) return current.refreshInFlight;
+  const pending = (async () => {
     loadRuntimeScripts();
-    // The periodic worker refresh only reconciles executable graph topology.
-    // Historical events, logs, caches and Time Travel snapshots remain fully
-    // available to their explicit inspection surfaces, but must not be cloned
-    // through the worker every five seconds.
     const snapshot = await self.TrackerLensRuntimeSnapshotStore.load({ includeConnections: false, workspaceId, purpose: "runtime" });
+    // Stop/restart may have revoked this workspace while Core was reading.
+    if (workspaces.get(workspaceId) !== current) return;
     const runtime = runtimeFromSnapshot(snapshot);
     startRuntimeInstances({ workspaceId, runtime });
-    const state = workspaces.get(workspaceId) || {};
-    workspaces.set(workspaceId, {
-      ...state,
-      workspaceId,
-      runtime,
-      lastStartedAt: state.lastStartedAt || new Date().toISOString(),
-      lastRefreshAt: new Date().toISOString(),
-      status: "running",
-    });
-    post({
-      type: "runtime-worker:status",
-      workspaceId,
-      status: "running",
-      nodes: runtime.nodes.length,
-      dependencies: runtime.dependencies.length,
-    });
-  } finally {
-    const latest = workspaces.get(workspaceId) || {};
-    workspaces.set(workspaceId, { ...latest, refreshInFlight: false });
-  }
+    Object.assign(current, { runtime, lastRefreshAt: new Date().toISOString(), status: 'running', error: '' });
+    post({ type: 'runtime-worker:status', workspaceId, status: 'running', nodes: runtime.nodes.length, dependencies: runtime.dependencies.length });
+  })();
+  current.refreshInFlight = pending;
+  try { await pending; }
+  finally { if (current.refreshInFlight === pending) current.refreshInFlight = null; }
 };
 
 const startWorkspace = async ({ workspaceId = "workspace_global", refreshMs = 5000 } = {}) => {
   const id = workspaceId || "workspace_global";
-  const current = workspaces.get(id);
-  if (current?.timer) clearInterval(current.timer);
-  workspaces.set(id, {
-    ...(current || {}),
-    workspaceId: id,
-    refreshMs: Math.max(2000, Number(refreshMs) || 5000),
-    status: "starting",
-    lastStartedAt: new Date().toISOString(),
-  });
-  await refreshWorkspace(id);
-  const timer = setInterval(() => {
-    refreshWorkspace(id).catch((error) => {
-      workspaces.set(id, {
-        ...(workspaces.get(id) || {}),
-        status: "error",
-        error: error?.message || String(error),
-        lastErrorAt: new Date().toISOString(),
+  const previous = workspaces.get(id);
+  if (previous?.startPromise) return previous.startPromise;
+  if (previous?.timer) return;
+  const current = { workspaceId: id, refreshMs: Math.max(2000, Number(refreshMs) || 5000), status: 'starting', lastStartedAt: new Date().toISOString() };
+  workspaces.set(id, current);
+  const pending = (async () => {
+    await refreshWorkspace(id);
+    if (workspaces.get(id) !== current) return;
+    current.timer = setInterval(() => {
+      refreshWorkspace(id).catch(error => {
+        if (workspaces.get(id) !== current) return;
+        Object.assign(current, { status: 'error', error: error.message, lastErrorAt: new Date().toISOString() });
+        post({ type: 'runtime-worker:error', workspaceId: id, error: error.message });
       });
-      post({ type: "runtime-worker:error", workspaceId: id, error: error?.message || String(error) });
-    });
-  }, Math.max(2000, Number(refreshMs) || 5000));
-  workspaces.set(id, { ...(workspaces.get(id) || {}), timer });
+    }, current.refreshMs);
+  })();
+  current.startPromise = pending;
+  try { await pending; }
+  finally { current.startPromise = null; }
 };
 
 const stopWorkspace = (workspaceId = "workspace_global") => {
@@ -188,6 +169,14 @@ const status = () => ({
 
 const handleMessage = async (message = {}, port = null) => {
   try {
+    if (message.type === 'runtime-worker:desktop-bridge') {
+      if (!desktopBridge) {
+        desktopBridge = self.TrackerLensRuntimeWorkerBridge.createClient(request => port.postMessage(request));
+        self.trackers = { desktop: { persistence: desktopBridge.persistence } };
+      }
+      return;
+    }
+    if (desktopBridge?.receive(message)) return;
     if (message.type === "runtime-worker:start") {
       await startWorkspace(message);
       port?.postMessage?.(status());
@@ -205,6 +194,7 @@ const handleMessage = async (message = {}, port = null) => {
     }
     if (message.type === "runtime-worker:shutdown") {
       Array.from(workspaces.keys()).forEach(stopWorkspace);
+      desktopBridge?.close();
       ports.clear();
       self.close?.();
       return;
@@ -213,6 +203,8 @@ const handleMessage = async (message = {}, port = null) => {
       port?.postMessage?.(status());
     }
   } catch (error) {
+    const current = workspaces.get(message.workspaceId);
+    if (current) Object.assign(current, { status: 'error', error: error.message, lastErrorAt: new Date().toISOString() });
     const payload = { type: "runtime-worker:error", workspaceId: message.workspaceId || "", error: error?.message || String(error) };
     port?.postMessage?.(payload);
     post(payload);

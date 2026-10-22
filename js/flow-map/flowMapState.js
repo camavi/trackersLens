@@ -1074,6 +1074,11 @@ const repairMissingDependencyConnections = async (nodes = [], dependencies = [],
 
 const normalizeLoadedNodeManifest = (node = {}) => {
   const metadata = node.metadata || {};
+  // Installed packages carry the Core-validated package contract, including a
+  // structured permissions declaration and exact execution/archive identity.
+  // The built-in manifest projection expects permission-name arrays and drops
+  // package fields; it must never rewrite a package-backed node on load.
+  if (metadata.customPackage?.packageId) return node;
   const subtype = metadata.subtype || nodeSubtype(node);
   const isWorldDatabase = node.type === "knowledge" && subtype === "world-database";
   const stripWorldGraphContextPort = (ports = []) => (ports || []).filter((port) => {
