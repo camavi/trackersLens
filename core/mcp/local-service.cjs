@@ -9,7 +9,7 @@ function privateDirectory(projectDirectory){
  fs.chmodSync(directory,0o700);return directory;
 }
 class LocalMcpService {
- constructor({projectDirectory,project,persistence,cliPath,nodeEdits,runtimeRuns}){this.projectDirectory=projectDirectory;this.project=project;this.runtimeRuns=runtimeRuns;this.nodeEdits=nodeEdits;this.tools=new TlMcpTools({project,persistence,nodeEdits,runtimeRuns});this.cliPath=cliPath;this.sockets=new Set();this.server=null;this.transition=Promise.resolve();}
+ constructor({projectDirectory,project,persistence,cliPath,nodeEdits,runtimeRuns,packages}){this.packages=packages;this.projectDirectory=projectDirectory;this.project=project;this.runtimeRuns=runtimeRuns;this.nodeEdits=nodeEdits;this.tools=new TlMcpTools({project,persistence,nodeEdits,runtimeRuns,packages});this.cliPath=cliPath;this.sockets=new Set();this.server=null;this.transition=Promise.resolve();}
  status(){return {running:Boolean(this.server?.listening),transport:'stdio',readOnly:!this.nodeEdits,clients:this.sockets.size,configuration:{mcpServers:{trackersLens:{command:'node',args:[this.cliPath,'--project',this.projectDirectory]}}}};}
  start(){return this.transition=this.transition.catch(()=>{}).then(()=>this.server?.listening?this.status():this.open());}
  async open(){
@@ -17,7 +17,7 @@ class LocalMcpService {
   const directory=privateDirectory(this.projectDirectory),instanceId=crypto.randomUUID(),socketName='s-'+crypto.randomBytes(4).toString('hex')+'.sock',socketPath=path.join(directory,socketName);
   const server=net.createServer(socket=>{
    this.sockets.add(socket);socket.setEncoding('utf8');let buffer='';
-   socket.on('error',()=>{});socket.on('close',()=>{this.sockets.delete(socket);this.nodeEdits?.forget(socket);this.runtimeRuns?.forget(socket);});
+   socket.on('error',()=>{});socket.on('close',()=>{this.sockets.delete(socket);this.nodeEdits?.forget(socket);this.runtimeRuns?.forget(socket);this.packages?.forget(socket);});
    const respond=async line=>{let message;try{
     message=JSON.parse(line);if(!message||typeof message.id!=='string'||Object.keys(message).some(key=>!['id','method','name','args'].includes(key)))throw new Error('Invalid local MCP request.');
     const result=message.method==='listTools'?this.tools.list():message.method==='callTool'?await this.tools.call(message.name,message.args,socket):(()=>{throw new Error('Unknown local MCP operation.');})();
@@ -40,6 +40,7 @@ class LocalMcpService {
  async close(){
   for(const socket of this.sockets)socket.destroy();this.sockets.clear();
   await this.runtimeRuns?.close();
+  await this.packages?.close();
   const server=this.server;this.server=null;
   if(server)await new Promise(resolve=>server.close(resolve));
   if(this.discoveryPath){try{if(JSON.parse(fs.readFileSync(this.discoveryPath,'utf8')).instanceId===this.instanceId)fs.unlinkSync(this.discoveryPath);}catch{}this.discoveryPath=null;}

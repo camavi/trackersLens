@@ -3,7 +3,7 @@
 Purpose: important decisions that should guide future work.
 Read when: a change might conflict with architecture or product direction.
 Do not read when: making narrow UI/code fixes.
-Last updated: 2026-10-21.
+Last updated: 2026-10-22.
 
 ## LSP symbol rename ownership
 
@@ -127,3 +127,7 @@ MCP structural scope (2026-10-21): expose exact existing-node connect/disconnect
 MCP runtime initial execution boundary (2026-10-21): execute installed sandboxed Custom Nodes through the existing Main runner, with exact scoped plans and local runtime approval. Persist complete one-shot result/trace/timing in tl_ai_jobs and expose live trace plus owner-bound cancellation. Do not route through Agent Runtime trace-only runFlow or claim downstream event-bus propagation. Cancellation must terminate the underlying sandbox; source revalidation and disconnect checks precede launch. Client MCP approval and local TL approval are separate authorities.
 
 MCP Flow propagation first slice (2026-10-21): use a pure persisted-chain plan and the existing sandbox runner/RuntimeContract mapping, with explicit linear-only capability. Keep dispatch isolated from renderer event-bus subscribers to avoid duplicate execution. Validate full source/topology before start and each step; retain all emitted facts, mapping warnings and partial/failure traces. Branch/join/cycle scheduling and non-sandbox node kinds require their own runtime contracts, not silent partial execution.
+
+MCP fan-out failure semantics (2026-10-21): extend the existing sandbox coordinator to sequential rooted trees. Preserve all producer evidence; an execution failure skips only that invocation’s descendants while independent queued branches continue, and overall run status remains failed. Global stop, freshness failures and infrastructure failures stop the whole queue. Explicitly reject joins/cycles until their input synchronization/repetition contracts exist. Reuse installed runners, RuntimeContract mapping and current persistence; do not introduce another live event bus or implicit parallelism.
+
+MCP package development ownership (2026-10-22): source authoring prepares validated non-executing drafts; explicit local review authorizes existing Core combined setup stages, including exact grants and activation. Do not add generic filesystem/process or arbitrary Python-install endpoints. Creation derives records from installed hash-verified package material, with server-generated identity and registered atomic graph apply; provenance is mcp-installed-package rather than misattributing Chat authorship. Version migration uses existing selected-node CAS/snapshot authority and keeps old archives/runtime evidence. In-flight approved setup is drained on disconnect/shutdown, while unconsumed drafts/plans are discarded; completed effects are never silently rolled back/replayed. Preserve exact package/config per Flow invocation so later migrations cannot rewrite historical provenance. Publish copyable pinned Python manifest templates alongside human-readable catalog versions.

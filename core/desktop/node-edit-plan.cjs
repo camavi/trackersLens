@@ -102,7 +102,7 @@ function planGraphEdits({ graph, edits, workspaceId }) {
       let node;
       if (edit.operation === 'create') {
         node = structuredClone(edit.node);
-        if (!node || node.workspaceId !== workspaceId || !node.metadata?.paletteLabel || node.metadata?.generatedBy !== 'flow-prompt-chat') throw new Error('Creazione consentita solo da palette validata.');
+        if (!node || node.workspaceId !== workspaceId || !node.metadata?.paletteLabel || !['flow-prompt-chat','mcp-installed-package'].includes(node.metadata?.generatedBy)) throw new Error('Creazione consentita solo da palette validata.');
       } else {
         const source = find(edit.nodeId);
         node = { id: edit.newNodeId, workspaceId, type: source.type, label: edit.value,

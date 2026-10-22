@@ -61,7 +61,7 @@ test('MCP busy nodes and disconnect during approval never write',async t=>{
  const owner={},core=createTlCore({adapters:{persistence:f.persistence}});let resume;
  const edits=new McpNodeEdits({core,persistence:f.persistence,review:()=>new Promise(resolve=>resume=resolve),withEditorPaused:apply=>apply()});
  const args={workspaceId:'w',edits:[{operation:'rename',nodeId:'a',value:'Changed'}]};const plan=await edits.preview(args,owner),pending=edits.apply({planId:plan.planId},owner);await new Promise(resolve=>setImmediate(resolve));edits.forget(owner);resume(true);await assert.rejects(pending,/closed/);
- const node=f.persistence.readDevelopmentRecordById({storeName:'tl_runtime_nodes',id:'a'});f.persistence.writeDevelopmentRecords({storeName:'tl_runtime_nodes',records:[{...node,runtime:{status:'running'}}]});await assert.rejects(edits.preview(args,owner),/Ferma/);assert.equal(f.persistence.readDevelopmentRecords({storeName:'tl_time_travel_snapshots'}).length,0);
+ const node=f.persistence.readDevelopmentRecordById({storeName:'tl_runtime_nodes',id:'a'});f.persistence.writeDevelopmentRecords({storeName:'tl_runtime_nodes',records:[{...node,runtime:{status:'running'}}]});await assert.rejects(edits.preview(args,owner),/closed/);await assert.rejects(edits.preview(args,{}),/Ferma/);assert.equal(f.persistence.readDevelopmentRecords({storeName:'tl_time_travel_snapshots'}).length,0);
 });
 
 test('official MCP client connects/disconnects exact ports and duplicates inactive nodes with stable Core IDs',{skip:process.platform==='win32'},async t=>{

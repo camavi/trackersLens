@@ -527,7 +527,7 @@ ipcMain.handle("trackers-core:request", (event, command, payload) => {
   if (!projectSession) throw new Error('Apri una cartella progetto dalla Home.');
   if (projectTransition && !String(command).startsWith('desktop.persistence.') && !['desktop.externalAi.cancelMessage', 'desktop.chatProject.cancelScript', 'desktop.mcp.cancelChat', 'desktop.mcp.disconnect'].includes(command)) throw new Error('Cambio progetto in corso.');
   if (['desktop.mcpServer.status','desktop.mcpServer.start','desktop.mcpServer.stop'].includes(command)) {
-    tlMcpService ||= new (require('../core/mcp/local-service.cjs').LocalMcpService)({projectDirectory:projectSession.directory,project:projectSession,persistence,cliPath:path.join(projectRoot,'scripts','tl-mcp.cjs'),nodeEdits:new (require('../core/mcp/node-edits.cjs').McpNodeEdits)({core:tlCore,persistence,review:reviewMcpEdit,withEditorPaused:withMcpEditorPaused}),runtimeRuns:new (require('../core/mcp/runtime-runs.cjs').McpRuntimeRuns)({persistence,packages:customNodePackageManager,execute:(args,lifecycle)=>launchMcpNode(args,lifecycle),trace:id=>customNodeSandboxRunner?.broker.get(id),review:reviewMcpEdit})});
+    tlMcpService ||= new (require('../core/mcp/local-service.cjs').LocalMcpService)({projectDirectory:projectSession.directory,project:projectSession,persistence,cliPath:path.join(projectRoot,'scripts','tl-mcp.cjs'),nodeEdits:new (require('../core/mcp/node-edits.cjs').McpNodeEdits)({core:tlCore,persistence,packages:customNodePackageManager,review:reviewMcpEdit,withEditorPaused:withMcpEditorPaused}),packages:new (require('../core/mcp/packages.cjs').McpPackages)({core:tlCore,persistence,review:reviewMcpEdit,withEditorPaused:withMcpEditorPaused,discardDraft:async importId=>{const draft=pendingCustomNodeImports.get(importId);if(draft?.origin==='created'){pendingCustomNodeImports.delete(importId);await fs.promises.rm(draft.archivePath,{force:true});}}}),runtimeRuns:new (require('../core/mcp/runtime-runs.cjs').McpRuntimeRuns)({persistence,packages:customNodePackageManager,execute:(args,lifecycle)=>{if(mcpMutationInProgress)throw new Error('Modifica MCP in corso.');return launchMcpNode(args,lifecycle);},trace:id=>customNodeSandboxRunner?.broker.get(id),review:reviewMcpEdit})});
     const operation=command.split('.').pop();return tlMcpService[operation]();
   }
   if (['desktop.customNodePackages.discoverLocalAi', 'desktop.customNodePackages.previewLocalAiProfile', 'desktop.customNodePackages.applyLocalAiProfile', 'desktop.customNodePackages.discardLocalAiProfile', 'desktop.customNodePackages.previewSetup', 'desktop.customNodePackages.executeSetup', 'desktop.customNodePackages.discardSetup'].includes(command)) {
@@ -769,6 +769,7 @@ app.whenReady().then(async () => {
     migrationHistory: (payload) => migration.history(payload),
     previewMigration: (payload) => migration.preview(payload),
     applyMigration: (payload) => migration.apply(payload),
+    discardMigration: (payload) => migration.discard(payload),
     restoreMigration: (payload) => migration.restore(payload),
     inspect: async () => {
       const archivePath = await selectCustomNodeArchive();

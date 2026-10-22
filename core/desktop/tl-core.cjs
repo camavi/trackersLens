@@ -504,6 +504,9 @@ const createTlCore = ({ appVersion = "0.0.0", platform = "unknown", mode = "prod
         if (payload?.confirmed !== true) throw errorWithCode("Source read requires consent", "CUSTOM_NODE_SOURCE_CONSENT_REQUIRED");
         if (!customNodePackages?.readSource) throw errorWithCode("Source unavailable", "CUSTOM_NODE_PACKAGES_UNAVAILABLE");
         return customNodePackages.readSource({ packageId: String(payload?.packageId || ""), version: String(payload?.version || ""), archiveSha256: String(payload?.archiveSha256 || ""), confirmed: true });
+      case 'desktop.customNodePackages.discardMigration':
+        if (!customNodePackages?.discardMigration) throw new Error('Migration unavailable');
+        return customNodePackages.discardMigration({planId:String(payload?.planId || '')});
       case "desktop.customNodePackages.applyMigration":
       case "desktop.customNodePackages.restoreMigration": {
         const action = command.split(".").pop();

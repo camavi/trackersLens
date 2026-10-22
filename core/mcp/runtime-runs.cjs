@@ -27,7 +27,7 @@ class McpRuntimeRuns {
  async previewFlow(args,owner){
   const material=await this.flowSource(args.workspaceId,args.startNodeId),planId=crypto.randomUUID();
   const plan={...material,kind:'flow',owner,workspaceId:args.workspaceId,nodeId:args.startNodeId,inputs:structuredClone(args.inputs)};this.plans.set(planId,plan);
-  return {planId,chain:plan.chain,nodes:plan.sources.map(source=>({node:source.node,reference:source.reference,package:source.packageSummary})),inputs:plan.inputs,limitations:['Linear installed sandbox-node chain only; no branch/join/cycle scheduling. Exact emitted ports and TL RuntimeContract mapping propagate payloads. Fail-fast preserves all produced evidence. Execution is isolated from the renderer event-bus subscribers to avoid duplicate dispatch.']};
+  return {planId,chain:plan.chain,nodes:plan.sources.map(source=>({node:source.node,reference:source.reference,package:source.packageSummary})),inputs:plan.inputs,limitations:['Installed sandbox-node tree with sequential fan-out; joins/cycles are unsupported. Exact emitted ports and TL RuntimeContract mapping propagate payloads. Failed branches stop their descendants while independent queued branches continue; all evidence is preserved. Execution is isolated from the renderer event-bus subscribers to avoid duplicate dispatch.']};
  }
  save(run){this.persistence.writeDevelopmentRecords({storeName:'tl_ai_jobs',records:[run]});}
  async start({planId},owner){
@@ -52,39 +52,39 @@ class McpRuntimeRuns {
  }
  async performFlow(entry,plan){
   const run=entry.run,{applyConnectionMapping}=require('../runtime/runtime-contract.js').TrackerLensRuntimeContract;
-  let pending=[plan.inputs];
+  const pending=[{nodeId:plan.nodeId,inputs:plan.inputs}],failures=[];
   try{
-   for(let index=0;index<plan.chain.steps.length;index++){
-    const descriptor=plan.chain.steps[index],source=plan.sources[index],next=[];
-    for(const inputs of pending){
-     if(entry.controller.signal.aborted)throw new Error('Flow cancelled.');
-     const fresh=await this.flowSource(plan.workspaceId,plan.nodeId);if(fresh.fingerprint!==plan.fingerprint)throw new Error('Flow topology/node/package changed during execution; no further node was launched.');
-     if(entry.controller.signal.aborted)throw new Error('Flow cancelled during validation.');
-     const step={index:run.steps.length,nodeId:descriptor.nodeId,inputs,startedAt:new Date().toISOString(),status:'running',executionId:''};run.steps.push(step);this.save(run);
-     try{
-      step.result=await this.execute({...source.reference,nodeId:source.node.id,inputs,config:source.node.metadata?.config||{},context:{workspaceId:plan.workspaceId,runId:run.id,flowId:plan.workspaceId}}, {signal:entry.controller.signal,onExecution:id=>{step.executionId=id;run.executionId=id;this.save(run);}});
-      step.status=entry.controller.signal.aborted?'cancelled':step.result.status==='success'?'completed':'failed';
-     }catch(error){step.status=entry.controller.signal.aborted?'cancelled':'failed';step.error={message:error.message,code:error.code||'FLOW_NODE_FAILED'};}
-     finally{step.trace=step.executionId?this.trace(step.executionId):null;step.completedAt=new Date().toISOString();step.durationMs=Date.parse(step.completedAt)-Date.parse(step.startedAt);this.save(run);}
-     for(const event of step.result?.events||[]){
-      const id='mcp_flow_event_'+crypto.randomUUID();
-      this.persistence.writeDevelopmentRecords({storeName:event.kind==='log'?'tl_flow_logs':'tl_events',records:[{id,workspaceId:plan.workspaceId,nodeId:step.nodeId,sourceNodeId:step.nodeId,runId:run.id,channel:event.port||'',eventType:'mcp_flow_'+event.kind,status:step.status,payload:event.data,message:event.message||'',createdAt:new Date().toISOString(),meta:{runId:run.id,executionId:step.executionId,mcpFlow:true}}]});
-     }
-     if(step.status!=='completed')throw new Error('Flow stopped at node '+step.nodeId+'; inspect its complete diagnostics.');
-     if(descriptor.link)for(const event of step.result.events||[])if(event.kind==='emit'&&event.port===descriptor.link.sourcePort){
-      const mapped=applyConnectionMapping(event.data,descriptor.link.mapping),targetInputs={[descriptor.link.targetPort]:mapped.payload};
-      run.deliveries.push({fromStep:step.index,sourceNodeId:step.nodeId,targetNodeId:plan.chain.steps[index+1].nodeId,...descriptor.link,payload:event.data,mappingResult:mapped,inputs:targetInputs});next.push(targetInputs);
-     }
+   while(pending.length){
+    const {nodeId,inputs,fromStep}=pending.shift(),descriptor=plan.chain.steps.find(step=>step.nodeId===nodeId),source=plan.sources.find(item=>item.node.id===nodeId);
+    if(entry.controller.signal.aborted)throw new Error('Flow cancelled.');
+    const fresh=await this.flowSource(plan.workspaceId,plan.nodeId);if(fresh.fingerprint!==plan.fingerprint)throw new Error('Flow topology/node/package changed during execution; no further node was launched.');
+    if(entry.controller.signal.aborted)throw new Error('Flow cancelled during validation.');
+    const step={index:run.steps.length,nodeId:descriptor.nodeId,reference:source.reference,config:source.node.metadata?.config||{},inputs,fromStep,startedAt:new Date().toISOString(),status:'running',executionId:''};run.steps.push(step);this.save(run);
+    try{
+     step.result=await this.execute({...source.reference,nodeId:source.node.id,inputs,config:source.node.metadata?.config||{},context:{workspaceId:plan.workspaceId,runId:run.id,flowId:plan.workspaceId}}, {signal:entry.controller.signal,onExecution:id=>{step.executionId=id;run.executionId=id;this.save(run);}});
+     step.status=entry.controller.signal.aborted?'cancelled':step.result.status==='success'?'completed':'failed';
+    }catch(error){step.status=entry.controller.signal.aborted?'cancelled':'failed';step.error={message:error.message,code:error.code||'FLOW_NODE_FAILED'};}
+    finally{step.trace=step.executionId?this.trace(step.executionId):null;step.completedAt=new Date().toISOString();step.durationMs=Date.parse(step.completedAt)-Date.parse(step.startedAt);this.save(run);}
+    for(const event of step.result?.events||[]){
+     const id='mcp_flow_event_'+crypto.randomUUID();
+     this.persistence.writeDevelopmentRecords({storeName:event.kind==='log'?'tl_flow_logs':'tl_events',records:[{id,workspaceId:plan.workspaceId,nodeId:step.nodeId,sourceNodeId:step.nodeId,runId:run.id,channel:event.port||'',eventType:'mcp_flow_'+event.kind,status:step.status,payload:event.data,message:event.message||'',createdAt:new Date().toISOString(),meta:{runId:run.id,executionId:step.executionId,mcpFlow:true}}]});
     }
-    pending=next;
+    if(entry.controller.signal.aborted)throw new Error('Flow cancelled.');
+    if(step.status!=='completed'){failures.push({step:step.index,nodeId:step.nodeId,error:step.error||null,diagnostics:step.result?.diagnostics||[]});continue;}
+    for(const event of step.result.events||[])for(const link of descriptor.links)if(event.kind==='emit'&&event.port===link.sourcePort){
+     const mapped=applyConnectionMapping(event.data,link.mapping),targetInputs={[link.targetPort]:mapped.payload};
+     run.deliveries.push({fromStep:step.index,sourceNodeId:step.nodeId,...link,payload:event.data,mappingResult:mapped,inputs:targetInputs});pending.push({nodeId:link.targetNodeId,inputs:targetInputs,fromStep:step.index});
+    }
    }
-   run.status='completed';run.result={terminalSteps:run.steps.filter(step=>step.nodeId===plan.chain.steps.at(-1).nodeId),propagated:run.deliveries.length,attention:run.steps.some(step=>step.nodeId===plan.chain.steps.at(-1).nodeId)?[]:['No matching emission reached the terminal node. Inspect retained producer outputs.']};
+   const leaves=plan.chain.steps.filter(step=>!step.links.length).map(step=>step.nodeId);
+   run.status=failures.length?'failed':'completed';run.result={terminalSteps:run.steps.filter(step=>leaves.includes(step.nodeId)),propagated:run.deliveries.length,failures,attention:leaves.filter(id=>!run.steps.some(step=>step.nodeId===id)).map(nodeId=>({nodeId,message:'No execution reached this terminal node. Inspect retained upstream outputs and failures.'}))};
+   if(failures.length)run.error={message:'Flow branch execution failed; independent branches were allowed to complete. Inspect every step diagnostic.',code:'MCP_FLOW_FAILED'};
   }catch(error){run.status=entry.controller.signal.aborted?'cancelled':'failed';run.error={message:error.message,code:entry.controller.signal.aborted?'EXECUTION_CANCELLED':'MCP_FLOW_FAILED'};}
   finally{run.completedAt=new Date().toISOString();run.durationMs=Date.parse(run.completedAt)-Date.parse(run.startedAt);this.save(run);}
  }
  get({runId}){
   const run=this.persistence.readDevelopmentRecordById({storeName:'tl_ai_jobs',id:runId});if(!['mcp-node-run','mcp-flow-run'].includes(run?.kind))throw new Error('MCP runtime run not found.');
-  const live=this.active.get(runId);return {run:{...run,...(run.status==='running'&&!live?{status:'interrupted',outcome:'unknown-after-restart'}:{})},trace:live&&run.executionId?this.trace(run.executionId):run.trace||null,persistenceError:this.persistenceErrors.get(runId)||null,limitations:[run.kind==='mcp-flow-run'?'Linear sandbox chain execution; no general renderer event-bus dispatch.':'Single-node sandbox execution; no downstream Flow execution.','A historical interrupted run is never automatically replayed.']};
+  const live=this.active.get(runId);return {run:{...run,...(run.status==='running'&&!live?{status:'interrupted',outcome:'unknown-after-restart'}:{})},trace:live&&run.executionId?this.trace(run.executionId):run.trace||null,persistenceError:this.persistenceErrors.get(runId)||null,limitations:[run.kind==='mcp-flow-run'?'Sequential sandbox tree execution; no joins/cycles or general renderer event-bus dispatch.':'Single-node sandbox execution; no downstream Flow execution.','A historical interrupted run is never automatically replayed.']};
  }
  async stop({runId},owner){
   const entry=this.active.get(runId);if(!entry)return {...this.get({runId}),stopped:false};

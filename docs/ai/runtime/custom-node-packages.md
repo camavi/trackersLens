@@ -2,7 +2,7 @@
 
 Purpose: package lifecycle, local management, runtime authority and marketplace direction.
 Read when: implementing Custom Node creation, import, activation, removal or publication.
-Last updated: 2026-09-26.
+Last updated: 2026-10-22.
 
 ## Chat-authored Python packages (2026-10-20)
 
@@ -150,3 +150,7 @@ For this initial path, all exact-source instances are included. Removed ports, e
 Core's SQLite-only `commitCustomNodeMigration` is not exposed as general renderer IPC. It acquires a write transaction, compares current package/node/dependency/connection/channel stores with the reviewed state and writes both a scoped Time Travel snapshot and node updates atomically. The plan is consumed on success. Full-store comparison is intentionally conservative: unrelated graph changes can require a new preview.
 
 The Versions history remains available after app restart. Confirmed restore refuses changed migrated nodes or topology, touches only snapshot nodes, checks that the source package still exists and reconciles its current activation state. Generic Time Travel restore rejects `restoreMode=custom-node-migration` snapshots to prevent a partial snapshot from replacing the complete node store. The original and destination archives are not deleted. Runtime semantic equivalence is not guaranteed by schema compatibility.
+
+## External MCP authoring and version updates (2026-10-22)
+
+External MCP clients can discover exact installed material and managed Python manifest templates, prepare authored source/manifest drafts, request local full setup approval, insert inactive installed-package instances and migrate explicitly selected nodes to a new reviewed version. `core/mcp/packages.cjs` coordinates connection ownership and evidence; Core CustomNodeSetup/CustomNodeMigration and registered graph edits retain mutation authority. Source, manifest, permissions and managed installer plan are shown before any install/grant/activation. Unconsumed drafts are removed on disconnect; completed setup stages and historical archives/output remain available. See `runtime/mcp-server.md` for exact tools and acceptance. This does not expose arbitrary pip/process/filesystem authority or expand the existing Chat. The fifth real acceptance reused the already verified pandas/NumPy managed data pack; it did not test a fresh pack download.

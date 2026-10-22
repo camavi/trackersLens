@@ -60,6 +60,7 @@ class CustomNodeMigration {
       nodes: plan.nodes.map((node, index) => ({ id: node.id, name: node.label || node.name || node.id, workspaceId: node.workspaceId, beforeConfig: node.metadata?.config || {}, afterConfig: plan.after[index].metadata.config })),
       message: "Saranno aggiornati solo i nodi elencati. Collegamenti, ID e dati prodotti rimangono salvati." };
   }
+  discard({ planId }) { return { discarded: this.plans.delete(planId) }; }
   async apply({ planId, confirmed }) {
     if (confirmed !== true) throw fail("Conferma esplicitamente la migrazione.");
     const plan = this.plans.get(planId);

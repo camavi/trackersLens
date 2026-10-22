@@ -128,4 +128,8 @@ MCP exact topology/duplicate schemas are in `core/mcp/tl-tools.cjs`; `McpNodeEdi
 
 MCP one-shot runtime: `core/mcp/runtime-runs.cjs` owns connection plans, run records and cancellation; Main adapts the existing Custom Node sandbox runner with AbortSignal/onExecution. Tests: `test/tl-mcp-runtime.test.cjs`, `test/tl-mcp-runtime-electron.cjs`. Full Flow propagation remains separate.
 
-MCP linear Flow: `core/runtime/sandbox-flow-plan.cjs` validates persisted chain shape; `core/mcp/runtime-runs.cjs` schedules existing sandbox invocations with RuntimeContract mapping and complete step/delivery evidence. `test/tl-mcp-flow-electron.cjs` covers real chain execution and correction through production MCP.
+MCP sandbox Flow: `core/runtime/sandbox-flow-plan.cjs` validates rooted persisted tree shape (linear/fan-out; no joins/cycles); `core/mcp/runtime-runs.cjs` schedules existing sandbox invocations with RuntimeContract mapping and complete step/delivery evidence. `test/tl-mcp-flow-electron.cjs` covers real linear/fan-out execution and correction through production MCP (fan-out via TL_MCP_QA_FANOUT=1).
+
+MCP package development: `core/mcp/packages.cjs` owns connection-bound draft/setup/migration review and durable operation evidence; `McpNodeEdits.previewInstalled` derives inactive instances from exact activated packages. Existing `custom-node-setup.cjs`, `custom-node-migration.cjs` and `node-edit-plan.cjs` own effects. Tests: `test/tl-mcp-packages.test.cjs`, `test/tl-mcp-packages-electron.cjs`.
+
+MCP recovery acceptance: `test/tl-mcp-recovery-electron.cjs` orchestrates two real app lifetimes, killed stdio transport, Python PID checks, exact historical reads, explicit restart and read-only SQLite evidence. Run with Node; it launches Electron itself.
