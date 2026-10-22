@@ -178,6 +178,7 @@ window.TrackerLensProcessorRuntime = (() => {
     constructor({ workspaceId = "workspace_global" } = {}) {
       this.workspaceId = workspaceId;
       this.unsubscribers = [];
+      this.pending = new Map();
       this.signature = "";
       this.bus = null;
       this.runtime = { nodes: [], dependencies: [] };
@@ -220,7 +221,7 @@ window.TrackerLensProcessorRuntime = (() => {
           config: nodeConfig(node),
           incomingMappings: (runtime.dependencies || [])
             .filter((dependency) => dependency.targetNodeId === node.id)
-            .map((dependency) => ({ id: dependency.id, channel: dependency.channel, metadata: dependency.metadata || {} })),
+            .map((dependency) => ({ id: dependency.id, sourceNodeId: dependency.sourceNodeId, status: dependency.status, channel: dependency.channel, metadata: dependency.metadata || {} })),
         }));
       return JSON.stringify(processors);
     }
@@ -298,7 +299,48 @@ window.TrackerLensProcessorRuntime = (() => {
       };
     }
 
-    async handleEvent({ node, payload, event }) {
+    acceptsPackageEvent(node, event = {}) {
+      if (event.workspaceId && event.workspaceId !== this.workspaceId) return false;
+      if (event.targetNodeId && event.targetNodeId !== node.id) return false;
+      const incoming = (this.runtime.dependencies || []).filter(edge =>
+        edge.targetNodeId === node.id && !isToolAccessDependency(edge));
+      if (!incoming.length) return !event.targetNodeId || event.targetNodeId === node.id;
+      return incoming.some(edge => edge.status !== "disabled" &&
+        event.sourceNodeId === edge.sourceNodeId &&
+        [edge.channel, edge.metadata?.sourcePort, edge.metadata?.targetPort].filter(Boolean).includes(event.channel) &&
+        (!event.connectionId || event.connectionId === edge.connectionId));
+    }
+
+    handleEvent(request) {
+      if (request.node?.metadata?.customPackage && !this.acceptsPackageEvent(request.node, request.event)) return Promise.resolve();
+      const task = this.executeEvent(request);
+      this.pending.set(task, request.event?.meta?.runId || request.payload?.runId || "");
+      task.finally(() => this.pending.delete(task)).catch(() => {});
+      return task;
+    }
+
+    async waitForRun(runId) {
+      while (true) {
+        const pending = [...this.pending].filter(([, id]) => id === runId).map(([task]) => task);
+        if (!pending.length) return;
+        await Promise.allSettled(pending);
+      }
+    }
+
+    async runRoot({ node, runId, payload = {} }) {
+      if (!node?.metadata?.customPackage || !isRunnableProcessor(node)) throw new Error("Custom Node root is not runnable");
+      if ((this.runtime.dependencies || []).some(edge => edge.targetNodeId === node.id && !isToolAccessDependency(edge))) {
+        throw new Error("Start this Custom Node from its connected parent");
+      }
+      const result = await this.handleEvent({ node, payload, event: {
+        id: `custom_root_${runId}_${node.id}`, workspaceId: this.workspaceId,
+        targetNodeId: node.id, channel: node.inputs?.[0] || "input", meta: { runId },
+      } });
+      if (result?.status !== "success") throw new Error("Custom Node root execution failed; consult the runtime log");
+      return result;
+    }
+
+    async executeEvent({ node, payload, event }) {
       if (!node?.id || event?.sourceNodeId === node.id || event?.meta?.processorRuntime === node.id) return;
       const runner = () => this.performEvent({ node, payload, event });
       try {
@@ -479,7 +521,7 @@ window.TrackerLensProcessorRuntime = (() => {
         version: pkg.version,
         archiveSha256: pkg.archive?.sha256,
         nodeId: node.id,
-        inputs: { input: clonePayload(payload), [String(event?.channel || "input")]: clonePayload(payload) },
+        inputs: { input: clonePayload(payload), [String(window.TrackerLensRuntimeContract?.incomingDependencyForEvent?.({runtime: this.runtime, node, event})?.metadata?.targetPort || event?.channel || "input")]: clonePayload(payload) },
         config: clonePayload(nodeConfig(node)),
         context: {
           workspaceId: this.workspaceId,
@@ -503,13 +545,13 @@ window.TrackerLensProcessorRuntime = (() => {
             eventType: "custom_node_emit",
             sourceNodeId: node.id,
             latencyMs,
-            meta: { processorRuntime: node.id, customNodeSandbox: true, executionId: result.executionId, inputEventId: event?.id || "" }
+            meta: { processorRuntime: node.id, customNodeSandbox: true, executionId: result.executionId, inputEventId: event?.id || "", runId: event?.meta?.runId || "" }
           });
         } else if (sandboxEvent.kind === "log") {
-          await this.log({ node, message: sandboxEvent.message, context: { customNodeSandbox: true, executionId: result.executionId, data: sandboxEvent.data || {} } });
+          await this.log({ node, message: sandboxEvent.message, context: { runId: event?.meta?.runId || "", customNodeSandbox: true, executionId: result.executionId, data: sandboxEvent.data || {} } });
         }
       }
-      await this.log({ node, message: `Custom Node sandbox completed: ${node.label || node.id}`, context: { executionId: result.executionId, latencyMs } });
+      await this.log({ node, message: `Custom Node sandbox completed: ${node.label || node.id}`, context: { runId: event?.meta?.runId || "", executionId: result.executionId, latencyMs } });
       return result;
     }
   }

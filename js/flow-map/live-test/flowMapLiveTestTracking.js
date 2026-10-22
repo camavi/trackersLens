@@ -621,6 +621,12 @@ const createFlowMapLiveTestTracking = (moduleDependencies) => {
     });
 
   const executeLiveNode = async ({ node, workspaceId, runId, graph, signal = null } = {}) => {
+    if (node.metadata?.customPackage?.runtimeExecution === "sandboxed") {
+      const runtime = window.TrackerLensProcessorRuntime?.get?.(workspaceId);
+      if (!runtime?.runRoot) throw new Error("Custom Node runtime unavailable");
+      const result = await runtime.runRoot({ node, runId });
+      return { channels: (result.events || []).filter(event => event.kind === "emit").map(event => event.port), payload: null };
+    }
     if ((0, moduleDependencies.isManualInputSource)(node)) {
       return (0, moduleDependencies.executeManualInputNode)({ node, workspaceId, runId, graph, signal });
     }

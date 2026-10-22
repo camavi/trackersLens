@@ -273,39 +273,40 @@ const [getLoadingState, setLoadingSignal] = flowReactive.signal(state.loading);
 const [getErrorState, setErrorSignal] = flowReactive.signal(state.error);
 const FLOW_ERROR_TIMEOUT_MS = 7000;
 
-const clearFlowMapError = ({ remount = true } = {}) => {
-  if (state.errorToast.timerId) {
-    window.clearTimeout(state.errorToast.timerId);
+const flowMapErrorAlerts = [];
+let flowMapErrorAlertId = 0;
+
+const clearFlowMapError = ({ remount = true, id } = {}) => {
+  for (let index = flowMapErrorAlerts.length - 1; index >= 0; index--) {
+    const alert = flowMapErrorAlerts[index];
+    if (id !== undefined && alert.id !== id) continue;
+    if (alert.timerId) window.clearTimeout(alert.timerId);
+    flowMapErrorAlerts.splice(index, 1);
   }
-  state.errorToast = { message: "", timerId: 0 };
-  if (!state.error) return;
-  state.error = "";
-  setErrorSignal("");
+  state.error = flowMapErrorAlerts.at(-1)?.message || "";
+  state.errorToast = { message: state.error, timerId: 0 };
+  setErrorSignal(state.error);
   if (remount && state.mounted && typeof mount === "function") mount({ preserveScroll: true });
 };
 
-const scheduleFlowMapErrorDismiss = () => {
+const scheduleFlowMapErrorDismiss = ({ timeout = true, force = false } = {}) => {
   const message = String(state.error || "");
   if (!message) {
-    if (state.errorToast.timerId) window.clearTimeout(state.errorToast.timerId);
-    state.errorToast = { message: "", timerId: 0 };
+    clearFlowMapError({ remount: false });
     return;
   }
-  if (state.errorToast.message === message && state.errorToast.timerId) return;
-  if (state.errorToast.timerId) window.clearTimeout(state.errorToast.timerId);
-  const timerId = window.setTimeout(() => {
-    if (state.error === message) clearFlowMapError({ remount: true });
+  if (!force && state.errorToast.message === message) return;
+  const alert = { id: ++flowMapErrorAlertId, message, timerId: 0 };
+  flowMapErrorAlerts.push(alert);
+  if (timeout) alert.timerId = window.setTimeout(() => {
+    clearFlowMapError({ id: alert.id, remount: true });
   }, FLOW_ERROR_TIMEOUT_MS);
-  state.errorToast = { message, timerId };
+  state.errorToast = { message, timerId: 0 };
 };
 
 const setFlowMapError = (message = "", { timeout = true, remount = false } = {}) => {
   state.error = String(message || "");
-  if (!timeout && state.errorToast.timerId) {
-    window.clearTimeout(state.errorToast.timerId);
-    state.errorToast = { message: "", timerId: 0 };
-  }
-  if (timeout) scheduleFlowMapErrorDismiss();
+  scheduleFlowMapErrorDismiss({ timeout, force: true });
   setErrorSignal(state.error);
   if (remount && state.mounted && typeof mount === "function") mount({ preserveScroll: true });
 };

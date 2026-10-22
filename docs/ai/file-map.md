@@ -153,3 +153,7 @@ Custom Node Codex Login: `core/desktop/custom-node-login-ai.cjs` reuses the exis
 Fifteenth error-feedback acceptance: `test/tl-mcp-llm-repair-acceptance.cjs` composes with collaboration QA under `TL_LLM_QA_REPAIR=1`; the same independent verifier checks real Codex repair, exact versioned Python archives, selected-node migration and retained failures.
 
 Model-authored LLM/Python acceptance: `test/tl-mcp-authored-nodes-electron.cjs` orchestrates actual Codex MCP authoring and two app lifetimes; `test/tl-mcp-authored-nodes-verify.cjs` independently checks authored ZIP bytes, SQLite, model handoffs and reopen integrity.
+
+- `test/fixtures/document-privacy-packages.cjs`, `test/document-privacy-packages.test.cjs`, `test/tl-document-privacy-{app,run,verify}.cjs`: opt-in real-project reversible TXT privacy acceptance, outgoing-provider boundary regression tests and independent SQLite/archive/byte verifier.
+
+- `test/tl-document-privacy-play.cjs` and `test/tl-document-privacy-play-verify.cjs`: opt-in canvas Play acceptance for an existing document Flow and independent persisted-output/provider-boundary verification.

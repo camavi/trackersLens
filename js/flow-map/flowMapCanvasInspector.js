@@ -617,9 +617,11 @@ const renderShell = () =>
     flowMapEmbedded ? null : window.TrackerLensSidebar.render({ activeId: "flow" }),
     _.div(
       { class: "tl-flow-main" },
-      state.error ? _.div(
+      flowMapErrorAlerts.length ? _.div(
+        { class: "tl-flow-errors" },
+        ...flowMapErrorAlerts.map(alert => _.div(
         { class: "tl-flow-error", role: "alert" },
-        _.span({ class: "tl-flow-error-message" }, state.error),
+        _.span({ class: "tl-flow-error-message" }, alert.message),
         flowMapBtn({
           class: "tl-flow-error-close",
           dense: true,
@@ -628,9 +630,10 @@ const renderShell = () =>
           onclick: (event) => {
             event.preventDefault();
             event.stopPropagation();
-            clearFlowMapError({ remount: true });
+            clearFlowMapError({ id: alert.id, remount: true });
           },
         }, flowMapIcon("close", "sm"))
+        ))
       ) : null,
       _.div(
         { class: "tl-flow-grid" },

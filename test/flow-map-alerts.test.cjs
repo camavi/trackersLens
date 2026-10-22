@@ -1,0 +1,22 @@
+const {test}=require('node:test');
+const assert=require('node:assert/strict');
+const vm=require('node:vm');
+const fs=require('node:fs');
+test('Flow alerts retain arrival order, close and expire independently, and preserve persistent messages',()=>{
+ const source=fs.readFileSync('js/flow-map/flowMapState.js','utf8');
+ const timers=new Map();let timerId=0;
+ const context=vm.createContext({state:{error:'',errorToast:{message:'',timerId:0}},window:{setTimeout(fn){timers.set(++timerId,fn);return timerId;},clearTimeout(id){timers.delete(id);}},setErrorSignal(){},FLOW_ERROR_TIMEOUT_MS:7000});
+ vm.runInContext(source.slice(source.indexOf('const flowMapErrorAlerts ='),source.indexOf('const onFlowMapRuntimeError')),context);
+ const run=code=>vm.runInContext(code,context);
+ const messages=()=>JSON.parse(run('JSON.stringify(flowMapErrorAlerts.map(a=>a.message))'));
+ run("setFlowMapError('first');setFlowMapError('second');setFlowMapError('third', {timeout:false});");
+ assert.deepEqual(messages(),['first','second','third']);
+ run('scheduleFlowMapErrorDismiss()');assert.equal(messages().length,3);
+ run('clearFlowMapError({id:flowMapErrorAlerts[1].id})');assert.deepEqual(messages(),['first','third']);
+ const expire=timers.values().next().value;expire();assert.deepEqual(messages(),['third']);
+ run('scheduleFlowMapErrorDismiss()');assert.deepEqual(messages(),['third']);assert.equal(timers.size,0);
+ run("setFlowMapError('third', {timeout:false})");assert.deepEqual(messages(),['third','third']);
+ run('clearFlowMapError()');assert.deepEqual(messages(),[]);
+ run("state.error='legacy';scheduleFlowMapErrorDismiss();scheduleFlowMapErrorDismiss();");assert.deepEqual(messages(),['legacy']);
+ run("state.error='';scheduleFlowMapErrorDismiss()");assert.deepEqual(messages(),[]);
+});

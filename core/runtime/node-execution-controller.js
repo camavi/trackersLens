@@ -88,7 +88,8 @@ window.TrackerLensNodeExecutionController = (() => {
       const startedAt = performance?.now?.() || Date.now();
       Promise.race([
         Promise.resolve().then(() => window.TrackerLensRuntimeManager?.getDefault?.().runLegacyTask({ node, task, context }) || task()),
-        timeoutPromise(config.timeoutMs, node.id),
+        // Package sandbox owns its declared timeout and cancellation lifecycle.
+        ...(node.metadata?.customPackage ? [] : [timeoutPromise(config.timeoutMs, node.id)]),
       ])
         .then((result) => resolve(result))
         .catch((error) => reject(error))

@@ -782,6 +782,7 @@ body {
 }
 
 .tl-flow-card-title-row {
+  flex-wrap: nowrap;
   width: 100%;
   min-width: 0;
   text-align: left;
@@ -791,6 +792,12 @@ body {
   flex: 1 1 auto;
   min-width: 0;
   text-align: left;
+  display: block;
+  margin: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  overflow-wrap: normal;
 }
 
 .tl-flow-map-card .tl-card-title h3 {

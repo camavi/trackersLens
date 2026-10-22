@@ -167,6 +167,7 @@ const createFlowMapLiveTestRunner = (moduleDependencies) => {
     const path = (0, moduleDependencies.downstreamTestPath)(graph, starters.map((node) => node.id));
     const abortController = new AbortController();
     const keepOpen = starters.some((node) => (0, moduleDependencies.isWebSocketEndpoint)((0, moduleDependencies.nodeEndpoint)(node)) && (0, moduleDependencies.isLiveKeepOpenNode)(node));
+    const hasCustomPackages = (graph.nodes || []).some(node => path.nodeIds.includes(node.id) && node.metadata?.customPackage);
     const hasDirectAi = starters.some(moduleDependencies.isDirectAiTestNode);
     const hasAiInPath = (0, moduleDependencies.aiNodesInPath)(graph, path).length > 0;
     state.testRun = {
@@ -186,7 +187,7 @@ const createFlowMapLiveTestRunner = (moduleDependencies) => {
       cancelRequested: false,
       verification: null,
     };
-    if (!keepOpen) (0, moduleDependencies.startTestRunTimeout)(runId, hasDirectAi || hasAiInPath ? AI_DIRECT_TEST_TIMEOUT_MS : TEST_RUN_TIMEOUT_MS);
+    if (!keepOpen && !hasCustomPackages) (0, moduleDependencies.startTestRunTimeout)(runId, hasDirectAi || hasAiInPath ? AI_DIRECT_TEST_TIMEOUT_MS : TEST_RUN_TIMEOUT_MS);
     state.error = "";
     setFiltersState({ ...state.filters, runId });
     syncFilterQuery();
@@ -216,6 +217,8 @@ const createFlowMapLiveTestRunner = (moduleDependencies) => {
       if (hasAiInPath) {
         await (0, moduleDependencies.ensureAiPathExecution)({ workspaceId, runId, graph, path, signal: abortController.signal });
       }
+
+      if (hasCustomPackages) await window.TrackerLensProcessorRuntime?.get?.(workspaceId)?.waitForRun(runId);
 
       const runRecords = hasAiInPath
         ? await (0, moduleDependencies.waitForAiPathRecords)({ workspaceId, runId, graph, path, signal: abortController.signal })

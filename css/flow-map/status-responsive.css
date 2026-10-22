@@ -653,12 +653,21 @@
   margin: 0 10px 10px;
 }
 
-.tl-flow-error {
+.tl-flow-errors {
   position: fixed;
   left: 96px;
   right: 24px;
   top: 72px;
   z-index: 70;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: calc(100dvh - 96px);
+  overflow-y: auto;
+}
+
+.tl-flow-error {
+  flex-shrink: 0;
   display: grid;
   grid-template-columns: minmax(0, 1fr) 28px;
   align-items: center;
@@ -679,8 +688,8 @@
   font-size: 12px;
   font-weight: 700;
   line-height: 1.35;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
 }
 
 .tl-flow-error-close.jss-btn {

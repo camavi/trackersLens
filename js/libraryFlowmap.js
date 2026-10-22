@@ -585,7 +585,7 @@ const renderFlowCard = (item) =>
       { class: "tl-card-head tl-flow-card-head" },
       _.Row(
         { class: "tl-flow-card-title-row", align: "start", justify: "space-between", gap: 10 },
-        _.h3(item.name),
+        _.h3({ title: item.name }, item.name),
         _.label(
           { class: "tl-flow-color-picker", title: "Colore Flow Map", "aria-label": `Colore ${item.name}` },
           _.span({ class: "tl-flow-color-swatch", "aria-hidden": "true" }),

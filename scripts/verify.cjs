@@ -3,6 +3,12 @@
 const { spawnSync } = require('node:child_process');
 
 const syntaxFiles = [
+  'test/fixtures/document-privacy-packages.cjs',
+  'test/tl-document-privacy-app.cjs',
+  'test/tl-document-privacy-run.cjs',
+  'test/tl-document-privacy-verify.cjs',
+  'test/tl-document-privacy-play.cjs',
+  'test/tl-document-privacy-play-verify.cjs',
   'core/mcp/tl-tools.cjs',
   'core/mcp/node-edits.cjs',
   'core/mcp/runtime-runs.cjs',
@@ -111,6 +117,8 @@ const tests = [
   'test/llm-observation.test.cjs',
   'test/account-client.test.cjs',
   'test/tl-core.test.cjs',
+  'test/flow-map-alerts.test.cjs',
+  'test/document-privacy-packages.test.cjs',
   'test/custom-node-package-manager.test.cjs',
   'test/custom-node-setup.test.cjs',
   'test/custom-node-local-ai.test.cjs',

@@ -2,6 +2,7 @@
 // State and dependency wiring: js/flow-map/flowMapRuntimeTests.js.
 const createFlowMapLiveTestAssertions = (moduleDependencies) => {
   const runtimeKindForNode = (node = {}) => {
+    if (node.metadata?.customPackage) return "processor";
     if ((0, moduleDependencies.isOrchestratorAgentNode)(node)) return "orchestrator";
     if (node.type === "aiAgent") return "ai";
     if (node.type === "storage") return "storage";
@@ -223,7 +224,7 @@ const createFlowMapLiveTestAssertions = (moduleDependencies) => {
       ai: nodes.filter((node) => runtimeKindForNode(node) === "ai").length,
     };
     const eventHits = {
-      processor: events.filter((event) => String(event.eventType || "").includes("processor")).length,
+      processor: events.filter((event) => (String(event.eventType || "").includes("processor") || event.eventType === "custom_node_emit")).length,
       action: events.filter((event) => String(event.eventType || "").includes("action")).length,
       storage: events.filter((event) => String(event.eventType || "").includes("storage")).length,
       ai: events.filter((event) => String(event.eventType || "").includes("ai_agent") || String(event.channel || "").startsWith("ai.")).length,
