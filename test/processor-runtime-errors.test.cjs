@@ -147,7 +147,7 @@ test('Canvas Live Play uses the package runtime before the legacy custom form pa
 });
 
 test('Live verification counts actual Custom Node emissions as processor activity', () => {
-  const context=vm.createContext({});
+  const context=vm.createContext({window:{}});
   const source=fs.readFileSync(require.resolve('../js/flow-map/live-test/flowMapLiveTestAssertions.js'),'utf8');
   vm.runInContext(source+'\nglobalThis.assertions=createFlowMapLiveTestAssertions({isOrchestratorAgentNode:()=>false});',context);
   const node={id:'custom',type:'custom',metadata:{customPackage:{runtimeExecution:'sandboxed'}}};

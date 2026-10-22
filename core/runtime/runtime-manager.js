@@ -120,7 +120,7 @@
       const manifest = node.metadata?.manifest || {};
       // Imported packages are dispatched by their exact, hash-verified Core
       // reference. Do not route Python package code through a built-in worker.
-      if (node.metadata?.customPackage?.packageId) return task();
+      if (node.metadata?.customPackage?.packageId || (typeof window!=="undefined" && window.TrackerLensStandardNodes?.kindOf?.(node))) return task();
       const execution = manifest.execution || node.execution || {};
       const resolved = this.resolve(execution);
       if (!resolved.ok) {

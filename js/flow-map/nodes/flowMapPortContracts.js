@@ -168,6 +168,7 @@ const createFlowMapPortContracts = (moduleDependencies) => {
   };
 
   const nodePorts = (node = {}, side = "out") => {
+    if(window.TrackerLensStandardNodes?.kindOf?.(node))return (side==='in'?node.inputs||['input']:node.outputs||['output']).map(port=>normalizePortDef(port,'object'));
     if (!node?.id) return [{ name: "all", type: side === "in" ? "any" : "object" }];
     if ((0, moduleDependencies.isFlowBoundaryNode)(node)) {
       return side === (0, moduleDependencies.flowPortDirection)(node) ? (0, moduleDependencies.flowPortDefinitions)(node) : [];

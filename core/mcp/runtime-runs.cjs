@@ -1,11 +1,16 @@
 const crypto=require('node:crypto');
 const hash=value=>crypto.createHash('sha256').update(JSON.stringify(value)).digest('hex');
 class McpRuntimeRuns {
- constructor({persistence,packages,execute,trace,review}){Object.assign(this,{persistence,packages,execute,trace,review});this.plans=new Map();this.active=new Map();this.closed=false;this.persistenceErrors=new Map();}
+ constructor({persistence,packages,execute,trace,review,standardNodes}){Object.assign(this,{persistence,packages,execute,trace,review,standardNodes});this.plans=new Map();this.active=new Map();this.closed=false;this.persistenceErrors=new Map();}
  async source(workspaceId,nodeId){
   const node=this.persistence.readDevelopmentRecordById({storeName:'tl_runtime_nodes',id:nodeId});
   if(!node||node.workspaceId!==workspaceId)throw new Error('Exact runtime node not found in this workspace.');
   if(require('../desktop/node-edit-plan.cjs').busy(node))throw new Error('Node is already active; stop existing execution first.');
+  const templateId=require('../runtime/standard-node-templates.js').kindOf(node);
+  if(templateId){
+   const runtime=await this.standardNodes.load({templateId,nodeId,workspaceId});
+   return {node,reference:{templateId},packageSummary:{declaredPermissions:runtime.packageRecord.permissions,grantedPermissions:runtime.packageRecord.grantedPermissions,execution:runtime.packageRecord.manifest.execution||{},standardTemplate:templateId},fingerprint:hash({node,source:runtime.source,execution:runtime.packageRecord.manifest.execution})};
+  }
   const ref=node.metadata?.customPackage;
   if(ref?.runtimeExecution!=='sandboxed')throw new Error('MCP execution currently supports installed sandboxed Custom Nodes only.');
   const runtime=await this.packages.loadSandboxRuntime({packageId:ref.packageId,version:ref.version,archiveSha256:ref.archive?.sha256});

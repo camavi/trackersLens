@@ -1,6 +1,6 @@
 const crypto=require('node:crypto');
 class McpNodeEdits {
- constructor({core,persistence,review,withEditorPaused,packages}){this.packages=packages;this.core=core;this.persistence=persistence;this.review=review;this.withEditorPaused=withEditorPaused;this.plans=new Map();this.forgotten=new WeakSet();this.running=false;this.closed=false;this.controllers=new Map();}
+ constructor({core,persistence,review,withEditorPaused,packages,standardNodes}){this.standardNodes=standardNodes;this.packages=packages;this.core=core;this.persistence=persistence;this.review=review;this.withEditorPaused=withEditorPaused;this.plans=new Map();this.forgotten=new WeakSet();this.running=false;this.closed=false;this.controllers=new Map();}
  async preview(args,owner){
   if(this.closed||this.forgotten.has(owner))throw new Error('MCP editor is closed.');
   const plan=await this.core.request('desktop.flowChat.applyNodeEdits',{workspaceId:args.workspaceId,edits:args.edits,confirmed:false});
@@ -8,6 +8,11 @@ class McpNodeEdits {
   const planId=crypto.randomUUID(),operationId='mcp_'+crypto.randomUUID();
   this.plans.set(planId,{owner,workspaceId:args.workspaceId,edits:structuredClone(args.edits),expected:plan.before,operationId,plan});
   return {...plan,planId,operationId,tool:'applyNodeEdits',status:'ready',limitations:['Apply requires a separate call and local TL review. TL saves pending edits and reloads the editor; stale state or active runtime work blocks the entire write.']};
+ }
+ async previewStandard(args,owner){
+  const node=this.standardNodes.buildNode({...args,id:'mcp_node_'+crypto.randomUUID()});
+  const result=await this.preview({workspaceId:args.workspaceId,edits:[{operation:'create',node}]},owner);
+  return {...result,nodeId:node.id,templateId:args.templateId};
  }
  async previewInstalled(args,owner){
   const {packageRecord:pkg}=await this.packages.loadSandboxRuntime(args.reference),manifest=pkg.manifest;

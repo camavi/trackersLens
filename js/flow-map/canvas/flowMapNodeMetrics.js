@@ -58,6 +58,7 @@ const createFlowMapNodeMetrics = (moduleDependencies) => {
   };
 
   const nodeHasTokenAccounting = (node = {}) => {
+    if(window.TrackerLensStandardNodes?.kindOf?.(node))return false; // Actual provider usage remains in the standard node Data/Logs inspector.
     const subtype = nodeSubtype(node);
     const config = node.metadata?.config || {};
     const usage = node.metadata?.tokenUsage || {};

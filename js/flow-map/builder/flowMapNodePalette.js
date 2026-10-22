@@ -266,7 +266,7 @@ const createFlowMapNodePalette = (moduleDependencies) => {
   ];
 
   const effectiveNodePalette = () => [
-    ...nodePalette,
+    ...nodePalette.map(([label,items])=>[label,[...items,...(window.TrackerLensStandardNodes?.paletteItems?.()||[]).filter(item=>label===(item.subtype==="llm-custom"?"AI Agents":"Processors"))]]),
     ...(window.TrackerLensCustomNodePackages?.paletteGroups?.() || []),
   ];
 

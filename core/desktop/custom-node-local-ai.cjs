@@ -1,4 +1,6 @@
 const crypto = require('node:crypto');
+const providerCatalog = require('../runtime/ai-provider-catalog.js');
+const lmStudio = require('../runtime/lm-studio-native.js');
 const fail = (message, code = 'CUSTOM_NODE_LOCAL_AI_INVALID') => Object.assign(new Error(message), { code });
 const profileOf = record => record.content && typeof record.content === 'object' ? record.content : record;
 const DEFAULT_LOCAL_CANDIDATES = {
@@ -149,8 +151,8 @@ class CustomNodeLocalAi {
 
   async complete({ arguments: args = {}, request = {}, executionId = '' } = {}) {
     if (request.permissions?.aiProvider !== true) throw fail('Permesso Provider AI non concesso.', 'CUSTOM_NODE_LOCAL_AI_DENIED');
-    const providerId = String(request.config?.aiProviderId || '').trim();
-    if (!providerId) throw fail('Configura aiProviderId con un profilo AI locale elencato da TL.');
+    let providerId = String(request.config?.aiProviderId || '').trim();
+    if (!providerId && request.package?.packageId!=='tl.standard.llm-custom') throw fail('Configura aiProviderId con un profilo AI locale elencato da TL.');
     if (Object.keys(args).some(key => !['messages', 'prompt'].includes(key))) throw fail('Il pacchetto può fornire solo messages o prompt; destinazione e modello appartengono al profilo TL.');
     const messages = args.messages ?? (typeof args.prompt === 'string' ? [{ role: 'user', content: args.prompt }] : null);
     if (!Array.isArray(messages) || !messages.length || messages.some(item => !item || !['system', 'user', 'assistant'].includes(item.role) || typeof item.content !== 'string')) throw fail('Occorrono messaggi testuali con ruolo system, user o assistant.');
@@ -162,20 +164,24 @@ class CustomNodeLocalAi {
     const save = () => trace ? this.persistence.writeDevelopmentRecords({ storeName: 'tl_ai_logs', records: [JSON.parse(redact(JSON.stringify(trace)))] }) : undefined;
     try {
       const records = await this.persistence.readDevelopmentRecords({ storeName: 'tl_ai_providers' });
-      const record = records.find(item => String(item.id) === providerId);
+      const standard=request.package?.packageId==='tl.standard.llm-custom';
+      const record = standard ? providerCatalog.find(records,providerId) : records.find(item => String(item.id) === providerId);
       if (!record) throw fail('Il profilo AI locale selezionato non esiste.');
-      const provider = this.describe(record);
+      providerId=record.id;
+      const provider = this.describe(standard&&request.config?.model ? {...profileOf(record),id:record.id,model:request.config.model} : record);
       if (!provider.ready) throw fail(provider.issue, 'CUSTOM_NODE_LOCAL_AI_UNAVAILABLE');
       const profile = profileOf(record);
       secret = String(profile.apiKey || profile.token || profile.secret || '').trim();
       const headers = { 'Content-Type': 'application/json' };
       if (secret) headers.Authorization = `Bearer ${secret}`;
+      if(standard&&request.config?.model)provider.model=String(request.config.model);
+      if(standard&&['local-model','modello non configurato',''].includes(provider.model))throw fail('Seleziona un modello dal catalogo del provider TL.');
       const body = { model: provider.model, stream: false, messages: messages.map(({ role, content }) => ({ role, content })) };
       const ollama = provider.protocol === 'ollama-chat';
       const maxTokens = request.config?.maxTokens ?? profile.maxTokens ?? profile.runtime?.maxTokens;
       const temperature = request.config?.temperature ?? profile.temperature ?? profile.runtime?.temperature;
       const options = {};
-      if (maxTokens !== undefined && maxTokens !== null && maxTokens !== '') {
+      if (maxTokens !== undefined && maxTokens !== null && maxTokens !== '' && !(standard&&Number(maxTokens)===0)) {
         if (!Number.isSafeInteger(Number(maxTokens)) || Number(maxTokens) <= 0) throw fail('maxTokens deve essere un intero positivo esplicitamente configurato.');
         if (ollama) options.num_predict = Number(maxTokens); else body.max_tokens = Number(maxTokens);
       }
@@ -183,22 +189,33 @@ class CustomNodeLocalAi {
         if (!Number.isFinite(Number(temperature))) throw fail('temperature deve essere un numero finito.');
         if (ollama) options.temperature = Number(temperature); else body.temperature = Number(temperature);
       }
+      if(standard){
+        const topP=request.config?.topP;
+        if(topP!==undefined&&topP!==''){if(!Number.isFinite(Number(topP))||Number(topP)<0||Number(topP)>1)throw fail('topP deve essere compreso tra 0 e 1');if(ollama)options.top_p=Number(topP);else body.top_p=Number(topP);}
+        if(request.config?.responseFormat==='json'){if(ollama)body.format='json';else body.response_format={type:'json_object'};}
+      }
       if (Object.keys(options).length) body.options = options;
-      trace = { id, kind: 'custom-node-local-ai', executionId, nodeId: request.nodeId, workspaceId: request.context?.workspaceId || '', package: request.package, provider, request: body, status: 'running', startedAt: new Date().toISOString() };
+      // The exact adapter used by ordinary AI nodes owns LM Studio protocol mapping.
+      const native = standard && lmStudio.selected(profile,request.config);
+      const outgoing = native ? lmStudio.prepare({url:provider.endpoint,body}) : null;
+      const endpoint = native ? outgoing.url : provider.endpoint;
+      const requestBody = native ? {...outgoing.body,stream:false} : body;
+      trace = { id, kind: 'custom-node-local-ai', executionId, nodeId: request.nodeId, workspaceId: request.context?.workspaceId || '', package: request.package, provider:{...provider,protocol:native?'lm-studio-native':provider.protocol}, request:requestBody, status: 'running', startedAt: new Date().toISOString() };
       await save();
       if (controller.signal.aborted) throw fail('Richiesta LLM locale annullata.', 'CUSTOM_NODE_LOCAL_AI_CANCELLED');
-      const response = await this.fetch(provider.endpoint, { method: 'POST', redirect: 'error', headers, body: JSON.stringify(body), signal: controller.signal });
+      const response = await this.fetch(endpoint, { method: 'POST', redirect: 'error', headers, body: JSON.stringify(requestBody), signal: controller.signal });
       if (!response.ok) throw fail(`LLM locale HTTP ${response.status}: ${redact(await response.text())}`, 'CUSTOM_NODE_LOCAL_AI_HTTP');
-      const data = JSON.parse(redact(JSON.stringify(await response.json())));
+      let data = JSON.parse(redact(JSON.stringify(await response.json())));
       trace.response = data;
       if (data.error) throw fail(typeof data.error === 'string' ? data.error : JSON.stringify(data.error), 'CUSTOM_NODE_LOCAL_AI_PROVIDER');
+      if(native){trace.nativeSummary={};data=lmStudio.normalize(data,requestBody,trace.nativeSummary);trace.normalizedResponse=data;}
       const text = ollama ? data.message?.content : data.choices?.[0]?.message?.content;
       if (typeof text !== 'string') throw fail('Il provider non ha restituito un contenuto testuale.', 'CUSTOM_NODE_LOCAL_AI_RESPONSE');
       const finishReason = ollama ? data.done_reason || '' : data.choices?.[0]?.finish_reason || '';
       if (controller.signal.aborted) throw fail('Richiesta LLM locale annullata.', 'CUSTOM_NODE_LOCAL_AI_CANCELLED');
       trace.status = 'completed'; trace.completedAt = new Date().toISOString();
       await save();
-      return { text, response: data, usage: data.usage || (ollama ? { promptTokens: data.prompt_eval_count ?? null, completionTokens: data.eval_count ?? null } : null), finishReason, incomplete: ['length', 'max_tokens'].includes(finishReason), provenance: { source: 'tl-core-local-ai', invocationId: id, providerId, model: data.model || provider.model, endpoint: provider.endpoint, local: true } };
+      return { text, response: data, usage: data.usage || (ollama ? { promptTokens: data.prompt_eval_count ?? null, completionTokens: data.eval_count ?? null } : null), finishReason, incomplete:native?Boolean(trace.nativeSummary.tokenBudgetReached):['length','max_tokens'].includes(finishReason), ...(native?{nativeSummary:trace.nativeSummary}:{}), provenance: { source: 'tl-core-local-ai', invocationId: id, providerId, model: data.model || provider.model, endpoint, protocol:native?'lm-studio-native':provider.protocol, local:true } };
     } catch (error) {
       const diagnostic = { code: error.code || 'CUSTOM_NODE_LOCAL_AI_FAILED', message: redact(error.message) };
       if (trace) { trace.status = controller.signal.aborted ? 'cancelled' : 'failed'; trace.error = diagnostic; trace.completedAt = new Date().toISOString(); }

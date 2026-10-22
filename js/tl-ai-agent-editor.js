@@ -565,7 +565,7 @@ window.TrackerLensAiAgentEditor = (() => {
     return dialog;
   };
 
-  const open = ({ agent = null, providers = [], title = "", subtitle = "", onSave = null, footerActions = null, customTabs = [], saveLabel = "Salva Runtime Agent", cancelLabel = "Annulla" } = {}) => {
+  const open = ({ agent = null, providers = [], title = "", subtitle = "", onSave = null, footerActions = null, customTabs = [], saveLabel = "Salva Runtime Agent", cancelLabel = "Annulla", composeTabs = null, modelCatalog = null, dialogClass = "" } = {}) => {
     const raw = rawAgent(agent);
     const runtime = agentNested(agent, "runtime");
     const provider = agentNested(agent, "provider");
@@ -625,6 +625,7 @@ window.TrackerLensAiAgentEditor = (() => {
       const providerType = agentFormValue(form, "providerType") || provider.providerType || provider.provider || "ollama";
       const selectedProvider = providers.find((item) => item.id === providerProfile) || null;
       if (selectedProvider) return selectedProvider;
+      if (typeof modelCatalog === "function") return { id: "", provider: "local", name: "Auto / local-first" };
       const normalizedType = normalizeProviderName(providerType);
       return providers.find((item) => {
         const itemType = normalizeProviderName(item.provider || item.providerType || item.name || item.id);
@@ -683,6 +684,24 @@ window.TrackerLensAiAgentEditor = (() => {
           root.hidden = !visible;
           root.style.display = visible ? "" : "none";
         }
+      }
+      if (typeof modelCatalog === "function") {
+        modelState.value = agentFormValue(form, "model");
+        modelState.loading = true;
+        updateModelField();
+        try {
+          const catalog = await modelCatalog(providerConfig);
+          if (sequence !== modelLoadSequence) return;
+          modelState.catalog = catalog.models || [];
+          modelState.items = modelState.catalog.map(item => typeof item === "string" ? item : item.id);
+          modelState.error = catalog.message || "";
+        } catch (error) {
+          if (sequence !== modelLoadSequence) return;
+          modelState.error = error.message;
+        }
+        modelState.loading = false;
+        updateModelField();
+        return;
       }
       if (connection.connectionType === "login") {
         modelState.value = agentFormValue(form, "model");
@@ -963,7 +982,7 @@ window.TrackerLensAiAgentEditor = (() => {
       },
     ];
     dialog = _.Dialog({
-      class: "tl-ai-agent-dialog",
+      class: ["tl-ai-agent-dialog", dialogClass].filter(Boolean).join(" "),
       panelClass: "tl-ai-agent-runtime-panel",
       size: "xl",
       title: dialogTitle,
@@ -988,7 +1007,7 @@ window.TrackerLensAiAgentEditor = (() => {
           model: tabModel,
           orientation: "horizontal",
           variant: "soft",
-          tabs,
+          tabs: typeof composeTabs === "function" ? composeTabs(tabs) : tabs,
         })
       ),
       actions: ({ close }) => _.Toolbar(
@@ -1016,6 +1035,7 @@ window.TrackerLensAiAgentEditor = (() => {
     openMemoryManager: openAgentMemoryManager,
     openRuntimeEditorShell,
     contractFromForm,
+    fields: { input: agentInput, select: agentSelect, textarea: agentTextarea },
     fetchAiProviderModels,
     splitList,
   };

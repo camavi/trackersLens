@@ -115,7 +115,7 @@ const createFlowMapNodeBadges = (moduleDependencies) => {
   };
 
   const configureNode = (node) => {
-    if (node.metadata?.customPackage) {
+    if (window.TrackerLensStandardNodes?.kindOf?.(node) || node.metadata?.customPackage) {
       (0, moduleDependencies.requestRuntimeNodeConfig)(node);
       return;
     }

@@ -528,7 +528,8 @@ const syncPageRuntimes = (workspaceId = state.filters.workspaceId) => {
   syncOrchestratorAgentRuntime(workspaceId);
 };
 
-const hasRendererOnlyPythonPocNode = (nodes = state.runtime.nodes || []) =>
+const hasRendererOnlyRuntimeNode = (nodes = state.runtime.nodes || []) =>
+  nodes.some(node=>Boolean(window.TrackerLensStandardNodes?.kindOf?.(node))) ||
   Boolean(window.trackers?.runtime?.pythonPoc?.run) &&
   nodes.some((node) => String(node.metadata?.subtype || node.metadata?.manifest?.subtype || "").toLowerCase() === "python-test");
 
@@ -1302,7 +1303,7 @@ const loadRuntime = async (options = {}) => {
     });
     state.previewClearedAt = loadStoredPreviewClears(workspaceId);
     rebuildPreviewPayloadsFromEvents();
-    if (state.testRun?.running || hasRendererOnlyPythonPocNode(nodes)) {
+    if (state.testRun?.running || hasRendererOnlyRuntimeNode(nodes)) {
       syncPageRuntimes(workspaceId);
     } else if (!syncBackgroundRuntime(workspaceId, { forceRefresh: force })) {
       syncPageRuntimes(workspaceId);
@@ -1788,6 +1789,9 @@ const nodeSubtype = (node = {}) => {
 };
 
 const nodeRuntimeDescription = (node = {}, live = null) => {
+  const standard=window.TrackerLensStandardNodes?.kindOf?.(node);
+  if(standard==='llm-custom')return "Standard LLM node with explicit provider, prompt, input/output bindings and complete traces.";
+  if(standard==='python-custom')return "Editable Python code in TL's managed sandbox, with explicit parameters and full input/output logs.";
   const category = nodeCategory(node);
   if (node.metadata?.runtimeBlocked || node.metadata?.customPackage?.runtimeExecution === "blocked") {
     return "Imported Custom Node package. Runtime execution is blocked until the package runtime sandbox is available.";

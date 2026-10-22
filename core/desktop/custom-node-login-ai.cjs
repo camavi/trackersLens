@@ -32,7 +32,7 @@ class CustomNodeLoginAi {
       const records = await this.persistence.readDevelopmentRecords({ storeName: 'tl_ai_providers' });
       const record = records.find(r => r.id === providerId), profile = record?.content || record;
       if (!profile || profile.connectionType !== 'login' || (profile.bridgeProvider || profile.provider) !== 'codex' || profile.endpoint || profile.baseUrl || profile.runtime?.endpoint) throw fail('Occorre un profilo Login Codex esplicito, senza endpoint API.');
-      const model = String(profile.model || profile.defaultModel || '').trim();
+      const model = String((request.package?.packageId==='tl.standard.llm-custom'?request.config?.model:'')||profile.model||profile.defaultModel||'').trim();
       if (!model) throw fail('Seleziona un modello nel profilo Login Codex.');
       const effective = { provider: 'codex', model, reasoningEffort: String(profile.reasoningEffort || ''), speed: String(profile.speed || '') };
       // Login transport accepts one prompt; retain both the ordered messages and

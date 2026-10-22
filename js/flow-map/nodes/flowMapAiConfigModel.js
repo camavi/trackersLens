@@ -46,6 +46,12 @@ const createFlowMapAiConfigModel = (moduleDependencies) => {
       },
     });
     const nextNode = update.node;
+    if (window.TrackerLensStandardNodes?.kindOf?.(node) && form?.standardNodePresentation) {
+      const { description, icon, color, category, tags, version } = form.standardNodePresentation;
+      nextNode.metadata.standardPresentation = { description, icon, color, category, tags, version };
+      nextNode.metadata.icon = icon;
+      nextNode.metadata.tone = color;
+    }
     const channels = update.channels;
     const dependencies = selectedDependencies(node);
     const previousChannels = (0, moduleDependencies.channelSetKey)([...(node.inputs || []), ...(node.outputs || [])]);

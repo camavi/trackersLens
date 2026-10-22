@@ -5,6 +5,10 @@ Read when: a change might conflict with architecture or product direction.
 Do not read when: making narrow UI/code fixes.
 Last updated: 2026-10-22.
 
+## Reusable standard LLM/Python nodes
+
+- 2026-10-22: ordinary LLM calls and editable Python programs use built-in standard templates with canonical persisted configuration, shared JSswift runtime editors and MCP discovery. Reuse the existing Core sandbox/AI services; do not create a task-specific package or a parallel executor. Core resolves source and settings from the exact persisted node; installation/activation of portable Custom Node packages keeps its separate lifecycle and opt-in. Standard sandbox execution remains independent of that package flag. Standard Flows are page-owned until a restricted worker sandbox bridge exists, and the legacy AI Agent runtime must not also execute them. Full configured messages/code/results and provenance remain inspectable.
+
 ## LSP symbol rename ownership
 
 - 2026-10-21: treat language-server WorkspaceEdits as untrusted inspectable proposals, never implicit workspace.applyEdit. Require all edited sources to be synchronized before a writable rename plan, preserve raw rejected operations and fail the whole plan when any operation is unsupported/stale/outside-project. Convert exact UTF-16 ranges to full-file proposals and reuse the existing Core grouped edit/rollback owner for user-reviewed writes; do not perform lexical search/replace as a semantic rename fallback.

@@ -558,8 +558,14 @@ const createTlCore = ({ appVersion = "0.0.0", platform = "unknown", mode = "prod
         if (!flags.customNodeSandbox || !customNodePackages?.activateSandboxRuntime) throw errorWithCode("Custom Node sandbox is disabled", "CUSTOM_NODE_SANDBOX_DISABLED");
         if (!payload?.confirmed) throw errorWithCode("Custom Node sandbox activation requires confirmation", "CUSTOM_NODE_SANDBOX_ACTIVATION_CONFIRMATION_REQUIRED");
         return customNodePackages.activateSandboxRuntime({ packageId: String(payload?.packageId || ""), version: String(payload?.version || ""), archiveSha256: String(payload?.archiveSha256 || ""), confirmed: true });
+      case "runtime.standardNodes.models":
+        if(!adapters.standardNodes)throw errorWithCode("Standard node catalog unavailable", "STANDARD_NODES_UNAVAILABLE");
+        return adapters.standardNodes.models({providerId:String(payload.providerId||"")});
+      case "runtime.standardNodes.catalog":
+        if(!adapters.standardNodes)throw errorWithCode("Standard node catalog unavailable", "STANDARD_NODES_UNAVAILABLE");
+        return adapters.standardNodes.catalog();
       case "runtime.customNodeSandbox.run":
-        if (!flags.customNodeSandbox) throw errorWithCode("Custom Node sandbox is disabled", "CUSTOM_NODE_SANDBOX_DISABLED");
+        if (!flags.customNodeSandbox && !(adapters.standardNodes && require("../runtime/standard-node-templates.js").get(payload?.templateId))) throw errorWithCode("Custom Node sandbox is disabled", "CUSTOM_NODE_SANDBOX_DISABLED");
         if (typeof customNodeSandbox?.run !== "function") throw errorWithCode("Custom Node sandbox runner is unavailable: desktop adapter is not configured", "CUSTOM_NODE_SANDBOX_UNAVAILABLE");
         return customNodeSandbox.run(payload && typeof payload === "object" ? payload : {});
       case "runtime.pythonPoc.status":
@@ -607,7 +613,7 @@ const createTlCore = ({ appVersion = "0.0.0", platform = "unknown", mode = "prod
         const workspaceId = String(payload?.workspaceId || "").trim();
         const excludingNodeId = String(payload?.excludingNodeId || "").trim();
         const nodes = persistence.readDevelopmentRecords({ storeName: "tl_runtime_nodes", workspaceId });
-        const allDependents = nodes.filter((node) => String(node?.metadata?.manifest?.execution?.dependencies?.python?.packId || node?.execution?.dependencies?.python?.packId || "") === packId);
+        const allDependents = nodes.filter((node) => String(node?.metadata?.manifest?.execution?.dependencies?.python?.packId || (require("../runtime/standard-node-templates.js").kindOf(node)==="python-custom"?node.metadata?.config?.packId:"") || node?.execution?.dependencies?.python?.packId || "") === packId);
         const dependents = allDependents.filter((node) => String(node?.id || "") !== excludingNodeId)
           .map((node) => ({ id: String(node.id || ""), label: String(node.label || node.name || node.id || "Node"), type: String(node.type || ""), subtype: String(node.metadata?.subtype || node.metadata?.manifest?.subtype || "") }));
         return { schemaVersion: "tl-python-pack-usage/v1", packId, workspaceId, excludingNodeId, totalDependentCount: allDependents.length, dependents, removable: dependents.length === 0, limitations: ["Solo nodi persistiti nel workspace richiesto; il nodo escluso non conta come dipendenza esterna. Nessuna rimozione è stata eseguita."] };
@@ -627,7 +633,7 @@ const createTlCore = ({ appVersion = "0.0.0", platform = "unknown", mode = "prod
         if (!pythonRuntimeCatalog?.removePack || !persistence?.readDevelopmentRecords) throw errorWithCode("Python pack removal is unavailable", "PYTHON_PACK_REMOVAL_UNAVAILABLE");
         if (!payload?.confirmed) throw errorWithCode("Python pack removal requires confirmation", "PYTHON_PACK_REMOVAL_CONFIRMATION_REQUIRED");
         const packId = String(payload?.packId || ""); const workspaceId = String(payload?.workspaceId || ""); const excludingNodeId = String(payload?.excludingNodeId || "");
-        const inUse = persistence.readDevelopmentRecords({ storeName: "tl_runtime_nodes", workspaceId }).some((node) => String(node?.id || "") !== excludingNodeId && String(node?.metadata?.manifest?.execution?.dependencies?.python?.packId || node?.execution?.dependencies?.python?.packId || "") === packId);
+        const inUse = persistence.readDevelopmentRecords({ storeName: "tl_runtime_nodes", workspaceId }).some((node) => String(node?.id || "") !== excludingNodeId && String(node?.metadata?.manifest?.execution?.dependencies?.python?.packId || (require("../runtime/standard-node-templates.js").kindOf(node)==="python-custom"?node.metadata?.config?.packId:"") || node?.execution?.dependencies?.python?.packId || "") === packId);
         if (inUse) throw errorWithCode("Python pack is still required by another node in this workspace.", "PYTHON_PACK_IN_USE");
         return pythonRuntimeCatalog.removePack({ packId, confirmed: true });
       }

@@ -167,7 +167,7 @@ const createFlowMapLiveTestRunner = (moduleDependencies) => {
     const path = (0, moduleDependencies.downstreamTestPath)(graph, starters.map((node) => node.id));
     const abortController = new AbortController();
     const keepOpen = starters.some((node) => (0, moduleDependencies.isWebSocketEndpoint)((0, moduleDependencies.nodeEndpoint)(node)) && (0, moduleDependencies.isLiveKeepOpenNode)(node));
-    const hasCustomPackages = (graph.nodes || []).some(node => path.nodeIds.includes(node.id) && node.metadata?.customPackage);
+    const hasCustomPackages = (graph.nodes || []).some(node => path.nodeIds.includes(node.id) && (node.metadata?.customPackage || window.TrackerLensStandardNodes?.kindOf?.(node)));
     const hasDirectAi = starters.some(moduleDependencies.isDirectAiTestNode);
     const hasAiInPath = (0, moduleDependencies.aiNodesInPath)(graph, path).length > 0;
     state.testRun = {

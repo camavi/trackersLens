@@ -47,6 +47,7 @@ Last updated: 2026-08-31.
 - LLM streaming and observation: `docs/ai/runtime/llm-streaming.md`
 - Connected node tools: `docs/ai/runtime/connected-node-tools.md`
 - AI memory runtime: `docs/ai/runtime/ai-memory.md`
+- Standard LLM/Python nodes and MCP template discovery: `docs/ai/runtime/standard-nodes.md`
 - Custom node packages: `docs/ai/runtime/custom-node-packages.md`
 - Knowledge runtime: `core/runtime/knowledge-runtime.js`, plus `docs/ai/current-focus.md` and `docs/ai/task-registry.md`
 - API/backend integration: `docs/ai/api-backend.md`

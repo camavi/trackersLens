@@ -6,6 +6,7 @@ const safeJson = value => {
   if (Array.isArray(value)) return value.every(safeJson);
   return value && typeof value === 'object' && Object.entries(value).every(([key, item]) => !['__proto__', 'constructor', 'prototype'].includes(key) && safeJson(item));
 };
+const validateStandard = node => {const id=require('../runtime/standard-node-templates.js').kindOf(node);if(id)new (require('./standard-node-runtime.cjs').StandardNodeRuntime)({}).config(id,node.metadata?.config||{});};
 const type = value => value === null ? 'null' : Array.isArray(value) ? 'array' : typeof value;
 
 // Registered tool: only exact existing nodes; no topology, source or runtime writes.
@@ -38,6 +39,7 @@ function planNodeEdits({ nodes, edits, workspaceId, deferRules = false }) {
     }
   }
   for (const node of deferRules ? [] : after.values()) {
+    validateStandard(node);
     const result = contract.validateConfigRules(node.metadata?.config || {}, node.metadata?.configRules || node.metadata?.manifest?.configRules || []);
     if (!result.ok) throw new Error(result.errors.join('\n'));
   }
@@ -102,7 +104,7 @@ function planGraphEdits({ graph, edits, workspaceId }) {
       let node;
       if (edit.operation === 'create') {
         node = structuredClone(edit.node);
-        if (!node || node.workspaceId !== workspaceId || !node.metadata?.paletteLabel || !['flow-prompt-chat','mcp-installed-package'].includes(node.metadata?.generatedBy)) throw new Error('Creazione consentita solo da palette validata.');
+        if (!node || node.workspaceId !== workspaceId || !node.metadata?.paletteLabel || !['flow-prompt-chat','mcp-installed-package','mcp-standard-template'].includes(node.metadata?.generatedBy)) throw new Error('Creazione consentita solo da palette validata.');
       } else {
         const source = find(edit.nodeId);
         node = { id: edit.newNodeId, workspaceId, type: source.type, label: edit.value,
@@ -186,6 +188,7 @@ function planGraphEdits({ graph, edits, workspaceId }) {
   if (ordinary.some(edit => deleted.has(edit.nodeId))) throw new Error('Modifica e cancellazione dello stesso nodo non consentite.');
   for (const id of new Set([...newNodes, ...channelNodes, ...ordinary.map(edit => edit.nodeId)].filter(id => !deleted.has(id)))) {
     const node = find(id);
+    validateStandard(node);
     const rules = contract.validateConfigRules(node.metadata?.config || {}, node.metadata?.configRules || node.metadata?.manifest?.configRules || []);
     if (!rules.ok) throw new Error(rules.errors.join('\n'));
   }

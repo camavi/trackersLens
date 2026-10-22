@@ -51,8 +51,10 @@ window.TrackerLensProcessorRuntime = (() => {
   const nodeStatus = (node = {}) =>
     String(node.runtime?.status || node.metadata?.runtimeStatus || node.status || "idle").toLowerCase();
 
+  const standardKind = node => window.TrackerLensStandardNodes?.kindOf?.(node) || "";
+
   const isRunnableProcessor = (node = {}) =>
-    (node.type === "processor" || (node.type === "custom" && node.metadata?.customPackage?.runtimeExecution === "sandboxed")) &&
+    (node.type === "processor" || (node.type === "custom" && (standardKind(node) || node.metadata?.customPackage?.runtimeExecution === "sandboxed"))) &&
     !node.metadata?.library &&
     !["paused", "disabled", "error", "disconnected"].includes(nodeStatus(node)) &&
     (nodeSubtype(node) !== "python-test" || Boolean(pythonPocBridge()?.run));
@@ -312,7 +314,7 @@ window.TrackerLensProcessorRuntime = (() => {
     }
 
     handleEvent(request) {
-      if (request.node?.metadata?.customPackage && !this.acceptsPackageEvent(request.node, request.event)) return Promise.resolve();
+      if ((request.node?.metadata?.customPackage || standardKind(request.node)) && !this.acceptsPackageEvent(request.node, request.event)) return Promise.resolve();
       const task = this.executeEvent(request);
       this.pending.set(task, request.event?.meta?.runId || request.payload?.runId || "");
       task.finally(() => this.pending.delete(task)).catch(() => {});
@@ -328,7 +330,7 @@ window.TrackerLensProcessorRuntime = (() => {
     }
 
     async runRoot({ node, runId, payload = {} }) {
-      if (!node?.metadata?.customPackage || !isRunnableProcessor(node)) throw new Error("Custom Node root is not runnable");
+      if ((!node?.metadata?.customPackage && !standardKind(node)) || !isRunnableProcessor(node)) throw new Error("Custom Node root is not runnable");
       if ((this.runtime.dependencies || []).some(edge => edge.targetNodeId === node.id && !isToolAccessDependency(edge))) {
         throw new Error("Start this Custom Node from its connected parent");
       }
@@ -368,7 +370,7 @@ window.TrackerLensProcessorRuntime = (() => {
         if (nodeSubtype(node) === "python-test") {
           return await this.performPythonTest({ node, payload, event, startedAt });
         }
-        if (node.metadata?.customPackage?.runtimeExecution === "sandboxed") {
+        if (standardKind(node) || node.metadata?.customPackage?.runtimeExecution === "sandboxed") {
           return await this.performCustomPackageSandbox({ node, payload, event, startedAt });
         }
         const result = processPayload({ node, payload, event });
@@ -417,7 +419,7 @@ window.TrackerLensProcessorRuntime = (() => {
         subtype: nodeSubtype(node), runId, code, message,
       } }));
       const pythonNode = nodeSubtype(node) === "python-test";
-      const errorChannel = pythonNode ? node.outputs?.[1] || "error" : node.metadata?.customPackage ? "processor.error" : event?.channel || "processor.error";
+      const errorChannel = pythonNode ? node.outputs?.[1] || "error" : (node.metadata?.customPackage || standardKind(node)) ? "processor.error" : event?.channel || "processor.error";
       try {
         if (pythonNode) await this.emitPythonStatus({ node, status: error.code === "EXECUTION_CANCELLED" ? "cancelled" : "error", event, error });
         await this.bus?.emit(errorChannel, { error: message, code, nodeId: node.id, payload }, {
@@ -517,6 +519,7 @@ window.TrackerLensProcessorRuntime = (() => {
         throw error;
       }
       const result = await bridge.run({
+        ...(standardKind(node)?{templateId:standardKind(node)}:{}),
         packageId: pkg.packageId,
         version: pkg.version,
         archiveSha256: pkg.archive?.sha256,

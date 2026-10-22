@@ -20,7 +20,7 @@ test('topology refresh retains live OUT, restores persisted outputs and rebuilds
     isPreviewPayloadEvent: () => true,
     previewNodesForEvent: e => [{ id: e.id }],
     previewPayloadForNodeEvent: (_node, e) => ({ payload: e.payload }),
-    hasRendererOnlyPythonPocNode: () => false, syncBackgroundRuntime: () => true, setUpdatedAtSignal() {}, isFlowMapNodeEditorActive: () => false,
+    hasRendererOnlyRuntimeNode: () => false, syncBackgroundRuntime: () => true, setUpdatedAtSignal() {}, isFlowMapNodeEditorActive: () => false,
     window: {
       TrackerLensGraphEngine: { buildGraph: async () => ({ runtime: { channels: [], flows: [], events: [], flowLogs: [], runtimeNodes: [], runtimeDependencies: [], connections: [] } }) },
       trackers: { desktop: { persistence: { readLatestRuntimeOutputs: async (options) => {

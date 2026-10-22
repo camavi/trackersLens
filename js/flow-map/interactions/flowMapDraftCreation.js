@@ -41,8 +41,8 @@ const createFlowMapDraftCreation = (moduleDependencies) => {
         } : null,
         runtimeBlocked: Boolean(item.runtimeBlocked || item.customPackage?.runtimeExecution === "blocked"),
         runtimeStatus: item.runtimeBlocked || item.customPackage?.runtimeExecution === "blocked" ? "disabled" : "",
-        configured: Boolean(item.customPackage),
-        ...(item.customPackage ? { config: Object.fromEntries(Object.entries(item.settingsSchema || {}).filter(([, field]) => field && typeof field === "object" && Object.hasOwn(field, "defaultValue")).map(([key, field]) => [key, field.defaultValue])) } : {}),
+        configured: Boolean(item.customPackage || window.TrackerLensStandardNodes?.get?.(item.subtype)),
+        ...((item.customPackage || window.TrackerLensStandardNodes?.get?.(item.subtype)) ? { config: Object.fromEntries(Object.entries(item.settingsSchema || {}).filter(([, field]) => field && typeof field === "object" && Object.hasOwn(field, "defaultValue")).map(([key, field]) => [key, field.defaultValue])) } : {}),
       },
     });
 

@@ -1,5 +1,5 @@
 /* LM Studio /api/v1/chat adapter. Protocol: https://lmstudio.ai/docs/developer/rest/streaming-events */
-window.TrackerLensLmStudioNative = (() => {
+(function(root,factory){const api=factory();if(typeof module==='object'&&module.exports)module.exports=api;else root.TrackerLensLmStudioNative=api;})(typeof window!=='undefined'?window:globalThis,() => {
   const isProvider = provider => String(provider?.providerType || provider?.provider || '').toLowerCase().replace(/[-_ ]/g, '') === 'lmstudio';
   const selected = (provider, config = {}) => {
     if (!isProvider(provider)) return false;
@@ -110,4 +110,4 @@ window.TrackerLensLmStudioNative = (() => {
     return data;
   };
   return { isProvider, selected, prepare, normalize, consume };
-})();
+});

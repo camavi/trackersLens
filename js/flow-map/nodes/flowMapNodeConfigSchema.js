@@ -9,6 +9,8 @@ const createFlowMapNodeConfigSchema = (moduleDependencies) => {
     const mode = values.mode ?? defaults.mode;
     const runtimeStatus = values.runtimeStatus ?? defaults.runtimeStatus;
     const config = (0, moduleDependencies.flattenRuntimeConfig)({ ...defaults.configObject, ...(values.config || {}) });
+    const standard=window.TrackerLensStandardNodes?.kindOf?.(node);
+    if(standard)for(const [key,field] of Object.entries(window.TrackerLensStandardNodes.get(standard).settingsSchema))if(field.type==='number'&&typeof config[key]==='string')config[key]=Number(config[key]);
     const subtype = nodeSubtype(node);
     const category = nodeCategory(node);
     const outputs = subtype === "agent-bridge"
@@ -52,7 +54,7 @@ const createFlowMapNodeConfigSchema = (moduleDependencies) => {
         runtime: {
           ...(node.runtime || {}),
           status: runtimeStatus,
-          active: runtimeStatus !== "paused" && runtimeStatus !== "disabled",
+          active: standard ? ["active", "running"].includes(runtimeStatus) : runtimeStatus !== "paused" && runtimeStatus !== "disabled",
         },
         metadata: {
           ...previousMetadata,

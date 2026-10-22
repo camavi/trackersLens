@@ -1,6 +1,6 @@
 // Explicit live-user-project acceptance. Keeps the actual app open afterwards.
 const {app,BrowserWindow}=require('electron');
-const fs=require('node:fs'),path=require('node:path'),assert=require('node:assert/strict'),crypto=require('node:crypto');
+const fs=require('node:fs'),path=require('node:path'),assert=require('node:assert/strict');
 const {ExternalAiProviderBridge}=require('../core/desktop/external-ai-provider-bridge.cjs');
 const root=process.env.TL_DOC_TEST_ROOT,project=process.env.TL_DOCUMENT_PRIVACY_PROJECT;
 assert.ok(root&&project,'Explicit test evidence directory and live project required');
@@ -20,11 +20,15 @@ if(!fs.existsSync(path.join(root,'finished')))app.whenReady().then(async()=>{try
  await js(`(()=>{const d=document.querySelector('.tl-flow-library-dialog');d.querySelector('input[placeholder="Titolo Flow Map"]').value=${JSON.stringify(title)};d.querySelector('textarea').value='TEST con documento sintetico. Gemma locale individua gli identificativi; sostituzioni reversibili e controllo esplicito prima dell’analisi Codex; mappa e ricostruzione restano locali. Copia originale ricostruita identica.';[...d.querySelectorAll('button')].find(b=>b.textContent.trim()==='Crea'||b.textContent.endsWith('Crea')).click();})()`);
  let workspaceId;await wait(async()=>{const url=await ui('location.href');if(!url)return false;workspaceId=new URL(url).searchParams.get('workspaceId');return Boolean(workspaceId);});
  await wait(()=>ui('Boolean(window.TrackerLensAiRuntimeStore?.upsertProvider)'));
- const suffix=crypto.randomUUID().slice(0,8),localProfileId='privacy_local_'+suffix,onlineProfileId='privacy_online_'+suffix;
- const token=fs.readFileSync(process.env.TL_LM_TOKEN_FILE||'/tmp/tl-lmstudio-test-token','utf8').trim(),endpoint='http://127.0.0.1:1234/v1',model=process.env.TL_LM_MODEL;
- const response=await fetch(endpoint+'/models',{headers:{Authorization:'Bearer '+token}});assert.equal(response.status,200);const catalog=await response.json();assert.ok(model&&catalog.data.some(m=>m.id===model));
- const codexCatalog=await new ExternalAiProviderBridge().listModels({provider:'codex'}),coder=codexCatalog.models.find(m=>m.isDefault&&!m.hidden)||codexCatalog.models.find(m=>!m.hidden);assert.ok(coder);
- for(const profile of [{id:localProfileId,name:'Test documenti · Gemma locale',provider:'lm-studio',connectionType:'api',endpoint,model,apiKey:token,temperature:0},{id:onlineProfileId,name:'Test documenti · Codex online',provider:'codex',bridgeProvider:'codex',connectionType:'login',model:coder.id,reasoningEffort:coder.defaultReasoningEffort,speed:'standard'}])await js('window.TrackerLensAiRuntimeStore.upsertProvider('+JSON.stringify(profile)+')');
+ // Reuse configured TL providers. This acceptance must never create test-named profiles.
+ const profiles=await js("window.trackers.desktop.persistence.readDevelopmentRecords({storeName:'tl_ai_providers'})");
+ const content=record=>record.content||record;
+ const local=profiles.find(record=>record.id==='local_lm_studio');assert.ok(local,'Configure the existing LM Studio profile in TL before this test');
+ const localConfig=content(local),localProfileId=local.id,endpoint=String(localConfig.endpoint||localConfig.baseUrl||'').replace(/\/+$/,''),model=process.env.TL_LM_MODEL||localConfig.model;
+ const token=localConfig.apiKey||localConfig.token||localConfig.secret;
+ const response=await fetch(endpoint+'/models',{headers:token?{Authorization:'Bearer '+token}:{}});assert.equal(response.status,200);const catalog=await response.json();assert.ok(model&&catalog.data.some(item=>item.id===model));
+ const online=profiles.find(record=>{const profile=content(record);return profile.connectionType==='login'&&(profile.bridgeProvider||profile.provider)==='codex';});assert.ok(online,'Configure a Codex Login profile in TL before this test');
+ const onlineProfileId=online.id,onlineConfig=content(online),codexCatalog=await new ExternalAiProviderBridge().listModels({provider:'codex'}),coder=codexCatalog.models.find(item=>item.id===onlineConfig.model);assert.ok(coder,'The configured Codex model must exist in its actual catalog');
  const service=await js('window.trackers.desktop.mcpServer.start()');
  fs.writeFileSync(path.join(root,'ready.json'),JSON.stringify({project,workspaceId,title,localProfileId,onlineProfileId,models:{local:model,online:coder.id},configuration:service.configuration},null,2));
  console.log('DOCUMENT PRIVACY FLOW READY',workspaceId);

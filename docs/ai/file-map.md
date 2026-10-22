@@ -157,3 +157,7 @@ Model-authored LLM/Python acceptance: `test/tl-mcp-authored-nodes-electron.cjs` 
 - `test/fixtures/document-privacy-packages.cjs`, `test/document-privacy-packages.test.cjs`, `test/tl-document-privacy-{app,run,verify}.cjs`: opt-in real-project reversible TXT privacy acceptance, outgoing-provider boundary regression tests and independent SQLite/archive/byte verifier.
 
 - `test/tl-document-privacy-play.cjs` and `test/tl-document-privacy-play-verify.cjs`: opt-in canvas Play acceptance for an existing document Flow and independent persisted-output/provider-boundary verification.
+
+Standard reusable nodes: `core/runtime/standard-node-templates.js` owns the shared schemas/palette; `core/desktop/standard-node-runtime.cjs` owns canonical Core resolution and safe catalogs; `js/tl-standard-node-editor.js` owns the shared-shell JSswift editor. Existing Main sandbox, ProcessorRuntime and MCP edit/run coordinators own execution/review. Tests: `test/standard-nodes.test.cjs`, `test/standard-node-editor-electron.cjs`, `test/tl-standard-document-{app,run,verify}.cjs`. Contract: `runtime/standard-nodes.md`.
+
+- Shared local provider definitions and Auto/local-first preference: `core/runtime/ai-provider-catalog.js` (used by AI Runtime store and Core); native LM Studio mapping remains `core/runtime/lm-studio-native.js`. Opt-in local Core smoke: `test/standard-node-provider-live.cjs`.

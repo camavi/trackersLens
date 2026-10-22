@@ -2,7 +2,7 @@
 // State and dependency wiring: js/flow-map/flowMapRuntimeTests.js.
 const createFlowMapLiveTestAssertions = (moduleDependencies) => {
   const runtimeKindForNode = (node = {}) => {
-    if (node.metadata?.customPackage) return "processor";
+    if (node.metadata?.customPackage || window.TrackerLensStandardNodes?.kindOf?.(node)) return "processor";
     if ((0, moduleDependencies.isOrchestratorAgentNode)(node)) return "orchestrator";
     if (node.type === "aiAgent") return "ai";
     if (node.type === "storage") return "storage";

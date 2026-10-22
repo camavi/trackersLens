@@ -15,7 +15,7 @@ const createFlowMapKnowledgeConfigRules = (moduleDependencies) => {
       if (field.disabled) return;
       const key = field.dataset.configKey;
       if (!key) return;
-      const value = field.type === "checkbox" ? field.checked : field.value?.trim?.() || "";
+      const value = field.type === "checkbox" ? field.checked : field.hasAttribute("data-preserve-whitespace") ? field.value : field.value?.trim?.() || "";
       if (key === "config") {
         const parsed = (0, moduleDependencies.parseConfigObject)(value);
         if (parsed) Object.assign(config, flattenRuntimeConfig(parsed));

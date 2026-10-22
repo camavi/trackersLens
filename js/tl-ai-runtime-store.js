@@ -18,32 +18,7 @@ window.TrackerLensAiRuntimeStore = (() => {
     workspace: 500,
     global: 1000,
   };
-  const LOCAL_PROVIDER_DEFS = [
-    {
-      id: "local_ollama",
-      name: "Ollama",
-      provider: "ollama",
-      model: "llama3.1",
-      endpoint: "http://127.0.0.1:11434",
-      healthPath: "/api/tags",
-      local: true,
-      priority: 10,
-      status: "idle",
-      icon: "memory",
-    },
-    {
-      id: "local_lm_studio",
-      name: "LM Studio",
-      provider: "lm-studio",
-      model: "local-model",
-      endpoint: "http://127.0.0.1:1234/v1",
-      healthPath: "/models",
-      local: true,
-      priority: 20,
-      status: "idle",
-      icon: "dns",
-    },
-  ];
+  const LOCAL_PROVIDER_DEFS = window.TrackerLensAiProviderCatalog.localDefaults();
   const EXTERNAL_PROVIDER_DEFAULTS = Object.freeze({
     codex: Object.freeze({ model: "", reasoningEffort: "medium", speed: "standard" }),
     claude: Object.freeze({ model: "", reasoningEffort: "", speed: "" }),
@@ -686,7 +661,7 @@ window.TrackerLensAiRuntimeStore = (() => {
       selected = candidates[0];
       if (!selected) throw new Error(`Provider unavailable: ${type}`);
     }
-    selected ||= providers.find((item) => item.local && item.status === 'online') || providers.find((item) => item.local);
+    selected ||= window.TrackerLensAiProviderCatalog.autoLocal(providers);
     if (!selected) throw new Error('No AI provider configured.');
     return { ...selected, ...providerConnection(selected) };
   };

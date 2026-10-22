@@ -3,6 +3,15 @@
 const { spawnSync } = require('node:child_process');
 
 const syntaxFiles = [
+  'core/runtime/ai-provider-catalog.js',
+  'test/standard-node-provider-live.cjs',
+  'test/tl-consolidate-lmstudio-profile.cjs',
+  'core/desktop/standard-node-runtime.cjs',
+  'core/runtime/standard-node-templates.js',
+  'test/standard-node-editor-electron.cjs',
+  'test/tl-standard-document-app.cjs',
+  'test/tl-standard-document-run.cjs',
+  'test/tl-standard-document-verify.cjs',
   'test/fixtures/document-privacy-packages.cjs',
   'test/tl-document-privacy-app.cjs',
   'test/tl-document-privacy-run.cjs',
@@ -117,6 +126,7 @@ const tests = [
   'test/llm-observation.test.cjs',
   'test/account-client.test.cjs',
   'test/tl-core.test.cjs',
+  'test/standard-nodes.test.cjs',
   'test/flow-map-alerts.test.cjs',
   'test/document-privacy-packages.test.cjs',
   'test/custom-node-package-manager.test.cjs',

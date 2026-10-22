@@ -615,3 +615,8 @@
   justify-content: center;
   gap: 0;
 }
+
+.tl-standard-node-code { font-family: ui-monospace, monospace; tab-size: 4; }
+.tl-standard-node-raw { white-space: pre-wrap; overflow-wrap: anywhere; }
+
+.tl-standard-node-dialog .tl-ai-agent-tab-grid > .is-wide { grid-column: 1 / -1; }

@@ -173,6 +173,7 @@ let chatTests = null;
 const mcpOwners = new Set();
 const terminalOwners = new Set();
 let customNodePackageManager = null;
+let standardNodeRuntime = null;
 let customNodeSandboxRunner = null;
 let customNodePythonRunner = null;
 let externalAiProviderBridge = null;
@@ -528,7 +529,7 @@ ipcMain.handle("trackers-core:request", (event, command, payload) => {
   if (!projectSession) throw new Error('Apri una cartella progetto dalla Home.');
   if (projectTransition && !String(command).startsWith('desktop.persistence.') && !['desktop.externalAi.cancelMessage', 'desktop.chatProject.cancelScript', 'desktop.mcp.cancelChat', 'desktop.mcp.disconnect'].includes(command)) throw new Error('Cambio progetto in corso.');
   if (['desktop.mcpServer.status','desktop.mcpServer.start','desktop.mcpServer.stop'].includes(command)) {
-    tlMcpService ||= new (require('../core/mcp/local-service.cjs').LocalMcpService)({projectDirectory:projectSession.directory,project:projectSession,persistence,cliPath:path.join(projectRoot,'scripts','tl-mcp.cjs'),nodeEdits:new (require('../core/mcp/node-edits.cjs').McpNodeEdits)({core:tlCore,persistence,packages:customNodePackageManager,review:reviewMcpEdit,withEditorPaused:withMcpEditorPaused}),packages:new (require('../core/mcp/packages.cjs').McpPackages)({core:tlCore,persistence,review:reviewMcpEdit,withEditorPaused:withMcpEditorPaused,discardDraft:async importId=>{const draft=pendingCustomNodeImports.get(importId);if(draft?.origin==='created'){pendingCustomNodeImports.delete(importId);await fs.promises.rm(draft.archivePath,{force:true});}}}),runtimeRuns:new (require('../core/mcp/runtime-runs.cjs').McpRuntimeRuns)({persistence,packages:customNodePackageManager,execute:(args,lifecycle)=>{if(mcpMutationInProgress)throw new Error('Modifica MCP in corso.');return launchMcpNode(args,lifecycle);},trace:id=>customNodeSandboxRunner?.broker.get(id),review:reviewMcpEdit})});
+    tlMcpService ||= new (require('../core/mcp/local-service.cjs').LocalMcpService)({projectDirectory:projectSession.directory,project:projectSession,persistence,cliPath:path.join(projectRoot,'scripts','tl-mcp.cjs'),nodeEdits:new (require('../core/mcp/node-edits.cjs').McpNodeEdits)({core:tlCore,persistence,packages:customNodePackageManager,standardNodes:standardNodeRuntime,review:reviewMcpEdit,withEditorPaused:withMcpEditorPaused}),packages:new (require('../core/mcp/packages.cjs').McpPackages)({core:tlCore,persistence,review:reviewMcpEdit,withEditorPaused:withMcpEditorPaused,discardDraft:async importId=>{const draft=pendingCustomNodeImports.get(importId);if(draft?.origin==='created'){pendingCustomNodeImports.delete(importId);await fs.promises.rm(draft.archivePath,{force:true});}}}),runtimeRuns:new (require('../core/mcp/runtime-runs.cjs').McpRuntimeRuns)({persistence,packages:customNodePackageManager,standardNodes:standardNodeRuntime,execute:(args,lifecycle)=>{if(mcpMutationInProgress)throw new Error('Modifica MCP in corso.');return launchMcpNode(args,lifecycle);},trace:id=>customNodeSandboxRunner?.broker.get(id),review:reviewMcpEdit})});
     const operation=command.split('.').pop();return tlMcpService[operation]();
   }
   if (['desktop.customNodePackages.discoverLocalAi', 'desktop.customNodePackages.previewLocalAiProfile', 'desktop.customNodePackages.applyLocalAiProfile', 'desktop.customNodePackages.discardLocalAiProfile', 'desktop.customNodePackages.previewSetup', 'desktop.customNodePackages.executeSetup', 'desktop.customNodePackages.discardSetup'].includes(command)) {
@@ -640,7 +641,8 @@ app.whenReady().then(async () => {
   });
   const customNodeLocalAi = new CustomNodeLocalAi({ persistence });
   const customNodeLoginAi = new CustomNodeLoginAi({ persistence, bridge: externalAiProviderBridge });
-  if (customNodeSandboxEnabled) {
+  standardNodeRuntime = new (require("../core/desktop/standard-node-runtime.cjs").StandardNodeRuntime)({persistence,pythonPacks,localAi:customNodeLocalAi,loginBridge:externalAiProviderBridge});
+  { // Built-in standard nodes reuse the sandbox without enabling package execution.
     const toolDispatcher = new CustomNodeToolDispatcher({ persistence, localAi: customNodeLocalAi, loginAi: customNodeLoginAi });
     const broker = new CustomNodeSandboxBroker({ onToolCall: (call) => toolDispatcher.dispatch(call) });
     customNodePythonRunner = new CustomNodePythonRunner({ broker, resolver: pythonPacks, environments: [dataEnvironment, nlpEnvironment, graphEnvironment] });
@@ -655,9 +657,13 @@ app.whenReady().then(async () => {
   // Both Flow and package tests use this exact-reference coordinator. Core
   // reloads verified source and chooses the runner; renderer data cannot select
   // an interpreter, source file, environment path or shell command.
-  const launchCustomNodeSandbox = async ({ packageId = "", version = "", archiveSha256 = "", nodeId = "", inputs = {}, config = {}, context = {}, timeoutMs: requestedTimeoutMs } = {}, lifecycle = {}) => {
+  const launchCustomNodeSandbox = async ({ templateId = "", packageId = "", version = "", archiveSha256 = "", nodeId = "", inputs = {}, config = {}, context = {}, timeoutMs: requestedTimeoutMs } = {}, lifecycle = {}) => {
     if (!customNodeSandboxRunner) throw Object.assign(new Error("Il runner sandbox dei Custom Node non è abilitato."), { code: "CUSTOM_NODE_SANDBOX_DISABLED" });
-    const runtime = await customNodePackageManager.loadSandboxRuntime({ packageId, version, archiveSha256 });
+    if(!templateId&&!customNodeSandboxEnabled)throw Object.assign(new Error("Custom Node sandbox is disabled"),{code:"CUSTOM_NODE_SANDBOX_DISABLED"});
+    const runtime = templateId
+      ? await standardNodeRuntime.load({templateId,nodeId,workspaceId:context.workspaceId})
+      : await customNodePackageManager.loadSandboxRuntime({ packageId, version, archiveSha256 });
+    if(templateId){config=runtime.config;requestedTimeoutMs=config.timeoutMs;}
     const execution = runtime.packageRecord.manifest.execution;
     const runner = execution?.runtime === "python" ? customNodePythonRunner : customNodeSandboxRunner;
     const requested = requestedTimeoutMs ?? execution?.timeoutMs;
@@ -866,6 +872,7 @@ app.whenReady().then(async () => {
       pythonPackInstaller,
       customNodePackages,
       customNodeSandbox: { run: launchCustomNodeSandbox },
+      standardNodes: standardNodeRuntime,
       externalAi: externalAiProviderBridge,
       chatProject,
       mcp: chatMcpClient,

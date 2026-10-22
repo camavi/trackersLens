@@ -1077,7 +1077,7 @@ test("Electron Main wires the sandbox execution adapter to Core independently of
     isDevelopment: true, pythonPocEnabled: false, pythonNlpEnabled: () => false,
     customNodeSandboxEnabled: true, shell: {}, pythonNlpAdapter: null,
     pythonPacks: null, pythonRuntimeCatalog: null, pythonPackInstaller: null,
-    customNodePackages: {}, externalAiProviderBridge: null, chatProject: null, chatMcpClient: null, chatBrowser: null, chatSkills: null, chatGit: null, chatLsp: null, chatDebugger: null, chatTests: null, nativeWorkSessions: null, persistence: {}, account: null, catalog: null,
+    customNodePackages: {}, standardNodeRuntime: null, externalAiProviderBridge: null, chatProject: null, chatMcpClient: null, chatBrowser: null, chatSkills: null, chatGit: null, chatLsp: null, chatDebugger: null, chatTests: null, nativeWorkSessions: null, persistence: {}, account: null, catalog: null,
     require: () => ({ createAccountClient: () => null }),
     launchCustomNodeSandbox: async (payload) => { calls.push(payload); return { status: "success" }; },
   };

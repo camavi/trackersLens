@@ -156,6 +156,8 @@ window.TrackerLensAiAgentRuntime = (() => {
     String(node.runtime?.status || node.metadata?.runtimeStatus || node.status || "idle").toLowerCase();
 
   const isRunnableAgent = (node = {}) =>
+    !window.TrackerLensStandardNodes?.kindOf?.(node) &&
+    !node.metadata?.customPackage &&
     (node.type === "aiAgent" || node.metadata?.category === "ai-agents") &&
     nodeSubtype(node) !== "orchestrator" &&
     !node.metadata?.library &&

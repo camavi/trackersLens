@@ -34,6 +34,9 @@ const createFlowMapRuntimeConfigView = (moduleDependencies) => {
 
   const requestRuntimeNodeConfig = async (node) => {
     if (!node?.id) return;
+    if(window.TrackerLensStandardNodes?.kindOf?.(node)){
+      return window.TrackerLensStandardNodeEditor.open({node,onSave:({form,close})=>(0,moduleDependencies.persistRuntimeNodeConfig)({node,form,close})});
+    }
     const defaults = (0, moduleDependencies.runtimeNodeConfigDefaults)(node);
     const subtype = nodeSubtype(node);
     const category = nodeCategory(node);

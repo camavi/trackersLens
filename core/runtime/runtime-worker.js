@@ -28,6 +28,7 @@ const loadRuntimeScripts = () => {
   if (self.TrackerLensEventBus) return;
   importScripts(
     "../../js/TlConfig.js",
+    "ai-provider-catalog.js",
     "../../js/tl-ai-runtime-store.js",
     "dependency-manager.js",
     "channel-registry.js",
@@ -36,6 +37,7 @@ const loadRuntimeScripts = () => {
     "runtime-graph-store.js",
     "runtime-snapshot-store.js",
     "node-execution-controller.js",
+    "standard-node-templates.js",
     "processor-runtime.js?v=custom-error-boundary-1",
     "action-runtime.js?v=agent-tool-links-1",
     "storage-runtime.js?v=agent-tool-links-1",
