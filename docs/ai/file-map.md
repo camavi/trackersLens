@@ -151,3 +151,5 @@ MCP onboarding acceptance: `test/tl-mcp-onboarding-electron.cjs` runs with Node,
 Custom Node Codex Login: `core/desktop/custom-node-login-ai.cjs` reuses the existing provider bridge with separate `externalAiProvider` capability; sandbox contract/dispatcher and Main own permission enforcement, scoped logs and cancellation/drain. Real collaboration QA: `test/tl-mcp-llm-collaboration-electron.cjs`, independent `test/tl-mcp-llm-collaboration-verify.cjs`.
 
 Fifteenth error-feedback acceptance: `test/tl-mcp-llm-repair-acceptance.cjs` composes with collaboration QA under `TL_LLM_QA_REPAIR=1`; the same independent verifier checks real Codex repair, exact versioned Python archives, selected-node migration and retained failures.
+
+Model-authored LLM/Python acceptance: `test/tl-mcp-authored-nodes-electron.cjs` orchestrates actual Codex MCP authoring and two app lifetimes; `test/tl-mcp-authored-nodes-verify.cjs` independently checks authored ZIP bytes, SQLite, model handoffs and reopen integrity.
