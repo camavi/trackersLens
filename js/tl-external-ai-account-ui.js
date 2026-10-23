@@ -45,7 +45,7 @@
         { class: "tl-flow-prompt-provider-account-actions" },
         connected
           ? _.Btn({ type: "button", class: "is-ghost is-danger", disabled: loading, title: `Disconnetti ${provider} da questo computer`, onclick: onLogout }, _.Icon({ name: "logout", size: "sm" }), "Logout")
-          : _.Btn({ type: "button", class: "is-ghost", disabled: loading || !status?.installed, title: status?.installed ? `Avvia accesso ${provider}` : "Installa prima il client ufficiale", onclick: onLogin }, _.Icon({ name: "login", size: "sm" }), "Login"),
+          : _.Btn({ type: "button", class: "is-ghost", disabled: loading || !status?.installed || status?.authentication === "unknown", title: status?.authentication === "unknown" ? "Verifica lo stato prima di avviare un nuovo accesso" : status?.installed ? `Avvia accesso ${provider}` : "Installa prima il client ufficiale", onclick: onLogin }, _.Icon({ name: "login", size: "sm" }), "Login"),
         _.Btn({ type: "button", class: "is-ghost", disabled: loading, title: "Aggiorna stato account globale", onclick: onRefresh }, _.Icon({ name: "refresh", size: "sm" }), "Refresh")
       )
     );

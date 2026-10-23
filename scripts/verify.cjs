@@ -3,6 +3,7 @@
 const { spawnSync } = require('node:child_process');
 
 const syntaxFiles = [
+  'core/desktop/claude-model-catalog.cjs',
   'core/runtime/standard-node-presentation.js',
   'test/standard-node-canvas-electron.cjs',
   'test/tl-real-pdf-play-app.cjs',
@@ -152,6 +153,8 @@ const tests = [
   'test/custom-node-login-ai.test.cjs',
   'test/ai-provider-connections.test.cjs',
   'test/codex-model-catalog.test.cjs',
+  'test/claude-model-catalog.test.cjs',
+  'test/external-login-auto-status.test.cjs',
   'test/preview-json-strings.test.cjs',
   'test/flow-map-output-refresh.test.cjs',
   'test/flow-map-package-manifest.test.cjs',

@@ -44,6 +44,7 @@ const createTlCore = ({ appVersion = "0.0.0", platform = "unknown", mode = "prod
     const id = `external-ai-account-identity-${provider}`;
     const saved = persistence.readDevelopmentRecordById({ storeName, id });
     const email = status.authenticated ? String(status.accountEmail || "").trim() : "";
+    if (status.authentication === "unknown") return {...status,rememberedAccountEmail:String(saved?.email||"")};
     if (!status.authenticated) {
       if (saved) persistence.deleteDevelopmentRecords({ storeName, ids: [id] });
       return { ...status, rememberedAccountEmail: "" };

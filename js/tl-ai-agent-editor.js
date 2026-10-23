@@ -768,7 +768,7 @@ window.TrackerLensAiAgentEditor = (() => {
           value: currentValue,
           options: optionItems(options.map((item) => ({
             value: item,
-            label: item || defaultLabel,
+            label: item ? (modelState.catalog.find(model=>model.id===item)?.label || item) : defaultLabel,
           }))),
           slots: { arrow: () => icon("keyboard_arrow_down", "sm") },
           onChange: (nextValue) => {

@@ -213,8 +213,9 @@ test("external AI provider bridge reports only CLI availability and never creden
   assert.equal(claude.installed, false);
   await assert.rejects(core.request("desktop.externalAi.startLogin", { provider: "codex" }), /requires confirmation/);
   const login = await core.request("desktop.externalAi.startLogin", { provider: "codex", confirmed: true });
-  assert.equal(login.launched, true);
-  assert.deepEqual(launches.map((provider) => provider.loginCommand), ["codex login"]);
+  assert.equal(login.launched, false);
+  assert.equal(login.alreadyAuthenticated, true);
+  assert.deepEqual(launches, []);
   const response = await core.request("desktop.externalAi.sendMessage", { provider: "codex", prompt: "ciao" });
   assert.equal(response.text, "risposta: ciao");
   await assert.rejects(core.request("desktop.externalAi.sendMessage", { provider: "codex", prompt: "" }), /non può essere vuoto/);

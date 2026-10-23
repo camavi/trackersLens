@@ -38,6 +38,9 @@ let aiMemoryPage = { total: 0, offset: 0, limit: 25, hasMore: false };
 let aiRuntimeHasLoaded = false;
 const GLOBAL_EXTERNAL_PROVIDER_IDS = Object.freeze(["codex", "claude"]);
 let externalProviderStatuses = {};
+let externalStatusEpoch = 0;
+let externalStatusWatchCleanup = null;
+const externalStatusPending = new Map();
 let externalProviderBusy = "";
 
 // The first render must never show fabricated runtime data. Values are assigned only
@@ -713,28 +716,42 @@ const probeProvider = async (provider) => {
   await refreshAiRuntime();
 };
 
-const refreshExternalProviderStatus = async (providerId = "") => {
-  if (!GLOBAL_EXTERNAL_PROVIDER_IDS.includes(providerId)) return null;
-  const getStatus = window.trackers?.desktop?.externalAi?.getStatus;
-  if (typeof getStatus !== "function") {
-    const status = { provider: providerId, installed: false, authenticated: false, message: "Il bridge desktop AI non è disponibile." };
-    externalProviderStatuses = { ...externalProviderStatuses, [providerId]: status };
+const refreshExternalProviderStatus = (providerId = "") => {
+  if (!GLOBAL_EXTERNAL_PROVIDER_IDS.includes(providerId)) return Promise.resolve(null);
+  if(externalStatusPending.has(providerId))return externalStatusPending.get(providerId);
+  const epoch=externalStatusEpoch;
+  const pending=(async()=>{
+    let status;
+    try {
+      const getStatus=window.trackers?.desktop?.externalAi?.getStatus;
+      if(typeof getStatus!=="function")throw Error("Il bridge desktop AI non è disponibile.");
+      status=await getStatus({provider:providerId});
+    }catch(error){status={provider:providerId,authentication:'unknown',authenticationVerification:'unavailable',message:error?.message||"Stato account non disponibile."};}
+    if(epoch===externalStatusEpoch)externalProviderStatuses={...externalProviderStatuses,[providerId]:status||{}};
     return status;
-  }
-  try {
-    const status = await getStatus({ provider: providerId });
-    externalProviderStatuses = { ...externalProviderStatuses, [providerId]: status || {} };
-    return status;
-  } catch (error) {
-    const status = { provider: providerId, installed: false, authenticated: false, message: error?.message || "Stato account non disponibile." };
-    externalProviderStatuses = { ...externalProviderStatuses, [providerId]: status };
-    return status;
-  }
+  })();
+  externalStatusPending.set(providerId,pending);
+  void pending.finally(()=>{if(externalStatusPending.get(providerId)===pending)externalStatusPending.delete(providerId);});
+  return pending;
 };
 
 const refreshGlobalExternalProviderStatuses = async () => {
-  await Promise.all(GLOBAL_EXTERNAL_PROVIDER_IDS.map((providerId) => refreshExternalProviderStatus(providerId)));
-  mountAiRuntime();
+  const epoch=externalStatusEpoch;
+  await Promise.all(GLOBAL_EXTERNAL_PROVIDER_IDS.map(providerId=>refreshExternalProviderStatus(providerId)));
+  if(epoch===externalStatusEpoch)mountAiRuntime();
+};
+
+const stopExternalProviderStatusWatch = () => {
+  externalStatusWatchCleanup?.();externalStatusWatchCleanup=null;
+  externalStatusEpoch+=1;externalStatusPending.clear();
+};
+const startExternalProviderStatusWatch = () => {
+  stopExternalProviderStatusWatch();
+  const refresh=()=>{if(document.visibilityState!=="hidden")void refreshGlobalExternalProviderStatuses();};
+  window.addEventListener('focus',refresh);
+  document.addEventListener('visibilitychange',refresh);
+  const timer=window.setInterval(refresh,30000);
+  externalStatusWatchCleanup=()=>{window.removeEventListener('focus',refresh);document.removeEventListener('visibilitychange',refresh);window.clearInterval(timer);};
 };
 
 const changeGlobalExternalProviderAuthentication = async (providerId = "", action = "login") => {
@@ -744,6 +761,7 @@ const changeGlobalExternalProviderAuthentication = async (providerId = "", actio
     : window.trackers?.desktop?.externalAi?.startLogin;
   if (typeof api !== "function") return;
   if (action === "logout" && !window.confirm(`Disconnettere ${externalProviderLabel(providerId)} da questo computer?`)) return;
+  externalStatusEpoch+=1;externalStatusPending.clear();
   externalProviderBusy = providerId;
   aiRuntimeMeta = { ...aiRuntimeMeta, error: "", storage: action === "logout" ? `Logout ${externalProviderLabel(providerId)}` : `Login ${externalProviderLabel(providerId)}` };
   mountAiRuntime();
@@ -922,11 +940,11 @@ const renderProviderRow = (provider, compact = false) => {
     ? {
       ...item,
       model: savedExternalModel || externalStatus.configuredModel || item.model,
-      state: externalStatus.authenticated ? "Collegato" : externalStatus.installed ? "Login richiesto" : "CLI non installata",
-      status: externalStatus.authenticated ? "online" : externalStatus.installed ? "warn" : "error",
+      state: externalStatus.authenticated ? "Collegato" : externalStatus.authentication === "unknown" ? "Verifica non disponibile" : externalStatus.installed ? "Login richiesto" : "CLI non installata",
+      status: externalStatus.authenticated ? "online" : externalStatus.authentication === "unknown" || externalStatus.installed ? "warn" : "error",
       latency: externalStatus.accountEmail || externalStatus.version || "n/d",
     }
-    : item;
+    : external ? {...item,state:"Verifica account…",status:"warn"} : item;
   const isDefaultLocal = ["local_ollama", "local_lm_studio"].includes(item.id);
   return _.div(
     { class: `tl-ai-provider is-${displayed.status}${item.placeholder ? " is-empty" : ""}` },
@@ -940,7 +958,7 @@ const renderProviderRow = (provider, compact = false) => {
         btn({ "aria-label": `Aggiorna stato ${displayed.name}`, title: "Aggiorna stato account globale", disabled: externalProviderBusy === externalProviderId, onclick: () => { void refreshExternalProviderStatus(externalProviderId).then(mountAiRuntime); } }, icon("refresh", "sm")),
         externalStatus?.authenticated
           ? btn({ "aria-label": `Logout ${displayed.name}`, title: "Logout globale", disabled: Boolean(externalProviderBusy), onclick: () => { void changeGlobalExternalProviderAuthentication(externalProviderId, "logout"); } }, icon("logout", "sm"))
-          : btn({ "aria-label": `Login ${displayed.name}`, title: "Login globale", disabled: Boolean(externalProviderBusy) || externalStatus?.installed === false, onclick: () => { void changeGlobalExternalProviderAuthentication(externalProviderId, "login"); } }, icon("login", "sm")),
+          : btn({ "aria-label": `Login ${displayed.name}`, title: "Login globale", disabled: Boolean(externalProviderBusy) || externalStatus?.installed === false || !externalStatus || externalStatus.authentication === "unknown", onclick: () => { void changeGlobalExternalProviderAuthentication(externalProviderId, "login"); } }, icon("login", "sm")),
       ] : [btn({ "aria-label": "Probe provider", title: "Probe", onclick: () => probeProvider(item) }, icon("radar", "sm"))]),
       btn({ "aria-label": external ? `Gestisci account ${displayed.name}` : "Modifica provider", title: external ? "Gestisci account globale" : "Modifica", onclick: () => external ? openGlobalExternalProviderAccountDialog(externalProviderId) : openProviderEditorDialog(item) }, icon(external ? "manage_accounts" : "edit", "sm")),
       btn({ "aria-label": "Elimina provider", title: external ? "Provider globale: account gestito dal CLI" : isDefaultLocal ? "Provider locale default" : "Elimina", disabled: isDefaultLocal || external, onclick: () => openProviderDeleteDialog(item) }, icon("delete", "sm"))
@@ -1681,15 +1699,17 @@ const renderShell = () =>
   );
 
 const refreshAiRuntime = async () => {
-  const started = performance.now();
+  const started = performance.now(),epoch=externalStatusEpoch;
   try {
     const data = await window.TrackerLensAiRuntimeStore.listForCenter();
+    if(epoch!==externalStatusEpoch)return;
     aiJobsPage = data.jobsPage || aiJobsPage;
     aiLogsPage = data.logsPage || aiLogsPage;
     aiMemoryPage = data.memoryPage || aiMemoryPage;
     applyRuntimeViewModel(buildRuntimeViewModel(data, Math.max(1, Math.round(performance.now() - started))));
     aiRuntimeHasLoaded = true;
   } catch (error) {
+    if(epoch!==externalStatusEpoch)return;
     aiRuntimeMeta = {
       loading: false,
       error: error?.message || "Errore caricamento runtime AI",
@@ -1698,6 +1718,7 @@ const refreshAiRuntime = async () => {
       storage: "Error",
     };
   }
+  if(epoch!==externalStatusEpoch)return;
   mountAiRuntime();
   void refreshGlobalExternalProviderStatuses();
 };
@@ -1776,11 +1797,13 @@ window.TrackerLensViews.ai = {
   async mount({ outlet }) {
     aiRoot = outlet;
     aiEmbedded = true;
+    startExternalProviderStatusWatch();
     window.TrackerLensAppShell?.setActive?.("ai");
     mountAiRuntime();
     await refreshAiRuntime();
   },
   dispose() {
+    stopExternalProviderStatusWatch();
     aiRoot?.replaceChildren();
     aiRoot = null;
     aiEmbedded = false;
@@ -1788,6 +1811,8 @@ window.TrackerLensViews.ai = {
 };
 
 if (!window.TrackerLensAppRouter) {
+  startExternalProviderStatusWatch();
+  window.addEventListener("pagehide",stopExternalProviderStatusWatch,{once:true});
   mountAiRuntime();
   void refreshAiRuntime();
 }

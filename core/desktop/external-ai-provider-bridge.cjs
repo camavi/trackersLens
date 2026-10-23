@@ -1,3 +1,4 @@
+const {readClaudeModels}=require('./claude-model-catalog.cjs');
 const { readCodexModels, readCodexAccount } = require("./codex-model-catalog.cjs");
 const { spawnSync } = require("node:child_process");
 const fs = require("node:fs");
@@ -54,19 +55,21 @@ const readCliVersion = (executable, probe = spawnSync) => {
   }
   return { installed: true, version: String(result.stdout || result.stderr || "").trim(), verification: "verified" };
 };
-const readAuthentication = (definition, executable) => {
+const readAuthentication = (definition, executable, probe = spawnSync) => {
   const args = definition.id === "codex" ? ["login", "status"] : ["auth", "status"];
-  const result = spawnSync(executable, args, { encoding: "utf8", timeout: 4000, windowsHide: true });
+  const result = probe(executable, args, { encoding: "utf8", timeout: 4000, windowsHide: true });
+  if (result.error) return { authenticated: false, accountEmail: "", verification: "unavailable", diagnostic: result.error.code === 'ETIMEDOUT' ? 'Verifica del client scaduta; riprova senza effettuare un nuovo login.' : 'Verifica del client non disponibile.' };
   const output = String(result.stdout || result.stderr || "").trim();
-  if (result.error) return { authenticated: false, accountEmail: "", verification: "unavailable", diagnostic: result.error.message };
-  if (result.status !== 0) return { authenticated: false, accountEmail: "", verification: "unauthenticated" };
   if (definition.id === "claude") {
     try {
       const status = JSON.parse(output);
-      return { authenticated: Boolean(status?.loggedIn), accountEmail: accountEmailFromStatus(status) || normalizeAccountEmail(output) };
-    } catch (_) { return { authenticated: false, accountEmail: "" }; }
+      if(typeof status.loggedIn!=='boolean')throw Error('Unknown status');
+      return { authenticated: status.loggedIn, accountEmail: accountEmailFromStatus(status), verification: status.loggedIn?'verified':'unauthenticated' };
+    } catch (_) { return { authenticated: false, accountEmail: "", verification: "unavailable", diagnostic: 'Il client Claude non ha restituito uno stato di autenticazione riconoscibile.' }; }
   }
-  return { authenticated: /logged in/i.test(output), accountEmail: normalizeAccountEmail(output) };
+  const authenticated=result.status===0&&/logged in/i.test(output)&&!/not logged in|logged out/i.test(output);
+  const unauthenticated=/not logged in|logged out|not authenticated/i.test(output);
+  return {authenticated,accountEmail:authenticated?normalizeAccountEmail(output):'',verification:authenticated?'verified':unauthenticated?'unauthenticated':'unavailable',...(!authenticated&&!unauthenticated?{diagnostic:'Il client Codex non ha restituito uno stato di autenticazione riconoscibile.'}:{})};
 };
 const logoutProvider = (definition, executable) => {
   const args = definition.id === "codex" ? ["logout"] : ["auth", "logout"];
@@ -118,9 +121,10 @@ const readConfiguredCodexModel = () => {
 };
 
 class ExternalAiProviderBridge {
-  constructor({ accountReader = readCodexAccount, modelReader = readCodexModels, versionReader = readCliVersion, authenticationReader = readAuthentication, logoutRunner = logoutProvider, executableResolver = resolveExecutable, loginLauncher = null, chatRunner = null } = {}) {
+  constructor({ accountReader = readCodexAccount, modelReader = readCodexModels, claudeModelReader = readClaudeModels, versionReader = readCliVersion, authenticationReader = readAuthentication, logoutRunner = logoutProvider, executableResolver = resolveExecutable, loginLauncher = null, chatRunner = null } = {}) {
     this.accountReader = accountReader;
     this.modelReader = modelReader;
+    this.claudeModelReader = claudeModelReader;
     this.versionReader = typeof versionReader === "function" ? versionReader : readCliVersion;
     this.executableResolver = typeof executableResolver === "function" ? executableResolver : resolveExecutable;
     this.authenticationReader = typeof authenticationReader === "function" ? authenticationReader : readAuthentication;
@@ -134,7 +138,7 @@ class ExternalAiProviderBridge {
     if (!definition) throw Object.assign(new Error("Provider AI esterno non supportato."), { code: "EXTERNAL_AI_PROVIDER_UNSUPPORTED" });
     const executablePath = this.executableResolver(definition.executable);
     const cli = this.versionReader(executablePath);
-    const authentication = cli?.installed ? this.authenticationReader(definition, executablePath) || {} : {};
+    const authentication = cli?.installed ? await this.authenticationReader(definition, executablePath) || {} : {};
     const authenticated = Boolean(cli?.installed && authentication.authenticated);
     let accountEmail = authenticated ? normalizeAccountEmail(authentication.accountEmail) : "";
     let accountIdentity = accountEmail ? "provider-cli-status" : authenticated ? "provider-cli-status-without-email" : "not-authenticated";
@@ -149,6 +153,7 @@ class ExternalAiProviderBridge {
     }
     const configured = definition.id === "codex" ? readConfiguredCodexModel() : { model: "", reasoningEffort: "" };
     return {
+      checkedAt: new Date().toISOString(),
       provider: definition.id,
       label: definition.label,
       installed: Boolean(cli?.installed),
@@ -170,7 +175,9 @@ class ExternalAiProviderBridge {
         ? `${definition.label} non è installato sul sistema.`
         : authenticated
           ? `${definition.label} è collegato. TL non legge né copia le credenziali.`
-          : `Apri il login ufficiale di ${definition.label}; TL non legge né copia le credenziali.`
+          : authentication.verification === "unavailable"
+            ? `Stato di ${definition.label} non verificabile al momento. Riprova la verifica; non è necessario avviare subito un nuovo login.`
+            : `Apri il login ufficiale di ${definition.label}; TL non legge né copia le credenziali.`
     };
   }
 
@@ -179,13 +186,16 @@ class ExternalAiProviderBridge {
     if (!definition) throw new Error("Unsupported provider.");
     const status = await this.getStatus({ provider });
     if (!status.installed || !status.authenticated) throw new Error("Connect the provider in AI Center before loading models.");
-    if (definition.id !== "codex") return { models: [], source: "unavailable", message: "This Login bridge does not expose a model catalog." };
+    if (definition.id === "claude") return {models:await this.claudeModelReader(this.executableResolver(definition.executable)),source:"claude-sdk-initialize"};
     return { models: await this.modelReader(this.executableResolver(definition.executable)), source: "codex-app-server" };
   }
 
   async startLogin({ provider = "" } = {}) {
     const definition = supportedProvider(provider);
     if (!definition) throw Object.assign(new Error("Provider AI esterno non supportato."), { code: "EXTERNAL_AI_PROVIDER_UNSUPPORTED" });
+    const status=await this.getStatus({provider});
+    if(status.authenticated)return {provider:definition.id,launched:false,alreadyAuthenticated:true,message:`${definition.label} è già collegato tramite il client ufficiale.`};
+    if(status.authentication==='unknown')throw Object.assign(new Error(status.message),{code:'EXTERNAL_AI_AUTH_UNKNOWN'});
     const executablePath = this.executableResolver(definition.executable);
     const cli = this.versionReader(executablePath);
     if (!cli?.installed) throw Object.assign(new Error(`${definition.label} non è installato.`), { code: "EXTERNAL_AI_CLI_NOT_INSTALLED" });
@@ -218,4 +228,4 @@ class ExternalAiProviderBridge {
   }
 }
 
-module.exports = { ExternalAiProviderBridge, PROVIDERS, resolveExecutable, readConfiguredCodexModel, readCliVersion };
+module.exports = { ExternalAiProviderBridge, PROVIDERS, resolveExecutable, readConfiguredCodexModel, readCliVersion, readAuthentication };
