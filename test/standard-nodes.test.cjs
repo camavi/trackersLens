@@ -62,7 +62,7 @@ test('standard LLM API generation options and model selection reach the existing
  const persistence={readDevelopmentRecords:()=>[{id:'local',provider:'lm-studio',endpoint:'http://127.0.0.1:1234/v1',model:'profile-model',maxTokens:50}],writeDevelopmentRecords:()=>{}};
  const ai=new CustomNodeLocalAi({persistence,fetchImpl:async(_url,args)=>{body=JSON.parse(args.body);return {ok:true,json:async()=>({choices:[{message:{content:'ok'}}]})};}});
  await ai.complete({executionId:'e',request:{nodeId:'n',package:{packageId:'tl.standard.llm-custom'},permissions:{aiProvider:true},config:{aiProviderId:'local',model:'selected-model',maxTokens:'0',temperature:'0',topP:'0.8',responseFormat:'json',lmStudioTransport:'compatible'},context:{workspaceId:'w'}},arguments:{messages:[{role:'user',content:'Full input'}]}});
- assert.equal(body.model,'selected-model');assert.equal(body.temperature,0);assert.equal(body.top_p,0.8);assert.deepEqual(body.response_format,{type:'json_object'});assert.ok(!Object.hasOwn(body,'max_tokens'));
+ assert.equal(body.model,'selected-model');assert.equal(body.temperature,0);assert.equal(body.top_p,0.8);assert.deepEqual(body.response_format,{type:'json_schema',json_schema:{name:'tl_json_response',schema:{type:'object',additionalProperties:true}}});assert.ok(!Object.hasOwn(body,'max_tokens'));
 });
 
 test('standard LLM nodes have a single sandbox owner; the legacy AI Agent runtime must not subscribe',()=>{
@@ -144,4 +144,16 @@ test('Auto/local-first uses the existing shared TL preference and preserves expl
  const request={package:{packageId:'tl.standard.llm-custom'},permissions:{aiProvider:true},config:{aiProviderId:''}};
  assert.equal((await ai.complete({request,arguments:{prompt:'input'}})).provenance.providerId,'local_online');assert.equal(called,1);
  await assert.rejects(ai.complete({request:{...request,config:{aiProviderId:'missing'}},arguments:{prompt:'input'}}),/non esiste/);assert.equal(called,1);
+});
+
+test('JSON response format uses LM Studio documented schema while preserving other existing provider protocols',async()=>{
+ const {CustomNodeLocalAi}=require('../core/desktop/custom-node-local-ai.cjs');
+ for(const type of ['lm-studio','openai-compatible','ollama']){
+  let body;
+  const ai=new CustomNodeLocalAi({persistence:{readDevelopmentRecords:()=>[{id:'local',provider:type,endpoint:'http://127.0.0.1:1234',model:'configured-model'}],writeDevelopmentRecords:()=>{}},fetchImpl:async(_url,args)=>{body=JSON.parse(args.body);return {ok:true,json:async()=>type==='ollama'?{message:{content:'{"ok":true}'}}:{choices:[{message:{content:'{"ok":true}'},finish_reason:'stop'}]}};}});
+  await ai.complete({request:{nodeId:'n',package:{packageId:'tl.standard.llm-custom'},permissions:{aiProvider:true},config:{aiProviderId:'local',responseFormat:'json',lmStudioTransport:'compatible'}},arguments:{prompt:'Return JSON'}});
+  if(type==='lm-studio')assert.deepEqual(body.response_format,{type:'json_schema',json_schema:{name:'tl_json_response',schema:{type:'object',additionalProperties:true}}});
+  else if(type==='ollama')assert.equal(body.format,'json');
+  else assert.deepEqual(body.response_format,{type:'json_object'});
+ }
 });

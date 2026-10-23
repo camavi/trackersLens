@@ -192,7 +192,7 @@ class CustomNodeLocalAi {
       if(standard){
         const topP=request.config?.topP;
         if(topP!==undefined&&topP!==''){if(!Number.isFinite(Number(topP))||Number(topP)<0||Number(topP)>1)throw fail('topP deve essere compreso tra 0 e 1');if(ollama)options.top_p=Number(topP);else body.top_p=Number(topP);}
-        if(request.config?.responseFormat==='json'){if(ollama)body.format='json';else body.response_format={type:'json_object'};}
+        if(request.config?.responseFormat==='json'){if(ollama)body.format='json';else body.response_format=lmStudio.isProvider(profile)?{type:'json_schema',json_schema:{name:'tl_json_response',schema:{type:'object',additionalProperties:true}}}:{type:'json_object'};}
       }
       if (Object.keys(options).length) body.options = options;
       // The exact adapter used by ordinary AI nodes owns LM Studio protocol mapping.

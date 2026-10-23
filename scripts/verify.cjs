@@ -3,6 +3,15 @@
 const { spawnSync } = require('node:child_process');
 
 const syntaxFiles = [
+  'test/tl-real-pdf-play-app.cjs',
+  'test/tl-real-pdf-play-repair.cjs',
+  'test/tl-real-pdf-approved-app.cjs',
+  'test/tl-real-pdf-approved-run.cjs',
+  'test/tl-real-pdf-approved-verify.cjs',
+  'test/fixtures/pdf-privacy-pipeline.cjs',
+  'test/tl-real-pdf-app.cjs',
+  'test/tl-real-pdf-local-run.cjs',
+  'test/tl-real-pdf-local-verify.cjs',
   'core/runtime/ai-provider-catalog.js',
   'test/standard-node-provider-live.cjs',
   'test/tl-consolidate-lmstudio-profile.cjs',
@@ -98,6 +107,8 @@ const syntaxFiles = [
 ];
 
 const tests = [
+  'test/pdf-privacy-policy.test.cjs',
+  'test/mcp-large-stdio.test.cjs',
   'test/project-runtime.test.cjs',
   'test/project-graph-persistence.test.cjs',
   'test/node-edit-plan.test.cjs',

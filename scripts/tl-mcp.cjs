@@ -15,6 +15,6 @@ async function main(){
  let closing=false;const close=async()=>{if(closing)return;closing=true;client.close();await server.close();};
  client.onclose=()=>void close();server.onclose=()=>{client.close();};
  process.once('SIGTERM',()=>void close());process.once('SIGINT',()=>void close());
- await server.connect(new StdioServerTransport());
+ await server.connect(new StdioServerTransport(process.stdin,process.stdout,{maxBufferSize:Infinity}));
 }
 main().catch(error=>{process.stderr.write(`TL MCP: ${error.message}\n`);process.exitCode=1;});
