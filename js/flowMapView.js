@@ -155,6 +155,7 @@ const startFlowMapLifecycle = ({ root = null } = {}) => {
   window.addEventListener("trackers-custom-node-packages-updated", onFlowMapCustomPackagesUpdated);
   window.addEventListener("trackers-custom-node-packages-updated", onFlowMapCustomPackageReconcile);
   window.addEventListener("trackers:python-poc-status", onFlowMapPythonPocStatus);
+  window.addEventListener("trackers:standard-node-view", onFlowMapPythonPocStatus);
   window.addEventListener("trackers:runtime-error", onFlowMapRuntimeError);
   window.TrackerLensCustomNodePackages?.refreshInstalled?.();
   flowMapRefreshTimer = window.setInterval(refreshFlowMapRuntime, 15000);
@@ -182,6 +183,7 @@ const stopFlowMapLifecycle = ({ clearRoot = true } = {}) => {
   window.removeEventListener("trackers-custom-node-packages-updated", onFlowMapCustomPackagesUpdated);
   window.removeEventListener("trackers-custom-node-packages-updated", onFlowMapCustomPackageReconcile);
   window.removeEventListener("trackers:python-poc-status", onFlowMapPythonPocStatus);
+  window.removeEventListener("trackers:standard-node-view", onFlowMapPythonPocStatus);
   window.removeEventListener("trackers:runtime-error", onFlowMapRuntimeError);
   document.removeEventListener("focusout", onFlowMapFocusOut);
   window.removeEventListener("keydown", onFlowMapKeyDown);

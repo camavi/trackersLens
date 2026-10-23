@@ -36,6 +36,7 @@ const createFlowMapAgentRuntimeView = (moduleDependencies) => {
     Date.parse(job.updatedAt || job.raw?.updatedAt || job.startedAt || job.raw?.createdAt || 0) || 0;
 
   const latestAiAgentJobs = async (node = {}, limit = 8) => {
+    if (window.TrackerLensStandardNodes?.kindOf?.(node)) return window.TrackerLensStandardNodeView.history(node);
     const page = await window.TrackerLensAiRuntimeStore?.listJobsForAgent?.({ agentId: node.id, workspaceId: node.workspaceId || state.filters.workspaceId || "workspace_global", limit }).catch(() => null);
     return page?.records || [];
   };
@@ -47,6 +48,7 @@ const createFlowMapAgentRuntimeView = (moduleDependencies) => {
     status: job.status || job.raw?.status || "",
     updatedAt: job.updatedAt || job.raw?.updatedAt || "",
     currentStep: job.raw?.currentStep?.id || job.raw?.currentStep?.status || "",
+    providerUpdates: job.raw?.providerLogs?.map(log => [log.id, log.status, log.events?.length, log.completedAt]),
     steps: (job.raw?.steps || job.steps || []).map((step) => `${step.id || ""}:${step.status || ""}`).join("|"),
   })));
 
@@ -419,7 +421,7 @@ const createFlowMapAgentRuntimeView = (moduleDependencies) => {
           _.span(flowMapIcon("assignment", "sm"), latest?.task || raw.task || "No task yet"),
           _.span(flowMapIcon("dns", "sm"), [latest?.provider || raw.provider || "", latest?.model || raw.model || ""].filter(Boolean).join(" · ") || "No provider run"),
         _.span(flowMapIcon("schedule", "sm"), latest?.durationMs ? `${latest.durationMs}ms` : raw.updatedAt || latest?.updatedAt || ""),
-        window.TrackerLensAiAgentEditor?.openMemoryManager ? flowMapBtn({
+        !window.TrackerLensStandardNodes?.kindOf?.(node) && window.TrackerLensAiAgentEditor?.openMemoryManager ? flowMapBtn({
           class: "is-ghost is-compact",
           onclick: () => window.TrackerLensAiAgentEditor.openMemoryManager({ ...node, name: node.label || node.id, nodeId: node.id, runtimeNodeId: node.id, workspaceId: node.workspaceId || raw.workspaceId || "" }),
         }, flowMapIcon("memory", "sm"), "Memory") : null
@@ -435,7 +437,7 @@ const createFlowMapAgentRuntimeView = (moduleDependencies) => {
           { class: "tl-ai-agent-runtime-empty" },
           flowMapIcon("terminal", "md"),
           _.strong("No runtime jobs yet"),
-          _.p("Run this Agent from a connected input event to populate the runtime timeline.")
+          _.p("Run this node to populate the runtime timeline.")
         ),
       latest ? renderAiAgentRuntimeInputTrace({ node, job: latest }) : null,
       steps.length
@@ -490,7 +492,7 @@ const createFlowMapAgentRuntimeView = (moduleDependencies) => {
       class: "tl-ai-agent-runtime-view-dialog",
       panelClass: "tl-ai-agent-runtime-view-panel",
       size: "lg",
-      title: node.type === "aiAgent" ? "Agent Runtime" : "Knowledge Runtime",
+      title: window.TrackerLensStandardNodes?.kindOf?.(node) ? "Node Runtime" : node.type === "aiAgent" ? "Agent Runtime" : "Knowledge Runtime",
       subtitle: node.label || node.id,
       icon: "terminal",
       closeButton: true,

@@ -299,7 +299,7 @@ const createFlowMapCanvasView = (moduleDependencies) => {
     return [
       _.small({ class: "tl-flow-node-meta" }, `${view.category} · ${view.subtype} · ${channelName || "no channel"}`),
       _.p(view.description),
-      nodeCategory(node) === "knowledge" ? renderKnowledgeRuntimeButton(node) : null,
+      nodeCategory(node) === "knowledge" || window.TrackerLensStandardNodes?.kindOf?.(node) ? renderKnowledgeRuntimeButton(node) : null,
       renderInlineNodeSettings(node),
       ...(0, moduleDependencies.renderNodeMetricRows)(node, `${view.runtime.eventsPerMin}/min`, `${view.runtime.latency || 0}ms`, `${view.metrics.listeners || 0} listeners`),
     ];

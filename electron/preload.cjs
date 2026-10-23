@@ -265,7 +265,7 @@ const trackers = Object.freeze({
   }),
   runtime: Object.freeze({
     getStatus: () => request("runtime.getStatus"),
-    standardNodes: Object.freeze({catalog: () => request("runtime.standardNodes.catalog"),models: providerId=>request("runtime.standardNodes.models",{providerId:String(providerId||"")})}),
+    standardNodes: Object.freeze({observationStatus:scope=>request("runtime.standardNodes.observationStatus",{jobId:String(scope.jobId||""),nodeId:String(scope.nodeId||""),workspaceId:String(scope.workspaceId||"")}),cancelObservation:scope=>request("runtime.standardNodes.cancelObservation",{jobId:String(scope.jobId||""),nodeId:String(scope.nodeId||""),workspaceId:String(scope.workspaceId||"")}),catalog: () => request("runtime.standardNodes.catalog"),models: providerId=>request("runtime.standardNodes.models",{providerId:String(providerId||"")})}),
     customNodeSandbox: Object.freeze({
       run: ({ templateId, packageId, version, archiveSha256, nodeId, inputs = {}, config = {}, context = {}, timeoutMs } = {}) => request("runtime.customNodeSandbox.run", {
         ...(templateId?{templateId:String(templateId)}:{}),

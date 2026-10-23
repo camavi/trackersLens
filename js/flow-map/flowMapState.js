@@ -9,7 +9,7 @@ const flowMapParams = new URLSearchParams(window.location.search);
 const defaultViewport = () => ({ zoom: 1, panX: 0, panY: 0 });
 const FLOW_CANVAS_POSITION_MIN = -1000000;
 const FLOW_CANVAS_POSITION_MAX = 1000000;
-const FLOW_NODE_DEFAULT_WIDTH = 218;
+const FLOW_NODE_DEFAULT_WIDTH = 270;
 const FLOW_NODE_MIN_WIDTH = 160;
 const FLOW_NODE_MAX_WIDTH = 720;
 const flowMapRepairMode = () => String(flowMapParams.get("repair") || "").trim().toLowerCase();

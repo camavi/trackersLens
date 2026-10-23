@@ -34,7 +34,7 @@ class CustomNodeLoginAi {
       if (!profile || profile.connectionType !== 'login' || (profile.bridgeProvider || profile.provider) !== 'codex' || profile.endpoint || profile.baseUrl || profile.runtime?.endpoint) throw fail('Occorre un profilo Login Codex esplicito, senza endpoint API.');
       const model = String((request.package?.packageId==='tl.standard.llm-custom'?request.config?.model:'')||profile.model||profile.defaultModel||'').trim();
       if (!model) throw fail('Seleziona un modello nel profilo Login Codex.');
-      const effective = { provider: 'codex', model, reasoningEffort: String(profile.reasoningEffort || ''), speed: String(profile.speed || '') };
+      const effective = { provider: 'codex', model, reasoningEffort: String((request.package?.packageId==='tl.standard.llm-custom'?request.config?.reasoningEffort:'')||profile.reasoningEffort||''), speed: String((request.package?.packageId==='tl.standard.llm-custom'?request.config?.speed:'')||profile.speed||'') };
       // Login transport accepts one prompt; retain both the ordered messages and
       // their complete, unambiguous serialization, without claiming role isolation.
       const prompt = JSON.stringify({ messages });

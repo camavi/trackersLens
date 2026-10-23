@@ -8,12 +8,27 @@ const llmSource=`export async function run({input,config,tools,emit,log}) {
  const at=(path)=>!path?data:String(path).split('.').reduce((value,key)=>value?.[key],data);
  if(config.requireTruePath&&at(config.requireTruePath)!==true)throw new Error('Controllo esplicito non superato: '+config.requireTruePath+'. Nessuna richiesta LLM inviata.');
  const encode=(value,format,key)=>{if(value===undefined)throw new Error('Dato in ingresso mancante');return format==='json'?JSON.stringify(key?{[key]:value}:value):typeof value==='string'?value:JSON.stringify(value);};
- const messages=config.messagesJson?JSON.parse(config.messagesJson).map(message=>({role:message.role,content:message.inputPath!==undefined?encode(at(message.inputPath),message.format||'text',message.key||''):message.content})):[...(config.instructions?[{role:'system',content:config.instructions}]:[]),{role:'user',content:encode(at(config.inputPath),config.inputFormat,config.inputFormat==='json'?config.inputKey:'')}];
+ const native=config.agentContractJson?JSON.parse(config.agentContractJson):null;
+ const payloadText=encode(at(config.inputPath),config.inputFormat,config.inputFormat==='json'?config.inputKey:'');
+ const prompt=native?.promptConfig;
+ const rendered=prompt?.template?prompt.template.replace(/\{\{(payload|event|channel|workspace|timestamp|memory)\}\}/g,(_match,key)=>({payload:payloadText,event:payloadText,channel:'input',workspace:native.workspaceId||'',timestamp:new Date().toISOString(),memory:''})[key]):payloadText;
+ const system=[config.instructions,prompt?.outputInstructions].filter(Boolean).join('\\n');
+ const messages=config.messagesJson?JSON.parse(config.messagesJson).map(message=>({role:message.role,content:message.inputPath!==undefined?encode(at(message.inputPath),message.format||'text',message.key||''):message.content})):[...(system?[{role:'system',content:system}]:[]),{role:'user',content:rendered}];
  if(!Array.isArray(messages)||!messages.length||messages.some(message=>!['system','user','assistant'].includes(message.role)||typeof message.content!=='string'))throw new Error('Messaggi LLM non validi');
  if(config.guardTermsPath){const terms=at(config.guardTermsPath);if(!Array.isArray(terms)||terms.some(term=>typeof term!=='string'||!term))throw new Error('Il controllo termini richiede un array di stringhe non vuote');const serialized=JSON.stringify(messages).toLocaleLowerCase();const residual=terms.filter(term=>serialized.includes(term.toLocaleLowerCase()));if(residual.length){await log('Controllo termini non superato',{residual});throw new Error('Termini vietati nel messaggio. Nessuna richiesta LLM inviata.');}}
  if(config.allowOnline&&((config.temperature??'')!==''||(config.maxTokens??'')!==''||(config.topP??'')!==''||config.responseFormat!=='text'))throw new Error('Il trasporto Login usa modello e parametri del profilo; svuotare i parametri API non supportati.');
  await log('Messaggi LLM effettivi',{messages,online:config.allowOnline,providerId:config.aiProviderId});
- const result=await (config.allowOnline?tools.ai.completeLogin({messages}):tools.ai.complete({messages}));
+ const complete=()=>config.allowOnline?tools.ai.completeLogin({messages}):tools.ai.complete({messages});
+ const completions=[await complete()];
+ const limit=config.maxContinuationCalls??10;
+ while(completions[completions.length-1].finishReason==='length'&&(limit===0||completions.length<=limit)){
+   const last=completions[completions.length-1];
+   messages.push({role:'assistant',content:last.text},{role:'user',content:'Continue exactly where the previous response stopped. Do not repeat already generated text.'});
+   if(config.guardTermsPath){const terms=at(config.guardTermsPath),serialized=JSON.stringify(messages).toLocaleLowerCase();if(terms.some(term=>serialized.includes(term.toLocaleLowerCase())))throw new Error('Termini vietati nella continuazione. Nessuna nuova richiesta LLM inviata.');}
+   await log('Continuazione LLM',{attempt:completions.length,messages});completions.push(await complete());
+ }
+ const last=completions[completions.length-1];
+ const result=completions.length===1?last:{...last,text:completions.map(item=>item.text).join(''),completions};
  await emit('output',{...(config.preserveInput?data:{}),[config.outputKey]:result});
 }`;
 class StandardNodeRuntime {
@@ -23,11 +38,12 @@ class StandardNodeRuntime {
     for(const key of Object.keys(value))if(!Object.hasOwn(template.settingsSchema,key))throw Error('Configurazione standard sconosciuta: '+key);
     const config=resolveSettings(template.settingsSchema,value);
     const contract=require('../runtime/runtime-contract.js').TrackerLensRuntimeContract;
-    for(const [key,field] of Object.entries(template.settingsSchema)){const result=contract.validateConfigValue(config[key],field,key);if(!result.ok)throw Error(result.errors.join('\n'));}
+    for(const [key,field] of Object.entries(template.settingsSchema)){const result=contract.validateConfigValue(config[key],field,key);if(!result.ok)throw Error(result.errors.join('\\n'));}
     if(id==='python-custom'){const params=JSON.parse(config.parametersJson);if(!params||typeof params!=='object'||Array.isArray(params))throw Error('Parametri Python: occorre un oggetto JSON');}
     else {
       if(!config.outputKey||['__proto__','constructor','prototype'].includes(config.outputKey))throw Error('Campo risultato non valido');
       for(const key of ['temperature','maxTokens','topP'])if(config[key]!==''&&(!Number.isFinite(Number(config[key]))||(key==='maxTokens'&&(!Number.isSafeInteger(Number(config[key]))||Number(config[key])<0))))throw Error('Parametro LLM non valido: '+key);
+      if(config.agentContractJson){const agent=JSON.parse(config.agentContractJson);if(!agent||typeof agent!=='object'||Array.isArray(agent))throw Error('Configurazione LLM: occorre un oggetto JSON');}
       if(config.messagesJson&&!Array.isArray(JSON.parse(config.messagesJson)))throw Error('messagesJson deve essere un array');
     }
     return config;
@@ -36,6 +52,11 @@ class StandardNodeRuntime {
     const template=templates.get(templateId);if(!template)throw Error('Template standard sconosciuto');
     const values=this.config(templateId,config);
     return {id,workspaceId,type:'custom',subtype:templateId,label,inputs:['input'],outputs:['output'],channels:['input','output'],flowPosition:position,status:'idle',runtime:{status:'idle',active:false},metadata:{generatedBy:'mcp-standard-template',paletteLabel:template.name,subtype:templateId,category:template.category,icon:template.icon,configured:true,settingsSchema:template.settingsSchema,manifest:templates.manifest(templateId),config:values}};
+  }
+  observation(scope,cancel=false){
+    const node=this.persistence.readDevelopmentRecordById({storeName:'tl_runtime_nodes',id:scope.nodeId});
+    if(!node||node.workspaceId!==scope.workspaceId||templates.kindOf(node)!=='llm-custom')throw Error('Nodo LLM non trovato nel workspace');
+    return this.localAi.observation(scope,cancel);
   }
   async catalog(){
     const providers=providerCatalog.list(this.persistence.readDevelopmentRecords({storeName:'tl_ai_providers'})).map(profile=>{return {id:profile.id,name:profile.name||profile.id,provider:profile.provider||profile.providerType,connectionType:profile.connectionType||'api',model:profile.model||profile.defaultModel||''};});

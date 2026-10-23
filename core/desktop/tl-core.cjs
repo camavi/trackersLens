@@ -558,6 +558,10 @@ const createTlCore = ({ appVersion = "0.0.0", platform = "unknown", mode = "prod
         if (!flags.customNodeSandbox || !customNodePackages?.activateSandboxRuntime) throw errorWithCode("Custom Node sandbox is disabled", "CUSTOM_NODE_SANDBOX_DISABLED");
         if (!payload?.confirmed) throw errorWithCode("Custom Node sandbox activation requires confirmation", "CUSTOM_NODE_SANDBOX_ACTIVATION_CONFIRMATION_REQUIRED");
         return customNodePackages.activateSandboxRuntime({ packageId: String(payload?.packageId || ""), version: String(payload?.version || ""), archiveSha256: String(payload?.archiveSha256 || ""), confirmed: true });
+      case "runtime.standardNodes.observationStatus":
+      case "runtime.standardNodes.cancelObservation":
+        if(!adapters.standardNodes)throw errorWithCode("Standard nodes unavailable", "STANDARD_NODES_UNAVAILABLE");
+        return adapters.standardNodes.observation({jobId:String(payload.jobId||''),nodeId:String(payload.nodeId||''),workspaceId:String(payload.workspaceId||'')},command==='runtime.standardNodes.cancelObservation');
       case "runtime.standardNodes.models":
         if(!adapters.standardNodes)throw errorWithCode("Standard node catalog unavailable", "STANDARD_NODES_UNAVAILABLE");
         return adapters.standardNodes.models({providerId:String(payload.providerId||"")});

@@ -3,6 +3,8 @@
 const { spawnSync } = require('node:child_process');
 
 const syntaxFiles = [
+  'core/runtime/standard-node-presentation.js',
+  'test/standard-node-canvas-electron.cjs',
   'test/tl-real-pdf-play-app.cjs',
   'test/tl-real-pdf-play-repair.cjs',
   'test/tl-real-pdf-approved-app.cjs',
@@ -140,6 +142,8 @@ const tests = [
   'test/account-client.test.cjs',
   'test/tl-core.test.cjs',
   'test/standard-nodes.test.cjs',
+  'test/standard-node-presentation.test.cjs',
+  'test/standard-node-streaming.test.cjs',
   'test/flow-map-alerts.test.cjs',
   'test/document-privacy-packages.test.cjs',
   'test/custom-node-package-manager.test.cjs',

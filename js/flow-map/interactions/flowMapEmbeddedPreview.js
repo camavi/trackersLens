@@ -71,8 +71,8 @@ const createFlowMapEmbeddedPreview = (moduleDependencies) => {
     String(value || "").length * size * 0.62;
 
   const flowMapPreviewNodeWidth = (node = {}) => {
-    const value = typeof flowNodeWidth === "function" ? flowNodeWidth(node) : Number(node.flowPosition?.width || 218);
-    const width = Number.isFinite(value) ? value : 218;
+    const value = typeof flowNodeWidth === "function" ? flowNodeWidth(node) : Number(node.flowPosition?.width || 270);
+    const width = Number.isFinite(value) ? value : 270;
     const ports = flowMapPreviewNodePorts(node);
     const longestInput = Math.max(0, ...ports.in.map((port) => String(port.name || "").length));
     const longestOutput = Math.max(0, ...ports.out.map((port) => String(port.name || "").length));

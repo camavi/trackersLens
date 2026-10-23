@@ -1,5 +1,7 @@
 window.TrackerLensRuntimeGraphModel = (() => {
   const paletteVisuals = {
+    "LLM Custom": { tone: "gold", icon: "psychology" },
+    "Python Custom": { tone: "blue", icon: "code" },
     "REST API": { tone: "green", icon: "api" },
     WebSocket: { tone: "green", icon: "settings_input_antenna" },
     "RSS Feed": { tone: "green", icon: "rss_feed" },

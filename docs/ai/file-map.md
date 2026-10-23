@@ -46,6 +46,8 @@ Last updated: 2026-10-10.
 
 ## AI Runtime
 
+- `core/runtime/standard-node-presentation.js`: read-only standard-node summary, history/provenance and token-usage projections, reused by the existing canvas/runtime UI.
+
 - `ai.html`
 - `js/aiRuntimeCenter.js`
 - `js/tl-ai-runtime-store.js`

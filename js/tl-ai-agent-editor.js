@@ -49,7 +49,7 @@ window.TrackerLensAiAgentEditor = (() => {
   const selectedProviderId = (agent = null) =>
     agentNested(agent, "provider").profileId || agentNested(agent, "provider").providerId || "";
   const providerLabel = (provider = {}) =>
-    [window.TrackerLensAiRuntimeStore.providerDisplayLabel(provider), !["", "modello non configurato", "local-model"].includes(provider.model || "") ? provider.model : ""].filter(Boolean).join(" · ");
+    window.TrackerLensAiRuntimeStore.providerDisplayLabel(provider);
 
   const normalizeProviderName = (value = "") =>
     cleanText(value).toLowerCase().replace(/[\s_-]+/g, "");
@@ -591,6 +591,13 @@ window.TrackerLensAiAgentEditor = (() => {
     };
     const inputChannels = channels.inputs || raw.inputs || ["task"];
     const outputChannel = channels.outputChannel || channels.outputs?.[0] || raw.output || "ai.agent.output";
+    const readModelCatalog = modelCatalog;
+    const canReadCoreModels = profile => {
+      if (!window.trackers?.runtime?.standardNodes?.models || window.TrackerLensAiRuntimeStore.isLoginProvider(profile)) return false;
+      if (!profile.id) return true;
+      try { return ["localhost", "127.0.0.1", "[::1]"].includes(new URL(profile.endpoint || profile.baseUrl).hostname); }
+      catch { return false; }
+    };
     const providerProfiles = [
       { value: "", label: "Auto / local-first" },
       ...providers.filter((item) => !item.placeholder).map((item) => ({ value: item.id, label: providerLabel(item) })),
@@ -625,7 +632,7 @@ window.TrackerLensAiAgentEditor = (() => {
       const providerType = agentFormValue(form, "providerType") || provider.providerType || provider.provider || "ollama";
       const selectedProvider = providers.find((item) => item.id === providerProfile) || null;
       if (selectedProvider) return selectedProvider;
-      if (typeof modelCatalog === "function") return { id: "", provider: "local", name: "Auto / local-first" };
+      if (typeof readModelCatalog === "function" || window.trackers?.runtime?.standardNodes?.models) return { id: "", provider: "local", name: "Auto / local-first" };
       const normalizedType = normalizeProviderName(providerType);
       return providers.find((item) => {
         const itemType = normalizeProviderName(item.provider || item.providerType || item.name || item.id);
@@ -685,12 +692,14 @@ window.TrackerLensAiAgentEditor = (() => {
           root.style.display = visible ? "" : "none";
         }
       }
-      if (typeof modelCatalog === "function") {
+      if (typeof readModelCatalog === "function" || canReadCoreModels(providerConfig)) {
         modelState.value = agentFormValue(form, "model");
         modelState.loading = true;
         updateModelField();
         try {
-          const catalog = await modelCatalog(providerConfig);
+          const catalog = typeof readModelCatalog === "function"
+            ? await readModelCatalog(providerConfig)
+            : await window.trackers.runtime.standardNodes.models(providerConfig.id);
           if (sequence !== modelLoadSequence) return;
           modelState.catalog = catalog.models || [];
           modelState.items = modelState.catalog.map(item => typeof item === "string" ? item : item.id);

@@ -42,6 +42,7 @@ const createFlowMapNodeMetrics = (moduleDependencies) => {
   };
 
   const tokenUsageForNode = (node = {}) => {
+    if (window.TrackerLensStandardNodes?.kindOf?.(node) === "llm-custom") return window.TrackerLensStandardNodeView.usage(node);
     const usage = node.metadata?.tokenUsage || {};
     const config = node.metadata?.config || {};
     return {
@@ -58,7 +59,7 @@ const createFlowMapNodeMetrics = (moduleDependencies) => {
   };
 
   const nodeHasTokenAccounting = (node = {}) => {
-    if(window.TrackerLensStandardNodes?.kindOf?.(node))return false; // Actual provider usage remains in the standard node Data/Logs inspector.
+    if(window.TrackerLensStandardNodes?.kindOf?.(node))return window.TrackerLensStandardNodes.kindOf(node) === "llm-custom";
     const subtype = nodeSubtype(node);
     const config = node.metadata?.config || {};
     const usage = node.metadata?.tokenUsage || {};
@@ -89,10 +90,12 @@ const createFlowMapNodeMetrics = (moduleDependencies) => {
   const renderNodeTokenMetrics = (node = {}) => {
     if (!nodeHasTokenAccounting(node)) return null;
     const usage = tokenUsageForNode(node);
+    const standard = window.TrackerLensStandardNodes?.kindOf?.(node) === "llm-custom";
+    const display = value => value === null || value === undefined ? "—" : formatTokenCount(value);
     const detail = [
-      `Total token: ${usage.totalTokens || 0}`,
-      `Last token: ${usage.lastTokens || 0}`,
-      usage.lastPromptTokens || usage.lastCompletionTokens ? `Prompt/completion: ${usage.lastPromptTokens || 0}/${usage.lastCompletionTokens || 0}` : "",
+      `Total token: ${usage.totalTokens ?? "Non disponibile"}`,
+      `Last token: ${usage.lastTokens ?? "Non disponibile"}`,
+      usage.lastPromptTokens !== null || usage.lastCompletionTokens !== null ? `Prompt/completion: ${usage.lastPromptTokens ?? "—"}/${usage.lastCompletionTokens ?? "—"}` : "",
       usage.provider || usage.model ? `Provider: ${[usage.provider, usage.model].filter(Boolean).join(" · ")}` : "",
       usage.updatedAt ? `Updated: ${formatShortDate(usage.updatedAt)}` : "",
     ].filter(Boolean).join("\n");
@@ -106,9 +109,9 @@ const createFlowMapNodeMetrics = (moduleDependencies) => {
         onclick: (event) => {
           event.preventDefault();
           event.stopPropagation();
-          (0, moduleDependencies.requestTokenUsageDetails)(node, "total");
+          standard ? (0, moduleDependencies.openAiAgentRuntimeDialog)(node) : (0, moduleDependencies.requestTokenUsageDetails)(node, "total");
         },
-      }, formatTokenCount(usage.totalTokens)),
+      }, display(usage.totalTokens)),
       _.span({ class: "tl-flow-node-token-label" }, "last token:"),
       flowMapBtn({
         class: "tl-flow-token-value-btn",
@@ -117,10 +120,10 @@ const createFlowMapNodeMetrics = (moduleDependencies) => {
         onclick: (event) => {
           event.preventDefault();
           event.stopPropagation();
-          (0, moduleDependencies.requestTokenUsageDetails)(node, "last");
+          standard ? (0, moduleDependencies.openAiAgentRuntimeDialog)(node) : (0, moduleDependencies.requestTokenUsageDetails)(node, "last");
         },
-      }, formatTokenCount(usage.lastTokens)),
-      flowMapBtn({
+      }, display(usage.lastTokens)),
+      !standard ? flowMapBtn({
         class: "tl-flow-token-clear-btn",
         "aria-label": "Clear token usage",
         title: "Clear token usage",
@@ -130,7 +133,7 @@ const createFlowMapNodeMetrics = (moduleDependencies) => {
           event.stopPropagation();
           (0, moduleDependencies.requestTokenUsageClear)(node);
         },
-      }, flowMapIcon("cleaning_services", "sm"))
+      }, flowMapIcon("cleaning_services", "sm")) : null
     );
   };
 
@@ -209,9 +212,9 @@ const createFlowMapNodeMetrics = (moduleDependencies) => {
 
   const renderNodeTiming = (node) => {
     const event = latestNodeTiming(node);
-    if ((node.type === 'aiAgent' || node.nodeType === 'aiAgent') && nodeSubtype(node) !== 'orchestrator' && window.TrackerLensLlmInspector) {
+    if ((node.type === 'aiAgent' || node.nodeType === 'aiAgent' || window.TrackerLensStandardNodes?.kindOf?.(node)==='llm-custom') && nodeSubtype(node) !== 'orchestrator' && window.TrackerLensLlmInspector) {
       const live = flowMapBtn({ class: 'tl-flow-node-timing-btn', title: 'LLM Live', 'aria-label': 'LLM Live', onPointerDown: stopNodeControlEvent,
-        onclick: click => { click.stopPropagation(); void window.TrackerLensLlmInspector.open({ nodeId: node.id, workspaceId: node.workspaceId || state.filters.workspaceId || 'workspace_global', onConfigureNode: () => configureNode(nodeById(node.id) || node) }); } }, flowMapIcon('monitoring', 'sm'));
+        onclick: click => { click.stopPropagation(); void window.TrackerLensLlmInspector.open({ core:window.TrackerLensStandardNodes?.kindOf?.(node)==='llm-custom', nodeId: node.id, workspaceId: node.workspaceId || state.filters.workspaceId || 'workspace_global', onConfigureNode: () => configureNode(nodeById(node.id) || node) }); } }, flowMapIcon('monitoring', 'sm'));
       const timing = event ? flowMapBtn({ class: 'tl-flow-node-timing-btn', title: 'Tempi di esecuzione', onPointerDown: stopNodeControlEvent, onclick: click => { click.stopPropagation(); void openNodeTimingDialog(node, event); } }, flowMapIcon('timer', 'sm')) : null;
       return _.span({ 'data-node-timing': node.id, class: 'tl-flow-node-timing' }, live, timing);
     }

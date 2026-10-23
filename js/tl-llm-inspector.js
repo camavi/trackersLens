@@ -1,11 +1,12 @@
 window.TrackerLensLlmInspector = (() => {
   const dialogs = new Set();
-  const open = async ({ nodeId, workspaceId, jobId = '', onConfigureNode }) => {
+  const open = async ({ nodeId, workspaceId, jobId = '', onConfigureNode, core = false }) => {
     const _ = window.JSswift;
     const runtime = window.TrackerLensLlmObservation;
     if (!_ || !runtime) return;
     const btn = ({ text, ...props }) => _.Btn({ type: 'button', ...props }, text);
     let closed = false, timer = null, loading = false, dirty = false;
+    let coreActive=false, corePoll=null;
     let context = { nodeId, workspaceId, jobId }, jobOffset = 0, invocationOffset = -1;
     let pendingJobId = '';
     let selectedId = '', segment = 0, events = [], output = '', reasoning = '', page = 0;
@@ -55,7 +56,7 @@ window.TrackerLensLlmInspector = (() => {
       }).join('\n');
       if (followLive) timeline.scrollTop = timeline.scrollHeight;
       timelineLabel.textContent = `${timelinePage + 1} / ${timelinePages}`;
-      const active = runtime.active(context).some(item => item.jobId === context.jobId);
+      const active = coreActive || runtime.active(context).some(item => item.jobId === context.jobId);
       const usage = lastSummary?.usage;
       const state = lastSummary?.status === 'running' && !active ? 'Interrupted / no active local session' : lastSummary?.status || 'No observed request';
       const running = active && lastSummary?.status === 'running';
@@ -109,6 +110,11 @@ window.TrackerLensLlmInspector = (() => {
         if (jobOffset === 0 && pendingJobId && context.jobId !== pendingJobId) {
           context = { nodeId, workspaceId, jobId: pendingJobId }; invocationOffset = -1; reset();
         }
+        if (core && window.trackers?.runtime?.standardNodes?.observationStatus) {
+          const indexes=(await window.trackers.desktop.persistence.readDevelopmentRecords({storeName:'tl_ai_logs',workspaceId})).filter(record=>record.kind==='llm-job-index'&&record.nodeId===nodeId&&record.workspaceId===workspaceId&&record.owner==='core').sort((a,b)=>Date.parse(b.updatedAt||0)-Date.parse(a.updatedAt||0));
+          const selected=indexes[jobOffset]?.jobId;
+          if(selected&&selected!==context.jobId){context={nodeId,workspaceId,jobId:selected};invocationOffset=-1;reset();}
+        }
         if (!context.jobId) {
           const jobs = await window.TrackerLensAiRuntimeStore.listJobsForAgent({ agentId: nodeId, workspaceId, offset: jobOffset, limit: 1 });
           if (closed) return;
@@ -124,6 +130,7 @@ window.TrackerLensLlmInspector = (() => {
         if (selectedId !== id) { reset(); selectedId = id; }
         const summary = await runtime.readRecord(`llm:${id}`, context);
         if (closed || !summary) return;
+        coreActive=summary.owner==='core' && summary.status==='running' ? Boolean((await window.trackers?.runtime?.standardNodes?.observationStatus(context))?.active) : false;
         while (segment < summary.segmentCount) {
           const record = await runtime.readRecord(`llm:${id}:segment:${segment}`, context);
           if (closed) return;
@@ -154,7 +161,7 @@ window.TrackerLensLlmInspector = (() => {
       if (jobOffset === 0) pendingJobId = event.jobId;
       schedule();
     });
-    const cancel = btn({ text: 'Stop generation', class: 'tl-llm-stop', color: 'danger', onclick: () => { runtime.cancel(context); } });
+    const cancel = btn({ text: 'Stop generation', disabled: true, class: 'tl-llm-stop', color: 'danger', onclick: () => { if(lastSummary?.owner==='core')void window.trackers.runtime.standardNodes.cancelObservation(context);else runtime.cancel(context); } });
     const followButton = btn({ text: 'Follow live', 'aria-pressed': 'true', onclick: () => { followLive = !followLive; render(); } });
     pre.addEventListener('scroll', () => {
       if (scrollingOutput) return;
@@ -171,7 +178,7 @@ window.TrackerLensLlmInspector = (() => {
     };
     const dialog = _.Dialog({
       title: 'LLM Live', class: 'tl-llm-inspector', size: 'lg', closeButton: true,
-      onClose: () => { closed = true; clearTimeout(timer); cancelAnimationFrame(scrollFrame); unsubscribe(); events = []; output = ''; reasoning = ''; dialogs.delete(dialog); },
+      onClose: () => { closed = true; clearTimeout(timer); clearInterval(corePoll); cancelAnimationFrame(scrollFrame); unsubscribe(); events = []; output = ''; reasoning = ''; dialogs.delete(dialog); },
       content: () => _.div({ class: 'tl-llm-terminal' },
         _.div({ class: 'tl-llm-session' }, _.span({ class: 'tl-llm-brand' }, '>_ TL / MODEL CONSOLE'), connection),
         identity, status, activityLine, activityProgress, statsLine, notice,
@@ -203,6 +210,7 @@ window.TrackerLensLlmInspector = (() => {
     });
     dialogs.add(dialog);
     dialog.open();
+    if(core)corePoll=setInterval(schedule,200);
     await refresh();
   };
   return { open, closeAll() { for (const dialog of [...dialogs]) dialog.close(); } };

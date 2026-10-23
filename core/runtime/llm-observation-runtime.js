@@ -1,5 +1,8 @@
 /* Provider observation is deliberately separate from Flow output channels. */
-window.TrackerLensLlmObservation = (() => {
+(function(root, factory) {
+  if (typeof module === 'object' && module.exports) module.exports = { create: factory };
+  else root.TrackerLensLlmObservation = factory(root);
+})(typeof window !== 'undefined' ? window : globalThis, (window) => {
   const sessions = new Map();
   const listeners = new Set();
   const version = 'tl-llm-observation/v1';
@@ -106,8 +109,8 @@ window.TrackerLensLlmObservation = (() => {
 
   const complete = async ({ context, url, body, headers = {}, streaming = true, transport, purpose = 'answer', parentInvocationId = '', promptConfiguration = {}, protocol = 'openai-compatible', bufferedReason = '' }) => {
     const native = protocol === 'lm-studio-native' ? window.TrackerLensLmStudioNative : null;
-    const ollama = protocol === 'ollama-generate', cli = protocol === 'external-cli';
-    if (!['openai-compatible', 'lm-studio-native', 'ollama-generate', 'external-cli'].includes(protocol) || (protocol === 'lm-studio-native' && !native)) throw Object.assign(new Error('LLM observation protocol unavailable'), { llmObserved: true });
+    const ollama = protocol === 'ollama-generate' || protocol === 'ollama-chat', cli = protocol === 'external-cli';
+    if (!['openai-compatible', 'lm-studio-native', 'ollama-generate', 'ollama-chat', 'external-cli'].includes(protocol) || (protocol === 'lm-studio-native' && !native)) throw Object.assign(new Error('LLM observation protocol unavailable'), { llmObserved: true });
     const session = sessionFor(context);
     const signal = session.controller.signal;
     const invocationId = `${context.jobId}:${session.invocations.length + 1}`;
@@ -184,8 +187,8 @@ window.TrackerLensLlmObservation = (() => {
           emit('provider.frame', frame);
           if (frame.error) throw new Error(typeof frame.error === 'string' ? frame.error : JSON.stringify(frame.error));
           if (ollama) {
-            append('text.delta', frame.response);
-            append('reasoning.delta', frame.thinking);
+            append('text.delta', protocol === 'ollama-chat' ? frame.message?.content : frame.response);
+            append('reasoning.delta', protocol === 'ollama-chat' ? frame.message?.thinking : frame.thinking);
             if (frame.done === true) {
               terminal = true; final = frame;
               const input = frame.prompt_eval_count, output = frame.eval_count;
@@ -290,7 +293,7 @@ window.TrackerLensLlmObservation = (() => {
       emit('completed', { usage: summary.usage, durationMs: summary.durationMs, firstDeltaMs });
       finished = true;
       await flush();
-      return { data, invocationId, usage: summary.usage, timings: { providerTransportMs: summary.durationMs, firstDeltaMs } };
+      return { data, invocationId, summary: { ...summary }, usage: summary.usage, timings: { providerTransportMs: summary.durationMs, firstDeltaMs } };
     } catch (error) {
       if (backgroundFailure) error = backgroundFailure;
       if (!finished) summary.status = signal.aborted && !backgroundFailure ? 'cancelled' : 'failed';
@@ -320,4 +323,4 @@ window.TrackerLensLlmObservation = (() => {
     },
     release(jobId) { sessions.delete(jobId); },
   };
-})();
+});

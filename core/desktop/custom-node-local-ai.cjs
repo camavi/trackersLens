@@ -1,6 +1,7 @@
 const crypto = require('node:crypto');
 const providerCatalog = require('../runtime/ai-provider-catalog.js');
 const lmStudio = require('../runtime/lm-studio-native.js');
+const {create:createObservation}=require('../runtime/llm-observation-runtime.js');
 const fail = (message, code = 'CUSTOM_NODE_LOCAL_AI_INVALID') => Object.assign(new Error(message), { code });
 const profileOf = record => record.content && typeof record.content === 'object' ? record.content : record;
 const DEFAULT_LOCAL_CANDIDATES = {
@@ -16,6 +17,7 @@ class CustomNodeLocalAi {
     this.fetch = fetchImpl;
     this.defaultCandidates = defaultCandidates;
     this.controllers = new Map();
+    this.observations = new Map();
     this.discoveries = new Map();
     this.profilePlans = new Map();
     this.applyingProfiles = new Set();
@@ -144,6 +146,13 @@ class CustomNodeLocalAi {
     } finally { this.applyingProfiles.delete(saved.next.id); }
   }
 
+  observation({jobId,nodeId,workspaceId}, cancel=false) {
+    const active=this.observations.get(jobId);
+    if(!active||active.context.nodeId!==nodeId||active.context.workspaceId!==workspaceId)return {active:false};
+    if(cancel)active.controller.abort();
+    return {active:true};
+  }
+
   cancel(executionId) {
     for (const controller of this.controllers.get(executionId) || []) controller.abort();
     this.controllers.delete(executionId);
@@ -176,7 +185,8 @@ class CustomNodeLocalAi {
       if (secret) headers.Authorization = `Bearer ${secret}`;
       if(standard&&request.config?.model)provider.model=String(request.config.model);
       if(standard&&['local-model','modello non configurato',''].includes(provider.model))throw fail('Seleziona un modello dal catalogo del provider TL.');
-      const body = { model: provider.model, stream: false, messages: messages.map(({ role, content }) => ({ role, content })) };
+      const streaming=standard&&(request.config?.streaming===true||request.config?.streaming==='true');
+      const body = { model: provider.model, stream: streaming, messages: messages.map(({ role, content }) => ({ role, content })) };
       const ollama = provider.protocol === 'ollama-chat';
       const maxTokens = request.config?.maxTokens ?? profile.maxTokens ?? profile.runtime?.maxTokens;
       const temperature = request.config?.temperature ?? profile.temperature ?? profile.runtime?.temperature;
@@ -199,16 +209,33 @@ class CustomNodeLocalAi {
       const native = standard && lmStudio.selected(profile,request.config);
       const outgoing = native ? lmStudio.prepare({url:provider.endpoint,body}) : null;
       const endpoint = native ? outgoing.url : provider.endpoint;
-      const requestBody = native ? {...outgoing.body,stream:false} : body;
+      const requestBody = native ? {...outgoing.body,stream:streaming} : body;
       trace = { id, kind: 'custom-node-local-ai', executionId, nodeId: request.nodeId, workspaceId: request.context?.workspaceId || '', package: request.package, provider:{...provider,protocol:native?'lm-studio-native':provider.protocol}, request:requestBody, status: 'running', startedAt: new Date().toISOString() };
       await save();
       if (controller.signal.aborted) throw fail('Richiesta LLM locale annullata.', 'CUSTOM_NODE_LOCAL_AI_CANCELLED');
-      const response = await this.fetch(endpoint, { method: 'POST', redirect: 'error', headers, body: JSON.stringify(requestBody), signal: controller.signal });
-      if (!response.ok) throw fail(`LLM locale HTTP ${response.status}: ${redact(await response.text())}`, 'CUSTOM_NODE_LOCAL_AI_HTTP');
-      let data = JSON.parse(redact(JSON.stringify(await response.json())));
-      trace.response = data;
+      let data;
+      if(streaming){
+        // The same observer/parsers used by ordinary TL LLM nodes own framing,
+        // completion, provider progress, usage and durable streaming segments.
+        const context={workspaceId:trace.workspaceId,nodeId:request.nodeId,executionId,owner:'core',jobId:id,runId:request.context?.runId||'',provider:providerId};
+        const observer=createObservation({TrackerLensLmStudioNative:lmStudio,TrackerLensAiRuntimeStore:{upsertLog:record=>this.persistence.writeDevelopmentRecords({storeName:'tl_ai_logs',records:[JSON.parse(redact(JSON.stringify(record)))]})}});
+        this.observations.set(id,{context,observer,controller});
+        const abort=()=>observer.cancel(context);controller.signal.addEventListener('abort',abort,{once:true});
+        try{
+          const observed=await observer.complete({context,url:endpoint,body:requestBody,headers,streaming:true,protocol:native?'lm-studio-native':ollama?'ollama-chat':'openai-compatible',transport:async({url,body,headers,signal})=>{trace.request=body;await save();return this.fetch(url,{method:'POST',redirect:'error',headers,body:JSON.stringify(body),signal});}});
+          data=JSON.parse(redact(JSON.stringify(observed.data)));
+          if(ollama)data={...data.providerResult,message:data.choices[0].message,usage:data.usage};
+          trace.observation={invocationId:observed.invocationId,usage:observed.usage,timings:observed.timings};
+          if(native)trace.nativeSummary=observed.summary;
+        }finally{controller.signal.removeEventListener('abort',abort);observer.release(id);this.observations.delete(id);}
+      }else{
+        const response = await this.fetch(endpoint, { method: 'POST', redirect: 'error', headers, body: JSON.stringify(requestBody), signal: controller.signal });
+        if (!response.ok) throw fail(`LLM locale HTTP ${response.status}: ${redact(await response.text())}`, 'CUSTOM_NODE_LOCAL_AI_HTTP');
+        data = JSON.parse(redact(JSON.stringify(await response.json())));
+        if(native){trace.nativeSummary={};data=lmStudio.normalize(data,requestBody,trace.nativeSummary);trace.normalizedResponse=data;}
+      }
+      trace.response=data;
       if (data.error) throw fail(typeof data.error === 'string' ? data.error : JSON.stringify(data.error), 'CUSTOM_NODE_LOCAL_AI_PROVIDER');
-      if(native){trace.nativeSummary={};data=lmStudio.normalize(data,requestBody,trace.nativeSummary);trace.normalizedResponse=data;}
       const text = ollama ? data.message?.content : data.choices?.[0]?.message?.content;
       if (typeof text !== 'string') throw fail('Il provider non ha restituito un contenuto testuale.', 'CUSTOM_NODE_LOCAL_AI_RESPONSE');
       const finishReason = ollama ? data.done_reason || '' : data.choices?.[0]?.finish_reason || '';

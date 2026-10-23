@@ -755,7 +755,7 @@ textarea.tl-flow-menu-input {
   left: var(--x);
   top: var(--y);
   z-index: 3;
-  width: var(--node-width, 218px);
+  width: var(--node-width, 270px);
   min-height: max(168px, calc((var(--port-count, 2) * 18px) + 104px));
   display: grid;
   grid-template-rows: auto auto 1fr auto;

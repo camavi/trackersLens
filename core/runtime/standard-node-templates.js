@@ -5,13 +5,16 @@
     {id:'llm-custom',name:'LLM Custom',icon:'psychology',category:'ai-agents',settingsSchema:{
       aiProviderId:text('Provider'),model:text('Modello (vuoto = profilo)'),
       lmStudioTransport:text('LM Studio protocol','auto',{enum:['auto','native','compatible']}),
+      streaming:{type:'boolean',label:'Streaming',defaultValue:false},
+      reasoningEffort:text('Livello di ragionamento'),speed:text('Modalità servizio'),maxContinuationCalls:{type:'number',label:'Max Continuations',defaultValue:10,minimum:0},
+      agentContractJson:text('Configurazione completa nodo LLM'),
       allowOnline:{type:'boolean',label:'Invio al provider con login',defaultValue:false},
       instructions:text('Istruzioni'),inputPath:text('Percorso del dato in ingresso'),
       inputFormat:text('Formato messaggio','text',{enum:['text','json']}),inputKey:text('Chiave JSON','document'),
       messagesJson:text('Messaggi avanzati JSON'),outputKey:text('Campo risultato','llm'),
       preserveInput:{type:'boolean',label:'Conserva input nell’output',defaultValue:true},
       requireTruePath:text('Controllo esplicito: percorso che deve essere true'),guardTermsPath:text('Controllo esplicito: percorso elenco termini vietati'),
-      temperature:text('Temperature (vuoto = profilo)'),maxTokens:text('Max tokens (vuoto = profilo, 0 = non impostato)'),topP:text('Top P (vuoto = profilo)'),responseFormat:text('Formato risposta API','text',{enum:['text','json']}),
+      temperature:text('Temperature (vuoto = profilo)'),maxTokens:text('Max tokens (vuoto = profilo, 0 = non impostato)'),topP:text('Top P (vuoto = profilo)'),responseFormat:text('Formato risposta API','text',{enum:['text','json','markdown','structured','signal']}),
       timeoutMs:{type:'number',label:'Timeout ms (0 = nessun limite)',defaultValue:0,minimum:0},
     }},
     {id:'python-custom',name:'Python Custom',icon:'code',category:'processors',settingsSchema:{

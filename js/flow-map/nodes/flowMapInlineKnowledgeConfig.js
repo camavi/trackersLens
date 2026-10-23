@@ -651,7 +651,9 @@ const createFlowMapInlineKnowledgeConfig = (moduleDependencies) => {
   };
 
   const renderRuntimeChipInlineConfig = (node, config = {}) => {
-    const rows = runtimeInlineConfigRows(node, config);
+    const rows = window.TrackerLensStandardNodes?.kindOf?.(node)
+      ? window.TrackerLensStandardNodeView.rows(node)
+      : runtimeInlineConfigRows(node, config);
     if (!rows.length) return null;
     const subtype = nodeSubtype(node);
     const payloadRows = visiblePayloadInlineRows(node, config);
@@ -746,6 +748,7 @@ const createFlowMapInlineKnowledgeConfig = (moduleDependencies) => {
   };
 
   const renderInlineNodeSettings = (node) => {
+    if (window.TrackerLensStandardNodes?.kindOf?.(node)) return renderRuntimeChipInlineConfig(node, node.metadata?.config || {});
     if (!isInlineConfigNode(node) || node.metadata?.library) return null;
     if (isCustomRuntimeNode(node)) return (0, moduleDependencies.renderCustomRuntimeNodeInlineForm)(node);
     if (isPreviewNode(node)) return (0, moduleDependencies.renderPreviewNodePanel)(node);

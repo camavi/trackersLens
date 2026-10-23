@@ -118,6 +118,7 @@ const {
 } = createFlowMapNodeMetrics({
   get requestTokenUsageClear() { return requestTokenUsageClear; },
   get requestTokenUsageDetails() { return requestTokenUsageDetails; },
+  get openAiAgentRuntimeDialog() { return openAiAgentRuntimeDialog; },
 });
 
 const {
