@@ -94,3 +94,13 @@ test('Deferred Preview reads the exact stored event only on explicit hydration, 
   assert.equal(calls.length, 1);
   await assert.rejects(hydrate({}, { ...deferred, workspaceId: 'wrong' }), /non più disponibile/);
 });
+
+test('Preview follows the exact producer when unrelated nodes emit on the same named port', () => {
+ const stateSource=fs.readFileSync(require.resolve('../js/flow-map/flowMapState.js'),'utf8');
+ const fragment=stateSource.slice(stateSource.indexOf('const dependencyChannelForEvent ='),stateSource.indexOf('const previewNodesForEvent ='));
+ const dependencies=[{id:'correct',sourceNodeId:'restore',targetNodeId:'view',channel:'output'},{id:'other',sourceNodeId:'other',targetNodeId:'view2',channel:'output'}];
+ const lookup=vm.runInNewContext(fragment+'\npreviewDependenciesForEvent',{state:{runtime:{nodes:[{id:'view',type:'devPreview'},{id:'view2',type:'devPreview'}],dependencies}},normalizePortChannel:x=>x,isPreviewNode:node=>node?.type==='devPreview'});
+ assert.deepEqual(Array.from(lookup({channel:'output',sourceNodeId:'restore'}),row=>row.id),['correct']);
+ assert.equal(lookup({channel:'output',sourceNodeId:'unknown'}).length,0);
+ assert.equal(lookup({channel:'output'}).length,2);
+});

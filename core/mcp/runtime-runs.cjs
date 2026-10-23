@@ -6,6 +6,7 @@ class McpRuntimeRuns {
   const node=this.persistence.readDevelopmentRecordById({storeName:'tl_runtime_nodes',id:nodeId});
   if(!node||node.workspaceId!==workspaceId)throw new Error('Exact runtime node not found in this workspace.');
   if(require('../desktop/node-edit-plan.cjs').busy(node))throw new Error('Node is already active; stop existing execution first.');
+  if(node.type==='devPreview'&&node.subtype==='preview'&&!(node.outputs||[]).length)return {node,reference:{nativeTemplate:'preview'},packageSummary:{nativeTemplate:'preview',execution:'local-display-only'},fingerprint:hash(node)};
   const templateId=require('../runtime/standard-node-templates.js').kindOf(node);
   if(templateId){
    const runtime=await this.standardNodes.load({templateId,nodeId,workspaceId});
@@ -18,7 +19,7 @@ class McpRuntimeRuns {
  }
  async preview(args,owner){
   if(this.closed)throw new Error('Runtime service closed.');
-  const source=await this.source(args.workspaceId,args.nodeId),planId=crypto.randomUUID();
+  const source=await this.source(args.workspaceId,args.nodeId);if(source.reference.nativeTemplate)throw new Error('Preview is a display sink; execute its producer instead.');const planId=crypto.randomUUID();
   const plan={...source,workspaceId:args.workspaceId,nodeId:args.nodeId,inputs:structuredClone(args.inputs),owner};this.plans.set(planId,plan);
   return {planId,workspaceId:args.workspaceId,nodeId:args.nodeId,node:source.node,reference:source.reference,package:source.packageSummary,inputs:plan.inputs,limitations:['One-shot execution in the existing TL Custom Node sandbox. Outputs are retained in the run report; no downstream graph propagation is implied. Local TL approval required.']};
  }
@@ -53,14 +54,14 @@ class McpRuntimeRuns {
   const eligible=events.filter(e=>['emit','log'].includes(e.kind));
   for(let index=incremental?(step.persistedRuntimeEvents||0):0;index<eligible.length;index++){
    const event=eligible[index];
-   const storeName=event.kind==='log'?'tl_flow_logs':'tl_events',id='mcp_flow_event_'+run.id+'_'+step.index+'_'+index;
+   const storeName=event.kind==='log'?'tl_flow_logs':'tl_events',id=(run.kind==='mcp-flow-run'?'mcp_flow_event_':'mcp_node_event_')+run.id+'_'+(step.index??'node')+'_'+index;
    const previous=this.persistence.readDevelopmentRecordById({storeName,id});
-   this.persistence.writeDevelopmentRecords({storeName,records:[{id,workspaceId:run.workspaceId,nodeId:step.nodeId,sourceNodeId:step.nodeId,runId:run.id,channel:event.port||'',eventType:'mcp_flow_'+event.kind,status:step.status,payload:event.data,message:event.message||'',createdAt:previous?.createdAt||new Date().toISOString(),meta:{runId:run.id,executionId:step.executionId,mcpFlow:true}}]});
+   this.persistence.writeDevelopmentRecords({storeName,records:[{id,workspaceId:run.workspaceId,nodeId:step.nodeId,sourceNodeId:step.nodeId,runId:run.id,channel:event.port||'',eventType:(run.kind==='mcp-flow-run'?'mcp_flow_':'mcp_node_')+event.kind,status:step.status,payload:event.data,message:event.message||'',createdAt:previous?.createdAt||new Date().toISOString(),meta:{runId:run.id,executionId:step.executionId,mcpFlow:run.kind==='mcp-flow-run'}}]});
   }
   step.persistedRuntimeEvents=eligible.length;
  }
  checkpoint(entry,target,trace){
-  try{target.trace=trace;if(entry.run.kind==='mcp-flow-run')this.recordFlowEvents(entry.run,target,trace.events||[],true);this.save(entry.run);}
+  try{target.trace=trace;this.recordFlowEvents(entry.run,target,trace.events||[],true);this.save(entry.run);}
   catch(error){entry.persistenceFailure=error.message;this.persistenceErrors.set(entry.run.id,error.message);entry.controller.abort();}
  }
  finishPersistence(entry){if(entry.persistenceFailure){entry.run.status='failed';entry.run.error={code:'MCP_RUNTIME_PERSISTENCE_FAILED',message:entry.persistenceFailure};}}
@@ -68,7 +69,7 @@ class McpRuntimeRuns {
   const run=entry.run;
   try{run.result=await this.execute({...plan.reference,nodeId:plan.nodeId,inputs:plan.inputs,config:plan.node.metadata?.config||{},context:{workspaceId:plan.workspaceId,runId:run.id}}, {signal:entry.controller.signal,onExecution:id=>{run.executionId=id;this.save(run);},onEvent:(_event,trace)=>this.checkpoint(entry,run,trace)});run.status=entry.controller.signal.aborted?'cancelled':run.result.status==='success'?'completed':'failed';}
   catch(error){run.status=entry.controller.signal.aborted?'cancelled':'failed';run.error={message:error.message,code:error.code||'MCP_NODE_RUN_FAILED'};}
-  finally{this.finishPersistence(entry);if(run.executionId)run.trace=this.trace(run.executionId);run.completedAt=new Date().toISOString();run.durationMs=Date.parse(run.completedAt)-Date.parse(run.startedAt);this.save(run);}
+  finally{try{this.recordFlowEvents(run,run,run.result?.events||run.trace?.events||[]);}catch(error){entry.persistenceFailure=error.message;this.persistenceErrors.set(run.id,error.message);}this.finishPersistence(entry);if(run.executionId)run.trace=this.trace(run.executionId);run.completedAt=new Date().toISOString();run.durationMs=Date.parse(run.completedAt)-Date.parse(run.startedAt);this.save(run);}
  }
  async performFlow(entry,plan){
   const run=entry.run,{applyConnectionMapping}=require('../runtime/runtime-contract.js').TrackerLensRuntimeContract;
@@ -81,7 +82,7 @@ class McpRuntimeRuns {
     if(entry.controller.signal.aborted)throw new Error('Flow cancelled during validation.');
     const step={index:run.steps.length,nodeId:descriptor.nodeId,reference:source.reference,config:source.node.metadata?.config||{},inputs,fromStep,startedAt:new Date().toISOString(),status:'running',executionId:''};run.steps.push(step);this.save(run);
     try{
-     step.result=await this.execute({...source.reference,nodeId:source.node.id,inputs,config:source.node.metadata?.config||{},context:{workspaceId:plan.workspaceId,runId:run.id,flowId:plan.workspaceId}}, {signal:entry.controller.signal,onExecution:id=>{step.executionId=id;run.executionId=id;this.save(run);},onEvent:(_event,trace)=>this.checkpoint(entry,step,trace)});
+     step.result=source.reference.nativeTemplate==='preview'?{status:'success',events:[],display:{inputPort:'raw',sourceStep:fromStep}}:await this.execute({...source.reference,nodeId:source.node.id,inputs,config:source.node.metadata?.config||{},context:{workspaceId:plan.workspaceId,runId:run.id,flowId:plan.workspaceId}}, {signal:entry.controller.signal,onExecution:id=>{step.executionId=id;run.executionId=id;this.save(run);},onEvent:(_event,trace)=>this.checkpoint(entry,step,trace)});
      step.status=entry.controller.signal.aborted?'cancelled':step.result.status==='success'?'completed':'failed';
     }catch(error){step.status=entry.controller.signal.aborted?'cancelled':'failed';step.error={message:error.message,code:error.code||'FLOW_NODE_FAILED'};}
     finally{step.trace=step.executionId?this.trace(step.executionId):null;step.completedAt=new Date().toISOString();step.durationMs=Date.parse(step.completedAt)-Date.parse(step.startedAt);this.save(run);}

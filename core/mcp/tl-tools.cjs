@@ -11,19 +11,20 @@ const definitions=[
  ['tl_read_runtime_events','Read all persisted runtime events and Flow logs in a workspace. These describe runtime work, not editor file changes.',schema({workspaceId:text},['workspaceId'])],
  ['tl_preview_node_edits','Validate rename/move/config edits with the existing Core planner. Returns before/after only; cannot apply or execute anything.',schema({workspaceId:text,edits:{type:'array',minItems:1,items:{type:'object',properties:{operation:{enum:['rename','move','config']},nodeId:text,field:text,value:{},position:schema({x:{type:'number'},y:{type:'number'}},['x','y'])},required:['operation','nodeId'],additionalProperties:false}}},['workspaceId','edits'])]
 ] .map(([name,description,inputSchema])=>({name,description,inputSchema,annotations:{readOnlyHint:true,destructiveHint:false,idempotentHint:true,openWorldHint:false}}));
-const linkProperties={operation:{enum:['connect','disconnect']},sourceNodeId:text,targetNodeId:text,sourcePort:text,targetPort:text};
+const linkProperties={operation:{enum:['connect','disconnect']},sourceNodeId:text,targetNodeId:text,sourcePort:text,targetPort:text,mapping:schema({payloadPath:{type:'string'},mode:{enum:['pass-through','path']},note:{type:'string'}})};
 const graphEditSchema={oneOf:[
  schema(linkProperties,['operation','sourceNodeId','targetNodeId','sourcePort','targetPort']),
  schema({operation:{const:'duplicate'},nodeId:text,value:text,position:schema({x:{type:'number'},y:{type:'number'}},['x','y'])},['operation','nodeId','value'])
 ]};
 const mutationDefinitions=[
+ {name:'tl_preview_create_preview_node',description:'Prepare the existing native Preview sink for full local text/JSON inspection. It has raw input and no executor or provider. Connect using an optional payloadPath mapping; apply after local TL review.',inputSchema:schema({workspaceId:text,label:text,mode:{enum:['raw','json','auto']},position:schema({x:{type:'number'},y:{type:'number'}},['x','y'])},['workspaceId','label']),annotations:{readOnlyHint:true,destructiveHint:false,idempotentHint:false,openWorldHint:false}},
  {name:'tl_preview_graph_edits',description:'Prepare connect/disconnect between exact existing ports or duplicate an existing node. Core generates new IDs once and returns complete graph before/after. Does not apply or execute; local TL review is required by tl_apply_node_edits.',inputSchema:schema({workspaceId:text,edits:{type:'array',minItems:1,items:graphEditSchema}},['workspaceId','edits']),annotations:{readOnlyHint:true,destructiveHint:false,idempotentHint:false,openWorldHint:false}},
  {name:'tl_apply_node_edits',description:'Request local TL approval and atomic application of an exact connection-owned preview. Saves pending work and reloads the editor. Never automatically retry an uncertain result; query the durable receipt.',inputSchema:schema({planId:text},['planId']),annotations:{readOnlyHint:false,destructiveHint:false,idempotentHint:true,openWorldHint:false}},
  {name:'tl_get_edit_receipt',description:'Read the durable result for an MCP operationId returned by preview; scoped to the exact workspace.',inputSchema:schema({workspaceId:text,operationId:text},['workspaceId','operationId']),annotations:{readOnlyHint:true,destructiveHint:false,idempotentHint:true,openWorldHint:false}}
 ];
 const runtimeDefinitions=[
- ['tl_preview_run_flow','Prepare a persisted acyclic fan-out Flow tree from an actual root. Requires installed sandboxed Custom Nodes and exact ports; joins/cycles are unsupported. Complete local TL review before execution.',schema({workspaceId:text,startNodeId:text,inputs:{type:'object'}},['workspaceId','startNodeId','inputs']),true],
- ['tl_preview_run_node','Prepare a one-shot installed sandboxed Custom Node run with exact inputs and persisted config. No execution until local TL review.',schema({workspaceId:text,nodeId:text,inputs:{type:'object'}},['workspaceId','nodeId','inputs']),true],
+ ['tl_preview_run_flow','Prepare a persisted acyclic fan-out Flow tree from an actual root. Supports standard/installed sandbox nodes and native Preview sinks with exact ports; joins/cycles are unsupported. Complete local TL review before execution.',schema({workspaceId:text,startNodeId:text,inputs:{type:'object'}},['workspaceId','startNodeId','inputs']),true],
+ ['tl_preview_run_node','Prepare a one-shot standard or installed sandbox node run with exact inputs and persisted config. No execution until local TL review.',schema({workspaceId:text,nodeId:text,inputs:{type:'object'}},['workspaceId','nodeId','inputs']),true],
  ['tl_start_node_run','Consume one connection-owned node or fan-out Flow execution plan, ask local TL approval and start the real sandbox. Never automatically replay.',schema({planId:text},['planId']),false],
  ['tl_get_node_run','Read complete persisted result and live sandbox trace for an MCP runId, including output, diagnostics and timings.',schema({runId:text},['runId']),true],
  ['tl_stop_node_run','Cancel an execution owned by this connection and wait for sandbox termination. Does not undo produced side effects.',schema({runId:text},['runId']),false]
@@ -62,6 +63,7 @@ class TlMcpTools {
   if(name==='tl_start_node_run')return this.runtimeRuns.start(args,owner);
   if(name==='tl_get_node_run')return this.runtimeRuns.get(args);
   if(name==='tl_stop_node_run')return this.runtimeRuns.stop(args,owner);
+  if(name==='tl_preview_create_preview_node')return this.nodeEdits.previewPreview(args,owner);
   if(name==='tl_preview_graph_edits')return this.nodeEdits.previewGraph(args,owner);
   if(name==='tl_apply_node_edits')return this.nodeEdits.apply(args,owner);
   if(name==='tl_get_edit_receipt')return this.nodeEdits.receipt(args);

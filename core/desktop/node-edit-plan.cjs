@@ -104,7 +104,8 @@ function planGraphEdits({ graph, edits, workspaceId }) {
       let node;
       if (edit.operation === 'create') {
         node = structuredClone(edit.node);
-        if (!node || node.workspaceId !== workspaceId || !node.metadata?.paletteLabel || !['flow-prompt-chat','mcp-installed-package','mcp-standard-template'].includes(node.metadata?.generatedBy)) throw new Error('Creazione consentita solo da palette validata.');
+        if (!node || node.workspaceId !== workspaceId || !node.metadata?.paletteLabel || !['flow-prompt-chat','mcp-installed-package','mcp-standard-template','mcp-native-template'].includes(node.metadata?.generatedBy)) throw new Error('Creazione consentita solo da palette validata.');
+        if(node.metadata.generatedBy==='mcp-native-template' && (node.type!=='devPreview'||node.subtype!=='preview'||JSON.stringify(node.inputs)!=='["raw"]'||!Array.isArray(node.outputs)||node.outputs.length||node.metadata.customPackage)) throw new Error('Native template must be the built-in Preview sink.');
       } else {
         const source = find(edit.nodeId);
         node = { id: edit.newNodeId, workspaceId, type: source.type, label: edit.value,
@@ -153,7 +154,8 @@ function planGraphEdits({ graph, edits, workspaceId }) {
       } else {
         if (matches.length) throw new Error('Collegamento già presente.');
         const channel = edit.sourcePort;
-        const mapping = { sourcePort: edit.sourcePort, targetPort: edit.targetPort, linkType: 'data', generatedBy: 'flow-map-agent' };
+        if(edit.mapping && (!safeJson(edit.mapping)||Object.keys(edit.mapping).some(key=>!['payloadPath','mode','note'].includes(key))||Object.values(edit.mapping).some(value=>typeof value!=='string')||!['pass-through','path'].includes(edit.mapping.mode||'pass-through'))) throw new Error('Mapping non valido.');
+        const mapping = { ...(edit.mapping||{}), sourcePort: edit.sourcePort, targetPort: edit.targetPort, linkType: 'data', generatedBy: 'flow-map-agent' };
         add('tl_runtime_dependencies', { id: edit.dependencyId, workspaceId, sourceNodeId: source.id, targetNodeId: target.id, sourceType: source.type, targetType: target.type,
           connectionId: edit.connectionId, channel, status: 'active', metadata: mapping });
         add('tl_connections', { id: edit.connectionId, workspaceId, workspaceName: workspaceId, name: `${source.label} -> ${target.label}`, type: `${source.type} -> ${target.type}`,

@@ -1496,6 +1496,7 @@ const previewDependenciesForEvent = (event = {}) => {
   const nodesById = new Map((state.runtime.nodes || []).map((node) => [node.id, node]));
   return (state.runtime.dependencies || [])
     .filter((dependency) => dependencyChannelForEvent(dependency) === event.channel)
+    .filter((dependency) => !event.sourceNodeId || dependency.sourceNodeId === event.sourceNodeId)
     .filter((dependency) => isPreviewNode(nodesById.get(dependency.targetNodeId)));
 };
 

@@ -42,7 +42,7 @@ test('MCP applies connection-owned previews through Core, with local review, CAS
  let reviews=0,paused=0,approved=true;const core=createTlCore({adapters:{persistence:f.persistence}});
  const edits=new McpNodeEdits({core,persistence:f.persistence,review:async plan=>{reviews++;assert.equal(plan.plan.before[0].label,'Node A');return approved;},withEditorPaused:async apply=>{paused++;return {...await apply(),reconciliation:'test-editor-reloaded'};}});
  const {TlMcpTools}=require('../core/mcp/tl-tools.cjs'),tools=new TlMcpTools({persistence:f.persistence,project:{id:'p',name:'p'},nodeEdits:edits}),owner={},other={};
- assert.equal(tools.list().length,10);assert.equal((await tools.call('tl_get_project',{},owner)).capabilities.applyNodeEdits,true);
+ assert.equal(tools.list().length,11);assert.equal((await tools.call('tl_get_project',{},owner)).capabilities.applyNodeEdits,true);
  const preview=await tools.call('tl_preview_node_edits',{workspaceId:'w',edits:[{operation:'rename',nodeId:'a',value:'MCP name'}]},owner);
  assert.equal(preview.applied,false);assert.equal(preview.status,'ready');assert.equal(f.persistence.readDevelopmentRecords({storeName:'tl_time_travel_snapshots'}).length,0);
  await assert.rejects(tools.call('tl_apply_node_edits',{planId:preview.planId},other),/outside/);assert.equal(reviews,0);
@@ -90,4 +90,14 @@ test('external client reports actionable disabled and moved-project connection e
  const f=await fixture(t);
  await assert.rejects(new LocalTlClient(f.root).connect(), /enable.*MCP del progetto/i);
  await assert.rejects(new LocalTlClient(path.join(f.root,'moved project')).connect(), /folder not found.*moved.*configuration/i);
+});
+test('MCP creates native Preview through reviewed Core plans and preserves explicit path mapping',async t=>{
+ const f=await fixture(t),{McpNodeEdits}=require('../core/mcp/node-edits.cjs'),{createTlCore}=require('../core/desktop/tl-core.cjs'),{TlMcpTools}=require('../core/mcp/tl-tools.cjs');
+ f.persistence.writeDevelopmentRecords({storeName:'tl_runtime_nodes',records:[{id:'producer',workspaceId:'w',type:'processor',label:'Producer',outputs:['output'],inputs:[]}]});
+ let reviews=0;const edits=new McpNodeEdits({core:createTlCore({adapters:{persistence:f.persistence}}),persistence:f.persistence,review:async()=>{reviews++;return true;},withEditorPaused:apply=>apply()}),tools=new TlMcpTools({persistence:f.persistence,project:{id:'p'},nodeEdits:edits}),owner={};
+ const plan=await tools.call('tl_preview_create_preview_node',{workspaceId:'w',label:'Testo finale',mode:'raw'},owner);assert.equal(reviews,0);assert.equal(f.persistence.readDevelopmentRecordById({storeName:'tl_runtime_nodes',id:plan.nodeId}),null);
+ await tools.call('tl_apply_node_edits',{planId:plan.planId},owner);const preview=f.persistence.readDevelopmentRecordById({storeName:'tl_runtime_nodes',id:plan.nodeId});assert.equal(preview.type,'devPreview');assert.deepEqual(preview.inputs,['raw']);assert.deepEqual(preview.outputs,[]);assert.equal(preview.status,'idle');assert.equal(reviews,1);
+ const link=await tools.call('tl_preview_graph_edits',{workspaceId:'w',edits:[{operation:'connect',sourceNodeId:'producer',targetNodeId:plan.nodeId,sourcePort:'output',targetPort:'raw',mapping:{mode:'path',payloadPath:'analysisRestored'}}]},owner);await tools.call('tl_apply_node_edits',{planId:link.planId},owner);
+ const dependency=f.persistence.readDevelopmentRecords({storeName:'tl_runtime_dependencies',workspaceId:'w'}).find(row=>row.targetNodeId===preview.id);assert.equal(dependency.metadata.payloadPath,'analysisRestored');assert.equal(dependency.metadata.mode,'path');
+ await assert.rejects(tools.call('tl_preview_create_preview_node',{workspaceId:'w',label:'Bad',type:'custom'},owner));
 });

@@ -14,6 +14,11 @@ class McpNodeEdits {
   const result=await this.preview({workspaceId:args.workspaceId,edits:[{operation:'create',node}]},owner);
   return {...result,nodeId:node.id,templateId:args.templateId};
  }
+ async previewPreview(args,owner){
+  const node={id:'mcp_node_'+crypto.randomUUID(),workspaceId:args.workspaceId,type:'devPreview',subtype:'preview',label:args.label,inputs:['raw'],outputs:[],channels:['raw'],flowPosition:args.position||{x:0,y:0},metadata:{paletteLabel:'Preview',runtimeType:'devPreview',subtype:'preview',category:'dev',icon:'visibility',tone:'blue',configured:true,generatedBy:'mcp-native-template',settingsSchema:{mode:{type:'string',enum:['raw','json','auto']}},config:{mode:args.mode||'raw'}}};
+  const result=await this.preview({workspaceId:args.workspaceId,edits:[{operation:'create',node}]},owner);
+  return {...result,nodeId:node.id,templateId:'preview'};
+ }
  async previewInstalled(args,owner){
   const {packageRecord:pkg}=await this.packages.loadSandboxRuntime(args.reference),manifest=pkg.manifest;
   const config=require('../desktop/custom-node-settings.cjs').resolveSettings(manifest.settingsSchema||{},args.config||{});

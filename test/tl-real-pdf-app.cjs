@@ -19,7 +19,7 @@ if(!fs.existsSync(path.join(root,'ui-complete.json')))app.whenReady().then(async
  await win.loadFile(path.join(__dirname,'../app.html'),{query:{'tl-route':'libraryFlowmap.html'}});
  await wait(()=>js("[...document.querySelectorAll('button')].some(button=>button.textContent.includes('Nuovo Flow Map'))"));await js("[...document.querySelectorAll('button')].find(button=>button.textContent.includes('Nuovo Flow Map')).click()");
  await wait(()=>js("Boolean(document.querySelector('.tl-flow-library-dialog'))"));
- title='PDF reale · pseudonimizzazione e ricostruzione';
+ title=process.env.TL_PDF_FLOW_TITLE||'PDF reale · pseudonimizzazione e ricostruzione';
  await js(`(()=>{const d=document.querySelector('.tl-flow-library-dialog');d.querySelector('input[placeholder="Titolo Flow Map"]').value=${JSON.stringify(title)};d.querySelector('textarea').value='Documento reale: estrazione locale, controlli locali espliciti, invio online del solo testo protetto e ricostruzione locale. Originale conservato identico.';[...d.querySelectorAll('button')].find(button=>button.textContent.trim()==='Crea'||button.textContent.endsWith('Crea')).click();})()`);
  await wait(async()=>{const url=await js('location.href');workspaceId=new URL(url).searchParams.get('workspaceId');return Boolean(workspaceId);});
  }

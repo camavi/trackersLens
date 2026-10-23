@@ -74,3 +74,20 @@ test('single-node checkpoints retain raw events and a checkpoint persistence fai
  const write=f.persistence.writeDevelopmentRecords.bind(f.persistence);let failed=false;f.persistence.writeDevelopmentRecords=args=>{if(!failed&&args.records.some(r=>r.kind==='mcp-node-run'&&r.trace?.events[0]?.data?.value===8)){failed=true;throw new Error('QA disk checkpoint failure');}return write(args);};
  const again=await f.runtime.preview({workspaceId:'w',nodeId:'node',inputs:{value:4}},owner),run=await f.runtime.start({planId:again.planId},owner);await f.runtime.active.get(run.runId)?.pending;const report=f.runtime.get(run);assert.equal(report.run.status,'failed');assert.equal(report.run.error.code,'MCP_RUNTIME_PERSISTENCE_FAILED');assert.match(report.persistenceError,/QA disk checkpoint/);
 });
+test('native Preview consumes mapped producer output without invoking a sandbox or provider',async t=>{
+ const f=await fixture(t),owner={};
+ f.persistence.writeDevelopmentRecords({storeName:'tl_runtime_nodes',records:[{...f.node,outputs:['output'],inputs:['input']},{id:'preview',workspaceId:'w',type:'devPreview',subtype:'preview',inputs:['raw'],outputs:[],metadata:{config:{mode:'raw'}}}]});
+ f.persistence.writeDevelopmentRecords({storeName:'tl_runtime_dependencies',records:[{id:'edge',workspaceId:'w',sourceNodeId:'node',targetNodeId:'preview',connectionId:'conn',channel:'output',metadata:{sourcePort:'output',targetPort:'raw',payloadPath:'text',mode:'path'}}]});
+ f.persistence.writeDevelopmentRecords({storeName:'tl_connections',records:[{id:'conn',workspaceId:'w'}]});
+ let calls=0;const text='Complete final text 🐺\n'.repeat(10000);
+ f.runtime.execute=async()=>{calls++;return {status:'success',events:[{kind:'emit',port:'output',data:{text,privateMapping:{local:true}}}]};};
+ await assert.rejects(f.runtime.preview({workspaceId:'w',nodeId:'preview',inputs:{}},owner),/display sink/);
+ const plan=await f.runtime.previewFlow({workspaceId:'w',startNodeId:'node',inputs:{}},owner),started=await f.runtime.start({planId:plan.planId},owner);await f.runtime.active.get(started.runId)?.pending;
+ const run=f.runtime.get(started).run;assert.equal(run.status,'completed');assert.equal(calls,1);assert.equal(run.steps[1].inputs.raw,text);assert.equal(run.steps[1].result.display.sourceStep,0);assert.equal(run.steps[1].executionId,'');assert.equal(run.deliveries[0].inputs.raw,text);
+ const events=f.persistence.readDevelopmentRecords({storeName:'tl_events',workspaceId:'w'});assert.equal(events.length,1);assert.equal(events[0].sourceNodeId,'node');assert.equal(events[0].payload.text,text);
+});
+test('one-shot producer output is retained as an inspectable event without downstream execution',async t=>{
+ const f=await fixture(t),owner={};f.runtime.execute=async(args,{onEvent,onExecution})=>{onExecution('once');const events=[{kind:'emit',port:'output',data:{text:'full local result'}}];onEvent(events[0],{events});return {status:'success',events};};
+ const plan=await f.runtime.preview({workspaceId:'w',nodeId:'node',inputs:{}},owner),started=await f.runtime.start({planId:plan.planId},owner);await f.runtime.active.get(started.runId)?.pending;
+ const events=f.persistence.readDevelopmentRecords({storeName:'tl_events',workspaceId:'w'});assert.equal(events.length,1);assert.equal(events[0].payload.text,'full local result');assert.equal(events[0].sourceNodeId,'node');assert.equal(events[0].meta.mcpFlow,false);assert.equal(events[0].runId,started.runId);
+});
