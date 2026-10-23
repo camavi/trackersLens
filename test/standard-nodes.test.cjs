@@ -28,7 +28,7 @@ test('standard LLM preserves complete local output but sends only explicitly bou
  await assert.rejects(run({...request,input:{input:{...original,privacy:{...original.privacy,passed:false}}}}),/Nessuna richiesta/);assert.equal(calls,1);
  await assert.rejects(run({...request,config:{...config,instructions:'PRIVATE NAME'}}),/Termini vietati/);assert.equal(calls,1);
  await assert.rejects(run({...request,config:{...config,inputPath:'absent'}}),/mancante/);assert.equal(calls,1);
- await assert.rejects(run({...request,config:{...config,temperature:'0.7'}}),/non supportati/);assert.equal(calls,1);
+ await run({...request,config:{...config,temperature:'0.7'}});assert.equal(calls,2);
 });
 
 test('standard MCP discovery and reviewed creation use canonical templates, support inspected config edits, and refuse invalid final config atomically',async t=>{
@@ -156,4 +156,25 @@ test('JSON response format uses LM Studio documented schema while preserving oth
   else if(type==='ollama')assert.equal(body.format,'json');
   else assert.deepEqual(body.response_format,{type:'json_object'});
  }
+});
+
+test('Core and AI Center share provider discovery including Login defaults and user-defined API profiles',async()=>{
+ const catalog=require('../core/runtime/ai-provider-catalog.js'),records=[{id:'my-api',content:{name:'My gateway',provider:'custom',endpoint:'https://gateway.example.test/api',modelsUrl:'/catalog',apiKey:'PRIVATE'}},{id:'account',content:{provider:'claude',bridgeProvider:'claude',connectionType:'login',model:'user-choice'}}];
+ const runtime=new StandardNodeRuntime({persistence:{readDevelopmentRecords:()=>records},pythonPacks:packs(),localAi:{describe:()=>({issue:'Remote API execution unavailable in this broker'})}});
+ const safe=await runtime.catalog(),shared=catalog.list(records);assert.deepEqual(safe.providers.map(p=>p.id),shared.map(p=>p.id));assert.equal(safe.providers.filter(p=>p.bridgeProvider==='claude').length,1);assert.ok(safe.providers.some(p=>p.id==='global_external_codex'));assert.ok(safe.providers.some(p=>p.id==='my-api'));assert.ok(!JSON.stringify(safe).includes('PRIVATE'));assert.ok(!JSON.stringify(safe).includes('gateway.example'));
+ for(const file of ['js/tl-ai-runtime-store.js','js/aiRuntimeCenter.js'])assert.match(fs.readFileSync(path.resolve(file),'utf8'),/TrackerLensAiProviderCatalog.list\(/);
+});
+test('model catalogs follow the configured API URL and Login adapter without credential leakage across origins',async()=>{
+ const records=[{id:'gateway',provider:'custom',endpoint:'https://catalog.example.test/api',modelsUrl:'/models-index',apiKey:'PRIVATE'},{id:'codex',connectionType:'login',provider:'codex',modelsUrl:'https://must-not-fetch.example.test'},{id:'claude',connectionType:'login',bridgeProvider:'claude',modelsUrl:'https://must-not-fetch.example.test'}],calls=[],bridges=[];
+ const runtime=new StandardNodeRuntime({persistence:{readDevelopmentRecords:()=>records},localAi:{describe:()=>({ready:false,issue:'Not a local API'}),fetch:async(url,options)=>{calls.push({url,options});return {ok:true,json:async()=>({data:[{id:'model-one'},{id:'model-two'}]})};}},loginBridge:{listModels:async args=>{bridges.push(args.provider);return {models:[],source:args.provider==='codex'?'codex-app-server':'unavailable'};}}});
+ assert.equal((await runtime.models({providerId:'gateway'})).models.length,2);assert.equal(calls[0].url,'https://catalog.example.test/models-index');assert.equal(calls[0].options.headers.Authorization,'Bearer PRIVATE');assert.equal(calls[0].options.redirect,'error');
+ for(const providerId of ['codex','claude'])await runtime.models({providerId});assert.deepEqual(bridges,['codex','claude']);assert.equal(calls.length,1);
+ records[0].modelsUrl='https://foreign.example.test/models';await assert.rejects(runtime.models({providerId:'gateway'}),/stesso servizio/);assert.equal(calls.length,1);
+ records[0].modelsUrl='http://catalog.example.test/models';await assert.rejects(runtime.models({providerId:'gateway'}));assert.equal(calls.length,1);
+});
+test('switching a complete native node to Login preserves dormant API settings without forwarding them',async()=>{
+ const {run}=await wrapper(),logs=[],calls=[];
+ const config={...templates.defaults('llm-custom'),allowOnline:true,temperature:'0.5',maxTokens:'0',topP:'0.9',responseFormat:'json'};
+ await run({input:{input:{text:'Synthetic'}},config,log:(...args)=>logs.push(args),tools:{ai:{completeLogin:async args=>{calls.push(args);return {text:'Complete'};}}},emit:()=>{}});
+ assert.equal(calls.length,1);assert.deepEqual(Object.keys(calls[0]),['messages']);assert.ok(logs.some(([message,details])=>message.includes('conservati')&&details.maxTokens==='0'));assert.equal(config.responseFormat,'json');
 });

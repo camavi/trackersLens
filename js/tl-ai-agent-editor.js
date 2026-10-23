@@ -594,7 +594,7 @@ window.TrackerLensAiAgentEditor = (() => {
     const readModelCatalog = modelCatalog;
     const canReadCoreModels = profile => {
       if (!window.trackers?.runtime?.standardNodes?.models || window.TrackerLensAiRuntimeStore.isLoginProvider(profile)) return false;
-      if (!profile.id) return true;
+      if (!profile.id || profile.modelsUrl) return true;
       try { return ["localhost", "127.0.0.1", "[::1]"].includes(new URL(profile.endpoint || profile.baseUrl).hostname); }
       catch { return false; }
     };
@@ -695,6 +695,7 @@ window.TrackerLensAiAgentEditor = (() => {
       if (typeof readModelCatalog === "function" || canReadCoreModels(providerConfig)) {
         modelState.value = agentFormValue(form, "model");
         modelState.loading = true;
+        modelState.error = "";modelState.items=[];modelState.catalog=[];
         updateModelField();
         try {
           const catalog = typeof readModelCatalog === "function"
@@ -776,6 +777,7 @@ window.TrackerLensAiAgentEditor = (() => {
             document.querySelectorAll(`#${formId} input[name='model'], #${formId} [data-ai-model-value='true']`).forEach((input) => {
               input.value = value;
             });
+            const manual=document.querySelector(`#${formId} input[name="manualModelId"]`);if(manual)manual.value=value;
             updateReasoningField();
           },
         }),
@@ -783,10 +785,13 @@ window.TrackerLensAiAgentEditor = (() => {
           { class: `tl-ai-agent-model-meta${modelState.error ? " is-error" : ""}` },
           modelState.loading
             ? "Loading models from provider..."
-            : modelState.items.length
+            : modelState.error || (modelState.items.length
               ? `${modelState.items.length} models available${login ? " · Login" : ""}`
-              : modelState.error || "Default AI Center e modello salvato disponibili.",
+              : "Default AI Center e modello salvato disponibili."),
         ),
+        _.Input({label:"ID modello manuale (opzionale)",name:"manualModelId",value:currentValue,onInput:event=>{const value=event?.target?.value??event;modelState.value=String(value??'');const input=document.querySelector(`#${formId} input[name='model']`);if(input)input.value=modelState.value;updateReasoningField();}}),
+        activeProvider.executionIssue ? _.small({class:"tl-ai-agent-model-meta is-error"},activeProvider.executionIssue) : null,
+        _.a({href:"ai.html"},"Gestisci provider nell’AI Center"),
         _.Btn({ type: "button", onclick: () => loadModelsForCurrentProvider({ force: true }), disabled: modelState.loading }, "Aggiorna modelli"
         )
       );

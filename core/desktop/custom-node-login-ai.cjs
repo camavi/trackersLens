@@ -1,4 +1,5 @@
 const crypto = require('node:crypto');
+const providerCatalog=require('../runtime/ai-provider-catalog.js');
 const fail = (message, code = 'CUSTOM_NODE_LOGIN_AI_INVALID') => Object.assign(new Error(message), { code });
 
 // Separate from the loopback broker: legacy aiProvider grants never authorize
@@ -30,11 +31,12 @@ class CustomNodeLoginAi {
     const save = () => this.persistence.writeDevelopmentRecords({ storeName: 'tl_ai_logs', records: [structuredClone(trace)] });
     try {
       const records = await this.persistence.readDevelopmentRecords({ storeName: 'tl_ai_providers' });
-      const record = records.find(r => r.id === providerId), profile = record?.content || record;
-      if (!profile || profile.connectionType !== 'login' || (profile.bridgeProvider || profile.provider) !== 'codex' || profile.endpoint || profile.baseUrl || profile.runtime?.endpoint) throw fail('Occorre un profilo Login Codex esplicito, senza endpoint API.');
+      const record = request.package?.packageId==='tl.standard.llm-custom'?providerCatalog.find(records,providerId):records.find(record=>record.id===providerId), profile = record?.content || record, connection=providerCatalog.connection(profile), bridgeProvider=connection.bridgeProvider;
+      if (!profile || connection.connectionType !== 'login' || !['codex','claude'].includes(bridgeProvider) || profile.endpoint || profile.baseUrl || profile.runtime?.endpoint) throw fail('Occorre un profilo Login TL esplicito, senza endpoint API.');
       const model = String((request.package?.packageId==='tl.standard.llm-custom'?request.config?.model:'')||profile.model||profile.defaultModel||'').trim();
-      if (!model) throw fail('Seleziona un modello nel profilo Login Codex.');
-      const effective = { provider: 'codex', model, reasoningEffort: String((request.package?.packageId==='tl.standard.llm-custom'?request.config?.reasoningEffort:'')||profile.reasoningEffort||''), speed: String((request.package?.packageId==='tl.standard.llm-custom'?request.config?.speed:'')||profile.speed||'') };
+      if (!model&&bridgeProvider==='codex') throw fail('Seleziona un modello nel profilo Login Codex.');
+      const effective = { provider: bridgeProvider, model, reasoningEffort: String((request.package?.packageId==='tl.standard.llm-custom'?request.config?.reasoningEffort:'')||profile.defaultReasoningEffort||profile.reasoningEffort||''), speed: String((request.package?.packageId==='tl.standard.llm-custom'?request.config?.speed:'')||profile.defaultSpeed||profile.speed||'') };
+      if(bridgeProvider!=='codex'){if(request.package?.packageId==='tl.standard.llm-custom'&&(request.config?.reasoningEffort||request.config?.speed))throw fail('Reasoning e speed sono impostazioni del Login Codex, non del Login Claude.');delete effective.reasoningEffort;delete effective.speed;}
       // Login transport accepts one prompt; retain both the ordered messages and
       // their complete, unambiguous serialization, without claiming role isolation.
       const prompt = JSON.stringify({ messages });
@@ -54,7 +56,7 @@ class CustomNodeLoginAi {
       if (controller.signal.aborted) throw fail('Generazione annullata.', 'CUSTOM_NODE_LOGIN_AI_CANCELLED');
       if (typeof result.text !== 'string') throw fail('Il provider non ha restituito testo.');
       trace.response = result; trace.status = 'completed'; trace.completedAt = new Date().toISOString(); await save();
-      return { text: result.text, response: result, usage: result.raw?.usage ?? null, provenance: { source: 'tl-core-login-ai', invocationId: trace.id, providerId, model, provider: 'codex', connectionType: 'login', transport: result.transport, promptSerialization: 'json-messages', sandbox: result.sandbox } };
+      return { text: result.text, response: result, usage: result.raw?.usage ?? null, provenance: { source: 'tl-core-login-ai', invocationId: trace.id, providerId, model, provider: bridgeProvider, connectionType: 'login', transport: result.transport, promptSerialization: 'json-messages', sandbox: result.sandbox } };
     } catch (error) {
       await writes;
       if (trace) { trace.status = controller.signal.aborted && !persistenceError ? 'cancelled' : 'failed'; trace.error = { code: error.code || 'CUSTOM_NODE_LOGIN_AI_FAILED', message: error.message }; trace.completedAt = new Date().toISOString(); await save(); }

@@ -193,6 +193,8 @@ const buildRuntimeViewModel = (data, queryMs = 0) => {
         model: item.model,
         endpoint: item.endpoint,
         healthPath: item.healthPath,
+        ...window.TrackerLensAiProviderCatalog.connection(item.raw || item),
+        modelsUrl: item.raw?.modelsUrl || item.modelsUrl || "",
         state: sourceLabel(item.status),
         latency: providerLatency(item.latencyMs),
         status: statusTone(item.status),
@@ -583,27 +585,9 @@ const externalProviderLabel = (providerId = "") => providerId === "codex" ? "Cha
 
 const globalExternalProviderRows = (items = []) => {
   const rows = Array.isArray(items) ? [...items] : [];
-  GLOBAL_EXTERNAL_PROVIDER_IDS.forEach((providerId) => {
-    if (rows.some((item) => externalProviderIdOf(item) === providerId)) return;
-    rows.push({
-      id: `external_${providerId}`,
-      name: externalProviderLabel(providerId),
-      provider: providerId,
-      model: "modello non configurato",
-      endpoint: "",
-      healthPath: "",
-      state: "Verifica account",
-      latency: "n/d",
-      status: "warn",
-      icon: providerId === "codex" ? "terminal" : "auto_awesome",
-      local: false,
-      globalExternal: true,
-      connectionType: "login",
-      bridgeProvider: providerId,
-      placeholder: false,
-    });
-  });
-  return rows;
+  const profiles=window.TrackerLensAiProviderCatalog.list(rows.filter(item=>!providerOf(item).placeholder));
+  return profiles;
+
 };
 
 const providerMatches = (provider, query = "") => {
@@ -630,6 +614,7 @@ const saveProviderFromForm = async (form, close, current = null) => {
     model: providerFormValue(form, "model") || "local-model",
     endpoint: providerFormValue(form, "endpoint"),
     healthPath: providerFormValue(form, "healthPath"),
+    modelsUrl: providerFormValue(form, "modelsUrl"),
     status: providerFormValue(form, "status") || "idle",
     icon: providerFormValue(form, "icon") || "psychology",
     local: providerFormValue(form, "local") === "true",
@@ -665,6 +650,8 @@ const openProviderEditorDialog = async (provider = null) => {
         _.Input({ label: "Provider", name: "provider", value: current?.provider || "custom", placeholder: "ollama" }),
         _.Input({ label: "Modello", name: "model", value: current?.model || "", placeholder: "llama3.1" })
       ),
+      _.Input({ label: "URL catalogo modelli (opzionale)", name: "modelsUrl", value: current?.raw?.modelsUrl || current?.modelsUrl || "", placeholder: "URL JSON fornito dal provider" }),
+      _.small("Solo per connessioni API. Usa un URL del catalogo sullo stesso servizio; i provider Login usano il proprio collegamento ufficiale."),
       _.Input({ label: "Endpoint", name: "endpoint", value: current?.endpoint || "", placeholder: "http://127.0.0.1:11434" }),
       _.div(
         { class: "tl-ai-prompt-form-row" },

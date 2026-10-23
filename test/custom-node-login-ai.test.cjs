@@ -18,7 +18,7 @@ test('Login capability is separate from local AI; invalid profiles and package-s
     { request: { ...request, config: { aiProviderId: 'missing' } }, arguments: { prompt: 'data' } },
     { request, arguments: { messages: [{ role: 'tool', content: 'data' }] } }
   ]) await assert.rejects(f.ai.complete(value));
-  for (const p of [{ ...profile, connectionType: 'api' }, { ...profile, endpoint: 'http://localhost' }, { ...profile, provider: 'claude' }, { ...profile, model: '' }]) {
+  for (const p of [{ ...profile, connectionType: 'api' }, { ...profile, endpoint: 'http://localhost' }, { ...profile, provider: 'unsupported' }, { ...profile, model: '' }]) {
     await assert.rejects(fixture(() => assert.fail('Invalid profile'), [p]).ai.complete({ request, arguments: { prompt: 'data' } }));
   }
 });
@@ -49,4 +49,17 @@ test('sandbox broker enforces the new declared-and-granted capability before dis
   await assert.rejects(broker.callTool({ executionId: denied.executionId, message: { tool: 'ai.completeLogin', callId: 'no', arguments: { prompt: 'data' } } }));
   const allowed = broker.open({ ...args, grantedPermissions: { externalAiProvider: true } });
   const result = await broker.callTool({ executionId: allowed.executionId, message: { tool: 'ai.completeLogin', callId: 'yes', arguments: { prompt: 'data' } } });assert.equal(result.result.text, 'ok');
+});
+test('Claude Login uses the existing Claude bridge, its default model and no Codex-only parameters',async()=>{
+ let sent;const claude={id:'claude',connectionType:'login',provider:'claude',model:'',defaultReasoningEffort:'medium',defaultSpeed:'standard'};
+ const f=fixture(async args=>{sent=args;return {text:'Claude result',transport:'streaming',sandbox:'isolated-read-only'};},[claude]);
+ const standard={...request,package:{packageId:'tl.standard.llm-custom'},config:{aiProviderId:'claude'}};
+ const result=await f.ai.complete({request:standard,arguments:{messages:[{role:'user',content:'Synthetic prompt'}]}});assert.equal(sent.provider,'claude');assert.equal(sent.model,'');assert.equal(sent.reasoningEffort,undefined);assert.equal(sent.speed,undefined);assert.equal(result.provenance.provider,'claude');assert.equal([...f.logs.values()][0].provider.provider,'claude');
+ await assert.rejects(f.ai.complete({request:{...standard,config:{aiProviderId:'claude',reasoningEffort:'high'}},arguments:{prompt:'Synthetic'}}),/Codex/);
+ const g=fixture(async args=>{assert.equal(args.provider,'claude');return {text:'default'};},[]);await g.ai.complete({request:{...standard,config:{aiProviderId:'global_external_claude'}},arguments:{prompt:'Synthetic'}});
+ await assert.rejects(g.ai.complete({request:{...request,config:{aiProviderId:'global_external_claude'}},arguments:{prompt:'Synthetic'}}),/profilo Login/);
+});
+test('Codex Login retains its own saved model/reasoning/speed defaults',async()=>{
+ const f=fixture(async args=>{assert.equal(args.provider,'codex');assert.equal(args.model,'account-default');assert.equal(args.reasoningEffort,'high');assert.equal(args.speed,'standard');return {text:'Codex result'};},[{...profile,model:'account-default',defaultReasoningEffort:'high',defaultSpeed:'standard'}]);
+ await f.ai.complete({request,arguments:{prompt:'Synthetic'}});
 });

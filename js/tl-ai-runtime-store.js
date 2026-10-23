@@ -40,22 +40,7 @@ window.TrackerLensAiRuntimeStore = (() => {
 
   // Display names are never routing identities. Preserve legacy account records
   // by their explicit global flag or canonical id; an endpoint denotes an API.
-  const providerConnection = (record = {}) => {
-    const content = contentOf(record);
-    const type = normalizeText(content.provider || content.providerType).toLowerCase();
-    const id = normalizeText(content.id || record.id).toLowerCase();
-    const legacyBridge = /^(?:global_)?external_(codex|claude)$/.exec(id)?.[1] || "";
-    const explicit = normalizeText(content.connectionType).toLowerCase();
-    const endpoint = normalizeText(content.endpoint || content.baseUrl || content.runtime?.endpoint);
-    const bridge = externalProviderId(content.bridgeProvider || type || legacyBridge);
-    const login = explicit === "login" || (!explicit && !endpoint && (content.globalExternal || legacyBridge || type === "codex"));
-    const bridgeProvider = login ? bridge || legacyBridge : "";
-    return {
-      connectionType: login ? "login" : "api",
-      vendor: normalizeText(content.vendor, ["codex", "openai"].includes(type) || bridgeProvider === "codex" ? "openai" : ["claude", "anthropic"].includes(type) || bridgeProvider === "claude" ? "anthropic" : type),
-      bridgeProvider,
-    };
-  };
+  const providerConnection = (record = {}) => window.TrackerLensAiProviderCatalog.connection(record);
 
   const providerDisplayLabel = (record = {}) => {
     const content = contentOf(record);
@@ -637,15 +622,8 @@ window.TrackerLensAiRuntimeStore = (() => {
     const records = (await readAllFromDb(persistence, STORES.providers)).map((record, index) => ({
       ...contentOf(record), ...normalizeProvider(record, index),
     }));
-    for (const record of LOCAL_PROVIDER_DEFS) if (!records.some((item) => item.id === record.id)) records.push({ ...record });
-    for (const bridgeProvider of Object.keys(EXTERNAL_PROVIDER_DEFAULTS)) {
-      if (!records.some((item) => providerConnection(item).bridgeProvider === bridgeProvider)) records.push({
-        id: `global_external_${bridgeProvider}`, provider: bridgeProvider,
-        connectionType: 'login', bridgeProvider, globalExternal: true,
-        name: bridgeProvider === 'codex' ? 'ChatGPT · Login (Codex)' : 'Claude · Login', model: '',
-      });
-    }
-    return records;
+
+    return window.TrackerLensAiProviderCatalog.list(records);
   };
 
   const resolveNodeProvider = async (config = {}) => {

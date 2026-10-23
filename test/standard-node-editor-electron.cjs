@@ -55,5 +55,19 @@ app.whenReady().then(async()=>{try{
  assert.ok(ordinary.requests.includes('local'));assert.match(ordinary.meta,/2 models available/);assert.match(ordinary.provider,/Local profile/);assert.ok(!ordinary.provider.includes('fixture-model'));assert.equal(ordinary.model,'');
  fs.writeFileSync(path.join(root,'ordinary-provider.png'),(await win.webContents.capturePage()).toPNG());
  await win.webContents.executeJavaScript(`[...document.querySelectorAll('button')].find(button=>button.textContent==='Annulla').click()`);
- fs.writeFileSync(path.join(root,'evidence.json'),JSON.stringify({passed:true,templates:2,fullCodeAndPromptPreserved:true,allTabsSaved:true,ordinaryCoreCatalog:true,providerIdentitySeparateFromModel:true},null,2));console.log('STANDARD EDITOR PASS',root);app.quit();
+ await win.webContents.executeJavaScript(`[...document.querySelectorAll('.jss-dialog button')].find(button=>button.textContent==='Annulla')?.click();void 0`);
+ const loginProviders=[{id:'claude-account',name:'Claude · Login',provider:'claude',connectionType:'login',bridgeProvider:'claude',model:''},{id:'codex-account',name:'ChatGPT · Login (Codex)',provider:'codex',connectionType:'login',bridgeProvider:'codex',model:'account-default'}];
+ await win.webContents.executeJavaScript(`window.TrackerLensAiRuntimeStore.providerConnection=p=>({connectionType:p.connectionType||'api',bridgeProvider:p.bridgeProvider||''});window.trackers.desktop.externalAi={listModels:async({provider})=>provider==='claude'?({models:[],message:'Questo Login non espone un catalogo; usa il modello del client o inserisci un ID.'}):({models:[{id:'account-default',reasoningEfforts:['high']}]})};void 0;`);
+ for(const selected of loginProviders){
+ await win.webContents.executeJavaScript(`window.loginSaved=null;window.TrackerLensAiAgentEditor.open({agent:{id:'login-test',name:'Login test',provider:{profileId:${JSON.stringify(selected.id)},model:'retained-model'}},providers:${JSON.stringify(loginProviders)},onSave:({payload,close})=>{window.loginSaved=payload;close();}});[...document.querySelectorAll('[role=tab]')].find(tab=>tab.getAttribute('aria-label')==='AI Provider').click();void 0;`);
+ await new Promise(resolve=>setTimeout(resolve,150));
+ const state=await win.webContents.executeJavaScript(`({model:document.querySelector('[name=model]').value,manual:document.querySelector('[name=manualModelId]').value,meta:document.querySelector('.tl-ai-agent-model-meta').textContent,profile:document.querySelector('[name=providerProfile]').value,reasoningVisible:document.querySelector('[name=reasoningEffort]').closest('.tl-ai-agent-field').hidden===false})`);
+ assert.equal(state.model,'retained-model');assert.equal(state.profile,selected.id);
+ if(selected.provider==='claude')assert.match(state.meta,/non espone/);
+ await win.webContents.executeJavaScript(`(()=>{const manual=document.querySelector('[name=manualModelId]');manual.value='manual-model-id';manual.dispatchEvent(new Event('input',{bubbles:true}));})()`);
+ assert.equal(await win.webContents.executeJavaScript(`document.querySelector('[name=model]').value`),'manual-model-id');
+ await win.webContents.executeJavaScript(`document.querySelector('form.tl-ai-agent-runtime-editor').requestSubmit();void 0;`);await new Promise(resolve=>setTimeout(resolve,50));
+ assert.equal(await win.webContents.executeJavaScript('window.loginSaved.provider.model'),'manual-model-id');
+ }
+ fs.writeFileSync(path.join(root,'evidence.json'),JSON.stringify({passed:true,templates:2,fullCodeAndPromptPreserved:true,allTabsSaved:true,ordinaryCoreCatalog:true,providerIdentitySeparateFromModel:true,loginManualModelPreserved:true},null,2));console.log('STANDARD EDITOR PASS',root);app.quit();
 }catch(error){console.error(error);app.exit(1);}});

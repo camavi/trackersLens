@@ -16,7 +16,7 @@ const llmSource=`export async function run({input,config,tools,emit,log}) {
  const messages=config.messagesJson?JSON.parse(config.messagesJson).map(message=>({role:message.role,content:message.inputPath!==undefined?encode(at(message.inputPath),message.format||'text',message.key||''):message.content})):[...(system?[{role:'system',content:system}]:[]),{role:'user',content:rendered}];
  if(!Array.isArray(messages)||!messages.length||messages.some(message=>!['system','user','assistant'].includes(message.role)||typeof message.content!=='string'))throw new Error('Messaggi LLM non validi');
  if(config.guardTermsPath){const terms=at(config.guardTermsPath);if(!Array.isArray(terms)||terms.some(term=>typeof term!=='string'||!term))throw new Error('Il controllo termini richiede un array di stringhe non vuote');const serialized=JSON.stringify(messages).toLocaleLowerCase();const residual=terms.filter(term=>serialized.includes(term.toLocaleLowerCase()));if(residual.length){await log('Controllo termini non superato',{residual});throw new Error('Termini vietati nel messaggio. Nessuna richiesta LLM inviata.');}}
- if(config.allowOnline&&((config.temperature??'')!==''||(config.maxTokens??'')!==''||(config.topP??'')!==''||config.responseFormat!=='text'))throw new Error('Il trasporto Login usa modello e parametri del profilo; svuotare i parametri API non supportati.');
+ if(config.allowOnline&&((config.temperature??'')!==''||(config.maxTokens??'')!==''||(config.topP??'')!==''||config.responseFormat!=='text'))await log('Parametri API conservati ma non applicati al trasporto Login',{temperature:config.temperature,maxTokens:config.maxTokens,topP:config.topP,responseFormat:config.responseFormat});
  await log('Messaggi LLM effettivi',{messages,online:config.allowOnline,providerId:config.aiProviderId});
  const complete=()=>config.allowOnline?tools.ai.completeLogin({messages}):tools.ai.complete({messages});
  const completions=[await complete()];
@@ -59,23 +59,33 @@ class StandardNodeRuntime {
     return this.localAi.observation(scope,cancel);
   }
   async catalog(){
-    const providers=providerCatalog.list(this.persistence.readDevelopmentRecords({storeName:'tl_ai_providers'})).map(profile=>{return {id:profile.id,name:profile.name||profile.id,provider:profile.provider||profile.providerType,connectionType:profile.connectionType||'api',model:profile.model||profile.defaultModel||''};});
+    const providers=providerCatalog.list(this.persistence.readDevelopmentRecords({storeName:'tl_ai_providers'})).map(profile=>{return {id:profile.id,name:profile.name||profile.id,provider:profile.provider||profile.providerType,...providerCatalog.connection(profile),model:profile.model||profile.defaultModel||'',executionIssue:providerCatalog.connection(profile).connectionType==='login'?'':this.localAi?.describe?.({...profile,model:profile.model||'metadata-only'})?.issue||''};});
     return {templates:templates.templates,providers,pythonPacks:this.pythonPacks.list(),execution:'Existing Core sandbox; persisted node configuration is authoritative. Login transmission requires allowOnline:true. Python has no filesystem/network/process grants.'};
   }
   async models({providerId}){
     const record=providerCatalog.find(this.persistence.readDevelopmentRecords({storeName:'tl_ai_providers'}),providerId);
     if(!record)throw Error('Profilo LLM non trovato');
-    const profile=record.content||record;
-    if(profile.connectionType==='login')return this.loginBridge.listModels({provider:profile.bridgeProvider||profile.provider});
+    const profile=record.content||record,connection=providerCatalog.connection(profile);
+    if(connection.connectionType==='login')return this.loginBridge.listModels({provider:connection.bridgeProvider});
     const provider=this.localAi.describe({...profile,id:record.id,model:profile.model||profile.defaultModel||'metadata-only'});
-    if(!provider.ready)throw Error(provider.issue);
-    const url=provider.protocol==='ollama-chat'?provider.endpoint.replace(/\/api\/chat$/, '/api/tags'):provider.endpoint.replace(/\/chat\/completions$/, '/models');
+    let url,base;
+    try{base=new URL(profile.endpoint||profile.baseUrl||profile.runtime?.endpoint);}catch{throw Error('Configura l’endpoint del provider nell’AI Center');}
+    if(profile.modelsUrl){
+      url=new URL(profile.modelsUrl,base);
+      if(url.origin!==base.origin)throw Error('Il catalogo modelli deve appartenere allo stesso servizio del provider; le credenziali non vengono inoltrate ad altri siti.');
+    }else{
+      if(!provider.ready)throw Error(provider.issue+' Configura l’URL catalogo modelli nell’AI Center oppure inserisci l’ID del modello.');
+      url=new URL(provider.protocol==='ollama-chat'?provider.endpoint.replace(/\/api\/chat$/, '/api/tags'):provider.endpoint.replace(/\/chat\/completions$/, '/models'));
+    }
+    if(!['http:','https:'].includes(url.protocol)||url.username||url.password||url.hash||(!['127.0.0.1','localhost','[::1]'].includes(url.hostname)&&url.protocol!=='https:'))throw Error('URL catalogo non valido: usa HTTPS o un servizio locale, senza credenziali nell’URL.');
     const secret=profile.apiKey||profile.token||profile.secret;
-    const response=await this.localAi.fetch(url,{headers:secret?{Authorization:'Bearer '+secret}:{},redirect:'error'});
+    const response=await this.localAi.fetch(url.href,{headers:secret?{Authorization:'Bearer '+secret}:{},redirect:'error'});
     if(!response.ok)throw Error('Catalogo modelli HTTP '+response.status);
-    const data=await response.json();
-    return {models:(data.data||data.models||[]).map(item=>({id:item.id||item.model||item.name})).filter(item=>typeof item.id==='string'),source:'configured-provider-model-catalog'};
+    const data=await response.json(),items=Array.isArray(data)?data:data.data||data.models;
+    if(!Array.isArray(items))throw Error('Il catalogo deve restituire JSON: un elenco oppure data/models. Inserisci manualmente l’ID se il servizio non espone un catalogo.');
+    return {models:items.map(item=>typeof item==='string'?{id:item}:({...item,id:item.id||item.model||item.name})).filter(item=>typeof item.id==='string'&&item.id),source:'configured-provider-model-catalog',url:url.href};
   }
+
   async load({templateId,nodeId,workspaceId}){
     const node=this.persistence.readDevelopmentRecordById({storeName:'tl_runtime_nodes',id:nodeId});
     if(!node||node.workspaceId!==workspaceId||templates.kindOf(node)!==templateId||node.type!=='custom')throw Error('Nodo standard non trovato nel workspace richiesto');
